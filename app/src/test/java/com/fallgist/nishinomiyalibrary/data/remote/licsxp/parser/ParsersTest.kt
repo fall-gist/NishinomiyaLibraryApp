@@ -100,11 +100,12 @@ class ParsersTest {
         val result = ReservationListParser.parse(fixture("usrrsv.html"))
         assertEquals(19, result.size)
         assertEquals(UNASSIGNED_MEMBER_ID, result.first().memberId)
-        assertEquals("高須分室", result.first().pickupLibrary)
+        assertEquals("", result.first().pickupLibrary)
         assertEquals(13, result.first().queuePosition)
         assertEquals(ReservationState.WAITING, result.first().state)
-        assertEquals("", result[12].pickupLibrary)
+        assertEquals("高須分室", result[12].pickupLibrary)
         assertEquals(ReservationState.READY, result[12].state)
+        assertEquals(LocalDate.of(2026, 7, 10), result[12].reservedDate)
         assertEquals(LocalDate.of(2026, 7, 23), result[12].holdExpiryDate)
         assertEquals(ReservationState.UNKNOWN, result[13].state)
         assertEquals(ReservationState.READY, result.last().state)
@@ -126,10 +127,11 @@ class ParsersTest {
         val result = ReservationListParser.parse(
             """
             <h1>予約状況一覧</h1>
-            <table summary='予約状況一覧表'><thead><tr><th>資料名</th><th>書誌種別</th><th>予約日</th><th>割当日</th><th>順位</th><th>予約状態</th><th>取置期限</th></tr></thead>
-            <tbody><tr><td>年越し予約</td><td>一般</td><td>26/12/30</td><td>26/12/30</td><td></td><td>提供可能</td><td>01/05</td></tr></tbody></table>
+            <table summary='予約状況一覧表'><thead><tr><th>資料名</th><th>書誌種別</th><th>受取館</th><th>予約日</th><th>順位</th><th>予約状態</th><th>取置期限</th></tr></thead>
+            <tbody><tr><td>年越し予約</td><td>一般</td><td>高須分室　Ｅｍａｉｌ</td><td>26/12/30 26/12/30</td><td></td><td>提供可能</td><td>01/05</td></tr></tbody></table>
             """.trimIndent(),
         )
+        assertEquals("高須分室", result.single().pickupLibrary)
         assertEquals(LocalDate.of(2027, 1, 5), result.single().holdExpiryDate)
     }
 
@@ -251,7 +253,7 @@ class ParsersTest {
 
     private fun emptyReservationList(): String = """
         <h1>予約状況一覧</h1>
-        <table summary='予約状況一覧表'><thead><tr><th>資料名</th><th>書誌種別</th><th>予約日</th><th>割当日</th><th>順位</th><th>予約状態</th><th>取置期限</th></tr></thead><tbody></tbody></table>
+        <table summary='予約状況一覧表'><thead><tr><th>資料名</th><th>書誌種別</th><th>受取館</th><th>予約日</th><th>順位</th><th>予約状態</th><th>取置期限</th></tr></thead><tbody></tbody></table>
     """.trimIndent()
 
     private fun emptySummary(): String = """
