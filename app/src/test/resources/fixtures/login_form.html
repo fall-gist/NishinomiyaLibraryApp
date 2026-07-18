@@ -1,0 +1,493 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<html lang="ja">
+
+
+<head>
+	<!-- ***** meta ***** -->
+	<meta http-equiv="content-type" content="text/html; charset=utf-8">
+	<meta http-equiv="content-script-type" content="text/javascript">
+	<meta http-equiv="content-style-type" content="text/css">
+	<meta http-equiv="imagetoolbar" content="no">
+	<meta name="author" content="Prefectural Library">
+	<meta name="copyright" content="Copyright (c) 2000-2006 Prefectural Library">
+	<meta name="keywords" content="図書館, 詳細検索, 書名, 著者名, 出版社">
+	<meta name="description" content="詳細な条件で図書の検索ができます。書名や著者名、出版社、分類、書誌の種別、出版年度などの条件が使用できます。">
+	<meta name="robots" content="INDEX">
+	<link rev="MADE" href="mailto:foo@xxxlib.jp">
+	<link rel="INDEX" href="WMnuTop.html">
+
+	<!-- ***** style sheet ***** -->
+	<link rel="stylesheet" type="text/css" media="screen,all" charset="utf-8" href="lbcommon/webopac/css/cmn.css">
+
+
+	
+	   	
+	   	
+	  	
+	  	
+	
+
+	<!-- ***** rss ***** -->
+	<!-- rss 2.0 -->
+
+	<meta http-equiv="pragma" content="no-cache">
+	<meta http-equiv="cache-Control" content="no-cache">
+	<meta http-equiv="expires" content="-1">
+	<!-- 警告音　-->
+	<script language="JavaScript" src="lbcommon/js/lbwebdialog.js"></script>
+	<!-- WebOPAC用 -->
+	<script language="JavaScript" src="lbcommon/webopac/js/cmn.js"></script>
+
+<!-- 	<script language="JavaScript" src="lbcommon/js/prototype.js"></script>
+	<script language="JavaScript" src="lbcommon/js/dragdrop.js"></script>
+	<script language="JavaScript" src="lbcommon/js/effects.js"></script>
+	<script language="JavaScript" src="lbcommon/js/htmlMessage2dialog.js"></script> -->
+	<script type="text/javascript" src="lbcommon/webopac/js/jquery-1.9.1.js"></script>
+	<script type="text/javascript" src="lbcommon/webopac/js/jquery-ui-1.10.3.custom.min.js"></script>
+	<link rel="stylesheet" type="text/css" media="screen,all" charset="utf-8" href="lbcommon/webopac/css/jquery-ui-1.10.3.custom.css">
+
+	<!-- インナースクロールセルのスクロール領域の高さを、親要素の高さに合わせて調整 -->
+
+	<title>ログイン認証：蔵書検索システム</title>
+</head>
+
+<center>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="messages" style="display:none">
+<ul>
+	
+	
+	
+	
+</ul>
+</div></center>
+
+
+
+
+
+
+
+<script language="javascript">
+<!--
+// 日本語
+function changelanguage_ja() {
+	document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=ja";
+	document.LBForm.submit();
+}
+// ことも
+function changelanguage_kids() {
+	document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=kids";
+	document.LBForm.submit();
+}
+// 英語
+function changelanguage_en() {
+	document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=en";
+	document.LBForm.submit();
+}
+// 中国語
+function changelanguage_ch() {
+	document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=ch";
+	document.LBForm.submit();
+}
+// 韓国語
+function changelanguage_ko() {
+	document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=ko";
+	document.LBForm.submit();
+}
+// -->
+</script>
+
+
+
+
+
+
+
+
+
+
+<script language="javascript">
+function toHelp(){
+	if (submitFlg) {
+		xposition = (screen.width - 600) / 2;
+		yposition = (screen.height - 380) / 2;
+
+		window.open("lbcommon/html/web_help/WPwdLogin/WPwdLogin.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+	}
+}
+</script>
+
+
+<div class="search">
+<div id="wrapper">
+<div id="contents">
+<div id="head">
+<div id="title">
+<p class="skip">このページは、図書館の「 + pagetitle + 」です。</p>
+
+
+<p class="skip"><a id="PAGETOP" name="PAGETOP" accesskey="1">メニューをスキップして、本文へ移動します。</a></p>
+
+<div id="img"></div>
+<a id="logo" href="https://tosho.nishi.or.jp/?v=PC" style="cursor:pointer;"><span></span>図書館（図書館トップページへ戻る）</a>
+<hr class="skip">
+<h2 class="skip">言語選択メニュー</h2>
+<p class="skip">言語を切り替えます。</p>
+<div id="lang-menu">
+
+		<span title='文字サイズを調整します'>
+			<span class="skip">文字サイズ調整：</span>
+			<a id="fsl" href="javascript:void(0);" onclick="fontsize('large');return false;">大</a>
+			<a id="fsm" href="javascript:void(0);" onclick="fontsize('def');return false;">中</a>
+			<a id="fss" href="javascript:void(0);" onclick="fontsize('small');return false;">小</a>
+		</span>
+		<span title='表示言語を切り替えます'>
+			<span class="skip">言語切り替え：</span>
+
+<a href="javascript:changelanguage_ja()">一般</a>
+
+
+
+
+ <a href="javascript:changelanguage_kids()">かな</a>
+
+
+
+
+ <a href="javascript:changelanguage_en()">English</a>
+
+
+
+
+ 
+
+
+</span>
+
+
+
+
+		
+		<a href="#" id="help" onclick ="javascript:toHelp()"><img src="lbcommon/webopac/img/i_help.png" width="23" height="23" alt="ヘルプ"></a>
+
+
+</div><!-- end of id lang-menu -->
+<hr class="skip">
+</div><!-- end of id title -->
+</div><!-- end of id head -->
+
+<div id="navi">
+<div id="panks">
+<p class="skip">現在のページの位置は</p>
+ログイン認証
+<p class="skip">です。</p>
+</div><!-- end of div panks -->
+
+
+
+ 
+
+	<div class="clear"></div>
+</div><!-- end of div navi -->
+<hr class="skip">
+
+<script>
+
+var webLinkFlag = 'null';
+
+// 予防再送フラグ
+var submitFlg = true;
+
+
+
+window.onload = function(){
+	if ("1" != webLinkFlag) {
+		window.returnValue= "2";
+	}
+}
+function sendData(type){
+    if(type=='0'){
+    	document.LBForm.j_password.focus();
+
+
+
+		 return false;
+
+
+	}else if(type=='1'){
+		login();
+
+		window.event.returnValue = false;
+
+    }
+}
+<!--
+function login() {
+
+
+
+	if (submitFlg) {
+		submitFlg = false;
+
+	if ("1" == webLinkFlag) {
+		if ('' != document.LBForm.username.value) {
+			document.LBForm.j_username.value = "0000000000000000" + document.LBForm.username.value;
+		}
+		document.LBForm.action= "j_security_check?subSystemFlag=0";
+		document.LBForm.submit();
+	} else {
+		window.returnValue= "1";
+		if ('' != document.LBForm.username.value) {
+			document.LBForm.j_username.value = "0000000000000000" + document.LBForm.username.value;
+		}
+		document.LBForm.action = "j_security_check?subSystemFlag=0";
+		document.LBForm.submit();
+	}
+
+	}
+
+
+}
+//-->
+<!--
+function login2() {
+	if (opener == null) { //IE
+		window.returnValue= "2";
+		self.window.close();
+	} else { //MF
+		opener.document.LBFormMF.loginFlg.value = "2";
+		opener.document.LBFormMF.loginFlg.onchange();
+		self.window.close();
+	}
+}
+//-->
+
+function loginCancel() {
+	if ("1" == webLinkFlag) {
+		window.location.href='https://tosho.nishi.or.jp/?v=PC';
+	} else {
+		document.LBForm.action="WOpacLoginCancelAction.do";
+		document.LBForm.submit();
+	}
+}
+
+
+function showpwdSelect() {
+	var passwordvalue = document.getElementById("password").value;
+	if( document.getElementById('showpwd').checked == false){
+
+
+		document.getElementById("passwodid").innerHTML="<input tabindex=\"312\" accesskey=\"p\" type=\"password\" size=\"16\" name=\"j_password\" value=\"" + passwordvalue + "\"id=\"password\" title=\"パスワード\" onkeypress=\"if (event.keyCode==13) {sendData('1');}\">（半角英数字）";
+	}else{
+		document.getElementById("passwodid").innerHTML="<input tabindex=\"312\" accesskey=\"p\" type=\"text\" style=\"ime-mode:disabled\" size=\"16\" name=\"j_password\" value=\"" + passwordvalue + "\"id=\"password\" title=\"パスワード\" onkeypress=\"if (event.keyCode==13) {sendData('1');}\">（半角英数字）";
+
+	}
+}
+
+</script>
+
+
+<div id="body">
+
+<body class="login-form">
+
+
+
+
+	<div id="banner" style="display:none"> <!-- banner start -->
+<br>
+	<div style="font-size:large;margin-left:1ex"><strong>広告（外部サイトへ移動）</strong></div>
+<div style="text-align:center">
+
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+
+</div>
+</div> <!-- banner start -->
+<font color="red"><b>
+<br>
+越木岩分室は建替え工事のため閉室中です。詳しくは<A Href="https://tosho.nishi.or.jp/libraries/koshikiiwa.html" Target="_blank" rel="noopener noreferrer">こちら</A>をご覧ください。<br>
+</b></font>
+<br>
+
+
+
+
+
+
+
+<form name="LBForm" method="post">
+<input type="hidden" name="hash" value="">
+
+<input type="hidden" name="gamenid" value="tiles.WMnuTop">
+<h1>ログイン認証</h1>
+<ul class="read">
+<li>ログインします。　入力する文字は、ぜんぶ半角英数文字にしてください。</li>
+<li>入力したら「ログイン」を押してください。</li>
+</ul>
+<div class="main">
+
+<!-- <div class="form-base1 w-half f-center" style="padding:2em 0;margin-top:50px;"> -->
+	<div class="form-base1 w-threequarter f-center" style="padding:2em 0;margin-top:50px;">
+
+	<table class="form f-center" cellpadding="0" cellspacing="5" border="0" summary="OCF" style="height:5em">
+	<tbody>
+		<tr><th scope="row" abbr="カード番号"><label for="cardnumber">借出券番号</label></th>
+
+
+
+
+
+            
+
+			
+			<td><input tabindex="311" accesskey="i" type="text" size="10" maxlength="16" name="username" id="usrcardnumber" title="図書館利用カード番号" value='' style="ime-mode:inactive" onkeypress="if (event.keyCode==13) {sendData('0'); return false;}"><input type="hidden" name="j_username">（半角英数字）</td></tr>
+
+
+
+            <input type="hidden" name="h_username" value="">
+
+		<tr><th scope="row" abbr="パスワード"><label for="password">パスワード</label></th>
+
+
+
+
+
+
+			
+			<td id="passwodid"><input tabindex="312" accesskey="p" type="password" size="10" name="j_password" id="password" title="パスワード" value="" onkeypress="if (event.keyCode==13) {sendData('1');}">（半角英数字）</td></tr>
+
+			
+
+			
+
+
+	</tbody>
+	</table>
+</div>
+<div class="ex-navi" style="margin-bottom:100px;">
+	<h2 class="skip">ログインの実行</h2>
+	<p class="skip">「ログイン」ボタンを押すと、ログインを実行します。「キャンセル」ボタンを押すと、ログインせずにログイン画面を閉じます。</p>
+
+
+
+
+	
+	 <input tabindex="701" accesskey="x" type="button"  class="button exec large"  src="lbcommon/image/opaclogin_ja.gif" value="ログイン" onclick="javascript:login();return false;"/>
+	 <input tabindex="702" accesskey="c" type="button"  class="button"  src="lbcommon/image/oapccanel_ja.gif" value="キャンセル" onclick="javascript:loginCancel()">
+
+	
+	
+</div><!-- end of div body -->
+
+
+
+<p class="skip">本文はここまでです。</p>
+<hr class="skip">
+<div id="foot">
+<div id="copyright">
+Copyright (c) Nishinomiya City Library, since2000, All rights reserved.
+</div><!-- end of div copyright -->
+</div><!-- end of div foot -->
+<p class="skip">ページの終わりです。</p>
+</div><!-- end of div contents -->
+</div><!-- end of div wrapper -->
+</div><!-- end of div search -->
+
+
+
+<script language="javascript">
+	document.LBForm.username.focus();
+
+	
+
+
+function htmlMessage2dialog() {
+	var messagesElem = document.getElementById("messages");
+	if (!messagesElem) {
+		return;
+	}
+
+	var lis = messagesElem.getElementsByTagName("li");
+	if (lis.length < 1) {
+		return;
+	}
+
+	var messageText = "";
+	for (var i = 0; i < lis.length; i++) {
+		if (i > 0) { messageText +=  "\n"; }
+		messageText += nodeText(lis[i]);
+	}
+	alert(messageText);
+}
+
+function nodeText(node) {
+	var messageText = "";
+	for (var i = 0; i < node.childNodes.length; i++) {
+		if (node.childNodes[i].nodeValue &&
+			node.childNodes[i].nodeValue.replace(" ", "").length > 0) {
+			messageText += node.childNodes[i].nodeValue + "\n";
+		}
+	}
+	return messageText;
+}
+htmlMessage2dialog();
+
+</script>
+</html>

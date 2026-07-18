@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html xml:lang="ja" lang="ja">
+<head>
+    <meta charset="UTF-8">
+	<meta http-equiv="Content-Style-Type" content="text/css">
+	<meta http-equiv="Content-Script-Type" content="text/javascript">
+	<meta name="keywords" content="西宮市,図書館,市立図書館,蔵書検索" />
+	<meta name="description" content="日本国兵庫県西宮市の市立図書館です。" />
+    <!--<script type="text/javascript" src="/prototype.js"></script>-->
+    <script type="text/javascript" src="/mt-static/common/js/jquery-1.12.4.js"></script>
+    <script type="text/javascript" src="/mt-static/common/js/jquery.easing.min.js"></script>
+	<link rel="stylesheet" type="text/css" href="/mt-static/common/css/reset.min.css">
+
+    <link rel="stylesheet" href="/mt-static/common/css/jquery.bxslider.min.css" />
+    <script src="/mt-static/common/js/jquery.bxslider.min.js"></script>
+
+
+    <link rel="stylesheet" href="/mt-static/common/css/style.css" type="text/css" />
+    <!-- 本の表紙のキャラクターのアニメーション -->
+	<script type="text/javascript" src="/mt-static/common/js/jquery.jrumble.min.js"></script>
+	<script type="text/javascript">
+	$(function(){
+		$('.bookCover').jrumble({
+			x: 2,
+			y: 8,
+			speed: 200,
+			rotation: 1
+		});
+		$('.bookBase').hover(function(){
+			$(this).find('.bookCover').trigger('startRumble');
+		}, function(){
+			$(this).find('.bookCover').trigger('stopRumble');
+		});
+	});
+	</script>
+
+    <script type="text/javascript" src="/mt-static/common/js/main.js"></script>
+	<script type="text/javascript" src="/mt-static/common/js/fontsize.js"></script>
+
+    <!--<link rel="icon" href="https://tosho.nishi.or.jp/mt-static/images/favicon.ico" type="image/ico" />-->
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+
+   
+    <link rel="start" href="/" title="Home" />
+
+    <script type="text/javascript">
+    var blog_id = '1';
+    var page_id = '';
+    </script>
+
+    
+    <link rel="canonical" href="https://tosho.nishi.or.jp/" />
+
+    
+        
+            <title>西宮市立図書館</title>
+        
+    
+
+    
+
+    <!--[if lt IE 9]> 
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv.min.js"></script>
+	<![endif]-->
+
+    <meta name="google-translate-customization" content="1234567890123456-abcdefghijklmnop-1234567890123456-1a"/>
+
+    <script type="text/javascript">
+	function logout(){		
+		if (confirm("ログアウトしますか？","OK","キャンセル")) { 
+			document.logoutform.action="https://tosho.nishi.or.jp/licsxp-opac/WOpacPwdLogoutAction.do";
+			document.logoutform.submit();
+		}
+	}
+	function login(){		
+		document.logoutform.action="https://tosho.nishi.or.jp/licsxp-opac/WOpacInitLoginActiontemp.do?subSystemFlag=0&amp;gamenid=tiles.WMnuTop";
+		document.logoutform.submit();
+	}
+	var spaceFlg = false;
+
+	function search(schType) {
+		trim();
+		if (spaceFlg == true){
+			alert("キーワードは2文字以上入れてください。");
+		} else {
+		document.SearchForm.action="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=tifschcmpdpre&SchType=" + schType;
+	    	document.SearchForm.submit();
+		}
+   	 }
+
+    function   trim()   {   
+      var strData = document.SearchForm.kensaku_keyword.value;
+      var i;   
+      for (i = 0; i < strData.length  && (strData.charCodeAt(i) == 32 || strData.charCodeAt(i) == 12288); i++);   
+      strData = strData.substring(i, strData.length);   
+      for (i = strData.length - 1; i >= 0 && (strData.charCodeAt(i) == 32 || strData.charCodeAt(i) == 12288); i--);   
+      strData = strData.substring(0, i + 1);  
+      if (strData.length == 1){
+      	spaceFlg = true;
+      } else {
+      	spaceFlg = false;
+      }
+  }   
+</script>
+
+<!-- 図書館のAPI-->
+
+<script type="text/javascript">
+<!--
+function callLoadXMLFile() {
+	var url = "https://tosho.nishi.or.jp/licsxp-opac/WPwdLoginCheckAction.do";
+	//ログインチェック関数を呼出
+	loadXMLFile(url);
+}
+
+/*function loadXMLFile(inUrl) {
+	var url = inUrl;
+	new Ajax.Request(url, { method: "post", onComplete: displayData });
+}*/
+
+function loadXMLFile(url)
+{
+    $.ajax({
+      type: "POST",
+      url: url,
+      complete: function(data) {
+          var xhr = eval(data.getResponseHeader('X-Json'));
+          displayData(xhr)
+      },
+      error: function (xhr, ajaxOptions, thrownError) {
+          console.log(xhr.status);
+          $("#personal-info").remove();
+      }
+    });
+}
+
+
+//戻りの関数を定義
+function displayData(json) {
+	if (json.isLogin) {
+        if (document.getElementById("stat-logout"))
+        {
+		document.getElementById("stat-logout").style.display = 'none';
+		document.getElementById("stat-login").style.display = 'block';
+        if (document.getElementById("personal-info"))
+        {
+		document.getElementById("lend").innerHTML = json.cntLend;
+		document.getElementById("entai").innerHTML = json.cntEntai;
+		document.getElementById("yoyk").innerHTML = json.cntYoyk;
+		document.getElementById("wari").innerHTML = json.cntWariate;
+
+		document.getElementById("personal-info").style.display = 'block';
+        }
+    }
+    //if (json.serchname) {
+			// デコード
+
+		//	var deSerchname = decodeURI(json.serchname);
+			// split関数を使って文字列から配列を返す
+		//	var pcfsdipk = deSerchname.split(";");
+		//	for (var i = 0;i< pcfsdipk.length; i++) {
+		//		var strs = pcfsdipk[i].split(",");
+				// サイズをチェックする
+		//		if (strs.length > 1) {
+					// ULのIDを取得する
+
+                //			var pcfsdi_ul = document.getElementById("pcfsdi_ul");
+                //			if (pcfsdi_ul) {
+				//		var pcfsdi_li = document.createElement("li");
+				//		pcfsdi_ul.appendChild(pcfsdi_li);
+				//		pcfsdi_li.innerHTML = "<a tabindex=\"\" href=\"https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=pcfsdi&groupid="+
+				//		strs[1]+"\"><strong>"+ strs[0] + "</strong></a>";
+				//		pcfsdi_li = null;
+				//	}
+				//	pcfsdi_ul = null;
+				//}
+                //}
+                //}
+                //var pcfsdi_a = document.getElementById("pcfsdi_a");
+                //if (json.pcfsdiserch==0) {	
+                //	pcfsdi_a.href = "https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=newpcfsdi";
+                //	pcfsdi_a.disabled = false;
+                //} else if (json.pcfsdiserch==1) {
+                //	pcfsdi_a.disabled = true;
+                //} else if (json.pcfsdiserch==2) {
+                //if (json.serchname) {
+                //	var nopcfsdi_ul = document.getElementById("nopcfsdi_ul");
+                //	if (nopcfsdi_ul) {
+                //		var nopcfsdi_li = document.createElement("li");
+                //		nopcfsdi_ul.appendChild(nopcfsdi_li);
+                //		nopcfsdi_li.innerHTML = decodeURI(json.serchname);
+                //		nopcfsdi_li = null;
+                //	}
+                //	}
+                //	pcfsdi_a.href = "https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=newpcfsdi";
+                //	pcfsdi_a.disabled = false;
+                //}
+                //pcfsdi_a = null;
+		
+                //if (json.loginshu==2) {
+                //	document.getElementById("usrlendid").href = "javascript:alert('仮パスワードでは利用できません。利用者情報メンテナンスからパスワードの変更を行なってください。')";
+                //	document.getElementById("usrrsvid").href = "javascript:alert('仮パスワードでは利用できません。利用者情報メンテナンスからパスワードの変更を行なってください。')";
+                //	document.getElementById("usrmybook_li").style.display = 'none';
+                //} else if (json.loginshu==3) {
+                //	document.getElementById("usrlendid").href = "javascript:alert('予約パスワードでは利用できません。図書館の窓口でパスワードを申請してください。')";
+                //	document.getElementById("usrrsvid").href = "javascript:alert('予約パスワードでは利用できません。図書館の窓口でパスワードを申請してください。')";
+                //	document.getElementById("usrmybook_li").style.display = 'block';
+                //} else {
+                //	document.getElementById("usrlendid").href ="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=usrlend";
+                //	document.getElementById("usrrsvid").href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=usrrsv";
+                //	document.getElementById("usrmybook_li").style.display = 'block';
+                //	}
+	} else {
+        if (document.getElementById("stat-logout")){
+		    document.getElementById("stat-logout").style.display = 'block';
+        }
+        if (document.getElementById("personal-info")){
+            document.getElementById("personal-info").style.display = 'none';
+            $("#personal-info").remove();
+        }
+
+       //document.getElementById("pcfsdi-info").style.display = 'none';
+       //document.getElementById("pcfsdi").style.display = 'none';
+
+       //document.getElementById("usrlendid").href ="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=usrlend";
+       //document.getElementById("usrrsvid").href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=usrrsv";
+
+       //document.getElementById("usrmybook_li").style.display = 'none';
+	}
+}
+
+
+function setCookie(cname, cvalue, exdays) {
+    var d = new Date();
+    d.setTime(d.getTime() + (exdays*24*60*60*1000));
+    var expires = "expires="+ d.toUTCString();
+    document.cookie = cname + "=" + cvalue + ";" + expires +";path=/";
+}
+
+function getCookie(cname) {
+    var name = cname + "=";
+    var ca = document.cookie.split(';');
+    for(var i = 0; i < ca.length; i++) {
+        var c = ca[i];
+        while (c.charAt(0) == ' ') {
+            c = c.substring(1);
+        }
+        if (c.indexOf(name) == 0) {
+            return c.substring(name.length, c.length);
+        }
+    }
+    return "";
+}
+
+function checkCookie(cname) {
+    var gc = getCookie(cname);
+    if (gc != "") {
+        return gc;
+    }
+}
+
+
+function mobileRedirect()
+{
+    var getURL = location.search.split('v=')[1];
+    var isMobile = /iPhone|iPod|webOS|BlackBerry|Windows Phone|Android/i.test(navigator.userAgent);
+    var getActiveCookie = checkCookie("v");
+
+      if (/Android/i.test(navigator.userAgent))
+      {
+          isMobile = /Mobile/i.test(navigator.userAgent);
+      }
+      
+      if (getURL =='PC')
+      {
+          setCookie('v', 'PC', 365);
+      }
+        
+      if(isMobile) 
+      {    
+        if (getURL !='PC' && getURL !='' && getActiveCookie !='PC')
+        {
+            
+            winLoc = window.location.toString();	
+            if (winLoc.indexOf("/kids/") > -1)	
+            {
+                window.location = winLoc.replace("tosho.nishi.or.jp/kids/", "tosho.nishi.or.jp/kids/sp/");	
+            }
+            else if (winLoc.indexOf("/ya/") > -1)	
+            {	
+                window.location = winLoc.replace("tosho.nishi.or.jp/ya/", "tosho.nishi.or.jp/ya/sp/");	
+            }
+            else
+            {
+                if (winLoc.indexOf("licsxp-opac") <= -1 && winLoc.indexOf("mt-search") <= -1)
+                {
+                    window.location = winLoc.replace("tosho.nishi.or.jp/", "tosho.nishi.or.jp/sp/");
+                }else if (winLoc.indexOf("mt-search") > -1)
+                {
+                    window.location = winLoc + '&device_type=SP';
+                }
+            }
+        }
+     }
+}
+
+$(document).ready(function(){
+    callLoadXMLFile();
+    mobileRedirect();
+});
+// -->
+</script>
+
+<!-- 図書館のAPI-->
+
+</head>    		
+<body>
+<a tabindex="1" href="#main" accesskey="2"></a>
+<header id="header">
+	<div class="inner">
+		<div class="leftParts">
+            <a href="/" accesskey="1"><img src="/mt-static/common/img/logo.png" alt="西宮市立図書館ロゴ"></a>
+			<img src="/mt-static/common/img/character_202507.png" alt="みやたん">
+		</div>
+		<div class="rightParts">
+			<div id="fontsize">
+				文字サイズ
+				<button type="button" onclick="FontSizeChange(-10)">縮小</button>
+				<button type="button" onclick="FontSizeChange(0)" class="default">標準</button>
+				<button type="button" onclick="FontSizeChange(10)">拡大</button>
+			</div>
+            <div id="google_translate">
+            <div id="google_translate_element"></div><script type="text/javascript">
+            function googleTranslateElementInit() {
+                new google.translate.TranslateElement({pageLanguage: 'ja', includedLanguages: 'en,ja,ko,zh-CN', layout: google.translate.TranslateElement.InlineLayout.HORIZONTAL}, 'google_translate_element');
+                }
+             </script>
+            <script async type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+            </div>
+            <div class="utilityNavi">
+				<ul>
+					<li><a href="/faq/">よくあるＱ＆Ａ</a></li>
+					<!-- <li><a href="">お問い合わせ</a></li> -->
+                    <li><a href="/sitemap/" accesskey="3">サイトマップ</a></li>
+				</ul>
+			</div>
+            <div id="searchForm">
+    <div id="google">
+    <form method="get" action="https://tosho.nishi.or.jp/cgi-bin/mt/mt-search.cgi">
+        <input type="hidden" name="cx" value="009614700381264276758:uh0pjijomz8" tabindex="10">
+		<input type="hidden" name="ie" value="UTF-8">
+		<input type="text" id="search" name="search" title="サイト内検索キーワード" tabindex="10">
+        
+              <input type="hidden" name="IncludeBlogs" value="1,5,4,6" />
+         
+		<button type="submit" name="sa" value="" tabindex="10">サイト内検索</button>
+    </form>
+	</div>
+</div>
+		</div>
+	</div>
+</header>
+<nav id="nav">
+	<ul>
+		<li>
+            <h4>ご案内</h4>
+			<div class="fixedArea">
+				<ul>
+                    <li><a href="/guide/">利用案内</a></li>
+                    <li><a href="/libraries/">施設案内</a></li>
+                    <li><a href="/guide/#other">各種サービス案内</a></li>
+                    <li><a href="/guide/web/">インターネットサービス</a></li>
+                    <li><a href="/faq/">よくあるQ&A</a></li>
+				</ul>
+			</div>
+			<div class="bookBottom"></div>
+		</li>
+		<li>
+        <h4>本・ＣＤを探す</h4>
+			<div class="fixedArea">
+				<ul>
+                    <li><a href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&amp;moveToGamenId=tifschcmpd">蔵書検索システムへ</a></li>
+                    <li><a href="/search/">蔵書の検索</a></li>
+					<li><a href="/search/list/#anchor05">よくおたずねのある資料</a></li>
+                    <li><a href="/search/list/#anchor06">こんな本あります</a></li>
+                    <li><a href="/search/link/">予約・リクエストについて</a></li>
+				</ul>
+			</div>
+			<div class="bookBottom"></div>
+		</li>
+		<li>
+        <h4>調べる</h4>
+			<div class="fixedArea">
+				<ul>
+                    <li><a href="/find/">調査･相談サービス</a></li>
+                    <!--<li><li><a href="/find/service/database.html">商用データベース</a></li>-->
+                    <li><a href="/find/health/">健康・医療</a></li>
+                    <li><a href="/find/business/">ビジネス</a></li>
+                    <li><a href="/find/ndl/">国立国会図書館等の案内</a></li>
+					<li><a href="/find/#useful">お役立ちリンク集</a></li>
+				</ul>
+			</div>
+			<div class="bookBottom"></div>
+		</li>
+		<li>
+        <h4>西宮を知る</h4>
+			<div class="fixedArea">
+				<ul>
+                    <li><a href="/know/">西宮を知る</a></li>
+                    <li><a href="/know/archive/maplist.html">西宮の地図</a></li>
+					<li><a href="/know/archive/">西宮に関する資料</a></li>
+                    <!-- <li><a href="#">西宮関係の調査事例集</a></li> -->
+				</ul>
+                <br><br>
+			</div>
+			<div class="bookBottom"></div>
+		</li>
+		<li>
+            <h4>図書館について</h4>
+			<div class="fixedArea">
+				<ul>
+                    <li><a href="/about/">西宮市立図書館について</a></li>
+                    <li><a href="/about/outline/">図書館の概要</a></li>
+                    <li><a href="/about/rules/">条例・要綱など</a></li>
+                    <li><a href="/about/plan/">図書館運営方針など</a></li>
+                    <li><a href="/about/history/">図書館の歴史</a></li>
+				</ul>
+			</div>
+			<!--<div class="slideArea">
+				<ul>
+					<li><a href="#">広告事業</a></li>
+					<li><a href="#">図書館振興基金</a></li>
+					<li><a href="#">図書館の歴史</a></li>
+					<li><a href="#">広報類</a></li>
+					<li><a href="#">図書館掲示板</a></li>
+				</ul>
+			</div>-->
+			<div class="bookBottom"><!--<span>その他</span><span>&#8744;</span>--></div>
+		</li>
+	</ul>
+</nav>
+<div class="miniMenu">
+	<div class="bookLine"></div>
+	<ul>
+		<li>
+            <a href="/kids/" class="btnA">
+				<h4>こどもページ</h4>
+				<span>小学生対象</span>
+			</a>
+		</li>
+		<li>
+            <a href="/ya/" class="btnB">
+				<h4>YAページ</h4>
+				<span>ティーンズ対象</span>
+			</a>
+		</li>
+		<li>
+            <a href="/children/" class="btnC">
+				<h4>子育てページ</h4>
+				<span>保護者向け</span>
+			</a>
+		</li>
+		<li>
+            <a href="/difficulty/" class="btnD">
+				<h4>障害者サービス</h4>
+				<span>利用が困難な方</span>
+			</a>
+		</li>
+	</ul>
+</div>
+<div id="main"/>
+<!--図書館休日リンク先-->
+<script>
+$(document).ready(function(){
+    $("#中央図書館").attr('href', '/libraries/chuo.html');
+    $("#北部図書館").attr('href', '/libraries/hokubu.html');
+    $("#鳴尾図書館").attr('href', '/libraries/naruo.html');
+    $("#北口図書館").attr('href', '/libraries/kitaguchi.html');
+    $("#山口分室").attr('href', '/libraries/yamaguchi.html');
+    $("#越木岩分室").attr('href', '/libraries/koshikiiwa.html');
+    $("#段上分室").attr('href', '/libraries/danjo.html');
+    $("#上ケ原分室").attr('href', '/libraries/uegahara.html');
+    $("#甲東園分室").attr('href', '/libraries/kotoen.html');
+    $("#高須分室").attr('href', '/libraries/takasu.html');
+    $("#若竹分室").attr('href', '/libraries/wakatake.html');
+
+    $("#中央図書館Calendar").attr('href', 'https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=001');
+    $("#北部図書館Calendar").attr('href', 'https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=004');
+    $("#鳴尾図書館Calendar").attr('href', 'https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=003');
+    $("#北口図書館Calendar").attr('href', 'https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=002');
+    $("#山口分室Calendar").attr('href', 'https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=107');
+    $("#越木岩分室Calendar").attr('href', 'https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=101');
+    $("#段上分室Calendar").attr('href', 'https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=103');
+    $("#上ケ原分室Calendar").attr('href', 'https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=104');
+    $("#甲東園分室Calendar").attr('href', 'https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=105');
+    $("#高須分室Calendar").attr('href', 'https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=106');
+    $("#若竹分室Calendar").attr('href', 'https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=102');
+
+
+});
+</script>
+<!--図書館休日リンク先-->
+<div id="container" class="columnLayout3">
+	<aside id="leftNavi" class="aside">
+		<section class="section widgetParts">
+<h3><a href="/guide/web/">便利なマイ図書館</a></h3>
+	    <ul>
+            <li id="stat-login" style="display:none;">
+					<div class="personalInfo">
+						<p class="loginStatus">ログインしています</p>
+						<a class="logout" href="javascript:logout();" accesskey="o">ログアウトする</a>
+					</div>
+			</li>
+            <li id="stat-logout" style="display:block;"><a class="appealColor" href="javascript:login();" accesskey="i">ログインする</a></li>
+			<li><a href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&amp;moveToGamenId=usrlend">貸出・予約状況の確認</a></li>
+			<li><a href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&amp;moveToGamenId=usrrsv">予約かごの利用</a></li>
+			<li><a href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&amp;moveToGamenId=mylibrary">利用者情報変更<br><p style="font-size:90%;">(本パスワードへの変更)</p></a></li>
+			<li><a href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&amp;moveToGamenId=msgnewmenu">新着図書のお知らせ</a></li>
+        <li><a href="/faq/web.html#q10">ログインできないとき</a></li>
+		</ul>
+</section>
+<section class="section btnOnly">
+    <a href="/guide/yoyakulocker.html"><img src="/mt-static/common/img/ad/yoyaku_banar.jpg" alt="予約図書受取ロッカー"></a>
+    <a href="https://www.nishi.or.jp/bunka/shisetsuannai/toshokan/106236120250912.html"><img src="/mt-static/common/img/ad/yok_sheet_1line_PC_2.png" alt="座席予約システム"></a>
+</section>
+<form name="logoutform" style="display:none">
+ </form><section class="section widgetParts">
+    <h3>施設案内</h3>
+	<p class="date">
+    07月18日
+    (土)</p>
+    <ul><li style="display:block;">
+        <a class="appealColor" href="/guide/disastermanagement.html">災害時の運営について</a>
+    </li></ul>
+    <h2><br><span style="color: #ff0000;"><p style="text-align: left;line-height:1.5">越木岩分室は建替のため<br>閉室中です。</p></span></h2>
+    <ul><li><div style="display: flex;"><a href="" id="中央図書館" style="text-align: left; font-size: large;">中央図書館</a><a class="libCalendar" id="中央図書館Calendar" href=""></a></div></li><li><div style="display: flex;"><a href="" id="北部図書館" style="text-align: left; font-size: large;">北部図書館</a><a class="libCalendar" id="北部図書館Calendar" href=""></a></div></li><li><div style="display: flex;"><a href="" id="鳴尾図書館" style="text-align: left; font-size: large;">鳴尾図書館</a><a class="libCalendar" id="鳴尾図書館Calendar" href=""></a></div></li><li><div style="display: flex;"><a href="" id="北口図書館" style="text-align: left; font-size: large;">北口図書館</a><a class="libCalendar" id="北口図書館Calendar" href=""></a></div></li><li><div style="display: flex;"><a href="" id="越木岩分室" style="text-align: left; font-size: large;">越木岩分室</a><a class="libCalendar" id="越木岩分室Calendar" href=""></a></div></li><li><div style="display: flex;"><a href="" id="段上分室" style="text-align: left; font-size: large;">段上分室</a><a class="libCalendar" id="段上分室Calendar" href=""></a></div></li><li><div style="display: flex;"><a href="" id="上ケ原分室" style="text-align: left; font-size: large;">上ケ原分室</a><a class="libCalendar" id="上ケ原分室Calendar" href=""></a></div></li><li><div style="display: flex;"><a href="" id="甲東園分室" style="text-align: left; font-size: large;">甲東園分室</a><a class="libCalendar" id="甲東園分室Calendar" href=""></a></div></li><li><div style="display: flex;"><a href="" id="高須分室" style="text-align: left; font-size: large;">高須分室</a><a class="libCalendar" id="高須分室Calendar" href=""></a></div></li><li><div style="display: flex;"><a href="" id="山口分室" style="text-align: left; font-size: large;">山口分室</a><a class="libCalendar" id="山口分室Calendar" href=""></a></div></li><li><div style="display: flex;"><a href="" id="若竹分室" style="text-align: left; font-size: large;">若竹分室</a><a class="libCalendar" id="若竹分室Calendar" href=""></a></div></li></ul>
+    <!--
+    <ul>
+	    <li style="display:block;">
+	        <a href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod=001" class="btn" style="background-color: #09708c; color: #fff;">開館カレンダー</a>
+        </li>
+    </ul>
+    -->
+</section>
+<section class="section adParts">
+<h3>[広告]</h3>
+<ul>
+		<!-- <li><a href="/about/adverts/advert01.html"><img src="/mt-static/common/img/ad/sample00.png" alt="広告募集中"></a></li> -->
+		<li><a href="https://www.furisode-kikyoya.jp/shop/nishinomiya.php"><img src="/img/advert/kikyoya.jpg" alt="株式会社菊京屋"></a></li>
+		<li><a href="/about/adverts/advert01.html"><img src="/mt-static/common/img/ad/sample00.png" alt="広告募集中"></a></li>
+		<li><a href="/about/adverts/advert01.html"><img src="/mt-static/common/img/ad/sample00.png" alt="広告募集中"></a></li>
+		<li><a href="/about/adverts/advert01.html"><img src="/mt-static/common/img/ad/sample00.png" alt="広告募集中"></a></li>
+</ul>
+<p>広告及びそのリンク先のホームページの内容等についての責任は、広告主に帰属します。また、西宮市や西宮市立図書館が推奨等をするものではありません。</p>
+</section>
+	</aside>
+	<article id="article">
+    <section class="section changeKariPassword">
+			<a href="/guide/web/password.html#anchor03" class="btn">仮パスワードから本パスワードへの変更方法はこちら</a>
+		</section>
+		<style type="text/css">
+		.changeKariPassword {
+			padding: 15px 10px;
+			border-radius: 6px;
+			border: 1px solid #067B00;
+			background-color: #CDE5CC;
+			text-align: center;
+		}
+		.changeKariPassword .btn {
+			display: inline-block;
+			padding: 10px 15px;
+			border-radius: 4px;
+			background-color: #09708c;
+			color: #fff;
+			line-height: 1.3;
+			text-decoration: none;
+		}
+		.changeKariPassword .btn:hover {
+			background-color: #08647e;
+		}
+		.changeKariPassword .btn:active {
+			background-color: #064e62;
+			-webkit-box-shadow: inset 0 3px 5px rgba(0, 0, 0, .3);
+			box-shadow: inset 0 3px 5px rgba(0, 0, 0, .3);
+		}
+		</style>
+
+
+
+    
+
+
+    
+      <section class="section infoParts redText">
+            <h2>重要なおしらせ</h2>
+            <div class="border">
+            
+                <dl class="labelList">
+                
+                
+                
+                </dl>
+            
+                <dl class="labelList">
+                
+                
+                
+                </dl>
+            
+                <dl class="labelList">
+                
+                
+                
+                    
+                      
+                       
+                      
+                          <dt><span class="label color99">全館</span></dt>  
+                      
+                       <dd>
+                       <a href="https://tosho.nishi.or.jp/2025/10/post-1092.html">図書館の座席をスマホやパソコンで予約することができます。</a><span>（2025年10月01日）</span>
+                      </dd>
+                      <hr>
+                      
+                      
+                    
+                
+                </dl>
+            
+			</div>
+		</section>
+    
+
+    
+        <section class="section personalInfoParts" id="personal-info" style="display:none">
+			<h2>ご利用状況</h2>
+			<div>
+				<div class="separate leftParts">
+					<p class="name">貸出中の資料</p>
+					<p class="number"><span id="lend">220</span>件</p>
+					<p class="more">（延滞している資料<span id="entai">32</span>件）</p>
+				</div>
+				<div class="separate rightParts">
+					<p class="name">予約されている資料</p>
+					<p class="number"><span id="yoyk">21</span>件</p>
+					<p class="more">（準備できている資料<span id="wari">10</span>件）</p>
+				</div>
+			</div>
+</section>
+        <section class="section searchParts">
+			<h2>本・資料を探す</h2>
+			<!-- <form name="SearchForm" method="post" action="https://tosho.nishi.or.jp/licsxp-opac/WOpacTifSchCmpdExecAction.do"> -->
+            <FORM name="SearchForm" method="post">
+				<div class="">
+					<!-- <input type="hidden" name="chkflg" value="nocheck"> -->
+					<!-- <input type="hidden" name="loccodschkflg" value="nocheck"> -->
+					<input type="hidden" name="langcodschkflg" value="nocheck">
+					<input type="hidden" name="currentSubSystem" value="0">
+                    <input type="hidden" name="inputseioncheck" value ="input_seion_checked"/>
+					<input tabindex="40" accesskey="4" type="text" id="kensaku_keyword" name="kensaku_keyword" title="検索キーワード" value="" onkeypress="if (event.keyCode==13) {search('1');}" placeholder="タイトル、著者名、出版社、内容注記などのキーワードを入力">
+					<button type="submit" accesskey="s" onclick="search(&quot;1&quot;)">検索</button>
+                </div>
+			</form>
+			<ul class="detailAndFieldSearch">
+				<li>
+					<a class="btn btnA" accesskey="5" href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&amp;moveToGamenId=tifschcmpd">詳細検索</a>
+					<a class="textLink" href="https://tosho.nishi.or.jp/licsxp-opac/lbcommon/html/help.html">詳細検索の使い方</a>
+				</li>
+				<li>
+					<a class="btn btnB" href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&amp;moveToGamenId=tifschndc">分類検索</a>
+					<a class="textLink" href="/search/searchsub/bunrui.html">分類について</a>
+				</li>
+			</ul>
+			<ul class="searchBottomButtons">
+                <li><a class="btnA" href="/search/list/newspaper.html">新聞一覧</a></li>
+				<li><a class="btnB" href="https://tosho.nishi.or.jp/licsxp-opac/WOpacTifJunlChoSelectAction.do?junlCode=7">雑誌一覧</a></li>
+				<li><a class="btnC" href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&amp;moveToGamenId=msgnewmenu">新着案内</a></li>
+				<li><a class="btnD" href="https://tosho.nishi.or.jp/licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&amp;moveToGamenId=msgrankmenu">貸出・予約<br>ベスト30</a></li>
+			</ul>
+</section>
+        
+            
+            
+            
+            <section class="section defaultParts">
+                
+
+                    
+                            <h2>お知らせ</h2> 
+                    
+                    <dl class="labelList">
+                        <!-- カテゴリ毎に表示する記事の数を設定する -->
+                        
+                            
+                        
+
+                        
+                            
+                            
+                                <!-- カテゴリがイベント以外の物は全て表示する。 -->
+                                
+                            
+
+                            
+
+                                
+                                
+                                    
+                                    
+                                            <dt>
+                                                <span class="label color00">全館</span>
+                                            </dt>
+                                    
+                                    
+                                
+                                <dd>
+                                    
+                                    <a href="https://tosho.nishi.or.jp/2026/07/718826.html">【7月18日から8月26日まで】西宮浜義務教育学校図書館地域開放休止のお知らせ</a><span>（2026年07月03日）</span>
+                                    
+                                </dd>
+                                <hr>
+                                
+                            
+                        
+                            
+                            
+                                <!-- カテゴリがイベント以外の物は全て表示する。 -->
+                                
+                            
+
+                            
+
+                                
+                                
+                                    
+                                    
+                                            <dt>
+                                                <span class="label color00">全館</span>
+                                            </dt>
+                                    
+                                    
+                                
+                                <dd>
+                                    
+                                    <a href="https://tosho.nishi.or.jp/2026/07/post-1111.html">夏のおすすめ本（幼児から中学生向け）を紹介します！</a><span>（2026年07月01日）</span>
+                                    
+                                </dd>
+                                <hr>
+                                
+                            
+                        
+                            
+                            
+                                <!-- カテゴリがイベント以外の物は全て表示する。 -->
+                                
+                            
+
+                            
+
+                                
+                                
+                                    
+                                    
+                                            <dt>
+                                                <span class="label color00">若竹分室</span>
+                                            </dt>
+                                    
+                                    
+                                
+                                <dd>
+                                    
+                                    <a href="https://tosho.nishi.or.jp/2026/07/88810.html">【令和8年8月8日から10日】図書館若竹分室　駐車場の利用について</a><span>（2026年07月01日）</span>
+                                    
+                                </dd>
+                                <hr>
+                                
+                            
+                        
+                            
+                            
+                                <!-- カテゴリがイベント以外の物は全て表示する。 -->
+                                
+                            
+
+                            
+
+                                
+                                
+                                    
+                                    
+                                            <dt>
+                                                <span class="label color00">全館</span>
+                                            </dt>
+                                    
+                                    
+                                
+                                <dd>
+                                    
+                                    <a href="https://tosho.nishi.or.jp/2026/04/84.html">北部図書館及び山口分室の運営と新規サービスについて（2026年4月17日更新）</a><span>（2026年04月02日）</span>
+                                    
+                                </dd>
+                                <hr>
+                                
+                            
+                        
+                            
+                            
+                                <!-- カテゴリがイベント以外の物は全て表示する。 -->
+                                
+                            
+
+                            
+
+                                
+                                
+                                    
+                                    
+                                            <dt>
+                                                <span class="label color00">全館</span>
+                                            </dt>
+                                    
+                                    
+                                
+                                <dd>
+                                    
+                                    <a href="https://tosho.nishi.or.jp/2026/04/post-1075.html">令和８年度おはなし会のお知らせ</a><span>（2026年04月01日）</span>
+                                    
+                                </dd>
+                                <hr>
+                                
+                            
+                        
+
+                    </dl>
+                    
+                        <div class="btnArea">
+                            <a href="https://tosho.nishi.or.jp/info/">お知らせ一覧を見る</a>
+                        </div>
+                    
+                
+            </section>
+        
+            
+     
+            
+            
+            
+            <section class="section defaultParts">
+                
+
+                    
+                        <h2 id="eventlist">イベント</h2>
+                        
+                    <dl class="labelList">
+                        <!-- カテゴリ毎に表示する記事の数を設定する -->
+                        
+                            
+                        
+
+                        
+                            
+                            
+                                
+                                <!-- イベント日付と現在時刻を比較する。 -->
+                                <!-- イベント日付が現在時刻より未来の場合、またはイベント日付が未設定の場合は、$show_place を定義する。 -->
+                                
+                                    
+                                
+
+                                <!-- $show_placeの値に応じて表示非表示を切り替える -->
+                                
+                                    <!-- 連動表示対象に「トップ」「全て」「こども」が含まれている場合表示する。 -->
+                                    
+                                
+
+                            
+
+                            
+
+                                
+                                
+                                    
+                                    
+                                            <dt>
+                                                <span class="label color00">全館</span>
+                                            </dt>
+                                    
+                                    
+                                
+                                <dd>
+                                    
+                                    <a href="https://tosho.nishi.or.jp/2026/06/7-1.html">7月ブックフェアのお知らせ</a><span>（2026年06月16日）</span>
+                                    
+                                </dd>
+                                <hr>
+                                
+                            
+                        
+                            
+                            
+                                
+                                <!-- イベント日付と現在時刻を比較する。 -->
+                                <!-- イベント日付が現在時刻より未来の場合、またはイベント日付が未設定の場合は、$show_place を定義する。 -->
+                                
+                                    
+                                
+
+                                <!-- $show_placeの値に応じて表示非表示を切り替える -->
+                                
+                                    <!-- 連動表示対象に「トップ」「全て」「こども」が含まれている場合表示する。 -->
+                                    
+                                
+
+                            
+
+                            
+
+                                
+                                
+                                    
+                                    
+                                            <dt>
+                                                <span class="label color00">全館</span>
+                                            </dt>
+                                    
+                                    
+                                
+                                <dd>
+                                    
+                                    <a href="https://tosho.nishi.or.jp/2026/06/2026dayin.html">中・高・大学生１day仕事体験in西宮市立図書館</a><span>（2026年06月12日）</span>
+                                    
+                                </dd>
+                                <hr>
+                                
+                            
+                        
+                            
+                            
+                                
+                                <!-- イベント日付と現在時刻を比較する。 -->
+                                <!-- イベント日付が現在時刻より未来の場合、またはイベント日付が未設定の場合は、$show_place を定義する。 -->
+                                
+                                    
+                                
+
+                                <!-- $show_placeの値に応じて表示非表示を切り替える -->
+                                
+                                    <!-- 連動表示対象に「トップ」「全て」「こども」が含まれている場合表示する。 -->
+                                    
+                                
+
+                            
+
+                            
+
+                                
+                                
+                                    
+                                    
+                                            <dt>
+                                                <span class="label color00">北口図書館</span>
+                                            </dt>
+                                    
+                                    
+                                
+                                <dd>
+                                    
+                                    <a href="https://tosho.nishi.or.jp/2026/06/37in.html">第39回知的書評合戦「ビブリオバトルinにしのみや」開催！</a><span>（2026年06月05日）</span>
+                                    
+                                </dd>
+                                <hr>
+                                
+                            
+                        
+                            
+                            
+                                
+                                <!-- イベント日付と現在時刻を比較する。 -->
+                                <!-- イベント日付が現在時刻より未来の場合、またはイベント日付が未設定の場合は、$show_place を定義する。 -->
+                                
+                                    
+                                
+
+                                <!-- $show_placeの値に応じて表示非表示を切り替える -->
+                                
+                                    
+                                
+
+                            
+
+                            
+                        
+                            
+                            
+                                
+                                <!-- イベント日付と現在時刻を比較する。 -->
+                                <!-- イベント日付が現在時刻より未来の場合、またはイベント日付が未設定の場合は、$show_place を定義する。 -->
+                                
+                                    
+                                
+
+                                <!-- $show_placeの値に応じて表示非表示を切り替える -->
+                                
+                                    <!-- 連動表示対象に「トップ」「全て」「こども」が含まれている場合表示する。 -->
+                                    
+                                
+
+                            
+
+                            
+
+                                
+                                
+                                    
+                                    
+                                            <dt>
+                                                <span class="label color00">全館</span>
+                                            </dt>
+                                    
+                                    
+                                
+                                <dd>
+                                    
+                                    <a href="https://tosho.nishi.or.jp/2024/04/post-940.html">「よむよむキッズ」展示中！</a><span>（2024年04月05日）</span>
+                                    
+                                </dd>
+                                <hr>
+                                
+                            
+                        
+
+                    </dl>
+                    
+                        <div class="btnArea">
+                            <a href="https://tosho.nishi.or.jp/event/">イベント一覧を見る</a>
+                        </div>
+                    
+                
+            </section>
+        
+            
+     
+            
+            
+            
+            
+     
+		<section class="section defaultParts">
+			<h2>図書館だより</h2>
+			<p style="margin-left: 10px; margin-bottom: 15px;">本の紹介、各館の行事案内などを掲載した広報紙です。</p>
+			<ul class="twoBlock">
+				<li>
+					<h3>一般向け広報紙</h3>
+					<div class="contents">
+                    <img src="/mt-static/common/img/title_prMagazine01.png" alt="一般向け広報紙 まつぼっくり">
+						<a class="pdfBtn" href="/pdf/press/matubokkuri202607.pdf">２０２６年７月号（５,２６１ＫＢ）</a>
+						<ul>
+                            <li>西宮×夏を読む</li>
+                            <li>７月のブックフェア・イベント</li>
+                            <li>７月図書館カレンダー</li>
+ 						</ul>
+                    <!--
+   						<ul>
+						    <li>都合により、２０２０年３月号より当面の間、休刊します</li>
+						</ul>
+                    -->
+
+					</div>
+					<div class="moreArea">
+                    <a href="
+
+    https://tosho.nishi.or.jp/2017/02/about/announce/matsubokkuri.html
+
+">バックナンバーを見る</a>
+					</div>
+				</li>
+				<li>
+					<h3>児童向け広報紙</h3>
+					<div class="contents">
+                    <img src="/mt-static/common/img/title_prMagazine02.png" alt="児童向け広報紙 しゃぼん玉">
+                      <!--範囲削除指定　2026年07月01日作業：START --> <!--
+                        <ul>
+                           <br>
+                           <br>
+                           <br>
+                           <br>
+                           <li>しゃぼん玉は不定期発行です。</li>
+                           <li>新しい本の紹介は、<br><a href="/kids/kodomo_osusume.html">よむよむキッズコーナー</a>で更新します。</li>                    
+                        </ul>
+                       --> <!--範囲削除指定　2026年07月01日作業：END-->
+                        <a class="pdfBtn" href="/pdf/press/shabondama202607_SUMMER.pdf">２０２６年なつごう（１，４３１ＫＢ）</a>
+                        <ul>
+                           <li>なつのおすすめぼん</li>
+                           <li>しゃぼん玉は不定期発行です。</li>
+                           <li>新しい本の紹介は、<br><a href="/kids/kodomo_osusume.html">よむよむキッズコーナー</a>で更新します。</li>                    
+                        </ul>
+					</div>
+					<div class="moreArea">
+						<a href="
+
+    https://tosho.nishi.or.jp/2017/02/about/announce/shabondama.html
+
+">バックナンバーを見る</a>
+					</div>
+				</li>
+			</ul>
+		</section>
+</article>
+<aside id="rightNavi" class="aside">
+    <section class="section adParts">
+<h3>[広告]</h3>
+<ul>
+		<!-- <li><a href="/about/adverts/advert01.html"><img src="/mt-static/common/img/ad/sample00.png" alt="広告募集中"></a></li> -->
+		<li><a href="https://koshien-shogai.hp.peraichi.com"><img src="/img/advert/koshien_nenkin_soudan_2.png" alt="甲子園障害年金相談所"></a></li>
+		<li><a href="https://www.sr-smile.com/"><img src="/img/advert/smile_office.jpg" alt="スマイル社会保険労務士事務所"></a></li>
+		<li><a href="/about/adverts/advert01.html"><img src="/mt-static/common/img/ad/sample00.png" alt="広告募集中"></a></li>
+		<li><a href="/about/adverts/advert01.html"><img src="/mt-static/common/img/ad/sample00.png" alt="広告募集中"></a></li>
+</ul><p>広告収入は、図書購入費として活用しています。</p>
+<p><a href="about/adverts/advert01.html">広告募集について</a></p>
+</section><section class="section widgetParts">
+    <h3>スマートフォンサイト</h3>
+	<div class="qrCode">
+	    <p>スマートフォン用に見やすくレイアウトしたサイトです。</p>
+		<img src="/qrcode_sp.png" alt="スマートフォンサイトqrコード">
+		<p><a href="https://tosho.nishi.or.jp/sp/">https://tosho.nishi.or.jp/sp/</a></p>
+	</div>
+</section>
+
+<section class="section widgetParts">
+			<!--<h3>図書館を支援する</h3>-->
+			<ul>
+               <li style="display:block;">
+                    <a class="appealColor" href="/about/adverts/fund.html"><p style="font-size: 14px;">ふるさと納税で図書館をご支援ください</p></a>
+               </li>
+               <li style="display:block;">
+                    <a class="appealColor" href="/about/adverts/ad-list.html">広告事業主募集中</a>
+               </li>
+				<!--<li><a href="/volunteer/">ボランティア活動</a></li>-->
+                <!--<li><a href="/about/#advert">広告事業</a><span class="colorLabel">受付中</span></li>-->
+                <!--<li><a href="/about/adverts/fund.html"><p style="font-size: 14px;">ふるさと納税で</p><p style="font-size: 14px;">図書館を支援する</p></a></li>-->
+                <!--<li><a href="/about/adverts/ad-list.html">広告事業主募集中</a></li>-->
+                <!--<li><a href="/about/adverts/fund.html">図書館振興基金</a><span class="colorLabel">受付中</span></li>-->
+			</ul>
+		</section>
+
+<section class="section btnOnly">
+    <!--<a href="/guide/music.html"><img src="/mt-static/common/img/ad/ongakuhaisin.png" alt="音楽配信サービス" style="width: 100%;"></a>-->
+    <!--<a href="/guide/music.html"><img src="/mt-static/common/img/ad/ongakuhaisin.png" alt="音楽配信サービス"></a>-->
+    <!--<a href="https://www.nishi.or.jp/bunka/shisetsuannai/toshokan/106236120250912.html"><img src="/mt-static/common/img/ad/yok_sheet_2line_PC.png" alt="座席予約システム"></a>-->
+    <!--<a href="/guide/yoyakulocker.html"><img src="/mt-static/common/img/ad/yoyaku_banar.jpg" alt="予約図書受取ロッカー"></a>-->
+    <a href="https://www.nishi.or.jp/bunka/shogaigakushu/shisetsunoseibi/index.html"><img src="/mt-static/common/img/library_editroom_PC_001.jpeg" alt="図書館編集室"></a>
+    <a href="https://www.instagram.com/nishinomiya_hokubu?igsh=M3VjYWYwdjJobjdh&utm_source=qr"><img src="/mt-static/common/img/hokubu_library_Insta_PC_001.png" alt="西宮市北部社会教育施設"></a>
+<ul>
+        <!--　行・ボタン「予約図書受取ロッカー」と、行・ボタン「学校関係者の方へ」の行間調整　<a>　</a>　追加　　2024/4/1 -->    
+        <a>　</a>
+        <li><a href="/forteacher/">学校関係者の方へ</a></li>
+		<li><a href="/groupentry/">団体貸出</a></li>
+        <li><a href="/englishinformation/">Information</a></li>
+        <li><a href="/chineseinformation/">指南</a></li>
+        <li><a href="/koreaninformation/">이용안내</a></li>
+
+        <li><a class="icon_target_blank" href="https://www.nishi.or.jp/kosodate/kyoiku/seishonenkyoiku/jisyushituitiran.html" target="_blank">市内の学習室ご案内</a></li>
+
+        <li><a class="icon_target_blank" href="http://nishinomiya-kanko.jp/miyatan/" target="_blank">みやたん公式サイト</a></li>
+
+        <!--<li><a href="/guide/music.html">音楽配信サービス</a></li>-->
+
+        <li><a style="padding: 0;  background-color: white; text-align: center;" class="icon_target_blank" href="https://adeac.jp/nishinomiya-city/" target="_blank"><img style=" width:190px; height:32px;" src="/img/digital_archive_pc.png" alt="にしのみやデジタルアーカイブ"></a></li>
+	</ul>
+</section>
+</aside>
+</div>
+<div id="pageToTop"><a href="#">ページの先頭へ</a></div>
+<footer id="footer">
+	<div class="inner">
+		<div class="utilityNavi">
+			<ul>
+			<li><a href="/sitemap/">サイトマップ</a></li>
+			<li><a href="/about/">西宮市立図書館について</a></li>
+			<li><a href="/privacy/">個人情報の取り扱いについて</a></li>
+			<li><a href="/sitepolicy/">このサイトについて</a></li>
+			<li><a href="/about/mail/">メールでのお問い合わせについて</a></li>
+			</ul>
+		</div>
+		<div class="leftParts">
+			<p>西宮市立中央図書館　〒662-0944 西宮市川添町15-26</p>
+			<p>電話：0798-33-0189（代表）</p>
+		</div>
+		<div class="rightParts">
+			<div class="copyright">Copyright(c) Nishinomiya City Library All rights reserved.</div>
+		</div>
+    <a href="http://www.nishi.or.jp/" target="_blank"><img class="logo" src="/mt-static/common/img/logo_nishinomiya.png" alt="西宮市ホームページバナー"></a>
+	</div>
+</footer>
+</body>
+</html>
