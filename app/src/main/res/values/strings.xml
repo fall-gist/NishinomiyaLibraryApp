@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">にしのみや図書館</string>
+    <string name="member_registration">メンバー登録</string>
+    <string name="member_name_hint">表示名</string>
+    <string name="member_color_hint">識別色（#RRGGBB）</string>
+    <string name="member_card_hint">カード番号</string>
+    <string name="member_password_hint">パスワード</string>
+    <string name="register_member">登録</string>
+    <string name="member_registered">メンバーを登録しました</string>
+    <string name="registration_invalid">入力内容を確認してください</string>
+    <string name="registration_failed">登録できませんでした。時間をおいて再試行してください</string>
+    <string name="manual_sync">手動同期</string>
+    <string name="sync_waiting">同期待機中です</string>
+    <string name="notification_permission">通知を許可する</string>
+    <string name="notification_not_required">この端末では通知許可は不要です</string>
+    <string name="notification_granted">通知は許可されています</string>
+    <string name="notification_not_granted">通知は未許可です</string>
+    <string name="notification_denied">通知は許可されていません。端末の設定から変更できます</string>
+    <string name="members_heading">メンバー</string>
+    <string name="loans_heading">貸出</string>
+    <string name="reservations_heading">予約</string>
+    <string name="shelves_heading">本棚</string>
+    <string name="summaries_heading">サマリ</string>
+    <string name="last_sync_heading">最終同期</string>
+    <string name="no_members">登録されているメンバーはいません</string>
+    <string name="no_loans">貸出はありません</string>
+    <string name="no_reservations">予約はありません</string>
+    <string name="no_shelves">本棚はありません</string>
+    <string name="no_summaries">サマリはありません</string>
+</resources>
