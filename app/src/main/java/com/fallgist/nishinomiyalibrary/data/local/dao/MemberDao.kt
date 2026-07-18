@@ -20,6 +20,12 @@ interface MemberDao {
     @Query("SELECT * FROM members WHERE id = :memberId")
     suspend fun getById(memberId: Long): MemberEntity?
 
+    @Query("SELECT * FROM members ORDER BY sortOrder ASC, id ASC")
+    suspend fun getAll(): List<MemberEntity>
+
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) + 1 FROM members")
+    suspend fun nextSortOrder(): Int
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(member: MemberEntity): Long
 

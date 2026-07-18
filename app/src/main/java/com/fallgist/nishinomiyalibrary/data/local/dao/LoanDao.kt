@@ -17,6 +17,9 @@ interface LoanDao {
     @Query("SELECT * FROM loans WHERE memberId = :memberId ORDER BY dueDate ASC")
     fun observeForMember(memberId: Long): Flow<List<LoanEntity>>
 
+    @Query("SELECT * FROM loans ORDER BY dueDate ASC, id ASC")
+    suspend fun getAll(): List<LoanEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(loan: LoanEntity)
 

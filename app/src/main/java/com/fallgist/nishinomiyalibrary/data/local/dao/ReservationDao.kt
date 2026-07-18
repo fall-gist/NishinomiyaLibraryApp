@@ -20,6 +20,15 @@ interface ReservationDao {
     @Query("SELECT * FROM reservations WHERE memberId = :memberId ORDER BY id ASC")
     suspend fun getForMember(memberId: Long): List<ReservationEntity>
 
+    @Query("SELECT * FROM reservations ORDER BY reservedDate ASC, id ASC")
+    suspend fun getAll(): List<ReservationEntity>
+
+    @Query(
+        "UPDATE reservations SET firstReadyNotifiedAt = :notifiedAt " +
+            "WHERE id IN (:reservationIds) AND firstReadyNotifiedAt IS NULL",
+    )
+    suspend fun markReadyNotified(reservationIds: List<Long>, notifiedAt: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(reservation: ReservationEntity)
 

@@ -15,17 +15,21 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 
+interface BookMetadataGateway {
+    suspend fun coverUrl(isbn: String): String?
+}
+
 class OpenBdClient(
     private val baseUrl: HttpUrl = DEFAULT_BASE_URL.toHttpUrl(),
     private val client: OkHttpClient = OkHttpClient(),
-) {
+) : BookMetadataGateway {
     companion object {
         const val DEFAULT_BASE_URL = "https://api.openbd.jp/"
     }
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun coverUrl(isbn: String): String? {
+    override suspend fun coverUrl(isbn: String): String? {
         val request = Request.Builder()
             .url(
                 baseUrl.newBuilder()

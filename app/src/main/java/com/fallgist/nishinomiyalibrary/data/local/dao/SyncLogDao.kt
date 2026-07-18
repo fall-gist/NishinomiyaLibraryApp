@@ -14,6 +14,12 @@ interface SyncLogDao {
     @Query("SELECT * FROM sync_logs ORDER BY startedAtEpochMillis DESC, id DESC LIMIT 1")
     fun observeLatest(): Flow<SyncLogEntity?>
 
+    @Query(
+        "SELECT * FROM sync_logs WHERE succeeded = 1 " +
+            "ORDER BY finishedAtEpochMillis DESC, id DESC LIMIT 1",
+    )
+    suspend fun getLatestSuccessful(): SyncLogEntity?
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(log: SyncLogEntity): Long
 

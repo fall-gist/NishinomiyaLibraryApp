@@ -107,6 +107,24 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 
+    /** メンバー削除に伴い、そのメンバーに属するローカルデータも削除する。 */
+    @Transaction
+    suspend fun deleteMemberAndLocalData(member: MemberEntity) {
+        withTransaction {
+            loanDao().deleteForMember(member.id)
+            reservationDao().deleteForMember(member.id)
+            shelfItemDao().deleteForMember(member.id)
+            userSummaryDao().deleteForMember(member.id)
+            memberDao().delete(member)
+        }
+    }
+
+    /** sortOrderを既存順序の末尾に安定して採番してメンバーを保存する。 */
+    @Transaction
+    suspend fun insertMemberAtEnd(member: MemberEntity): Long = withTransaction {
+        memberDao().insert(member.copy(id = 0, sortOrder = memberDao().nextSortOrder()))
+    }
+
     private fun ReservationEntity.notificationKey(): ReservationNotificationKey = ReservationNotificationKey(
         memberId = memberId,
         title = title,
