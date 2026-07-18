@@ -123,7 +123,8 @@ class LicsXpClientTest {
 
     @Test
     fun `利用者データ取得は認証後に3ページをトークン付きで順に読む`() = runBlocking {
-        server.enqueue(html(fixture("login_form.html"), setCookie = true))
+        server.enqueue(html("<html><body>温めページ</body></html>", setCookie = true))
+        server.enqueue(html(fixture("login_form.html")))
         server.enqueue(html("""
             <html><body><form action="continue"></form>
             <script>document.forms[0].submit()</script></body></html>
@@ -145,10 +146,16 @@ class LicsXpClientTest {
         assertEquals(19, result.reservations.size)
         assertEquals(6, result.shelf.size)
 
+        val warmUp = takeRequest()
+        assertEquals("GET", warmUp.method)
+        assertEquals("/WOpacEsSchCmpdDispAction.do", warmUp.requestUrl!!.encodedPath)
+        assertNull(warmUp.requestUrl!!.query)
+
         val login = takeRequest()
         assertEquals("GET", login.method)
         assertEquals("/OpacInitLoginAction.do", login.requestUrl!!.encodedPath)
         assertEquals("0", login.requestUrl!!.queryParameter("subSystemFlag"))
+        assertTrue(login.getHeader("Cookie")!!.contains("JSESSIONID=fixture"))
 
         val security = takeRequest()
         assertEquals("POST", security.method)
@@ -172,6 +179,7 @@ class LicsXpClientTest {
 
     @Test
     fun `ログインフォームの再表示はAuthに分類し認証情報を例外メッセージに含めない`() = runBlocking {
+        server.enqueue(html("<html><body>温めページ</body></html>"))
         server.enqueue(html(fixture("login_form.html")))
         server.enqueue(html("<div id=\"stat-login\">認証成功風の中継本文</div>"))
         server.enqueue(html(fixture("login_form.html")))
@@ -190,6 +198,7 @@ class LicsXpClientTest {
         val cardNumber = generatedCardNumber()
         val password = generatedPassword()
 
+        server.enqueue(html("<html><body>温めページ</body></html>"))
         server.enqueue(html(fixture("login_form.html")))
         server.enqueue(html("<input name=\"j_password\" value=\"失敗風の中継本文\">"))
         server.enqueue(html(fixture("menu.html").replace("id=\"stat-login\"", "id=\"legacy-login\"")))
@@ -198,11 +207,13 @@ class LicsXpClientTest {
         server.enqueue(html(fixture("mybooklist.html")))
         assertEquals(12, client().fetchUserData(cardNumber, password).loans.size)
 
+        server.enqueue(html("<html><body>温めページ</body></html>"))
         server.enqueue(html(fixture("login_form.html")))
         server.enqueue(html("<html><body>システムメンテナンス中の中継本文</body></html>"))
         server.enqueue(html("<input name=\"j_password\">"))
         assertTrue(libraryError { client().fetchUserData(cardNumber, password) } is LibraryError.Auth)
 
+        server.enqueue(html("<html><body>温めページ</body></html>"))
         server.enqueue(html(fixture("login_form.html")))
         server.enqueue(html("<div id=\"stat-login\">成功風の中継本文</div>"))
         server.enqueue(html("<html><body>未知のメニュー</body></html>"))
@@ -210,11 +221,12 @@ class LicsXpClientTest {
         assertTrue(parse is LibraryError.Parse)
         assertEquals("login", (parse as LibraryError.Parse).screen)
 
+        server.enqueue(html("<html><body>温めページ</body></html>"))
         server.enqueue(html(fixture("login_form.html")))
         server.enqueue(html("<html><body>中継本文</body></html>"))
         server.enqueue(html("<html><body>システムメンテナンス中です</body></html>"))
         assertTrue(libraryError { client().fetchUserData(cardNumber, password) } is LibraryError.Maintenance)
-        assertEquals(15, server.requestCount)
+        assertEquals(19, server.requestCount)
     }
 
     @Test
@@ -249,6 +261,7 @@ class LicsXpClientTest {
     @Test
     fun `認証用の新規sessionも公開操作と待機状態を共有する`() = runBlocking {
         server.enqueue(json("[\"愛\"]"))
+        server.enqueue(html("<html><body>温めページ</body></html>"))
         server.enqueue(html(fixture("login_form.html")))
         server.enqueue(html(fixture("after_login.html")))
         server.enqueue(html(fixture("menu.html")))
@@ -271,7 +284,7 @@ class LicsXpClientTest {
             password = generatedPassword(),
         )
 
-        assertEquals(List(6) { 500L }, waits)
+        assertEquals(List(7) { 500L }, waits)
     }
 
     private fun client(): LicsXpClient = LicsXpClient(

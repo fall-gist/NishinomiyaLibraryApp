@@ -113,6 +113,9 @@ class LicsXpClient(
     override suspend fun fetchUserData(cardNumber: String, password: String): UserData = mapErrors {
         // 認証Cookieを公開検索などのセッションと共有しない。
         val userSession = session.newIsolatedSession()
+        // 通常ページへのアクセスで、分離セッションのJSESSIONIDを有効化する。
+        userSession.get("WOpacEsSchCmpdDispAction.do")
+
         val loginForm = userSession.get(
             path = "OpacInitLoginAction.do",
             query = mapOf("subSystemFlag" to "0"),
