@@ -7,7 +7,7 @@ interface NotificationSink {
     suspend fun postPickupReady(plan: PickupReadyPlan): Boolean
 }
 
-/** 全メンバーの同期が成功した後だけ呼び出す通知処理のポート。 */
+/** 同期に成功したメンバーだけを対象にする通知処理のポート。 */
 interface PostSyncNotifier {
-    suspend fun notifyAfterSuccessfulSync()
+    suspend fun notifyAfterSuccessfulSync(successfulMemberIds: Set<Long>)
 }

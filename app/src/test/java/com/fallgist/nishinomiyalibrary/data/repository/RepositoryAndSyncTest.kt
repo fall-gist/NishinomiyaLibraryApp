@@ -11,6 +11,7 @@ import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.UserData
 import com.fallgist.nishinomiyalibrary.data.remote.openbd.BookMetadataGateway
@@ -186,7 +187,8 @@ class RepositoryAndSyncTest {
 
         assertEquals(SyncResult.Completed(1, 2), repository.syncAll(SyncTrigger.MANUAL))
         assertEquals(listOf(first.cardNumber, second.cardNumber), gateway.fetchedCardNumbers)
-        assertEquals(0, notifier.callCount)
+        assertEquals(1, notifier.callCount)
+        assertEquals(listOf(setOf(first.id)), notifier.successfulMemberIdSets)
         val latestLog = repository.lastSync().first()!!
         assertFalse(latestLog.succeeded == true)
         assertTrue(latestLog.details.contains("不明なエラー"))
@@ -199,6 +201,107 @@ class RepositoryAndSyncTest {
         assertFalse(latestLog.details.contains(secondPassword))
         assertTrue(database.loanDao().observeForMember(first.id).first().isNotEmpty())
         assertTrue(database.loanDao().observeForMember(second.id).first().isEmpty())
+    }
+
+    @Test
+    fun `部分成功では成功メンバーだけ通知し失敗メンバーのキャッシュを残す`() = runBlocking {
+        val clock = fixedClock("2030-05-02T00:00:00Z")
+        val successfulMember = insertMember("成功", 0)
+        val failedMember = insertMember("失敗", 1)
+        val successfulPassword = generatedValue()
+        credentialStore.savePassword(successfulMember.id, successfulPassword)
+        val failedPassword = generatedValue()
+        credentialStore.savePassword(failedMember.id, failedPassword)
+
+        database.loanDao().insert(
+            loanEntity(failedMember.id, LocalDate.now(clock).plusDays(1)).copy(title = "失敗メンバーの貸出"),
+        )
+        database.reservationDao().insert(
+            reservationEntity(failedMember.id, ReservationState.READY).copy(
+                title = "失敗メンバーの予約",
+            ),
+        )
+
+        val sink = RecordingNotificationSink()
+        val notifier = NotificationService(
+            settingsStore(),
+            database.memberDao(),
+            database.loanDao(),
+            database.reservationDao(),
+            clock,
+            sink,
+        )
+        val gateway = FakeGateway { cardNumber, _ ->
+            if (cardNumber == failedMember.cardNumber) throw LibraryError.Auth(memberName = null)
+            userData(
+                memberId = -1,
+                dueDate = LocalDate.now(clock).plusDays(1),
+                reservationState = ReservationState.READY,
+            )
+        }
+        val repository = statusRepository(gateway, notifier, clock)
+
+        assertEquals(SyncResult.Completed(1, 1), repository.syncAll(SyncTrigger.MANUAL))
+        assertEquals(listOf(successfulMember.id), sink.returnPlans.single().itemsByMember.map { it.memberId })
+        assertEquals(1, sink.pickupPlans.single().items.size)
+        assertFalse(sink.pickupPlans.single().items.any { it.title == "失敗メンバーの予約" })
+
+        assertEquals(
+            "失敗メンバーの貸出",
+            database.loanDao().observeForMember(failedMember.id).first().single().title,
+        )
+        val failedReservation = database.reservationDao().observeForMember(failedMember.id).first().single()
+        assertEquals("失敗メンバーの予約", failedReservation.title)
+        assertNull(failedReservation.firstReadyNotifiedAt)
+        assertEquals(
+            clock.millis(),
+            database.reservationDao().observeForMember(successfulMember.id).first().single().firstReadyNotifiedAt,
+        )
+
+        val latestLog = repository.lastSync().first()!!
+        assertFalse(latestLog.succeeded == true)
+        assertTrue(latestLog.details.contains("認証エラー"))
+        assertFalse(latestLog.details.contains(successfulMember.cardNumber))
+        assertFalse(latestLog.details.contains(successfulPassword))
+        assertFalse(latestLog.details.contains(failedMember.cardNumber))
+        assertFalse(latestLog.details.contains(failedPassword))
+    }
+
+    @Test
+    fun `全メンバー失敗時は同期後通知を呼ばない`() = runBlocking {
+        val member = insertMember("認証失敗", 0)
+        credentialStore.savePassword(member.id, generatedValue())
+        val notifier = CountingNotifier()
+        val repository = statusRepository(
+            gateway = FakeGateway { _, _ -> throw LibraryError.Auth(memberName = null) },
+            notifier = notifier,
+            clock = fixedClock("2030-05-03T00:00:00Z"),
+        )
+
+        assertEquals(SyncResult.Completed(0, 1), repository.syncAll(SyncTrigger.MANUAL))
+        assertEquals(0, notifier.callCount)
+    }
+
+    @Test
+    fun `空の成功メンバー集合では通知候補もREADY通知時刻も変更しない`() = runBlocking {
+        val today = LocalDate.of(2030, 5, 4)
+        val member = insertMember("通知対象外", 0)
+        database.loanDao().insert(loanEntity(member.id, today.plusDays(1)))
+        database.reservationDao().insert(reservationEntity(member.id, ReservationState.READY))
+        val sink = RecordingNotificationSink()
+
+        NotificationService(
+            settingsStore(),
+            database.memberDao(),
+            database.loanDao(),
+            database.reservationDao(),
+            Clock.fixed(today.atStartOfDay().toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
+            sink,
+        ).notifyAfterSuccessfulSync(emptySet())
+
+        assertTrue(sink.returnPlans.isEmpty())
+        assertTrue(sink.pickupPlans.isEmpty())
+        assertNull(database.reservationDao().observeForMember(member.id).first().single().firstReadyNotifiedAt)
     }
 
     @Test
@@ -266,7 +369,7 @@ class RepositoryAndSyncTest {
             database.reservationDao(),
             Clock.fixed(today.atStartOfDay().toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
             sink,
-        ).notifyAfterSuccessfulSync()
+        ).notifyAfterSuccessfulSync(setOf(member.id))
         assertTrue(sink.returnPlans.isEmpty())
         assertTrue(sink.pickupPlans.isEmpty())
         assertNull(database.reservationDao().observeForMember(member.id).first().single().firstReadyNotifiedAt)
@@ -280,7 +383,7 @@ class RepositoryAndSyncTest {
             database.reservationDao(),
             Clock.fixed(today.atStartOfDay().toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
             rejectingSink,
-        ).notifyAfterSuccessfulSync()
+        ).notifyAfterSuccessfulSync(setOf(member.id))
         assertTrue(rejectingSink.pickupPlans.isNotEmpty())
         assertNull(database.reservationDao().observeForMember(member.id).first().single().firstReadyNotifiedAt)
     }
@@ -451,9 +554,11 @@ class RepositoryAndSyncTest {
 
     private class CountingNotifier : PostSyncNotifier {
         var callCount = 0
+        val successfulMemberIdSets = mutableListOf<Set<Long>>()
 
-        override suspend fun notifyAfterSuccessfulSync() {
+        override suspend fun notifyAfterSuccessfulSync(successfulMemberIds: Set<Long>) {
             callCount += 1
+            successfulMemberIdSets += successfulMemberIds
         }
     }
 

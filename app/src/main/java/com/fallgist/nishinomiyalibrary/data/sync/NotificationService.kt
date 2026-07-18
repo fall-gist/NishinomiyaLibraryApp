@@ -19,21 +19,27 @@ class NotificationService @Inject constructor(
     private val clock: Clock,
     private val sink: NotificationSink,
 ) : PostSyncNotifier {
-    override suspend fun notifyAfterSuccessfulSync() {
+    override suspend fun notifyAfterSuccessfulSync(successfulMemberIds: Set<Long>) {
+        if (successfulMemberIds.isEmpty()) return
+
         val settings = settingsStore.settings.first()
-        val memberNames = memberDao.getAll().associate { it.id to it.name }
+        val memberNames = memberDao.getAll()
+            .filter { it.id in successfulMemberIds }
+            .associate { it.id to it.name }
 
         if (settings.notifyReturnReminder) {
             val reminderPlan = NotificationPlanner.returnReminder(
                 today = java.time.LocalDate.now(clock),
-                loans = loanDao.getAll().map { loan ->
-                    LoanNotificationSource(
-                        memberId = loan.memberId,
-                        memberName = memberNames[loan.memberId] ?: "メンバー",
-                        title = loan.title,
-                        dueDate = loan.dueDate,
-                    )
-                },
+                loans = loanDao.getAll().asSequence()
+                    .filter { it.memberId in successfulMemberIds }
+                    .map { loan ->
+                        LoanNotificationSource(
+                            memberId = loan.memberId,
+                            memberName = memberNames[loan.memberId] ?: "メンバー",
+                            title = loan.title,
+                            dueDate = loan.dueDate,
+                        )
+                    }.toList(),
             )
             if (reminderPlan != null) {
                 postSafely { sink.postReturnReminder(reminderPlan) }
@@ -42,17 +48,19 @@ class NotificationService @Inject constructor(
 
         if (settings.notifyPickupReady) {
             val pickupPlan = NotificationPlanner.pickupReady(
-                reservationDao.getAll().map { reservation ->
-                    ReservationNotificationSource(
-                        reservationId = reservation.id,
-                        memberName = memberNames[reservation.memberId] ?: "メンバー",
-                        title = reservation.title,
-                        pickupLibrary = reservation.pickupLibrary,
-                        holdExpiryDate = reservation.holdExpiryDate,
-                        state = reservation.state,
-                        firstReadyNotifiedAt = reservation.firstReadyNotifiedAt,
-                    )
-                },
+                reservationDao.getAll().asSequence()
+                    .filter { it.memberId in successfulMemberIds }
+                    .map { reservation ->
+                        ReservationNotificationSource(
+                            reservationId = reservation.id,
+                            memberName = memberNames[reservation.memberId] ?: "メンバー",
+                            title = reservation.title,
+                            pickupLibrary = reservation.pickupLibrary,
+                            holdExpiryDate = reservation.holdExpiryDate,
+                            state = reservation.state,
+                            firstReadyNotifiedAt = reservation.firstReadyNotifiedAt,
+                        )
+                    }.toList(),
             )
             if (pickupPlan != null && postSafely { sink.postPickupReady(pickupPlan) }) {
                 reservationDao.markReadyNotified(

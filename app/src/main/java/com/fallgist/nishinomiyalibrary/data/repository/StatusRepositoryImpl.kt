@@ -98,9 +98,13 @@ class StatusRepositoryImpl @Inject constructor(
                 details = outcomes.toDetails(),
             ),
         )
-        if (result.isCompleteSuccess) {
+        val successfulMemberIds = outcomes.asSequence()
+            .filter { it.succeeded }
+            .map { it.memberId }
+            .toSet()
+        if (successfulMemberIds.isNotEmpty()) {
             try {
-                postSyncNotifier.notifyAfterSuccessfulSync()
+                postSyncNotifier.notifyAfterSuccessfulSync(successfulMemberIds)
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: Exception) {

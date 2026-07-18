@@ -4,6 +4,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.PageTokens
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -123,13 +124,16 @@ class LicsXpClientTest {
     @Test
     fun `利用者データ取得は認証後に3ページをトークン付きで順に読む`() = runBlocking {
         server.enqueue(html(fixture("login_form.html"), setCookie = true))
-        server.enqueue(html(fixture("after_login.html")))
+        server.enqueue(html("""
+            <html><body><form action="continue"></form>
+            <script>document.forms[0].submit()</script></body></html>
+        """.trimIndent()))
         server.enqueue(html(fixture("menu.html")))
         server.enqueue(html(fixture("usrlend.html")))
         server.enqueue(html(fixture("usrrsv.html")))
         server.enqueue(html(fixture("mybooklist.html")))
-        val cardNumber = (1..8).joinToString(separator = "")
-        val password = intArrayOf(112, 97, 115, 115).joinToString(separator = "") { it.toChar().toString() }
+        val cardNumber = generatedCardNumber()
+        val password = generatedPassword()
 
         val result = client().fetchUserData(cardNumber, password)
 
@@ -169,15 +173,48 @@ class LicsXpClientTest {
     @Test
     fun `ログインフォームの再表示はAuthに分類し認証情報を例外メッセージに含めない`() = runBlocking {
         server.enqueue(html(fixture("login_form.html")))
+        server.enqueue(html("<div id=\"stat-login\">認証成功風の中継本文</div>"))
         server.enqueue(html(fixture("login_form.html")))
-        val cardNumber = (1..8).joinToString(separator = "")
-        val password = charArrayOf('p', 'a', 's', 's').concatToString()
+        val cardNumber = generatedCardNumber()
+        val password = generatedPassword()
 
         val error = libraryError { client().fetchUserData(cardNumber, password) }
 
         assertTrue(error is LibraryError.Auth)
         assertFalse(error.message.orEmpty().contains(cardNumber))
         assertFalse(error.message.orEmpty().contains(password))
+    }
+
+    @Test
+    fun `認証POST本文は判定せずメニュー本文だけで成功失敗とメンテナンスを分類する`() = runBlocking {
+        val cardNumber = generatedCardNumber()
+        val password = generatedPassword()
+
+        server.enqueue(html(fixture("login_form.html")))
+        server.enqueue(html("<input name=\"j_password\" value=\"失敗風の中継本文\">"))
+        server.enqueue(html(fixture("menu.html").replace("id=\"stat-login\"", "id=\"legacy-login\"")))
+        server.enqueue(html(fixture("usrlend.html")))
+        server.enqueue(html(fixture("usrrsv.html")))
+        server.enqueue(html(fixture("mybooklist.html")))
+        assertEquals(12, client().fetchUserData(cardNumber, password).loans.size)
+
+        server.enqueue(html(fixture("login_form.html")))
+        server.enqueue(html("<html><body>システムメンテナンス中の中継本文</body></html>"))
+        server.enqueue(html("<input name=\"j_password\">"))
+        assertTrue(libraryError { client().fetchUserData(cardNumber, password) } is LibraryError.Auth)
+
+        server.enqueue(html(fixture("login_form.html")))
+        server.enqueue(html("<div id=\"stat-login\">成功風の中継本文</div>"))
+        server.enqueue(html("<html><body>未知のメニュー</body></html>"))
+        val parse = libraryError { client().fetchUserData(cardNumber, password) }
+        assertTrue(parse is LibraryError.Parse)
+        assertEquals("login", (parse as LibraryError.Parse).screen)
+
+        server.enqueue(html(fixture("login_form.html")))
+        server.enqueue(html("<html><body>中継本文</body></html>"))
+        server.enqueue(html("<html><body>システムメンテナンス中です</body></html>"))
+        assertTrue(libraryError { client().fetchUserData(cardNumber, password) } is LibraryError.Maintenance)
+        assertEquals(15, server.requestCount)
     }
 
     @Test
@@ -230,8 +267,8 @@ class LicsXpClientTest {
 
         gateway.autocomplete("愛")
         gateway.fetchUserData(
-            cardNumber = (1..8).joinToString(separator = ""),
-            password = charArrayOf('p', 'a', 's', 's').concatToString(),
+            cardNumber = generatedCardNumber(),
+            password = generatedPassword(),
         )
 
         assertEquals(List(6) { 500L }, waits)
@@ -291,4 +328,11 @@ class LicsXpClientTest {
 
     private fun fixture(name: String): String =
         requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
+
+    private fun generatedCardNumber(): String = UUID.randomUUID()
+        .toString()
+        .replace("-", "")
+        .take(8)
+
+    private fun generatedPassword(): String = UUID.randomUUID().toString()
 }

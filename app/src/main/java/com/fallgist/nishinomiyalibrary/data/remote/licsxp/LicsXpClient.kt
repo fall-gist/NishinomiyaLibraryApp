@@ -119,7 +119,7 @@ class LicsXpClient(
         )
         requireNotMaintenance(loginForm)
 
-        val afterLogin = userSession.post(
+        userSession.post(
             path = "j_security_check",
             query = mapOf("subSystemFlag" to "0"),
             form = FormBody.Builder()
@@ -127,13 +127,12 @@ class LicsXpClient(
                 .add("j_password", password)
                 .build(),
         )
-        classifyLoginResponse(afterLogin)
 
         val menu = userSession.get(
             path = "WOpacMnuTopInitAction.do",
             query = mapOf("WebLinkFlag" to "1"),
         )
-        requireNotMaintenance(menu)
+        classifyLoginMenu(menu)
         userSession.updateTokens(menu)
 
         val loansHtml = openUserPage(userSession, "usrlend")
@@ -166,19 +165,30 @@ class LicsXpClient(
             .add("gamenid", tokens.gamenId)
             .build()
 
-    private fun classifyLoginResponse(html: String) {
+    /**
+     * j_security_check は画面遷移用の中継HTMLを返すため、本文では認証状態を判定しない。
+     * 続くメニュー画面だけを認証結果の根拠にする。
+     */
+    private fun classifyLoginMenu(html: String) {
         val document = Jsoup.parse(html)
-        val hasLogoutLink = document.select("a").any { anchor ->
-            anchor.id().equals("logout", ignoreCase = true) ||
-                anchor.text().contains("ログアウト") ||
-                anchor.text().contains("logout", ignoreCase = true) ||
-                anchor.attr("class").contains("logout", ignoreCase = true) ||
-                anchor.attr("href").contains("logout", ignoreCase = true)
+        if (document.selectFirst("#stat-login") != null) return
+        val hasLogoutElement = document.select("a, [id], [class]").any { element ->
+            element.id().contains("logout", ignoreCase = true) ||
+                element.attr("class").contains("logout", ignoreCase = true) ||
+                (element.tagName() == "a" && (
+                    element.text().contains("ログアウト") ||
+                        element.text().contains("logout", ignoreCase = true) ||
+                        element.attr("href").contains("logout", ignoreCase = true)
+                    ))
         }
-        if (hasLogoutLink) return
-        if (document.selectFirst("input[name=j_password]") != null) throw LibraryError.Auth(memberName = null)
+        if (hasLogoutElement) {
+            return
+        }
+        if (document.selectFirst("input[name=j_password], input[name=j_username], form[action*=j_security_check]") != null) {
+            throw LibraryError.Auth(memberName = null)
+        }
         requireNotMaintenance(html)
-        throw ParseException("login", "ログイン後画面にログアウトリンクが見つかりません")
+        throw ParseException("login", "ログイン後メニューを判定できません")
     }
 
     private fun requireNotMaintenance(html: String) {
