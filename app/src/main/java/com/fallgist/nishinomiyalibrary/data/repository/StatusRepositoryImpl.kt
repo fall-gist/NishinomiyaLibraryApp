@@ -129,7 +129,8 @@ class StatusRepositoryImpl @Inject constructor(
                 memberId = memberId,
                 loans = userData.loans.map { it.toEntity(it.memberId) },
                 reservations = userData.reservations.map { it.toEntity(it.memberId) },
-                shelfItems = userData.shelf.map { it.toEntity(it.memberId) },
+                shelves = userData.shelves.map { it.toEntity(memberId) },
+                shelfItems = userData.shelfItems.map { it.toEntity(it.memberId) },
                 summary = userData.summary.toEntity(userData.summary.memberId),
             )
             MemberSyncOutcome(memberId, null)
@@ -144,7 +145,7 @@ class StatusRepositoryImpl @Inject constructor(
         summary = summary.copy(memberId = memberId),
         loans = loans.map { it.copy(memberId = memberId) },
         reservations = reservations.map { it.copy(memberId = memberId) },
-        shelf = shelf.map { it.copy(memberId = memberId) },
+        shelfItems = shelfItems.map { it.copy(memberId = memberId) },
     )
 
     private fun Exception.safeFailureType(): String = when (this) {

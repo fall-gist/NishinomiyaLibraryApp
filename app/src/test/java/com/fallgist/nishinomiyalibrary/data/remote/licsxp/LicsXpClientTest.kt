@@ -133,6 +133,10 @@ class LicsXpClientTest {
         server.enqueue(html(fixture("usrlend.html")))
         server.enqueue(html(fixture("usrrsv.html")))
         server.enqueue(html(fixture("mybooklist.html")))
+        server.enqueue(html(shelfPage(2, "高須にあるやつ", "shelf-hash-2")))
+        server.enqueue(html(shelfPage(3, "借りたことあるやつ", "shelf-hash-3")))
+        server.enqueue(html(shelfPage(4, "今度借りる", "shelf-hash-4")))
+        server.enqueue(html(shelfPage(5, "シリーズ本の借りた続き", "shelf-hash-5")))
         val cardNumber = generatedCardNumber()
         val password = generatedPassword()
 
@@ -144,7 +148,16 @@ class LicsXpClientTest {
         assertEquals(4, result.summary.cartCount)
         assertEquals(12, result.loans.size)
         assertEquals(19, result.reservations.size)
-        assertEquals(6, result.shelf.size)
+        assertEquals(listOf(1, 2, 3, 4, 5), result.shelves.map { it.no })
+        assertEquals(
+            listOf("借りるか悩み中", "高須にあるやつ", "借りたことあるやつ", "今度借りる", "シリーズ本の借りた続き"),
+            result.shelves.map { it.name },
+        )
+        assertEquals(30, result.shelfItems.size)
+        assertEquals(
+            result.shelves.associate { it.name to 6 },
+            result.shelfItems.groupBy { it.shelfName }.mapValues { it.value.size },
+        )
 
         val warmUp = takeRequest()
         assertEquals("GET", warmUp.method)
@@ -174,6 +187,10 @@ class LicsXpClientTest {
         assertUserPageRequest(takeRequest(), "usrlend", PageTokens("1249c619e529de0b66c5fb9d64dfb98392615089", "tiles.WUsrRsvList"))
         assertUserPageRequest(takeRequest(), "usrrsv", PageTokens("1249c619e529de0b66c5fb9d64dfb98392615089", "tiles.WUsrLendList"))
         assertUserPageRequest(takeRequest(), "mybooklist", PageTokens("1249c619e529de0b66c5fb9d64dfb98392615089", "tiles.WUsrRsvList"))
+        assertShelfSwitchRequest(takeRequest(), "1249c619e529de0b66c5fb9d64dfb98392615089", 2)
+        assertShelfSwitchRequest(takeRequest(), "shelf-hash-2", 3)
+        assertShelfSwitchRequest(takeRequest(), "shelf-hash-3", 4)
+        assertShelfSwitchRequest(takeRequest(), "shelf-hash-4", 5)
         assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
     }
 
@@ -205,6 +222,7 @@ class LicsXpClientTest {
         server.enqueue(html(fixture("usrlend.html")))
         server.enqueue(html(fixture("usrrsv.html")))
         server.enqueue(html(fixture("mybooklist.html")))
+        enqueueShelfSwitchPages()
         assertEquals(12, client().fetchUserData(cardNumber, password).loans.size)
 
         server.enqueue(html("<html><body>温めページ</body></html>"))
@@ -226,7 +244,7 @@ class LicsXpClientTest {
         server.enqueue(html("<html><body>中継本文</body></html>"))
         server.enqueue(html("<html><body>システムメンテナンス中です</body></html>"))
         assertTrue(libraryError { client().fetchUserData(cardNumber, password) } is LibraryError.Maintenance)
-        assertEquals(19, server.requestCount)
+        assertEquals(23, server.requestCount)
     }
 
     @Test
@@ -268,6 +286,7 @@ class LicsXpClientTest {
         server.enqueue(html(fixture("usrlend.html")))
         server.enqueue(html(fixture("usrrsv.html")))
         server.enqueue(html(fixture("mybooklist.html")))
+        enqueueShelfSwitchPages()
         val waits = mutableListOf<Long>()
         val gateway = LicsXpClient(
             LicsXpSession(
@@ -284,7 +303,7 @@ class LicsXpClientTest {
             password = generatedPassword(),
         )
 
-        assertEquals(List(7) { 500L }, waits)
+        assertEquals(List(11) { 500L }, waits)
     }
 
     private fun client(): LicsXpClient = LicsXpClient(
@@ -330,6 +349,38 @@ class LicsXpClientTest {
         assertEquals(tokens.hash, formValue(request, "hash"))
         assertEquals(tokens.gamenId, formValue(request, "gamenid"))
         assertTrue(request.getHeader("Cookie")!!.contains("JSESSIONID=fixture"))
+    }
+
+    private fun assertShelfSwitchRequest(
+        request: okhttp3.mockwebserver.RecordedRequest,
+        expectedHash: String,
+        shelfNo: Int,
+    ) {
+        assertEquals("POST", request.method)
+        assertEquals("/WOpacSdiBookListToOtherBookDispAction.do", request.requestUrl!!.encodedPath)
+        assertEquals("1", request.requestUrl!!.queryParameter("flg"))
+        assertEquals(expectedHash, formValue(request, "hash"))
+        assertEquals("tiles.WSdiBookList", formValue(request, "gamenid"))
+        assertEquals(shelfNo.toString(), formValue(request, "otherbook"))
+        assertEquals("", formValue(request, "tilcod"))
+        assertEquals("", formValue(request, "btnflg"))
+        assertTrue(request.getHeader("Cookie")!!.contains("JSESSIONID=fixture"))
+    }
+
+    private fun shelfPage(no: Int, name: String, hash: String): String = fixture("mybooklist.html")
+        .replace(
+            Regex("""(<form name="LBForm" method="post">[\s\S]*?<input type="hidden" name="hash" value=")[^"]+"""),
+        ) { match -> "${match.groupValues[1]}$hash" }
+        .replace("name=\"otherbook\" value='1'", "name=\"otherbook\" value='$no'")
+        .replace(Regex("""(<em class="huge"\s*>).*?(</em>)""")) { match ->
+            "${match.groupValues[1]}$name${match.groupValues[2]}"
+        }
+
+    private fun enqueueShelfSwitchPages() {
+        server.enqueue(html(shelfPage(2, "高須にあるやつ", "shelf-hash-2")))
+        server.enqueue(html(shelfPage(3, "借りたことあるやつ", "shelf-hash-3")))
+        server.enqueue(html(shelfPage(4, "今度借りる", "shelf-hash-4")))
+        server.enqueue(html(shelfPage(5, "シリーズ本の借りた続き", "shelf-hash-5")))
     }
 
     private suspend fun libraryError(block: suspend () -> Unit): LibraryError = try {

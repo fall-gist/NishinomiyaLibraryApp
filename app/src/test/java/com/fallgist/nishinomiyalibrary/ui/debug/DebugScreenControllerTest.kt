@@ -147,7 +147,7 @@ class DebugScreenControllerTest {
                 Reservation(10L, "予約資料", "図書", "北口図書館", LocalDate.of(2026, 7, 2), 3, ReservationState.READY, LocalDate.of(2026, 7, 30)),
             )
             shelves[10L] = MutableStateFlow(
-                listOf(ShelfItem(10L, "1234567890123", "本棚資料", "メモ", LocalDate.of(2026, 7, 3))),
+                listOf(ShelfItem(10L, "1234567890123", "本棚資料", "メモ", LocalDate.of(2026, 7, 3), 1, "確認用本棚")),
             )
             summaries.value = listOf(UserSummary(10L, 1, 1, 1, 0))
             lastSync.value = SyncLog(1L, 0L, 1L, SyncTrigger.MANUAL, true, "memberId=10:成功")
@@ -163,6 +163,7 @@ class DebugScreenControllerTest {
         assertTrue(rendered.contains("返却期限"))
         assertTrue(rendered.contains("取置期限"))
         assertTrue(rendered.contains("本棚資料"))
+        assertTrue(rendered.contains("本棚: 確認用本棚"))
         assertFalse(rendered.contains(card))
         assertFalse(rendered.contains(password))
         assertFalse(rendered.contains("memberId=10"))

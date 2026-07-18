@@ -7,6 +7,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SearchResultParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
@@ -141,12 +142,45 @@ class LicsXpClient(
         val loansHtml = openUserPage(userSession, "usrlend")
         val reservationsHtml = openUserPage(userSession, "usrrsv")
         val shelfHtml = openUserPage(userSession, "mybooklist")
+        val listedShelves = ShelfListParser.parse(shelfHtml)
+        val currentShelf = ShelfParser.parse(shelfHtml)
+        val listedCurrentShelf = listedShelves.firstOrNull { it.no == currentShelf.shelf.no }
+            ?: throw ParseException("shelf", "現在の本棚が一覧にありません")
+        if (listedCurrentShelf.name != currentShelf.shelf.name) {
+            throw ParseException("shelf", "現在の本棚名が一覧と一致しません")
+        }
+        val parsedShelves = mutableMapOf(currentShelf.shelf.no to currentShelf)
+        for (shelf in listedShelves) {
+            if (shelf.no == currentShelf.shelf.no) continue
+            val tokens = userSession.requireTokens()
+            val otherShelfHtml = userSession.post(
+                path = "WOpacSdiBookListToOtherBookDispAction.do",
+                query = mapOf("flg" to "1"),
+                form = FormBody.Builder()
+                    .add("hash", tokens.hash)
+                    .add("gamenid", "tiles.WSdiBookList")
+                    .add("otherbook", shelf.no.toString())
+                    .add("tilcod", "")
+                    .add("btnflg", "")
+                    .build(),
+            )
+            requireNotMaintenance(otherShelfHtml)
+            userSession.updateTokens(otherShelfHtml)
+            val parsedShelf = ShelfParser.parse(otherShelfHtml)
+            if (parsedShelf.shelf != shelf) {
+                throw ParseException("shelf", "切替後の本棚が要求した本棚と一致しません")
+            }
+            parsedShelves[shelf.no] = parsedShelf
+        }
 
         UserData(
             summary = SummaryParser.parse(loansHtml),
             loans = LoanListParser.parse(loansHtml),
             reservations = ReservationListParser.parse(reservationsHtml),
-            shelf = ShelfParser.parse(shelfHtml),
+            shelves = listedShelves,
+            shelfItems = listedShelves.flatMap { shelf ->
+                requireNotNull(parsedShelves[shelf.no]).items
+            },
         )
     }
 

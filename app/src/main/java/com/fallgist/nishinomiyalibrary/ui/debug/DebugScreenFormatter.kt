@@ -58,6 +58,7 @@ object DebugScreenFormatter {
                 shelvesByMember[member.id].orEmpty().map { item ->
                     buildString {
                         append(member.name)
+                        append("\n本棚: ").append(item.shelfName)
                         append('\n').append(item.title)
                         append("\n登録日: ").append(item.registeredDate)
                         if (item.memo.isNotBlank()) append("\nメモ: ").append(item.memo)

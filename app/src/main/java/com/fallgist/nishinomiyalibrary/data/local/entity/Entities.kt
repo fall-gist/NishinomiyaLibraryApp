@@ -49,10 +49,31 @@ data class ReservationEntity(
 
 @Entity(
     tableName = "shelf_items",
-    primaryKeys = ["memberId", "tilcod"],
+    primaryKeys = ["memberId", "shelfNo", "tilcod"],
 )
 data class ShelfItemEntity(
     val memberId: Long,
+    val shelfNo: Int,
+    val tilcod: String,
+    val title: String,
+    val memo: String,
+    val registeredDate: LocalDate,
+)
+
+@Entity(
+    tableName = "shelves",
+    primaryKeys = ["memberId", "shelfNo"],
+)
+data class ShelfEntity(
+    val memberId: Long,
+    val shelfNo: Int,
+    val name: String,
+)
+
+data class ShelfItemWithShelfName(
+    val memberId: Long,
+    val shelfNo: Int,
+    val shelfName: String,
     val tilcod: String,
     val title: String,
     val memo: String,

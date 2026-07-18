@@ -7,12 +7,20 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemWithShelfName
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ShelfItemDao {
-    @Query("SELECT * FROM shelf_items WHERE memberId = :memberId ORDER BY registeredDate DESC")
-    fun observeForMember(memberId: Long): Flow<List<ShelfItemEntity>>
+    @Query(
+        "SELECT shelf_items.memberId, shelf_items.shelfNo, shelves.name AS shelfName, " +
+            "shelf_items.tilcod, shelf_items.title, shelf_items.memo, shelf_items.registeredDate " +
+            "FROM shelf_items INNER JOIN shelves " +
+            "ON shelf_items.memberId = shelves.memberId AND shelf_items.shelfNo = shelves.shelfNo " +
+            "WHERE shelf_items.memberId = :memberId " +
+            "ORDER BY shelf_items.shelfNo, shelf_items.registeredDate DESC",
+    )
+    fun observeForMember(memberId: Long): Flow<List<ShelfItemWithShelfName>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(item: ShelfItemEntity)

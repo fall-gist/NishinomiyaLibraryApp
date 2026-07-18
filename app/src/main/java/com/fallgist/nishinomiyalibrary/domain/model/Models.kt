@@ -33,16 +33,24 @@ data class Reservation(
 
 enum class ReservationState { WAITING, READY, UNKNOWN }
 
+data class Shelf(
+    val no: Int,
+    val name: String,
+)
+
 data class ShelfItem(
     val memberId: Long,
     val tilcod: String,
     val title: String,
     val memo: String,
     val registeredDate: LocalDate,
+    val shelfNo: Int = 0,
+    val shelfName: String = "",
 )
 
 data class UserSummary(
     val memberId: Long,
+    /** 登録資料数ではなく、マイ本棚の本棚数。 */
     val shelfCount: Int,
     val loanCount: Int,
     val reservationCount: Int,

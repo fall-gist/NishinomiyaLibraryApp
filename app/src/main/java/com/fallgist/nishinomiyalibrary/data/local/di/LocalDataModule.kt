@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
 import com.fallgist.nishinomiyalibrary.data.local.AppDatabase
+import com.fallgist.nishinomiyalibrary.data.local.DatabaseMigrations
 import com.fallgist.nishinomiyalibrary.data.local.CredentialStore
 import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.local.dao.ClosedDayDao
@@ -30,7 +31,9 @@ object LocalDataModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
-        Room.databaseBuilder(context, AppDatabase::class.java, "nishinomiya_library.db").build()
+        Room.databaseBuilder(context, AppDatabase::class.java, "nishinomiya_library.db")
+            .addMigrations(DatabaseMigrations.MIGRATION_1_2)
+            .build()
 
     @Provides
     fun provideMemberDao(database: AppDatabase): MemberDao = database.memberDao()

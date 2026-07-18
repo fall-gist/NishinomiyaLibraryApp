@@ -138,21 +138,45 @@ class ParsersTest {
     @Test
     fun `本棚フィクスチャをパースできる`() {
         val result = ShelfParser.parse(fixture("mybooklist.html"))
-        assertEquals(6, result.size)
-        assertEquals(UNASSIGNED_MEMBER_ID, result.first().memberId)
-        assertEquals("1001000581719", result.first().tilcod)
-        assertEquals("見て考えたい", result.first().memo)
-        assertEquals(LocalDate.of(2021, 9, 2), result.first().registeredDate)
+        assertEquals(1, result.shelf.no)
+        assertEquals("借りるか悩み中", result.shelf.name)
+        assertEquals(6, result.items.size)
+        assertEquals(UNASSIGNED_MEMBER_ID, result.items.first().memberId)
+        assertEquals(1, result.items.first().shelfNo)
+        assertEquals("借りるか悩み中", result.items.first().shelfName)
+        assertEquals("1001000581719", result.items.first().tilcod)
+        assertEquals("見て考えたい", result.items.first().memo)
+        assertEquals(LocalDate.of(2021, 9, 2), result.items.first().registeredDate)
     }
 
     @Test
     fun `本棚の0件画面をパースできる`() {
-        assertTrue(ShelfParser.parse("<h1>マイ本棚</h1><table summary='リスト詳細'><tbody></tbody></table>").isEmpty())
+        val result = ShelfParser.parse(
+            "<h1>マイ本棚</h1><form name='LBForm'><input name='otherbook' value='1'></form>" +
+                "<table summary='本棚属性'><tbody><tr><td><em class='huge'>空の本棚</em></td></tr></tbody></table>" +
+                "<table summary='リスト詳細'><tbody></tbody></table>",
+        )
+        assertEquals("空の本棚", result.shelf.name)
+        assertTrue(result.items.isEmpty())
     }
 
     @Test
     fun `本棚の不正HTMLはParseExceptionになる`() = assertParseError("shelf") {
         ShelfParser.parse("<h1>マイ本棚</h1>")
+    }
+
+    @Test
+    fun `本棚一覧はコメント内のselectから順番どおりに取得する`() {
+        val html = fixture("mybooklist.html")
+        assertTrue(org.jsoup.Jsoup.parse(html).select("select[name=otherbook]").isEmpty())
+
+        val shelves = ShelfListParser.parse(html)
+
+        assertEquals(listOf(1, 2, 3, 4, 5), shelves.map { it.no })
+        assertEquals(
+            listOf("借りるか悩み中", "高須にあるやつ", "借りたことあるやつ", "今度借りる", "シリーズ本の借りた続き"),
+            shelves.map { it.name },
+        )
     }
 
     @Test

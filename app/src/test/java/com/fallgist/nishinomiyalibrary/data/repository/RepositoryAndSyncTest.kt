@@ -11,6 +11,7 @@ import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfEntity
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.UserData
@@ -33,6 +34,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
+import com.fallgist.nishinomiyalibrary.domain.model.Shelf
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncResult
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncTrigger
@@ -103,6 +105,7 @@ class RepositoryAndSyncTest {
 
         database.loanDao().insert(loanEntity(first.id, dueDate = LocalDate.of(2030, 5, 1)))
         database.reservationDao().insert(reservationEntity(first.id, ReservationState.WAITING))
+        database.shelfDao().insertAll(listOf(ShelfEntity(first.id, 1, "削除対象本棚")))
         database.shelfItemDao().insert(shelfItem(first.id))
         database.userSummaryDao().insert(summary(first.id))
         repository.removeMember(first.id)
@@ -112,6 +115,7 @@ class RepositoryAndSyncTest {
         assertTrue(database.loanDao().observeForMember(first.id).first().isEmpty())
         assertTrue(database.reservationDao().observeForMember(first.id).first().isEmpty())
         assertTrue(database.shelfItemDao().observeForMember(first.id).first().isEmpty())
+        assertTrue(database.shelfDao().observeForMember(first.id).first().isEmpty())
         assertNull(database.userSummaryDao().observeForMember(first.id).first())
     }
 
@@ -140,6 +144,7 @@ class RepositoryAndSyncTest {
 
         val result = repository.syncAll(SyncTrigger.MANUAL)
         assertEquals(SyncResult.Completed(1, 0), result)
+        assertEquals("本棚", repository.shelf(member.id).first().single().shelfName)
         assertEquals(1, sink.returnPlans.size)
         assertEquals(1, sink.pickupPlans.size)
         val storedLoan = database.loanDao().observeForMember(member.id).first().single()
@@ -507,7 +512,10 @@ class RepositoryAndSyncTest {
                 dueDate.plusDays(7),
             ),
         ),
-        shelf = listOf(ShelfItem(memberId, "TIL-1", "本棚資料", "メモ", dueDate.minusDays(10))),
+        shelves = listOf(Shelf(1, "本棚")),
+        shelfItems = listOf(
+            ShelfItem(memberId, "TIL-1", "本棚資料", "メモ", dueDate.minusDays(10), 1, "本棚"),
+        ),
     )
 
     private fun loanEntity(memberId: Long, dueDate: LocalDate): LoanEntity = LoanEntity(
@@ -534,6 +542,7 @@ class RepositoryAndSyncTest {
 
     private fun shelfItem(memberId: Long) = com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity(
         memberId,
+        1,
         "TIL-2",
         "本棚資料",
         "メモ",

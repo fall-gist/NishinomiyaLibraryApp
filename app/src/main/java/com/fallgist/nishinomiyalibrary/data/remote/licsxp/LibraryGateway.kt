@@ -4,6 +4,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
+import com.fallgist.nishinomiyalibrary.domain.model.Shelf
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
 import java.time.LocalDate
@@ -21,5 +22,6 @@ data class UserData(
     val summary: UserSummary,
     val loans: List<Loan>,
     val reservations: List<Reservation>,
-    val shelf: List<ShelfItem>,
+    val shelves: List<Shelf>,
+    val shelfItems: List<ShelfItem>,
 )

@@ -10,6 +10,7 @@ import com.fallgist.nishinomiyalibrary.data.local.dao.LoanDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfItemDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.SyncLogDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.UserSummaryDao
 import com.fallgist.nishinomiyalibrary.data.local.entity.ClosedDayEntity
@@ -17,6 +18,7 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.SyncLogEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.UserSummaryEntity
 import java.time.LocalDate
@@ -27,11 +29,12 @@ import java.time.LocalDate
         LoanEntity::class,
         ReservationEntity::class,
         ShelfItemEntity::class,
+        ShelfEntity::class,
         ClosedDayEntity::class,
         SyncLogEntity::class,
         UserSummaryEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 @TypeConverters(LocalDateConverters::class)
@@ -40,6 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun loanDao(): LoanDao
     abstract fun reservationDao(): ReservationDao
     abstract fun shelfItemDao(): ShelfItemDao
+    abstract fun shelfDao(): ShelfDao
     abstract fun closedDayDao(): ClosedDayDao
     abstract fun syncLogDao(): SyncLogDao
     abstract fun userSummaryDao(): UserSummaryDao
@@ -53,6 +57,7 @@ abstract class AppDatabase : RoomDatabase() {
         memberId: Long,
         loans: List<LoanEntity>,
         reservations: List<ReservationEntity>,
+        shelves: List<ShelfEntity>,
         shelfItems: List<ShelfItemEntity>,
         summary: UserSummaryEntity,
     ) {
@@ -60,6 +65,12 @@ abstract class AppDatabase : RoomDatabase() {
         require(reservations.all { it.memberId == memberId }) { "予約データのmemberIdが一致しません" }
         require(shelfItems.all { it.memberId == memberId }) { "本棚データのmemberIdが一致しません" }
         require(summary.memberId == memberId) { "サマリのmemberIdが一致しません" }
+
+        require(shelves.all { it.memberId == memberId }) { "本棚データのmemberIdが一致しません" }
+        require(shelves.map { it.shelfNo }.distinct().size == shelves.size) { "本棚番号が重複しています" }
+        require(shelfItems.all { item -> shelves.any { it.shelfNo == item.shelfNo } }) {
+            "本棚項目に対応する本棚がありません"
+        }
 
         withTransaction {
             val previousNotificationTimes = reservationDao()
@@ -83,10 +94,12 @@ abstract class AppDatabase : RoomDatabase() {
             loanDao().deleteForMember(memberId)
             reservationDao().deleteForMember(memberId)
             shelfItemDao().deleteForMember(memberId)
+            shelfDao().deleteForMember(memberId)
             userSummaryDao().deleteForMember(memberId)
 
             loanDao().insertAll(loans)
             reservationDao().insertAll(reservationsToInsert)
+            shelfDao().insertAll(shelves)
             shelfItemDao().insertAll(shelfItems)
             userSummaryDao().insert(summary)
         }
@@ -114,6 +127,7 @@ abstract class AppDatabase : RoomDatabase() {
             loanDao().deleteForMember(member.id)
             reservationDao().deleteForMember(member.id)
             shelfItemDao().deleteForMember(member.id)
+            shelfDao().deleteForMember(member.id)
             userSummaryDao().deleteForMember(member.id)
             memberDao().delete(member)
         }

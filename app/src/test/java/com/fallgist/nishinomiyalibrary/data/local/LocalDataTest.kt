@@ -9,6 +9,7 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.SyncLogEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.UserSummaryEntity
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
@@ -89,6 +90,7 @@ class LocalDataTest {
     fun `replaceMemberSnapshotは対象メンバーだけを全置換し予約通知時刻を順に保持する`() = runBlocking {
         val memberId = 20L
         database.loanDao().insert(loan(memberId, "削除対象", LocalDate.of(2030, 5, 1)))
+        database.shelfDao().insertAll(listOf(ShelfEntity(memberId, 1, "旧本棚")))
         database.shelfItemDao().insert(shelf(memberId, "old-item"))
         database.userSummaryDao().insert(summary(memberId, loanCount = 1))
         database.reservationDao().insert(reservation(memberId, "同一予約", firstReadyNotifiedAt = 101L))
@@ -104,6 +106,7 @@ class LocalDataTest {
                 reservation(memberId, "同一予約", state = ReservationState.WAITING),
                 reservation(memberId, "同一予約", state = ReservationState.READY),
             ),
+            shelves = listOf(ShelfEntity(memberId, 1, "新本棚")),
             shelfItems = listOf(shelf(memberId, "new-item")),
             summary = summary(memberId, loanCount = 2),
         )
@@ -128,6 +131,7 @@ class LocalDataTest {
                 memberId = 40L,
                 loans = listOf(loan(41L, "不一致", LocalDate.of(2030, 9, 1))),
                 reservations = emptyList(),
+                shelves = emptyList(),
                 shelfItems = emptyList(),
                 summary = summary(40L, loanCount = 0),
             )
@@ -150,6 +154,7 @@ class LocalDataTest {
         assertTrue(database.reservationDao().observeForMember(memberId).first().isEmpty())
 
         val item = shelf(memberId, "shelf-item")
+        database.shelfDao().insertAll(listOf(ShelfEntity(memberId, 1, "本棚")))
         database.shelfItemDao().insert(item)
         database.shelfItemDao().update(item.copy(memo = "更新メモ"))
         assertEquals("更新メモ", database.shelfItemDao().observeForMember(memberId).first().single().memo)
@@ -248,6 +253,53 @@ class LocalDataTest {
         scope.cancel()
     }
 
+    @Test
+    fun `本棚は同一資料を複数本棚に保持しJOIN名で読み出して同期時に全置換する`() = runBlocking {
+        val targetId = database.memberDao().insert(member("対象", 0))
+        val otherId = database.memberDao().insert(member("別メンバー", 1))
+        database.shelfDao().insertAll(
+            listOf(
+                ShelfEntity(targetId, 1, "旧本棚"),
+                ShelfEntity(otherId, 1, "別メンバー本棚"),
+            ),
+        )
+        database.shelfItemDao().insertAll(
+            listOf(
+                ShelfItemEntity(targetId, 1, "OLD", "旧資料", "", LocalDate.of(2030, 1, 1)),
+                ShelfItemEntity(otherId, 1, "KEEP", "別資料", "", LocalDate.of(2030, 1, 1)),
+            ),
+        )
+
+        database.replaceMemberSnapshot(
+            memberId = targetId,
+            loans = emptyList(),
+            reservations = emptyList(),
+            shelves = listOf(
+                ShelfEntity(targetId, 1, "一段目"),
+                ShelfEntity(targetId, 2, "二段目"),
+            ),
+            shelfItems = listOf(
+                ShelfItemEntity(targetId, 1, "SAME", "同じ資料", "", LocalDate.of(2030, 2, 1)),
+                ShelfItemEntity(targetId, 2, "SAME", "同じ資料", "", LocalDate.of(2030, 2, 1)),
+            ),
+            summary = summary(targetId, loanCount = 0).copy(shelfCount = 2),
+        )
+
+        val targetItems = database.shelfItemDao().observeForMember(targetId).first()
+        assertEquals(
+            listOf(1 to "一段目", 2 to "二段目"),
+            targetItems.map { it.shelfNo to it.shelfName },
+        )
+        assertEquals(listOf("SAME", "SAME"), targetItems.map { it.tilcod })
+        assertEquals(listOf("一段目", "二段目"), database.shelfDao().observeForMember(targetId).first().map { it.name })
+        assertEquals(listOf("KEEP"), database.shelfItemDao().observeForMember(otherId).first().map { it.tilcod })
+
+        database.deleteMemberAndLocalData(requireNotNull(database.memberDao().getById(targetId)))
+        assertTrue(database.shelfDao().observeForMember(targetId).first().isEmpty())
+        assertTrue(database.shelfItemDao().observeForMember(targetId).first().isEmpty())
+        assertEquals(listOf("KEEP"), database.shelfItemDao().observeForMember(otherId).first().map { it.tilcod })
+    }
+
     private fun member(name: String, sortOrder: Int): MemberEntity = MemberEntity(
         name = name,
         colorHex = "#123456",
@@ -289,6 +341,7 @@ class LocalDataTest {
 
     private fun shelf(memberId: Long, tilcod: String): ShelfItemEntity = ShelfItemEntity(
         memberId = memberId,
+        shelfNo = 1,
         tilcod = tilcod,
         title = "本棚資料",
         memo = "メモ",
