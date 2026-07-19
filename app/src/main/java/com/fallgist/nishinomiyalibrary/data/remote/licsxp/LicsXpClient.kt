@@ -207,11 +207,19 @@ class LicsXpClient(
     ): List<ReadingRecord> {
         var currentStartIndex = 0
         val visitedStartIndexes = mutableSetOf(currentStartIndex)
-        var pageHtml = openUserPage(
-            session,
-            "usrread",
-            mapOf("initFlag" to "0", "pagingMax" to USR_READ_PAGE_SIZE.toString()),
+        openUserPage(session, "usrread", mapOf("initFlag" to "0"))
+        // 表示件数はフォームの rowsPerPage 送信でしか変わらない(クエリの pagingMax は無視される)
+        val listTokens = session.requireTokens()
+        var pageHtml = session.post(
+            path = "WOpacUsrReadListAction.do",
+            form = FormBody.Builder()
+                .add("hash", listTokens.hash)
+                .add("gamenid", listTokens.gamenId)
+                .add("rowsPerPage", USR_READ_PAGE_SIZE.toString())
+                .build(),
         )
+        requireNotMaintenance(pageHtml)
+        session.updateTokens(pageHtml)
         val fetched = mutableListOf<ReadingRecord>()
 
         historyPages@ while (true) {
@@ -235,7 +243,6 @@ class LicsXpClient(
                     "isAsc" to "false",
                     "startIndex" to nextStartIndex.toString(),
                     "hash" to tokens.hash,
-                    "pagingMax" to USR_READ_PAGE_SIZE.toString(),
                 ),
             )
             requireNotMaintenance(pageHtml)

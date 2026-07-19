@@ -99,6 +99,18 @@ class ParsersTest {
     }
 
     @Test
+    fun `読書履歴の実サイトHTMLをパースできる`() {
+        val result = UsrReadListParser.parse(fixture("usrread_live.html"))
+
+        assertEquals(10, result.records.size)
+        assertTrue(result.records.all { it.tilcod.matches(Regex("\\d{13}")) })
+        assertTrue(result.records.first().title.contains("ナゾロリ"))
+        assertEquals(LocalDate.of(2026, 7, 18), result.records.first().loanDate)
+        assertEquals("高須分室", result.records.first().library)
+        assertEquals(10, result.nextStartIndex)
+    }
+
+    @Test
     fun `読書履歴の0件画面をパースできる`() {
         val result = UsrReadListParser.parse(
             "<h1>読書履歴</h1><table summary='読書履歴一覧表'><thead><tr>" +

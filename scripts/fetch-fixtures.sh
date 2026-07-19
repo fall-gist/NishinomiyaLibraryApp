@@ -71,8 +71,8 @@ for g in usrlend usrrsv mybooklist; do
     --data-urlencode "hash=$HASH" --data-urlencode "gamenid=$GAMEN"
 done
 
-echo "== 読書履歴（初回表示）"
-req POST "$BASE/WOpacMnuTopToPwdLibraryAction.do?gamen=usrread&initFlag=0" "$OUT/usrread.html" \
+echo "== 読書履歴（初回表示。usrread.htmlは合成フィクスチャのため別名で保存）"
+req POST "$BASE/WOpacMnuTopToPwdLibraryAction.do?gamen=usrread&initFlag=0" "$OUT/usrread_live.html" \
   --data-urlencode "hash=$HASH" --data-urlencode "gamenid=$GAMEN"
 
 echo "== 個人情報のマスキング(カード番号を同桁数の9に置換)"

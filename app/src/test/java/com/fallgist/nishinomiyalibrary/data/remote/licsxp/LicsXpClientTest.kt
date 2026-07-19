@@ -138,6 +138,7 @@ class LicsXpClientTest {
         server.enqueue(html(shelfPage(3, "借りたことあるやつ", "shelf-hash-3")))
         server.enqueue(html(shelfPage(4, "今度借りる", "shelf-hash-4")))
         server.enqueue(html(shelfPage(5, "シリーズ本の借りた続き", "shelf-hash-5")))
+        server.enqueue(html(usrReadPage(hash = "history-open", records = emptyList())))
         server.enqueue(html(emptyUsrReadPage()))
         val cardNumber = generatedCardNumber()
         val password = generatedPassword()
@@ -198,8 +199,14 @@ class LicsXpClientTest {
         assertEquals("/WOpacMnuTopToPwdLibraryAction.do", readOpen.requestUrl!!.encodedPath)
         assertEquals("usrread", readOpen.requestUrl!!.queryParameter("gamen"))
         assertEquals("0", readOpen.requestUrl!!.queryParameter("initFlag"))
-        assertEquals("100", readOpen.requestUrl!!.queryParameter("pagingMax"))
+        assertNull(readOpen.requestUrl!!.queryParameter("pagingMax"))
         assertEquals("shelf-hash-5", formValue(readOpen, "hash"))
+        val readList = takeRequest()
+        assertEquals("POST", readList.method)
+        assertEquals("/WOpacUsrReadListAction.do", readList.requestUrl!!.encodedPath)
+        assertEquals("history-open", formValue(readList, "hash"))
+        assertEquals("tiles.WUsrReadList", formValue(readList, "gamenid"))
+        assertEquals("100", formValue(readList, "rowsPerPage"))
         assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
     }
 
@@ -230,7 +237,13 @@ class LicsXpClientTest {
         assertEquals("POST", openRequest.method)
         assertEquals("usrread", openRequest.requestUrl!!.queryParameter("gamen"))
         assertEquals("0", openRequest.requestUrl!!.queryParameter("initFlag"))
-        assertEquals("100", openRequest.requestUrl!!.queryParameter("pagingMax"))
+        assertNull(openRequest.requestUrl!!.queryParameter("pagingMax"))
+        val listRequest = takeRequest()
+        assertEquals("POST", listRequest.method)
+        assertEquals("/WOpacUsrReadListAction.do", listRequest.requestUrl!!.encodedPath)
+        assertEquals("history-open", formValue(listRequest, "hash"))
+        assertEquals("tiles.WUsrReadList", formValue(listRequest, "gamenid"))
+        assertEquals("100", formValue(listRequest, "rowsPerPage"))
         val nextRequest = takeRequest()
         assertEquals("GET", nextRequest.method)
         assertEquals("/WOpacUsrReadListAction.do", nextRequest.requestUrl!!.encodedPath)
@@ -238,7 +251,7 @@ class LicsXpClientTest {
         assertEquals("false", nextRequest.requestUrl!!.queryParameter("isAsc"))
         assertEquals("20", nextRequest.requestUrl!!.queryParameter("startIndex"))
         assertEquals("history-hash-0", nextRequest.requestUrl!!.queryParameter("hash"))
-        assertEquals("100", nextRequest.requestUrl!!.queryParameter("pagingMax"))
+        assertNull(nextRequest.requestUrl!!.queryParameter("pagingMax"))
         assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
     }
 
@@ -265,7 +278,7 @@ class LicsXpClientTest {
         ).readingRecords
 
         assertEquals(listOf("1000000000021"), records.map { it.tilcod })
-        val requests = List(12) { takeRequest() }
+        val requests = List(13) { takeRequest() }
         assertTrue(requests.none { it.requestUrl!!.encodedPath.contains("Delete", ignoreCase = true) })
         assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
     }
@@ -299,6 +312,7 @@ class LicsXpClientTest {
         server.enqueue(html(fixture("usrrsv.html")))
         server.enqueue(html(fixture("mybooklist.html")))
         enqueueShelfSwitchPages()
+        server.enqueue(html(usrReadPage(hash = "history-open", records = emptyList())))
         server.enqueue(html(emptyUsrReadPage()))
         assertEquals(12, client().fetchUserData(cardNumber, password).loans.size)
 
@@ -364,6 +378,7 @@ class LicsXpClientTest {
         server.enqueue(html(fixture("usrrsv.html")))
         server.enqueue(html(fixture("mybooklist.html")))
         enqueueShelfSwitchPages()
+        server.enqueue(html(usrReadPage(hash = "history-open", records = emptyList())))
         server.enqueue(html(emptyUsrReadPage()))
         val waits = mutableListOf<Long>()
         val gateway = LicsXpClient(
@@ -381,7 +396,7 @@ class LicsXpClientTest {
             password = generatedPassword(),
         )
 
-        assertEquals(List(12) { 500L }, waits)
+        assertEquals(List(13) { 500L }, waits)
     }
 
     private fun client(): LicsXpClient = LicsXpClient(
@@ -470,6 +485,8 @@ class LicsXpClientTest {
         server.enqueue(html(fixture("usrrsv.html")))
         server.enqueue(html(fixture("mybooklist.html")))
         enqueueShelfSwitchPages()
+        // 読書履歴を開く応答(rowsPerPage送信用のトークン取得のみに使う)
+        server.enqueue(html(usrReadPage(hash = "history-open", records = emptyList())))
         usrReadPages.forEach { page -> server.enqueue(html(page)) }
     }
 
