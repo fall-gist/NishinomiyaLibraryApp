@@ -335,7 +335,8 @@ class LicsXpClientTest {
         server.enqueue(html("<html><body>中継本文</body></html>"))
         server.enqueue(html("<html><body>システムメンテナンス中です</body></html>"))
         assertTrue(libraryError { client().fetchUserData(cardNumber, password) } is LibraryError.Maintenance)
-        assertEquals(24, server.requestCount)
+        // 読書履歴の表示件数指定がPOST1回分増えたため、成功パス(1回目)のリクエスト数も+1。
+        assertEquals(25, server.requestCount)
     }
 
     @Test
