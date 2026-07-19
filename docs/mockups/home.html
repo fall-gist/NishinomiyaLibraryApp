@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>西宮市立図書館 トップ画面モック</title>
+<style>
+  :root{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2;
+    --papa:#3D6DB5; --mama:#C25278; --taro:#D98E2B; --hana:#5FA05A; --jiro:#8A64B8;
+    --chip-bg:#EFEAE0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+      --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+      --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 16px 64px; background:var(--paper); color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+    line-height:1.6;
+  }
+  .wrap{max-width:1060px; margin:0 auto; display:grid; grid-template-columns:400px 1fr; gap:40px; align-items:start;}
+  @media (max-width:860px){ .wrap{grid-template-columns:1fr} .notes{max-width:400px; margin:0 auto} }
+
+  .phone{
+    width:390px; margin:0 auto; background:var(--card); border:1px solid var(--line);
+    border-radius:28px; overflow:hidden; box-shadow:0 12px 40px rgba(40,30,10,.12);
+    display:flex; flex-direction:column; height:800px;
+  }
+  .screen{flex:1; overflow-y:auto; background:var(--paper);}
+
+  .appbar{padding:18px 18px 8px; display:flex; justify-content:space-between; align-items:flex-start;}
+  .appbar h1{margin:0; font-size:20px; letter-spacing:.02em;}
+  .appbar .sync{font-size:11px; color:var(--ink2); text-align:right; line-height:1.4;}
+  .appbar .sync .btn{
+    display:inline-block; margin-top:4px; padding:4px 12px; border:1px solid var(--line);
+    border-radius:999px; font-size:11px; color:var(--ink); background:var(--card); cursor:pointer;
+  }
+
+  .chips{display:flex; gap:8px; padding:8px 18px 14px; overflow-x:auto; scrollbar-width:none;}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{
+    flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:6px 13px;
+    border-radius:999px; background:var(--chip-bg); font-size:13px; color:var(--ink2); cursor:pointer;
+  }
+  .chip.on{background:var(--green); color:#fff;}
+  .dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto;}
+
+  section{padding:0 18px; margin-bottom:20px;}
+  .sec-h{display:flex; justify-content:space-between; align-items:baseline; margin:0 0 8px;}
+  .sec-h h2{margin:0; font-size:13px; letter-spacing:.08em; color:var(--ink2); font-weight:600;}
+  .sec-h .more{font-size:12px; color:var(--green); text-decoration:none;}
+
+  .ready{
+    background:var(--green-bg); border-radius:16px; padding:14px 16px;
+    border:1px solid color-mix(in srgb, var(--green) 30%, transparent);
+  }
+  .ready .tag{
+    display:inline-block; font-size:11px; font-weight:700; color:var(--green-ink);
+    letter-spacing:.06em; margin-bottom:6px;
+  }
+  .ready .title{font-size:15px; font-weight:600; margin:0 0 4px; line-height:1.45;}
+  .ready .meta{font-size:12px; color:var(--ink2); display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .ready .limit{color:var(--alert); font-weight:600;}
+
+  .duegroup{margin-bottom:4px;}
+  .duedate{
+    font-size:12px; font-weight:700; margin:12px 0 6px; display:flex; align-items:center; gap:8px;
+  }
+  .duedate.overdue{color:var(--alert);}
+  .duedate .count{font-weight:400; color:var(--ink2);}
+  .book{
+    display:flex; align-items:center; gap:10px; background:var(--card);
+    border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:6px;
+  }
+  .book .who{
+    display:flex; align-items:center; gap:5px; flex:0 0 auto; font-size:11px; color:var(--ink2);
+    min-width:44px;
+  }
+  .book .btitle{font-size:13.5px; line-height:1.45; flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;}
+  .book .lib{font-size:11px; color:var(--ink2); flex:0 0 auto;}
+  .book.overdue{border-color:color-mix(in srgb, var(--alert) 45%, transparent); background:var(--alert-bg);}
+  .fold{
+    display:flex; align-items:center; gap:8px; background:var(--card);
+    border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:6px;
+    font-size:13px; color:var(--ink2);
+  }
+
+  .openrow{
+    display:flex; align-items:center; justify-content:space-between; background:var(--card);
+    border:1px solid var(--line); border-radius:12px; padding:10px 14px; font-size:13px;
+  }
+  .openrow .st{color:var(--green); font-weight:700;}
+
+  .nav{
+    display:flex; border-top:1px solid var(--line); background:var(--card); padding:6px 4px 10px;
+  }
+  .nav a{
+    flex:1; text-align:center; font-size:10.5px; color:var(--ink2); text-decoration:none; padding-top:4px;
+  }
+  .nav a .ic{
+    display:block; width:44px; height:26px; margin:0 auto 2px; border-radius:999px;
+    line-height:26px; font-size:15px;
+  }
+  .nav a.on{color:var(--green-ink); font-weight:700;}
+  .nav a.on .ic{background:var(--green-bg);}
+
+  .notes h2{font-size:18px; margin:0 0 4px;}
+  .notes .lead{color:var(--ink2); font-size:14px; margin:0 0 20px;}
+  .note{
+    display:flex; gap:12px; padding:12px 0; border-top:1px solid var(--line); font-size:14px;
+  }
+  .note .no{
+    flex:0 0 24px; height:24px; border-radius:50%; background:var(--green); color:#fff;
+    font-size:12.5px; font-weight:700; text-align:center; line-height:24px;
+  }
+  .note b{display:block; margin-bottom:2px;}
+  .note p{margin:0; color:var(--ink2); font-size:13px;}
+  .marker{
+    display:inline-block; width:20px; height:20px; border-radius:50%; background:var(--green);
+    color:#fff; font-size:11px; font-weight:700; text-align:center; line-height:20px; vertical-align:middle;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="phone">
+    <div class="screen">
+
+      <div class="appbar">
+        <h1>西宮市立図書館 <span class="marker">1</span></h1>
+        <div class="sync">最終同期 きょう 18:05<br><span class="btn">↻ いますぐ同期</span> <span class="marker">2</span></div>
+      </div>
+
+      <div class="chips">
+        <span class="chip on">みんな</span>
+        <span class="chip"><span class="dot" style="background:var(--papa)"></span>パパ</span>
+        <span class="chip"><span class="dot" style="background:var(--mama)"></span>ママ</span>
+        <span class="chip"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+        <span class="chip"><span class="dot" style="background:var(--hana)"></span>はな</span>
+        <span class="chip"><span class="dot" style="background:var(--jiro)"></span>じろう</span>
+        <span class="marker" style="align-self:center">3</span>
+      </div>
+
+      <section>
+        <div class="sec-h"><h2>うけとれる予約 <span class="marker">4</span></h2><a class="more" href="#">予約ぜんぶ →</a></div>
+        <div class="ready">
+          <span class="tag">■ 高須分室 で受取可能</span>
+          <p class="title">クリシュナのつるぎ インドのむかしばなし</p>
+          <div class="meta">
+            <span class="who"><span class="dot" style="background:var(--taro)"></span> たろう</span>
+            <span class="limit">取置期限 7/23(木) まで</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="sec-h"><h2>返す本 <span class="marker">5</span></h2><a class="more" href="#">借りている本ぜんぶ →</a></div>
+
+        <div class="duegroup">
+          <div class="duedate overdue">⚠ 期限切れ <span class="count">1冊</span></div>
+          <div class="book overdue">
+            <span class="who"><span class="dot" style="background:var(--mama)"></span>ママ</span>
+            <span class="btitle">頭をつかう新習慣!ナゾときタイム 2</span>
+            <span class="lib">高須分室</span>
+          </div>
+        </div>
+
+        <div class="duegroup">
+          <div class="duedate">あす 7/19(日) <span class="count">3冊</span></div>
+          <div class="book">
+            <span class="who"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+            <span class="btitle">かいけつゾロリ大けっとう!ゾロリじょう</span>
+            <span class="lib">高須分室</span>
+          </div>
+          <div class="book">
+            <span class="who"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+            <span class="btitle">ドラゴンボール 巻1 孫悟空と仲間たち</span>
+            <span class="lib">高須分室</span>
+          </div>
+          <div class="book">
+            <span class="who"><span class="dot" style="background:var(--hana)"></span>はな</span>
+            <span class="btitle">いきもの必殺技図鑑</span>
+            <span class="lib">高須分室</span>
+          </div>
+        </div>
+
+        <div class="duegroup">
+          <div class="fold">▸ 7/30(木) 2冊 — たろう1冊・パパ1冊</div>
+        </div>
+
+        <div class="duegroup">
+          <div class="fold">▸ 8/1(土) 4冊 — ママ2冊・はな2冊</div>
+        </div>
+      </section>
+
+      <section>
+        <div class="sec-h"><h2>きょうの図書館 <span class="marker">6</span></h2></div>
+        <div class="openrow">
+          <span>高須分室</span>
+          <span class="st">開館中 10:00–18:00</span>
+        </div>
+      </section>
+
+      <div style="height:12px"></div>
+    </div>
+
+    <nav class="nav">
+      <a class="on" href="#"><span class="ic">🏠</span>ホーム</a>
+      <a href="#"><span class="ic">🔍</span>さがす</a>
+      <a href="#"><span class="ic">📚</span>本棚</a>
+      <a href="#"><span class="ic">📅</span>カレンダー</a>
+      <a href="#"><span class="ic">⚙️</span>設定</a>
+    </nav>
+  </div>
+
+  <div class="notes">
+    <h2>トップ画面(ホーム)の構成案</h2>
+    <p class="lead">「返し忘れ・受取忘れを開いた瞬間に防ぐ」を最優先に、緊急度の高い順に上から配置しています。データはすべて実際の同期結果から出せるものです。</p>
+
+    <div class="note"><span class="no">1</span><div><b>アプリ名+最終同期時刻</b><p>データの鮮度が常に見える位置に。同期が失敗しているときはここに赤で表示する想定。</p></div></div>
+    <div class="note"><span class="no">2</span><div><b>手動同期ボタン</b><p>プルリフレッシュも併用可。5分クールダウン中は押せない見た目にする。</p></div></div>
+    <div class="note"><span class="no">3</span><div><b>メンバーフィルタ</b><p>統合ビューが既定(「みんな」)。タップで1人に絞り込み。色は登録時に選んだ識別色で、以降すべての画面で共通。</p></div></div>
+    <div class="note"><span class="no">4</span><div><b>うけとれる予約(最上部)</b><p>取置期限があるため最優先枠。なければセクションごと非表示にして「返す本」が繰り上がる。</p></div></div>
+    <div class="note"><span class="no">5</span><div><b>返す本(期限日でグループ化)</b><p>期限切れ+7日以内は全冊を展開表示。8日以上先は日付ごとに折りたたみ(タップで展開)。表紙画像はホームでは出さない(決定済み)。</p></div></div>
+    <div class="note"><span class="no">6</span><div><b>きょうの図書館(1行だけ)</b><p>既定館(設定で変更可)の今日の開館状況のみ。詳細はカレンダータブへ。表示は既定館のみ。館は設定で変更可(決定済み)。</p></div></div>
+    <div class="note"><span class="no">→</span><div><b>下部タブ</b><p>ホーム/さがす(蔵書検索)/本棚(マイ本棚)/カレンダー/設定 の5タブ構成。</p></div></div>
+  </div>
+</div>
+</body>
+</html>
