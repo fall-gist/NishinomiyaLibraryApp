@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.text.InputType
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
@@ -47,6 +49,9 @@ open class MainActivity : Activity() {
     private lateinit var shelvesText: TextView
     private lateinit var summariesText: TextView
     private lateinit var lastSyncText: TextView
+    private lateinit var readingRecordsCountText: TextView
+    private lateinit var readingRecordsSearchInput: EditText
+    private lateinit var readingRecordsText: TextView
 
     private var registrationInProgress = false
 
@@ -73,6 +78,11 @@ open class MainActivity : Activity() {
                 shelvesText.text = state.display.shelfLines.toDisplayText(R.string.no_shelves)
                 summariesText.text = state.display.summaryLines.toDisplayText(R.string.no_summaries)
                 lastSyncText.text = state.display.lastSyncLine
+                readingRecordsCountText.text = formattedStringFor(
+                    R.string.reading_records_count,
+                    state.display.readingRecordCount,
+                )
+                readingRecordsText.text = state.display.readingRecordLines.toDisplayText(R.string.no_reading_records)
             }
         }
         uiScope.launch { controller.onScreenLaunched() }
@@ -111,6 +121,9 @@ open class MainActivity : Activity() {
         shelvesText = findViewById(R.id.shelves_text)
         summariesText = findViewById(R.id.summaries_text)
         lastSyncText = findViewById(R.id.last_sync_text)
+        readingRecordsCountText = findViewById(R.id.reading_records_count_text)
+        readingRecordsSearchInput = findViewById(R.id.reading_records_search_input)
+        readingRecordsText = findViewById(R.id.reading_records_text)
     }
 
     private fun bindActions() {
@@ -145,6 +158,15 @@ open class MainActivity : Activity() {
             uiScope.launch { controller.requestManualSync() }
         }
         notificationButton.setOnClickListener { requestNotificationPermissionFromUserAction() }
+        readingRecordsSearchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
+
+            override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) {
+                controller.updateReadingRecordSearch(text?.toString().orEmpty())
+            }
+
+            override fun afterTextChanged(editable: Editable?) = Unit
+        })
     }
 
     private fun currentRegistrationForm(): RegistrationForm = RegistrationForm(
@@ -202,6 +224,9 @@ open class MainActivity : Activity() {
 
     /** 構造テストでAndroidリソースを読まずに描画経路を検証するための境界。 */
     protected open fun stringFor(resourceId: Int): String = getString(resourceId)
+
+    /** 構造テストでも件数表示の描画経路を通すための文字列境界。 */
+    protected open fun formattedStringFor(resourceId: Int, value: Int): String = getString(resourceId, value)
 
     private companion object {
         const val NOTIFICATION_PERMISSION_REQUEST_CODE = 7001

@@ -1,6 +1,8 @@
 package com.fallgist.nishinomiyalibrary.domain.model
 
 import java.time.LocalDate
+import java.text.Normalizer
+import java.util.Locale
 
 data class Member(
     val id: Long,
@@ -18,6 +20,40 @@ data class Loan(
     val loanDate: LocalDate,
     val dueDate: LocalDate,
     val status: String,
+    /** 貸出一覧の書誌詳細リンクから取得するタイトルコード。旧データは空文字列。 */
+    val tilcod: String = "",
+)
+
+/**
+ * 読書記録の検索・保存で共通利用するタイトル正規化。
+ * Unicode NFKCにより全角英数を半角へ寄せ、空白と大文字小文字の差を吸収する。
+ */
+object ReadingRecordTitleNormalizer {
+    fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFKC)
+        .filterNot(Char::isWhitespace)
+        .lowercase(Locale.ROOT)
+}
+
+/** サイトの読書履歴、および同期時に併合する現在貸出の永続記録。 */
+data class ReadingRecord(
+    val memberId: Long,
+    val tilcod: String,
+    val title: String,
+    val loanDate: LocalDate,
+    val library: String,
+)
+
+/** 差分同期で既知判定に使う、メンバー内一意の履歴キー。 */
+data class ReadingRecordKey(
+    val tilcod: String,
+    val loanDate: LocalDate,
+)
+
+/** 書誌ごとの既読表示に必要な、個人を特定しない最小限の情報。 */
+data class ReadingInfo(
+    val memberId: Long,
+    val loanDate: LocalDate,
+    val library: String,
 )
 
 data class Reservation(

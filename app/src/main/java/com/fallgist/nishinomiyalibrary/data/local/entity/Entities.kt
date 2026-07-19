@@ -27,6 +27,45 @@ data class LoanEntity(
     val loanDate: LocalDate,
     val dueDate: LocalDate,
     val status: String,
+    /** 貸出一覧の書誌詳細リンクから取得するタイトルコード。旧データは空文字列。 */
+    val tilcod: String = "",
+)
+
+@Entity(
+    tableName = "reading_records",
+    primaryKeys = ["memberId", "tilcod", "loanDate"],
+    indices = [Index(value = ["memberId"]), Index(value = ["tilcod"]), Index(value = ["titleNormalized"])],
+)
+data class ReadingRecordEntity(
+    val memberId: Long,
+    val tilcod: String,
+    val title: String,
+    val loanDate: LocalDate,
+    val library: String,
+    val titleNormalized: String,
+)
+
+/** サイト読書履歴で確認済みの行だけを記録する、差分同期用チェックポイント。 */
+@Entity(
+    tableName = "reading_history_checkpoints",
+    primaryKeys = ["memberId", "tilcod", "loanDate"],
+    indices = [Index(value = ["memberId"])],
+)
+data class ReadingHistoryCheckpointEntity(
+    val memberId: Long,
+    val tilcod: String,
+    val loanDate: LocalDate,
+)
+
+data class ReadingRecordKeyProjection(
+    val tilcod: String,
+    val loanDate: LocalDate,
+)
+
+data class ReadingInfoProjection(
+    val memberId: Long,
+    val loanDate: LocalDate,
+    val library: String,
 )
 
 @Entity(

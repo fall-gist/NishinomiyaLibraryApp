@@ -9,8 +9,11 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SearchResultPar
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.UsrReadListParser
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
 import java.time.LocalDate
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -23,6 +26,10 @@ class LicsXpClient(
     private val session: LicsXpSession = LicsXpSession(),
 ) : LibraryGateway {
     private val json = Json { ignoreUnknownKeys = true }
+
+    /** 既存の具体クライアント呼出しとの互換用。 */
+    suspend fun fetchUserData(cardNumber: String, password: String): UserData =
+        fetchUserData(cardNumber, password, emptySet())
 
     override suspend fun search(keyword: String, page: Int): SearchPage = mapErrors {
         require(page >= 1) { "page は1以上で指定してください" }
@@ -111,7 +118,11 @@ class LicsXpClient(
         CalendarParser.parse(html)
     }
 
-    override suspend fun fetchUserData(cardNumber: String, password: String): UserData = mapErrors {
+    override suspend fun fetchUserData(
+        cardNumber: String,
+        password: String,
+        knownReadingRecordKeys: Set<ReadingRecordKey>,
+    ): UserData = mapErrors {
         // 認証Cookieを公開検索などのセッションと共有しない。
         val userSession = session.newIsolatedSession()
         // 通常ページへのアクセスで、分離セッションのJSESSIONIDを有効化する。
@@ -172,6 +183,7 @@ class LicsXpClient(
             }
             parsedShelves[shelf.no] = parsedShelf
         }
+        val readingRecords = fetchReadingRecords(userSession, knownReadingRecordKeys)
 
         UserData(
             summary = SummaryParser.parse(loansHtml),
@@ -181,14 +193,70 @@ class LicsXpClient(
             shelfItems = listedShelves.flatMap { shelf ->
                 requireNotNull(parsedShelves[shelf.no]).items
             },
+            readingRecords = readingRecords,
         )
     }
 
-    private suspend fun openUserPage(session: LicsXpSession, gamen: String): String {
+    /**
+     * 新しい履歴だけを返す。既知キーなしの初回は最終ページまで取得し、
+     * 既知キーありの差分同期では先頭から既知行を検出した時点で停止する。
+     */
+    private suspend fun fetchReadingRecords(
+        session: LicsXpSession,
+        knownKeys: Set<ReadingRecordKey>,
+    ): List<ReadingRecord> {
+        var currentStartIndex = 0
+        val visitedStartIndexes = mutableSetOf(currentStartIndex)
+        var pageHtml = openUserPage(
+            session,
+            "usrread",
+            mapOf("initFlag" to "0", "pagingMax" to USR_READ_PAGE_SIZE.toString()),
+        )
+        val fetched = mutableListOf<ReadingRecord>()
+
+        historyPages@ while (true) {
+            val page = UsrReadListParser.parse(pageHtml, currentStartIndex)
+            for (record in page.records) {
+                if (knownKeys.isNotEmpty() && ReadingRecordKey(record.tilcod, record.loanDate) in knownKeys) {
+                    // 新しい順の一覧では、ここより後ろは既知領域として扱う。
+                    break@historyPages
+                }
+                fetched += record
+            }
+            val nextStartIndex = page.nextStartIndex ?: break
+            // サイトの異常なページリンクで同じページを周回しない。
+            if (!visitedStartIndexes.add(nextStartIndex)) break
+
+            val tokens = session.requireTokens()
+            pageHtml = session.get(
+                path = "WOpacUsrReadListAction.do",
+                query = mapOf(
+                    "sortKey" to "KASYMD",
+                    "isAsc" to "false",
+                    "startIndex" to nextStartIndex.toString(),
+                    "hash" to tokens.hash,
+                    "pagingMax" to USR_READ_PAGE_SIZE.toString(),
+                ),
+            )
+            requireNotMaintenance(pageHtml)
+            session.updateTokens(pageHtml)
+            currentStartIndex = nextStartIndex
+        }
+        return fetched
+            .asSequence()
+            .distinctBy { record -> ReadingRecordKey(record.tilcod, record.loanDate) }
+            .toList()
+    }
+
+    private suspend fun openUserPage(
+        session: LicsXpSession,
+        gamen: String,
+        additionalQuery: Map<String, String> = emptyMap(),
+    ): String {
         val tokens = session.requireTokens()
         val html = session.post(
             path = "WOpacMnuTopToPwdLibraryAction.do",
-            query = mapOf("gamen" to gamen),
+            query = mapOf("gamen" to gamen) + additionalQuery,
             form = tokenForm(tokens),
         )
         requireNotMaintenance(html)
@@ -268,6 +336,7 @@ class LicsXpClient(
     private companion object {
         const val CARD_NUMBER_PREFIX_LENGTH = 16
         const val SEARCH_PAGE_SIZE = 20
+        const val USR_READ_PAGE_SIZE = 100
         val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")
     }
 }

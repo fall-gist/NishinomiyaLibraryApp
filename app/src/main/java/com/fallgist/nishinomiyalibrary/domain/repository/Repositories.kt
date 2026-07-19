@@ -6,6 +6,8 @@ import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
@@ -56,6 +58,15 @@ interface CalendarRepository {
     suspend fun refreshClosedDays(libraryCode: String)
 
     val libraries: List<Library>
+}
+
+/** 読書履歴をローカル永続層から提供する公開API。 */
+interface ReadingRecordRepository {
+    fun records(memberId: Long? = null): Flow<List<ReadingRecord>>
+
+    fun search(query: String, memberId: Long? = null): Flow<List<ReadingRecord>>
+
+    fun hasRead(tilcod: String): Flow<List<ReadingInfo>>
 }
 
 enum class SyncTrigger { MANUAL, SCHEDULED }

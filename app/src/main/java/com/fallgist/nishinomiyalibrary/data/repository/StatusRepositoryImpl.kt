@@ -5,9 +5,11 @@ import com.fallgist.nishinomiyalibrary.data.local.CredentialStore
 import com.fallgist.nishinomiyalibrary.data.local.dao.LoanDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.ReadingRecordDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfItemDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.SyncLogDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.UserSummaryDao
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingHistoryCheckpointEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.SyncLogEntity
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryGateway
@@ -15,6 +17,8 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.UserData
 import com.fallgist.nishinomiyalibrary.data.sync.PostSyncNotifier
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
@@ -43,6 +47,7 @@ class StatusRepositoryImpl @Inject constructor(
     private val gateway: LibraryGateway,
     private val postSyncNotifier: PostSyncNotifier,
     private val clock: Clock,
+    private val readingRecordDao: ReadingRecordDao = database.readingRecordDao(),
 ) : StatusRepository {
     private val syncMutex = Mutex()
 
@@ -124,7 +129,34 @@ class StatusRepositoryImpl @Inject constructor(
         } ?: return MemberSyncOutcome(memberId, "資格情報未設定")
 
         return try {
-            val userData = gateway.fetchUserData(cardNumber, password).withMemberId(memberId)
+            val knownReadingRecordKeys = readingRecordDao.getHistoryCheckpointKeys(memberId)
+                .map { key -> ReadingRecordKey(key.tilcod, key.loanDate) }
+                .toSet()
+            val userData = gateway.fetchUserData(cardNumber, password, knownReadingRecordKeys).withMemberId(memberId)
+            val currentLoansAsReadingRecords = userData.loans
+                .asSequence()
+                .filter { loan -> loan.tilcod.isNotBlank() }
+                .map { loan ->
+                    ReadingRecord(
+                        memberId = memberId,
+                        tilcod = loan.tilcod,
+                        title = loan.title,
+                        loanDate = loan.loanDate,
+                        library = loan.lendingLibrary,
+                    )
+                }
+                .toList()
+            val recordsToUpsert = (userData.readingRecords + currentLoansAsReadingRecords)
+                .distinctBy { record -> ReadingRecordKey(record.tilcod, record.loanDate) }
+            val historyCheckpoints = userData.readingRecords
+                .distinctBy { record -> ReadingRecordKey(record.tilcod, record.loanDate) }
+                .map { record ->
+                    ReadingHistoryCheckpointEntity(
+                        memberId = record.memberId,
+                        tilcod = record.tilcod,
+                        loanDate = record.loanDate,
+                    )
+                }
             database.replaceMemberSnapshot(
                 memberId = memberId,
                 loans = userData.loans.map { it.toEntity(it.memberId) },
@@ -132,6 +164,8 @@ class StatusRepositoryImpl @Inject constructor(
                 shelves = userData.shelves.map { it.toEntity(memberId) },
                 shelfItems = userData.shelfItems.map { it.toEntity(it.memberId) },
                 summary = userData.summary.toEntity(userData.summary.memberId),
+                readingRecords = recordsToUpsert.map { it.toEntity() },
+                readingHistoryCheckpoints = historyCheckpoints,
             )
             MemberSyncOutcome(memberId, null)
         } catch (exception: CancellationException) {
@@ -146,6 +180,7 @@ class StatusRepositoryImpl @Inject constructor(
         loans = loans.map { it.copy(memberId = memberId) },
         reservations = reservations.map { it.copy(memberId = memberId) },
         shelfItems = shelfItems.map { it.copy(memberId = memberId) },
+        readingRecords = readingRecords.map { it.copy(memberId = memberId) },
     )
 
     private fun Exception.safeFailureType(): String = when (this) {

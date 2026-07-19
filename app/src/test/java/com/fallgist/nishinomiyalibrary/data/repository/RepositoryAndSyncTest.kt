@@ -11,6 +11,8 @@ import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingHistoryCheckpointEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingRecordEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfEntity
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryGateway
@@ -31,6 +33,9 @@ import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.Holding
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordTitleNormalizer
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
@@ -108,6 +113,12 @@ class RepositoryAndSyncTest {
         database.shelfDao().insertAll(listOf(ShelfEntity(first.id, 1, "削除対象本棚")))
         database.shelfItemDao().insert(shelfItem(first.id))
         database.userSummaryDao().insert(summary(first.id))
+        database.readingRecordDao().upsertAll(
+            listOf(readingRecordEntity(first.id, "1000000000001", "削除対象の読書記録", LocalDate.of(2030, 5, 1))),
+        )
+        database.readingRecordDao().upsertHistoryCheckpoints(
+            listOf(ReadingHistoryCheckpointEntity(first.id, "1000000000001", LocalDate.of(2030, 5, 1))),
+        )
         repository.removeMember(first.id)
 
         assertNull(credentialStore.getPassword(first.id))
@@ -117,6 +128,85 @@ class RepositoryAndSyncTest {
         assertTrue(database.shelfItemDao().observeForMember(first.id).first().isEmpty())
         assertTrue(database.shelfDao().observeForMember(first.id).first().isEmpty())
         assertNull(database.userSummaryDao().observeForMember(first.id).first())
+        assertTrue(database.readingRecordDao().observeForMember(first.id).first().isEmpty())
+        assertTrue(database.readingRecordDao().getHistoryCheckpointKeys(first.id).isEmpty())
+    }
+
+    @Test
+    fun `読書記録Repositoryは正規化検索とメンバー絞り込みと既読情報を公開する`() = runBlocking {
+        val repository = ReadingRecordRepositoryImpl(database.readingRecordDao())
+        database.readingRecordDao().upsertAll(
+            listOf(
+                readingRecordEntity(1L, "1000000000101", "ＡＢＣ　著者", LocalDate.of(2030, 3, 2)),
+                readingRecordEntity(2L, "1000000000101", "ABC 著者", LocalDate.of(2030, 3, 3), "北口図書館"),
+                readingRecordEntity(1L, "1000000000102", "別資料", LocalDate.of(2030, 3, 1)),
+            ),
+        )
+
+        assertEquals(
+            listOf("1000000000101"),
+            repository.search("ａｂｃ 著者", memberId = 1L).first().map { it.tilcod },
+        )
+        assertEquals(listOf(2L, 1L), repository.records().first().map { it.memberId }.take(2))
+        assertEquals(
+            listOf("北口図書館", "中央図書館"),
+            repository.hasRead("1000000000101").first().map { it.library },
+        )
+    }
+
+    @Test
+    fun `現在貸出だけでは履歴チェックポイントを作らずサイト履歴だけを次回既知キーにする`() = runBlocking {
+        val clock = fixedClock("2030-05-03T00:00:00Z")
+        val member = insertMember("読書記録対象", 0)
+        credentialStore.savePassword(member.id, generatedValue())
+        var responseIndex = 0
+        val historyRecord = ReadingRecord(
+            memberId = -1,
+            tilcod = "1000000000200",
+            title = "後から取得した履歴",
+            loanDate = LocalDate.of(2030, 4, 1),
+            library = "中央図書館",
+        )
+        val gateway = FakeGateway { _, _ ->
+            when (responseIndex++) {
+                0 -> userData(
+                    memberId = -1,
+                    dueDate = LocalDate.of(2030, 5, 10),
+                    loanTilcod = "1000000000201",
+                )
+
+                1 -> userData(memberId = -1, readingRecords = listOf(historyRecord))
+                else -> userData(memberId = -1)
+            }
+        }
+        val repository = statusRepository(gateway, CountingNotifier(), clock)
+
+        assertEquals(SyncResult.Completed(1, 0), repository.syncAll(SyncTrigger.MANUAL))
+        assertEquals(emptySet<ReadingRecordKey>(), gateway.knownReadingRecordKeys[0])
+        assertTrue(database.readingRecordDao().getHistoryCheckpointKeys(member.id).isEmpty())
+        assertEquals(
+            listOf("1000000000201"),
+            database.readingRecordDao().observeForMember(member.id).first().map { it.tilcod },
+        )
+
+        assertEquals(SyncResult.Completed(1, 0), repository.syncAll(SyncTrigger.SCHEDULED))
+        assertEquals(emptySet<ReadingRecordKey>(), gateway.knownReadingRecordKeys[1])
+        assertEquals(
+            setOf(ReadingRecordKey("1000000000200", LocalDate.of(2030, 4, 1))),
+            database.readingRecordDao().getHistoryCheckpointKeys(member.id)
+                .map { ReadingRecordKey(it.tilcod, it.loanDate) }
+                .toSet(),
+        )
+
+        assertEquals(SyncResult.Completed(1, 0), repository.syncAll(SyncTrigger.SCHEDULED))
+        assertEquals(
+            setOf(ReadingRecordKey("1000000000200", LocalDate.of(2030, 4, 1))),
+            gateway.knownReadingRecordKeys[2],
+        )
+        assertEquals(
+            listOf("1000000000201", "1000000000200"),
+            database.readingRecordDao().observeForMember(member.id).first().map { it.tilcod },
+        )
     }
 
     @Test
@@ -495,10 +585,12 @@ class RepositoryAndSyncTest {
         memberId: Long = -1,
         dueDate: LocalDate = LocalDate.of(2030, 1, 2),
         reservationState: ReservationState = ReservationState.WAITING,
+        loanTilcod: String = "",
+        readingRecords: List<ReadingRecord> = emptyList(),
     ): UserData = UserData(
         summary = UserSummary(memberId, 1, 1, 1, 0),
         loans = listOf(
-            Loan(memberId, "貸出資料", "図書", "中央図書館", dueDate.minusDays(7), dueDate, "貸出中"),
+            Loan(memberId, "貸出資料", "図書", "中央図書館", dueDate.minusDays(7), dueDate, "貸出中", loanTilcod),
         ),
         reservations = listOf(
             Reservation(
@@ -516,6 +608,7 @@ class RepositoryAndSyncTest {
         shelfItems = listOf(
             ShelfItem(memberId, "TIL-1", "本棚資料", "メモ", dueDate.minusDays(10), 1, "本棚"),
         ),
+        readingRecords = readingRecords,
     )
 
     private fun loanEntity(memberId: Long, dueDate: LocalDate): LoanEntity = LoanEntity(
@@ -526,6 +619,21 @@ class RepositoryAndSyncTest {
         loanDate = dueDate.minusDays(7),
         dueDate = dueDate,
         status = "貸出中",
+    )
+
+    private fun readingRecordEntity(
+        memberId: Long,
+        tilcod: String,
+        title: String,
+        loanDate: LocalDate,
+        library: String = "中央図書館",
+    ): ReadingRecordEntity = ReadingRecordEntity(
+        memberId = memberId,
+        tilcod = tilcod,
+        title = title,
+        loanDate = loanDate,
+        library = library,
+        titleNormalized = ReadingRecordTitleNormalizer.normalize(title),
     )
 
     private fun reservationEntity(memberId: Long, state: ReservationState): ReservationEntity = ReservationEntity(
@@ -592,6 +700,7 @@ class RepositoryAndSyncTest {
         private val fetchUserDataBlock: suspend (String, String) -> UserData,
     ) : LibraryGateway {
         val fetchedCardNumbers = mutableListOf<String>()
+        val knownReadingRecordKeys = mutableListOf<Set<ReadingRecordKey>>()
         val closedDayRequests = mutableListOf<String>()
         var closedDaysResult: List<LocalDate> = emptyList()
         var searchResult: SearchPage = SearchPage(emptyList(), 0, false)
@@ -617,8 +726,13 @@ class RepositoryAndSyncTest {
             return closedDaysResult
         }
 
-        override suspend fun fetchUserData(cardNumber: String, password: String): UserData {
+        override suspend fun fetchUserData(
+            cardNumber: String,
+            password: String,
+            knownReadingRecordKeys: Set<ReadingRecordKey>,
+        ): UserData {
             fetchedCardNumbers += cardNumber
+            this.knownReadingRecordKeys += knownReadingRecordKeys
             return fetchUserDataBlock(cardNumber, password)
         }
     }

@@ -28,4 +28,8 @@
     <string name="no_reservations">予約はありません</string>
     <string name="no_shelves">本棚はありません</string>
     <string name="no_summaries">サマリはありません</string>
+    <string name="reading_records_heading">読書記録</string>
+    <string name="reading_records_count">読書記録: %1$d件</string>
+    <string name="reading_records_search_hint">書名・著者を検索</string>
+    <string name="no_reading_records">読書記録はありません</string>
 </resources>

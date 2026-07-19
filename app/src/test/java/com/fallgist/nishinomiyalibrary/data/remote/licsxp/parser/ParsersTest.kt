@@ -83,6 +83,34 @@ class ParsersTest {
         assertEquals(LocalDate.of(2026, 7, 4), result.first().loanDate)
         assertEquals(LocalDate.of(2026, 7, 18), result.first().dueDate)
         assertEquals("貸出中", result.first().status)
+        assertEquals("1000000817183", result.first().tilcod)
+    }
+
+    @Test
+    fun `読書履歴フィクスチャは閉じtrの欠落とページングを許容する`() {
+        val result = UsrReadListParser.parse(fixture("usrread.html"))
+
+        assertEquals(2, result.records.size)
+        assertEquals("1000000000001", result.records.first().tilcod)
+        assertEquals("全角ＡＢＣ 著者", result.records.first().title)
+        assertEquals(LocalDate.of(2026, 7, 18), result.records.first().loanDate)
+        assertEquals("中央図書館", result.records.first().library)
+        assertEquals(20, result.nextStartIndex)
+    }
+
+    @Test
+    fun `読書履歴の0件画面をパースできる`() {
+        val result = UsrReadListParser.parse(
+            "<h1>読書履歴</h1><table summary='読書履歴一覧表'><thead><tr>" +
+                "<th>No</th><th>書誌情報</th><th>貸出日</th><th>貸出館</th></tr></thead><tbody></tbody></table>",
+        )
+        assertTrue(result.records.isEmpty())
+        assertEquals(null, result.nextStartIndex)
+    }
+
+    @Test
+    fun `読書履歴の不正HTMLはParseExceptionになる`() = assertParseError("usr_read_list") {
+        UsrReadListParser.parse("<h1>読書履歴</h1>")
     }
 
     @Test

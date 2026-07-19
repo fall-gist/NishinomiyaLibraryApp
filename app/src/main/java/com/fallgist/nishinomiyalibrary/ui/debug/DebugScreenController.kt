@@ -3,6 +3,7 @@ package com.fallgist.nishinomiyalibrary.ui.debug
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncResult
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncTrigger
@@ -58,6 +59,7 @@ sealed interface ManualSyncAction {
 class DebugScreenController(
     private val familyRepository: FamilyRepository,
     private val statusRepository: StatusRepository,
+    private val readingRecordRepository: ReadingRecordRepository,
     private val scheduleStarter: SyncScheduleStarter,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
@@ -69,6 +71,7 @@ class DebugScreenController(
     private val launchMutex = Mutex()
     private var scheduleCompleted = false
     private val observationJob: Job
+    private val readingRecordSearchQuery = MutableStateFlow("")
 
     init {
         observationJob = scope.launch {
@@ -137,6 +140,11 @@ class DebugScreenController(
         }
     }
 
+    /** 検索欄の入力を正規化前のまま受け取り、Repositoryの検索Flowへ接続する。 */
+    fun updateReadingRecordSearch(query: String) {
+        readingRecordSearchQuery.value = query
+    }
+
     fun close() {
         observationJob.cancel()
         scope.coroutineContext[Job]?.cancel()
@@ -144,7 +152,7 @@ class DebugScreenController(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeDisplay(): Flow<DebugScreenDisplay> = familyRepository.members().flatMapLatest { members ->
-        combine(
+        val statusDisplay = combine(
             statusRepository.loans(),
             statusRepository.reservations(),
             shelves(members),
@@ -158,6 +166,16 @@ class DebugScreenController(
                 shelvesByMember = shelves,
                 summaries = summaries,
                 lastSync = lastSync,
+            )
+        }
+        combine(
+            statusDisplay,
+            readingRecordRepository.records(),
+            readingRecordSearchQuery.flatMapLatest { query -> readingRecordRepository.search(query) },
+        ) { display, allReadingRecords, searchedReadingRecords ->
+            display.copy(
+                readingRecordCount = allReadingRecords.size,
+                readingRecordLines = DebugScreenFormatter.formatReadingRecords(searchedReadingRecords, members),
             )
         }
     }

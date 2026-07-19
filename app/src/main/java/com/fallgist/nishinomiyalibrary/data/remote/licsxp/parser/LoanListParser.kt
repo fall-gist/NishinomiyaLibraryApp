@@ -26,7 +26,18 @@ object LoanListParser {
                 loanDate = ParserSupport.parseFullDate(row.cell(loanDate, screen, "貸出日"), screen, "貸出日"),
                 dueDate = ParserSupport.parseFullDate(row.cell(dueDate, screen, "返却期日"), screen, "返却期日"),
                 status = row.cell(status, screen, "状態"),
+                tilcod = row.selectFirst("a[href*=para], a[href*=tilcod]")
+                    ?.let(::titleCodeFromLink)
+                    .orEmpty(),
             )
         }
     }
+
+    /** 貸出詳細リンクのpara（またはtilcod）から書誌コードを取り出す。 */
+    private fun titleCodeFromLink(link: org.jsoup.nodes.Element): String {
+        val value = link.attr("href") + " " + link.attr("onclick")
+        return TITLE_CODE_REGEX.find(value)?.groupValues?.get(1).orEmpty()
+    }
+
+    private val TITLE_CODE_REGEX = Regex("(?:[?&](?:para|tilcod)=|toDetail\\(\\\")(\\d+)")
 }

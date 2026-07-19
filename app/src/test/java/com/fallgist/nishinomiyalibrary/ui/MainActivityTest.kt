@@ -13,9 +13,12 @@ import com.fallgist.nishinomiyalibrary.R
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncLog
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncResult
@@ -53,6 +56,9 @@ class MainActivityTest {
         assertNotNull(activity.findViewById<Button>(R.id.register_member_button))
         assertNotNull(activity.findViewById<Button>(R.id.manual_sync_button))
         assertNotNull(activity.findViewById<Button>(R.id.notification_permission_button))
+        assertNotNull(activity.findViewById<EditText>(R.id.reading_records_search_input))
+        assertNotNull(activity.findViewById<TextView>(R.id.reading_records_count_text))
+        assertNotNull(activity.findViewById<TextView>(R.id.reading_records_text))
         assertTrue(password.inputType and InputType.TYPE_TEXT_VARIATION_PASSWORD != 0)
         assertTrue(activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
     }
@@ -86,6 +92,7 @@ class StructuralMainActivity : MainActivity() {
         DebugScreenController(
             familyRepository = EmptyFamilyRepository,
             statusRepository = EmptyStatusRepository,
+            readingRecordRepository = EmptyReadingRecordRepository,
             scheduleStarter = EmptyScheduleStarter,
         )
     }
@@ -109,11 +116,16 @@ class StructuralMainActivity : MainActivity() {
         addText(R.id.shelves_text)
         addText(R.id.summaries_text)
         addText(R.id.last_sync_text)
+        addText(R.id.reading_records_count_text)
+        addEditText(R.id.reading_records_search_input)
+        addText(R.id.reading_records_text)
     }
 
     override fun resolveController(): DebugScreenController = structuralController
 
     override fun stringFor(resourceId: Int): String = "構造テスト用"
+
+    override fun formattedStringFor(resourceId: Int, value: Int): String = "構造テスト用"
 
     private fun LinearLayout.addEditText(id: Int) {
         addView(EditText(context).apply { this.id = id })
@@ -150,6 +162,14 @@ private object EmptyStatusRepository : StatusRepository {
     override fun lastSync(): Flow<SyncLog?> = flowOf(null)
 
     override suspend fun syncAll(trigger: SyncTrigger): SyncResult = SyncResult.Completed(0, 0)
+}
+
+private object EmptyReadingRecordRepository : ReadingRecordRepository {
+    override fun records(memberId: Long?): Flow<List<ReadingRecord>> = flowOf(emptyList())
+
+    override fun search(query: String, memberId: Long?): Flow<List<ReadingRecord>> = flowOf(emptyList())
+
+    override fun hasRead(tilcod: String): Flow<List<ReadingInfo>> = flowOf(emptyList())
 }
 
 private object EmptyScheduleStarter : SyncScheduleStarter {

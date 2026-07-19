@@ -33,4 +33,29 @@ object DatabaseMigrations {
             database.execSQL("DROP TABLE shelf_items_v1")
         }
     }
+
+    /** v3で読書記録の永続蓄積と、現在貸出のタイトルコードを追加する。 */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE loans ADD COLUMN tilcod TEXT NOT NULL DEFAULT ''")
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS reading_records (" +
+                    "memberId INTEGER NOT NULL, tilcod TEXT NOT NULL, title TEXT NOT NULL, " +
+                    "loanDate TEXT NOT NULL, library TEXT NOT NULL, titleNormalized TEXT NOT NULL, " +
+                    "PRIMARY KEY(memberId, tilcod, loanDate))",
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_reading_records_memberId ON reading_records(memberId)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_reading_records_tilcod ON reading_records(tilcod)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_reading_records_titleNormalized ON reading_records(titleNormalized)")
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS reading_history_checkpoints (" +
+                    "memberId INTEGER NOT NULL, tilcod TEXT NOT NULL, loanDate TEXT NOT NULL, " +
+                    "PRIMARY KEY(memberId, tilcod, loanDate))",
+            )
+            database.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_reading_history_checkpoints_memberId " +
+                    "ON reading_history_checkpoints(memberId)",
+            )
+        }
+    }
 }

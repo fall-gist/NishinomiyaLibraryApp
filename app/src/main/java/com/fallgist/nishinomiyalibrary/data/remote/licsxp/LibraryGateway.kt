@@ -3,6 +3,8 @@ package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
 import com.fallgist.nishinomiyalibrary.domain.model.Shelf
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
@@ -15,7 +17,12 @@ interface LibraryGateway {
     suspend fun isLendable(tilcod: String): Boolean?
     suspend fun bookDetail(tilcod: String): BookDetail
     suspend fun closedDays(libraryCode: String): List<LocalDate>
-    suspend fun fetchUserData(cardNumber: String, password: String): UserData
+    /** 既知の読書記録キーは通信層へ値だけ渡し、Roomへの依存を持ち込まない。 */
+    suspend fun fetchUserData(
+        cardNumber: String,
+        password: String,
+        knownReadingRecordKeys: Set<ReadingRecordKey> = emptySet(),
+    ): UserData
 }
 
 data class UserData(
@@ -24,4 +31,5 @@ data class UserData(
     val reservations: List<Reservation>,
     val shelves: List<Shelf>,
     val shelfItems: List<ShelfItem>,
+    val readingRecords: List<ReadingRecord> = emptyList(),
 )

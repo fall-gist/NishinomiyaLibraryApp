@@ -4,6 +4,8 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.ClosedDayEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingInfoProjection
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingRecordEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemWithShelfName
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfEntity
@@ -13,6 +15,9 @@ import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordTitleNormalizer
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.Shelf
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
@@ -31,6 +36,7 @@ internal fun LoanEntity.toDomain(): Loan = Loan(
     loanDate,
     dueDate,
     status,
+    tilcod,
 )
 
 internal fun Loan.toEntity(memberId: Long): LoanEntity = LoanEntity(
@@ -41,7 +47,27 @@ internal fun Loan.toEntity(memberId: Long): LoanEntity = LoanEntity(
     loanDate = loanDate,
     dueDate = dueDate,
     status = status,
+    tilcod = tilcod,
 )
+
+internal fun ReadingRecordEntity.toDomain(): ReadingRecord = ReadingRecord(
+    memberId = memberId,
+    tilcod = tilcod,
+    title = title,
+    loanDate = loanDate,
+    library = library,
+)
+
+internal fun ReadingRecord.toEntity(): ReadingRecordEntity = ReadingRecordEntity(
+    memberId = memberId,
+    tilcod = tilcod,
+    title = title,
+    loanDate = loanDate,
+    library = library,
+    titleNormalized = ReadingRecordTitleNormalizer.normalize(title),
+)
+
+internal fun ReadingInfoProjection.toDomain(): ReadingInfo = ReadingInfo(memberId, loanDate, library)
 
 internal fun ReservationEntity.toDomain(): Reservation = Reservation(
     memberId,

@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.di
 
 import com.fallgist.nishinomiyalibrary.data.sync.WorkManagerSyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.ui.debug.DebugScreenController
 import com.fallgist.nishinomiyalibrary.ui.debug.SyncScheduleStarter
@@ -29,10 +30,12 @@ object DebugUiProvisionModule {
     fun provideDebugScreenController(
         familyRepository: FamilyRepository,
         statusRepository: StatusRepository,
+        readingRecordRepository: ReadingRecordRepository,
         scheduleStarter: SyncScheduleStarter,
     ): DebugScreenController = DebugScreenController(
         familyRepository = familyRepository,
         statusRepository = statusRepository,
+        readingRecordRepository = readingRecordRepository,
         scheduleStarter = scheduleStarter,
     )
 }

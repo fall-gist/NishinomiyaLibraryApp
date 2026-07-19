@@ -9,6 +9,7 @@ import com.fallgist.nishinomiyalibrary.data.local.dao.ClosedDayDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.LoanDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.ReadingRecordDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfItemDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.SyncLogDao
@@ -17,6 +18,8 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.ClosedDayEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingHistoryCheckpointEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingRecordEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.SyncLogEntity
@@ -33,8 +36,10 @@ import java.time.LocalDate
         ClosedDayEntity::class,
         SyncLogEntity::class,
         UserSummaryEntity::class,
+        ReadingRecordEntity::class,
+        ReadingHistoryCheckpointEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 @TypeConverters(LocalDateConverters::class)
@@ -42,6 +47,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun memberDao(): MemberDao
     abstract fun loanDao(): LoanDao
     abstract fun reservationDao(): ReservationDao
+    abstract fun readingRecordDao(): ReadingRecordDao
     abstract fun shelfItemDao(): ShelfItemDao
     abstract fun shelfDao(): ShelfDao
     abstract fun closedDayDao(): ClosedDayDao
@@ -60,11 +66,15 @@ abstract class AppDatabase : RoomDatabase() {
         shelves: List<ShelfEntity>,
         shelfItems: List<ShelfItemEntity>,
         summary: UserSummaryEntity,
+        readingRecords: List<ReadingRecordEntity> = emptyList(),
+        readingHistoryCheckpoints: List<ReadingHistoryCheckpointEntity> = emptyList(),
     ) {
         require(loans.all { it.memberId == memberId }) { "貸出データのmemberIdが一致しません" }
         require(reservations.all { it.memberId == memberId }) { "予約データのmemberIdが一致しません" }
         require(shelfItems.all { it.memberId == memberId }) { "本棚データのmemberIdが一致しません" }
         require(summary.memberId == memberId) { "サマリのmemberIdが一致しません" }
+        require(readingRecords.all { it.memberId == memberId }) { "読書記録のmemberIdが一致しません" }
+        require(readingHistoryCheckpoints.all { it.memberId == memberId }) { "読書履歴チェックポイントのmemberIdが一致しません" }
 
         require(shelves.all { it.memberId == memberId }) { "本棚データのmemberIdが一致しません" }
         require(shelves.map { it.shelfNo }.distinct().size == shelves.size) { "本棚番号が重複しています" }
@@ -102,6 +112,10 @@ abstract class AppDatabase : RoomDatabase() {
             shelfDao().insertAll(shelves)
             shelfItemDao().insertAll(shelfItems)
             userSummaryDao().insert(summary)
+            // 読書記録は同期で削除しない。新規・更新分だけを永続蓄積する。
+            readingRecordDao().upsertAll(readingRecords)
+            // サイト読書履歴由来のキーだけを差分同期の停止判定に使う。
+            readingRecordDao().upsertHistoryCheckpoints(readingHistoryCheckpoints)
         }
     }
 
@@ -129,6 +143,8 @@ abstract class AppDatabase : RoomDatabase() {
             shelfItemDao().deleteForMember(member.id)
             shelfDao().deleteForMember(member.id)
             userSummaryDao().deleteForMember(member.id)
+            readingRecordDao().deleteForMember(member.id)
+            readingRecordDao().deleteHistoryCheckpointsForMember(member.id)
             memberDao().delete(member)
         }
     }

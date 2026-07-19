@@ -3,6 +3,7 @@ package com.fallgist.nishinomiyalibrary.ui.debug
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
@@ -19,6 +20,8 @@ data class DebugScreenDisplay(
     val reservationLines: List<String> = emptyList(),
     val shelfLines: List<String> = emptyList(),
     val summaryLines: List<String> = emptyList(),
+    val readingRecordCount: Int = 0,
+    val readingRecordLines: List<String> = emptyList(),
     val lastSyncLine: String = "最終同期: まだ同期されていません",
 )
 
@@ -84,6 +87,14 @@ object DebugScreenFormatter {
     fun syncFailureMessage(): String = "同期に失敗しました。通信状況を確認して再試行してください"
 
     fun scheduleFailureMessage(): String = "自動同期の設定に失敗しました。次回画面を開いたときに再試行します"
+
+    /** 検索結果には利用者名と記録情報だけを表示し、認証情報は含めない。 */
+    fun formatReadingRecords(records: List<ReadingRecord>, members: List<Member>): List<String> {
+        val names = members.associate { it.id to it.name }
+        return records.map { record ->
+            "${memberName(names, record.memberId)}\n${record.title}\n貸出日: ${record.loanDate}\n貸出館: ${record.library}"
+        }
+    }
 
     private fun formatLastSync(log: SyncLog?): String {
         if (log == null) return "最終同期: まだ同期されていません"

@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.PageTokens
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
@@ -137,6 +138,7 @@ class LicsXpClientTest {
         server.enqueue(html(shelfPage(3, "借りたことあるやつ", "shelf-hash-3")))
         server.enqueue(html(shelfPage(4, "今度借りる", "shelf-hash-4")))
         server.enqueue(html(shelfPage(5, "シリーズ本の借りた続き", "shelf-hash-5")))
+        server.enqueue(html(emptyUsrReadPage()))
         val cardNumber = generatedCardNumber()
         val password = generatedPassword()
 
@@ -191,6 +193,80 @@ class LicsXpClientTest {
         assertShelfSwitchRequest(takeRequest(), "shelf-hash-2", 3)
         assertShelfSwitchRequest(takeRequest(), "shelf-hash-3", 4)
         assertShelfSwitchRequest(takeRequest(), "shelf-hash-4", 5)
+        val readOpen = takeRequest()
+        assertEquals("POST", readOpen.method)
+        assertEquals("/WOpacMnuTopToPwdLibraryAction.do", readOpen.requestUrl!!.encodedPath)
+        assertEquals("usrread", readOpen.requestUrl!!.queryParameter("gamen"))
+        assertEquals("0", readOpen.requestUrl!!.queryParameter("initFlag"))
+        assertEquals("100", readOpen.requestUrl!!.queryParameter("pagingMax"))
+        assertEquals("shelf-hash-5", formValue(readOpen, "hash"))
+        assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun `読書履歴の初回同期は全ページをGETで取得し削除操作を作らない`() = runBlocking {
+        enqueueAuthenticatedUserData(
+            usrReadPages = listOf(
+                usrReadPage(
+                    hash = "history-hash-0",
+                    nextStartIndexes = listOf(20, 100),
+                    records = listOf(
+                        UsrReadFixture("1000000000011", "新しい記録", "2026/07/18", "中央図書館"),
+                        UsrReadFixture("1000000000012", "次に新しい記録", "2026/07/17", "北口図書館"),
+                    ),
+                ),
+                usrReadPage(
+                    hash = "history-hash-20",
+                    records = listOf(UsrReadFixture("1000000000013", "過去の記録", "2026/07/16", "鳴尾図書館")),
+                ),
+            ),
+        )
+
+        val records = client().fetchUserData(generatedCardNumber(), generatedPassword()).readingRecords
+
+        assertEquals(listOf("1000000000011", "1000000000012", "1000000000013"), records.map { it.tilcod })
+        repeat(11) { takeRequest() }
+        val openRequest = takeRequest()
+        assertEquals("POST", openRequest.method)
+        assertEquals("usrread", openRequest.requestUrl!!.queryParameter("gamen"))
+        assertEquals("0", openRequest.requestUrl!!.queryParameter("initFlag"))
+        assertEquals("100", openRequest.requestUrl!!.queryParameter("pagingMax"))
+        val nextRequest = takeRequest()
+        assertEquals("GET", nextRequest.method)
+        assertEquals("/WOpacUsrReadListAction.do", nextRequest.requestUrl!!.encodedPath)
+        assertEquals("KASYMD", nextRequest.requestUrl!!.queryParameter("sortKey"))
+        assertEquals("false", nextRequest.requestUrl!!.queryParameter("isAsc"))
+        assertEquals("20", nextRequest.requestUrl!!.queryParameter("startIndex"))
+        assertEquals("history-hash-0", nextRequest.requestUrl!!.queryParameter("hash"))
+        assertEquals("100", nextRequest.requestUrl!!.queryParameter("pagingMax"))
+        assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun `読書履歴の差分同期はページ内の最初の既知行直前で停止する`() = runBlocking {
+        enqueueAuthenticatedUserData(
+            usrReadPages = listOf(
+                usrReadPage(
+                    hash = "history-hash-0",
+                    nextStartIndexes = listOf(20),
+                    records = listOf(
+                        UsrReadFixture("1000000000021", "新規一冊目", "2026/07/18", "中央図書館"),
+                        UsrReadFixture("1000000000022", "既知の記録", "2026/07/17", "北口図書館"),
+                        UsrReadFixture("1000000000023", "既知行より古い未知記録", "2026/07/16", "鳴尾図書館"),
+                    ),
+                ),
+            ),
+        )
+
+        val records = client().fetchUserData(
+            cardNumber = generatedCardNumber(),
+            password = generatedPassword(),
+            knownReadingRecordKeys = setOf(ReadingRecordKey("1000000000022", LocalDate.of(2026, 7, 17))),
+        ).readingRecords
+
+        assertEquals(listOf("1000000000021"), records.map { it.tilcod })
+        val requests = List(12) { takeRequest() }
+        assertTrue(requests.none { it.requestUrl!!.encodedPath.contains("Delete", ignoreCase = true) })
         assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
     }
 
@@ -223,6 +299,7 @@ class LicsXpClientTest {
         server.enqueue(html(fixture("usrrsv.html")))
         server.enqueue(html(fixture("mybooklist.html")))
         enqueueShelfSwitchPages()
+        server.enqueue(html(emptyUsrReadPage()))
         assertEquals(12, client().fetchUserData(cardNumber, password).loans.size)
 
         server.enqueue(html("<html><body>温めページ</body></html>"))
@@ -244,7 +321,7 @@ class LicsXpClientTest {
         server.enqueue(html("<html><body>中継本文</body></html>"))
         server.enqueue(html("<html><body>システムメンテナンス中です</body></html>"))
         assertTrue(libraryError { client().fetchUserData(cardNumber, password) } is LibraryError.Maintenance)
-        assertEquals(23, server.requestCount)
+        assertEquals(24, server.requestCount)
     }
 
     @Test
@@ -287,6 +364,7 @@ class LicsXpClientTest {
         server.enqueue(html(fixture("usrrsv.html")))
         server.enqueue(html(fixture("mybooklist.html")))
         enqueueShelfSwitchPages()
+        server.enqueue(html(emptyUsrReadPage()))
         val waits = mutableListOf<Long>()
         val gateway = LicsXpClient(
             LicsXpSession(
@@ -303,7 +381,7 @@ class LicsXpClientTest {
             password = generatedPassword(),
         )
 
-        assertEquals(List(11) { 500L }, waits)
+        assertEquals(List(12) { 500L }, waits)
     }
 
     private fun client(): LicsXpClient = LicsXpClient(
@@ -382,6 +460,41 @@ class LicsXpClientTest {
         server.enqueue(html(shelfPage(4, "今度借りる", "shelf-hash-4")))
         server.enqueue(html(shelfPage(5, "シリーズ本の借りた続き", "shelf-hash-5")))
     }
+
+    private fun enqueueAuthenticatedUserData(usrReadPages: List<String>) {
+        server.enqueue(html("<html><body>温めページ</body></html>", setCookie = true))
+        server.enqueue(html(fixture("login_form.html")))
+        server.enqueue(html(fixture("after_login.html")))
+        server.enqueue(html(fixture("menu.html")))
+        server.enqueue(html(fixture("usrlend.html")))
+        server.enqueue(html(fixture("usrrsv.html")))
+        server.enqueue(html(fixture("mybooklist.html")))
+        enqueueShelfSwitchPages()
+        usrReadPages.forEach { page -> server.enqueue(html(page)) }
+    }
+
+    private fun emptyUsrReadPage(): String = usrReadPage(hash = "history-empty", records = emptyList())
+
+    private fun usrReadPage(
+        hash: String,
+        nextStartIndexes: List<Int> = emptyList(),
+        records: List<UsrReadFixture>,
+    ): String = """
+        <html><body><h1>読書履歴</h1>
+        <form name="LBForm"><input name="hash" value="$hash"><input name="gamenid" value="tiles.WUsrReadList"></form>
+        <table summary="読書履歴一覧表"><thead><tr><th>No</th><th>書誌情報</th><th>貸出日</th><th>貸出館</th><th>貸出区分</th><th>削除</th></tr></thead><tbody>
+        ${records.mapIndexed { index, record -> "<tr class='ItemNo'><td>${index + 1}</td><td><a href='detail?tilcod=${record.tilcod}'>${record.title}</a></td><td>${record.loanDate}</td><td>${record.library}</td><td>図書</td><td>削除</td></tr>" }.joinToString("\n")}
+        </tbody></table>
+        ${nextStartIndexes.joinToString("\n") { index -> "<a href='WOpacUsrReadListAction.do?sortKey=KASYMD&amp;isAsc=false&amp;startIndex=$index&amp;hash=$hash'>次へ</a>" }}
+        </body></html>
+    """.trimIndent()
+
+    private data class UsrReadFixture(
+        val tilcod: String,
+        val title: String,
+        val loanDate: String,
+        val library: String,
+    )
 
     private suspend fun libraryError(block: suspend () -> Unit): LibraryError = try {
         block()

@@ -6,12 +6,14 @@ import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
 import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncLog
@@ -171,6 +173,27 @@ class DebugScreenControllerTest {
     }
 
     @Test
+    fun readingRecordSearch_displaysCountAndDelegatesInputToRepository() = runTest {
+        val family = FakeFamilyRepository(members = listOf(Member(10L, "花子", "#1A2B3C", randomCardNumber(), 0)))
+        val readingRecords = FakeReadingRecordRepository().apply {
+            allRecords.value = listOf(
+                ReadingRecord(10L, "1000000000001", "全角ＡＢＣ", LocalDate.of(2026, 7, 2), "中央図書館"),
+                ReadingRecord(10L, "1000000000002", "別資料", LocalDate.of(2026, 7, 1), "北口図書館"),
+            )
+            searchResults.value = listOf(allRecords.value.first())
+        }
+        val controller = controller(family = family, readingRecords = readingRecords)
+
+        controller.updateReadingRecordSearch("ａｂｃ")
+        advanceUntilIdle()
+
+        assertEquals(2, controller.state.value.display.readingRecordCount)
+        assertEquals("ａｂｃ", readingRecords.searchQueries.last())
+        assertTrue(controller.state.value.display.readingRecordLines.single().contains("全角ＡＢＣ"))
+        controller.close()
+    }
+
+    @Test
     fun screenLaunch_retriesAfterExceptionAndOnlyCompletesAfterSuccess() = runTest {
         val scheduler = FakeSyncScheduleStarter(failure = IllegalStateException("下位例外の詳細"))
         val controller = controller(scheduleStarter = scheduler)
@@ -262,10 +285,12 @@ class DebugScreenControllerTest {
     private fun controller(
         family: FakeFamilyRepository = FakeFamilyRepository(),
         status: FakeStatusRepository = FakeStatusRepository(),
+        readingRecords: FakeReadingRecordRepository = FakeReadingRecordRepository(),
         scheduleStarter: SyncScheduleStarter = FakeSyncScheduleStarter(),
     ): DebugScreenController = DebugScreenController(
         familyRepository = family,
         statusRepository = status,
+        readingRecordRepository = readingRecords,
         scheduleStarter = scheduleStarter,
         dispatcher = UnconfinedTestDispatcher(),
     )
@@ -324,6 +349,22 @@ class DebugScreenControllerTest {
             syncFailure?.let { throw it }
             return syncDeferred?.await() ?: syncResult
         }
+    }
+
+    private class FakeReadingRecordRepository : ReadingRecordRepository {
+        val allRecords = MutableStateFlow<List<ReadingRecord>>(emptyList())
+        val searchResults = MutableStateFlow<List<ReadingRecord>>(emptyList())
+        val searchQueries = mutableListOf<String>()
+
+        override fun records(memberId: Long?): Flow<List<ReadingRecord>> = allRecords
+
+        override fun search(query: String, memberId: Long?): Flow<List<ReadingRecord>> {
+            searchQueries += query
+            return searchResults
+        }
+
+        override fun hasRead(tilcod: String): Flow<List<com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo>> =
+            flowOf(emptyList())
     }
 
     private class FakeSyncScheduleStarter(

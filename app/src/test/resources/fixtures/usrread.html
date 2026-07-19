@@ -1,0 +1,17 @@
+<!doctype html>
+<html><body>
+<h1>読書履歴</h1>
+<form name="LBForm" method="post">
+  <input type="hidden" name="hash" value="usrread-hash-0" />
+  <input type="hidden" name="gamenid" value="tiles.WUsrReadList" />
+</form>
+<table summary="読書履歴一覧表">
+  <thead><tr><th>No</th><th>書誌情報</th><th>貸出日</th><th>貸出館</th><th>貸出区分</th><th>削除</th></tr></thead>
+  <tbody>
+    <tr class="ItemNo odd"><td>1<td><a href="WOpacUsrReadListToTifTilDetailDispAction.do?tilcod=1000000000001">全角ＡＢＣ　著者</a><td>2026/07/18<td>中央図書館<td>図書<td><button>削除</button>
+    <tr class="ItemNo even"><td>2<td><a href="WOpacUsrReadListToTifTilDetailDispAction.do?para=1000000000002">次の記録</a><td>2026/07/17<td>北口図書館<td>図書<td><button>削除</button>
+  </tbody>
+</table>
+<a href="WOpacUsrReadListAction.do?sortKey=KASYMD&amp;isAsc=false&amp;startIndex=20&amp;hash=usrread-hash-0">次へ</a>
+<a href="WOpacUsrReadListAction.do?sortKey=KASYMD&amp;isAsc=false&amp;startIndex=100&amp;hash=usrread-hash-0">最後へ</a>
+</body></html>

@@ -4,15 +4,20 @@ import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import com.fallgist.nishinomiyalibrary.data.local.entity.ClosedDayEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingHistoryCheckpointEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingRecordEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.SyncLogEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.UserSummaryEntity
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
+import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordTitleNormalizer
 import java.io.File
 import java.time.LocalDate
 import java.util.UUID
@@ -84,6 +89,131 @@ class LocalDataTest {
         assertEquals("更新済み", database.loanDao().observeForMember(memberId).first().first().status)
         database.loanDao().delete(updated)
         assertEquals(2, database.loanDao().observeForMember(memberId).first().size)
+    }
+
+    @Test
+    fun `読書記録DAOは主キーupsertと正規化検索と既読情報をメンバー別に永続化する`() = runBlocking {
+        val dao = database.readingRecordDao()
+        val firstDate = LocalDate.of(2030, 6, 10)
+        val secondDate = LocalDate.of(2030, 6, 11)
+        dao.upsertAll(
+            listOf(
+                readingRecord(10L, "1000000000001", "ＡＢＣ　著者", firstDate, "中央図書館"),
+                readingRecord(10L, "1000000000002", "別の記録", secondDate, "北口図書館"),
+                readingRecord(20L, "1000000000001", "ABC 著者", secondDate, "鳴尾図書館"),
+            ),
+        )
+        dao.upsertAll(listOf(readingRecord(10L, "1000000000001", "ＡＢＣ　著者（更新）", firstDate, "更新館")))
+        dao.upsertHistoryCheckpoints(
+            listOf(
+                ReadingHistoryCheckpointEntity(10L, "1000000000001", firstDate),
+                ReadingHistoryCheckpointEntity(10L, "1000000000002", secondDate),
+            ),
+        )
+
+        assertEquals(3, dao.observeAll().first().size)
+        assertEquals(listOf(secondDate, secondDate, firstDate), dao.observeAll().first().map { it.loanDate })
+        assertEquals(
+            listOf("ＡＢＣ　著者（更新）"),
+            dao.search(ReadingRecordTitleNormalizer.normalize("ａｂｃ 著者"), memberId = 10L).first().map { it.title },
+        )
+        assertEquals(
+            2,
+            dao.search(ReadingRecordTitleNormalizer.normalize("ABC"), memberId = null).first().size,
+        )
+        assertEquals(
+            listOf("北口図書館", "更新館"),
+            dao.observeForMember(10L).first().map { it.library },
+        )
+        assertEquals(
+            listOf("鳴尾図書館", "更新館"),
+            dao.observeReadingInfo("1000000000001").first().map { it.library },
+        )
+        assertEquals(
+            setOf("1000000000001" to firstDate, "1000000000002" to secondDate),
+            dao.getHistoryCheckpointKeys(10L).map { it.tilcod to it.loanDate }.toSet(),
+        )
+    }
+
+    @Test
+    fun `同期スナップショットは既存の読書記録を削除しない`() = runBlocking {
+        val memberId = 50L
+        val retained = readingRecord(memberId, "1000000000050", "保持する記録", LocalDate.of(2030, 1, 1), "中央図書館")
+        database.readingRecordDao().upsertAll(listOf(retained))
+
+        database.replaceMemberSnapshot(
+            memberId = memberId,
+            loans = emptyList(),
+            reservations = emptyList(),
+            shelves = emptyList(),
+            shelfItems = emptyList(),
+            summary = summary(memberId, loanCount = 0),
+            readingRecords = listOf(readingRecord(memberId, "1000000000051", "同期した記録", LocalDate.of(2030, 1, 2), "北口図書館")),
+            readingHistoryCheckpoints = listOf(
+                ReadingHistoryCheckpointEntity(memberId, "1000000000051", LocalDate.of(2030, 1, 2)),
+            ),
+        )
+
+        assertEquals(
+            listOf("1000000000051", "1000000000050"),
+            database.readingRecordDao().observeForMember(memberId).first().map { it.tilcod },
+        )
+        assertEquals(
+            listOf("1000000000051"),
+            database.readingRecordDao().getHistoryCheckpointKeys(memberId).map { it.tilcod },
+        )
+    }
+
+    @Test
+    fun `v2からv3移行は既存貸出を保持し読書記録と履歴チェックポイントを作成する`() {
+        val databaseName = "migration-${UUID.randomUUID()}.db"
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(databaseName)
+                .callback(object : SupportSQLiteOpenHelper.Callback(2) {
+                    override fun onCreate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        database.execSQL(
+                            "CREATE TABLE loans (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, title TEXT NOT NULL)",
+                        )
+                        database.execSQL("INSERT INTO loans(title) VALUES ('移行前の貸出')")
+                    }
+
+                    override fun onUpgrade(
+                        database: androidx.sqlite.db.SupportSQLiteDatabase,
+                        oldVersion: Int,
+                        newVersion: Int,
+                    ) = Unit
+                })
+                .build(),
+        )
+
+        try {
+            val sqlite = helper.writableDatabase
+            DatabaseMigrations.MIGRATION_2_3.migrate(sqlite)
+
+            sqlite.query("SELECT title, tilcod FROM loans").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("移行前の貸出", cursor.getString(0))
+                assertEquals("", cursor.getString(1))
+            }
+            val tables = sqlite.query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN " +
+                    "('reading_records', 'reading_history_checkpoints')",
+            ).use { cursor ->
+                generateSequence { if (cursor.moveToNext()) cursor.getString(0) else null }.toSet()
+            }
+            assertEquals(setOf("reading_records", "reading_history_checkpoints"), tables)
+            val indexes = sqlite.query(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'index_reading_%'",
+            ).use { cursor ->
+                generateSequence { if (cursor.moveToNext()) cursor.getString(0) else null }.toSet()
+            }
+            assertTrue(indexes.contains("index_reading_records_titleNormalized"))
+            assertTrue(indexes.contains("index_reading_history_checkpoints_memberId"))
+        } finally {
+            helper.close()
+            context.deleteDatabase(databaseName)
+        }
     }
 
     @Test
@@ -320,6 +450,21 @@ class LocalDataTest {
         loanDate = dueDate.minusDays(14),
         dueDate = dueDate,
         status = "貸出中",
+    )
+
+    private fun readingRecord(
+        memberId: Long,
+        tilcod: String,
+        title: String,
+        loanDate: LocalDate,
+        library: String,
+    ): ReadingRecordEntity = ReadingRecordEntity(
+        memberId = memberId,
+        tilcod = tilcod,
+        title = title,
+        loanDate = loanDate,
+        library = library,
+        titleNormalized = ReadingRecordTitleNormalizer.normalize(title),
     )
 
     private fun reservation(
