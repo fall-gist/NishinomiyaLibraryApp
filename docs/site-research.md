@@ -96,6 +96,27 @@
 
 データはすべて`<table>`ベースで構造は素直。返却期限・予約順位など必要な情報はすべてHTMLに直接出力される(JS後埋めではない)。
 
+### 4.2 読書履歴(2026-07-19追記・ライブ検証済み)
+
+サイトには**読書履歴機能**があり、「今までに借りた資料」が蓄積されている
+(検証アカウントでは約600件)。
+
+- **初回表示**: `POST WOpacMnuTopToPwdLibraryAction.do?gamen=usrread&initFlag=0`
+  (通常の利用者ページ遷移と同じく `hash`/`gamenid` を同送)
+- **一覧構造**: `table[summary=読書履歴一覧表]`。行は `<tr class="ItemNo ...">` で、
+  **`</tr>` 閉じタグやtbodyが不揃いのため注意**(Jsoupは寛容にパースするが、
+  セルは「次の `<th|td>` 開始まで」を1セルとして扱う想定でテストすること)。
+  列: No / 書誌情報(タイトル+著者+出版社、`tilcod` 付き詳細リンクあり) /
+  貸出日(`yyyy/MM/dd`) / 貸出館 / 貸出区分 / (削除ボタン列)
+- **ページ送り**: `GET WOpacUsrReadListAction.do?sortKey=KASYMD&isAsc=false&startIndex={N}&hash={現在のhash}`
+  (貸出日降順)。1ページの件数は画面の表示件数設定に従う(10/20/50/100)。
+  `pagingMax` 指定で変更できる(検索一覧と同パターン)。最終ページは
+  `arrow-last`(最後へ)リンクの `startIndex` から判定できる
+- **注意**:
+  - 行内に**削除ボタン**があるが、削除系アクションには**絶対に触れない**(読み取り専用)
+  - 読書履歴はLICS-XPの仕様上、**利用者ごとに記録有効化が必要な場合がある**。
+    履歴0件のメンバーは未有効の可能性
+
 ## 5. 開館カレンダー
 
 - `GET /licsxp-opac/WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgcld&loccod={館コード}`
