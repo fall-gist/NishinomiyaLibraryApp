@@ -15,6 +15,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -28,8 +29,12 @@ import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreen
 import com.fallgist.nishinomiyalibrary.ui.home.HomeUiState
+import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreen
+import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
+import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreen
+import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import kotlinx.coroutines.launch
 
@@ -54,6 +59,8 @@ fun LibraryApp(
     onSelectMember: (Long?) -> Unit,
     onManualSync: () -> Unit,
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
+    loansController: LoansScreenController,
+    reservationsController: ReservationsScreenController,
 ) {
     val colors = LocalAppColors.current
     val primaryTabs = Destination.entries.filter { it.primary }
@@ -124,6 +131,26 @@ fun LibraryApp(
                         onOpenMenu = openMenu,
                         modifier = Modifier.fillMaxSize(),
                     )
+
+                    Destination.LOANS -> {
+                        val loansState by loansController.state.collectAsState()
+                        LoansScreen(
+                            state = loansState,
+                            onSelectMember = loansController::selectMember,
+                            onOpenMenu = openMenu,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    Destination.RESERVATIONS -> {
+                        val reservationsState by reservationsController.state.collectAsState()
+                        ReservationsScreen(
+                            state = reservationsState,
+                            onSelectMember = reservationsController::selectMember,
+                            onOpenMenu = openMenu,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
 
                     else -> PlaceholderScreen(current.label, onOpenMenu = openMenu)
                 }

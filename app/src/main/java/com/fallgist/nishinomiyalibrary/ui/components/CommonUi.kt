@@ -3,12 +3,16 @@ package com.fallgist.nishinomiyalibrary.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import android.graphics.Color as AndroidColor
 
@@ -55,7 +60,7 @@ fun ScreenTopBar(
     below: (@Composable () -> Unit)? = null,
 ) {
     val colors = LocalAppColors.current
-    androidx.compose.foundation.layout.Column(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 8.dp),
@@ -95,4 +100,77 @@ fun EmptyNote(text: String, modifier: Modifier = Modifier) {
         fontSize = 13.sp,
         modifier = modifier.padding(horizontal = 18.dp, vertical = 8.dp),
     )
+}
+
+/** メンバー識別色のドット。 */
+@Composable
+fun MemberDot(colorHex: String, modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 9.dp) {
+    val colors = LocalAppColors.current
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(parseMemberColor(colorHex, colors.ink2)),
+    )
+}
+
+/**
+ * 横スクロールするメンバー絞り込みチップ行。[includeEveryone] が true なら先頭に「みんな」を出す。
+ * 選択中は null=みんな。
+ */
+@Composable
+fun MemberFilterRow(
+    members: List<Member>,
+    selectedMemberId: Long?,
+    onSelect: (Long?) -> Unit,
+    modifier: Modifier = Modifier,
+    includeEveryone: Boolean = true,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (includeEveryone) {
+            MemberChip(
+                label = "みんな",
+                colorHex = null,
+                selected = selectedMemberId == null,
+                onClick = { onSelect(null) },
+            )
+        }
+        members.forEach { member ->
+            MemberChip(
+                label = member.name,
+                colorHex = member.colorHex,
+                selected = selectedMemberId == member.id,
+                onClick = { onSelect(member.id) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun MemberChip(label: String, colorHex: String?, selected: Boolean, onClick: () -> Unit) {
+    val colors = LocalAppColors.current
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) colors.green else colors.chipBg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (colorHex != null) {
+            MemberDot(colorHex)
+        }
+        Text(
+            text = label,
+            color = if (selected) Color.White else colors.ink2,
+            fontSize = 13.sp,
+        )
+    }
 }

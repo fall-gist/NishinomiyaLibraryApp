@@ -9,6 +9,8 @@ import androidx.compose.runtime.getValue
 import com.fallgist.nishinomiyalibrary.ui.app.LibraryApp
 import com.fallgist.nishinomiyalibrary.ui.di.MainActivityEntryPoint
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
+import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
+import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
 import com.fallgist.nishinomiyalibrary.ui.theme.NishinomiyaLibraryTheme
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +24,8 @@ open class MainActivity : ComponentActivity() {
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private lateinit var controller: HomeScreenController
+    private lateinit var loansController: LoansScreenController
+    private lateinit var reservationsController: ReservationsScreenController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         window.setFlags(
@@ -29,7 +33,13 @@ open class MainActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_SECURE,
         )
         super.onCreate(savedInstanceState)
-        controller = resolveController()
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext,
+            MainActivityEntryPoint::class.java,
+        )
+        controller = resolveController(entryPoint)
+        loansController = entryPoint.loansScreenController()
+        reservationsController = entryPoint.reservationsScreenController()
 
         setContent {
             val state by controller.state.collectAsState()
@@ -39,6 +49,8 @@ open class MainActivity : ComponentActivity() {
                     onSelectMember = controller::selectMember,
                     onManualSync = { uiScope.launch { controller.requestManualSync() } },
                     onRegister = controller::register,
+                    loansController = loansController,
+                    reservationsController = reservationsController,
                 )
             }
         }
@@ -52,8 +64,6 @@ open class MainActivity : ComponentActivity() {
     }
 
     /** 本番の依存解決はApplication EntryPointに限定する。 */
-    protected open fun resolveController(): HomeScreenController = EntryPointAccessors.fromApplication(
-        applicationContext,
-        MainActivityEntryPoint::class.java,
-    ).homeScreenController()
+    protected open fun resolveController(entryPoint: MainActivityEntryPoint): HomeScreenController =
+        entryPoint.homeScreenController()
 }
