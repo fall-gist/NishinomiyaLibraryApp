@@ -38,6 +38,7 @@ open class MainActivity : ComponentActivity() {
                     state = state,
                     onSelectMember = controller::selectMember,
                     onManualSync = { uiScope.launch { controller.requestManualSync() } },
+                    onRegister = controller::register,
                 )
             }
         }

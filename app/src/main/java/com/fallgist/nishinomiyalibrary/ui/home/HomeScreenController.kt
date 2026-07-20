@@ -5,6 +5,10 @@ import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncResult
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncTrigger
+import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
+import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
+import com.fallgist.nishinomiyalibrary.ui.member.RegistrationValidation
+import com.fallgist.nishinomiyalibrary.ui.member.RegistrationValidator
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
@@ -20,6 +24,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * ホーム画面のRoom Flowを1つの[HomeUiState]へ集約する、Android非依存のController。
@@ -29,7 +34,7 @@ class HomeScreenController(
     private val familyRepository: FamilyRepository,
     private val statusRepository: StatusRepository,
     private val scheduleStarter: SyncScheduleStarter,
-    dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val today: () -> LocalDate = { LocalDate.now(ZoneId.of("Asia/Tokyo")) },
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -64,6 +69,7 @@ class HomeScreenController(
             }.collect { (members, selection, content) ->
                 _state.update { current ->
                     current.copy(
+                        initialized = true,
                         members = members,
                         selectedMemberId = selection,
                         lastSyncText = content.lastSyncText,
@@ -79,6 +85,33 @@ class HomeScreenController(
     /** メンバー絞り込みを更新する。null は「みんな」を表す。 */
     fun selectMember(memberId: Long?) {
         selectedMemberId.value = memberId
+    }
+
+    /**
+     * 認証情報を検証し、家族メンバーを1人登録する。秘密情報は状態に保持せず、結果のみ返す。
+     * 登録に成功するとメンバーFlowが更新され、ホームは自動で通常表示へ切り替わる。
+     */
+    suspend fun register(form: RegistrationForm): MemberRegistrationResult {
+        val validation = RegistrationValidator.validate(form)
+        if (validation is RegistrationValidation.Invalid) {
+            return MemberRegistrationResult.Invalid(validation.errors)
+        }
+        val value = (validation as RegistrationValidation.Valid).value
+        return try {
+            withContext(dispatcher) {
+                familyRepository.addMember(
+                    name = value.name,
+                    colorHex = value.colorHex,
+                    cardNumber = value.cardNumber,
+                    password = value.password,
+                )
+            }
+            MemberRegistrationResult.Saved
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (_: Exception) {
+            MemberRegistrationResult.Failed
+        }
     }
 
     /** 画面表示時に一度だけ自動同期スケジュールを確立する。失敗は静かに次回へ持ち越す。 */

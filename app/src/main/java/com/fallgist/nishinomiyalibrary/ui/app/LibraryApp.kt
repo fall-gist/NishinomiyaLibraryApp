@@ -18,6 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreen
 import com.fallgist.nishinomiyalibrary.ui.home.HomeUiState
+import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
+import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
 /** 下部タブの5構成。ホーム以外は本増分では準備中のプレースホルダ。 */
@@ -34,6 +36,7 @@ fun LibraryApp(
     state: HomeUiState,
     onSelectMember: (Long?) -> Unit,
     onManualSync: () -> Unit,
+    onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
 ) {
     val colors = LocalAppColors.current
     val tabs = LibraryTab.entries
@@ -64,6 +67,7 @@ fun LibraryApp(
                     state = state,
                     onSelectMember = onSelectMember,
                     onManualSync = onManualSync,
+                    onRegister = onRegister,
                     modifier = Modifier.fillMaxSize(),
                 )
 

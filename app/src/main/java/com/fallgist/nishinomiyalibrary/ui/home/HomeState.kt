@@ -14,6 +14,7 @@ import java.util.Locale
 
 /** ホーム画面の全表示状態。認証情報は一切保持しない。 */
 data class HomeUiState(
+    val initialized: Boolean = false,
     val members: List<Member> = emptyList(),
     val selectedMemberId: Long? = null,
     val lastSyncText: String = "まだ同期していません",

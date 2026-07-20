@@ -1,4 +1,4 @@
-package com.fallgist.nishinomiyalibrary.ui.debug
+package com.fallgist.nishinomiyalibrary.ui.member
 
 /**
  * メンバー登録フォームの入力値。秘密情報を含むため、文字列表現には値を含めない。
@@ -36,6 +36,15 @@ sealed interface RegistrationValidation {
     data class Invalid(val errors: RegistrationErrors) : RegistrationValidation
 
     class Valid internal constructor(val value: ValidatedRegistration) : RegistrationValidation
+}
+
+/** メンバー登録の実行結果。UI層はこの結果だけを見てフォームの表示を切り替える。 */
+sealed interface MemberRegistrationResult {
+    data object Saved : MemberRegistrationResult
+
+    data class Invalid(val errors: RegistrationErrors) : MemberRegistrationResult
+
+    data object Failed : MemberRegistrationResult
 }
 
 /** Android APIに依存しないメンバー登録入力の検証器。 */

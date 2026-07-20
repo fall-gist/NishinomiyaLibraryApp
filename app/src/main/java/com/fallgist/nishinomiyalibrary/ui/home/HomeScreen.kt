@@ -29,6 +29,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.domain.model.Member
+import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
+import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import android.graphics.Color as AndroidColor
 
@@ -39,6 +41,24 @@ private fun parseMemberColor(hex: String, fallback: Color): Color = runCatching 
 
 @Composable
 fun HomeScreen(
+    state: HomeUiState,
+    onSelectMember: (Long?) -> Unit,
+    onManualSync: () -> Unit,
+    onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalAppColors.current
+    when {
+        // 初回ロード前のちらつきを避ける。
+        !state.initialized -> Box(modifier.background(colors.paper))
+        // 認証済みメンバーが1人もいなければ、その場で完結する登録フォームだけを出す。
+        state.members.isEmpty() -> MemberRegistrationForm(onRegister = onRegister, modifier = modifier)
+        else -> HomeContent(state, onSelectMember, onManualSync, modifier)
+    }
+}
+
+@Composable
+private fun HomeContent(
     state: HomeUiState,
     onSelectMember: (Long?) -> Unit,
     onManualSync: () -> Unit,

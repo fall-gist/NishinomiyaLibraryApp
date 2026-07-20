@@ -11,6 +11,8 @@ import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncLog
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncResult
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncTrigger
+import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
+import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
 import java.time.LocalDate
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -103,16 +105,72 @@ class HomeScreenControllerTest {
         controller.close()
     }
 
+    data class AddedMember(val name: String, val colorHex: String, val cardNumber: String, val password: String)
+
     private class FakeFamilyRepository(
         private val membersFlow: MutableStateFlow<List<Member>>,
     ) : FamilyRepository {
+        val added = mutableListOf<AddedMember>()
+
         override fun members(): Flow<List<Member>> = membersFlow
 
-        override suspend fun addMember(name: String, colorHex: String, cardNumber: String, password: String) = Unit
+        override suspend fun addMember(name: String, colorHex: String, cardNumber: String, password: String) {
+            added += AddedMember(name, colorHex, cardNumber, password)
+        }
 
         override suspend fun updateMember(member: Member, newPassword: String?) = Unit
 
         override suspend fun removeMember(memberId: Long) = Unit
+    }
+
+    @Test
+    fun register_validForm_normalizesAndSavesMember() = runTest {
+        val family = FakeFamilyRepository(MutableStateFlow(emptyList()))
+        val controller = HomeScreenController(
+            familyRepository = family,
+            statusRepository = FakeStatusRepository(),
+            scheduleStarter = FakeScheduleStarter(),
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
+            today = { today },
+        )
+
+        val result = controller.register(
+            RegistrationForm(name = "  太郎  ", colorHex = "#12ab34", cardNumber = " 123 ", password = "pw"),
+        )
+
+        assertEquals(MemberRegistrationResult.Saved, result)
+        assertEquals(1, family.added.size)
+        val added = family.added.single()
+        assertEquals("太郎", added.name)
+        assertEquals("#12AB34", added.colorHex)
+        assertEquals("123", added.cardNumber)
+        assertEquals("pw", added.password)
+        controller.close()
+    }
+
+    @Test
+    fun register_invalidForm_returnsErrorsAndDoesNotSave() = runTest {
+        val family = FakeFamilyRepository(MutableStateFlow(emptyList()))
+        val controller = HomeScreenController(
+            familyRepository = family,
+            statusRepository = FakeStatusRepository(),
+            scheduleStarter = FakeScheduleStarter(),
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
+            today = { today },
+        )
+
+        val result = controller.register(
+            RegistrationForm(name = "", colorHex = "bad", cardNumber = "12A", password = ""),
+        )
+
+        assertTrue(result is MemberRegistrationResult.Invalid)
+        val errors = (result as MemberRegistrationResult.Invalid).errors
+        assertTrue(errors.name != null)
+        assertTrue(errors.colorHex != null)
+        assertTrue(errors.cardNumber != null)
+        assertTrue(errors.password != null)
+        assertTrue(family.added.isEmpty())
+        controller.close()
     }
 
     private class FakeStatusRepository(

@@ -103,6 +103,15 @@ spec §2 のとおり識別色は**登録時にメンバーごとに選ぶ**。�
 4. 画面を追加したら本書の画面インベントリ表を更新する。モックを新規に作る場合のみ
    `docs/mockups/` にコミットし、home.htmlの体系を流用する
 
+### 認証(初期登録)
+
+- 認証済みメンバーが**1人もいないときだけ**、トップ画面にインライン登録フォームを表示する
+  (他画面へ遷移せず、その場で完結)。1人登録するとメンバーFlowが更新され、通常のホームへ自動遷移。
+- 検証ロジックは `ui/member/`(`RegistrationValidator` / `RegistrationForm` / `RegistrationErrors` /
+  `MemberRegistrationResult`)に集約。**設定画面のメンバー管理からも同じ型を再利用する**予定。
+- 入力(特にカード番号・パスワード)は `rememberSaveable` を使わず画面ローカルにのみ保持し、
+  端末の保存状態に残さない。登録は `HomeScreenController.register()` 経由で `FamilyRepository.addMember`。
+
 ### ホーム画面の積み残し
 
 - 「きょうの図書館」セクション未実装(既定館の開館状況表示。`CalendarRepository` + `SettingsStore` 連携が必要)。

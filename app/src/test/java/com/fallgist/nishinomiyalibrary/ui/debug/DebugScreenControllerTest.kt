@@ -2,6 +2,9 @@ package com.fallgist.nishinomiyalibrary.ui.debug
 
 import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
+import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
+import com.fallgist.nishinomiyalibrary.ui.member.RegistrationValidation
+import com.fallgist.nishinomiyalibrary.ui.member.RegistrationValidator
 import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
 import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
