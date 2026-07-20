@@ -74,7 +74,9 @@ object ReservationsContentBuilder {
                 statusLabel = statusLabel(reservation.state),
                 pickupLabel = reservation.pickupLibrary.takeIf { it.isNotBlank() } ?: "未定",
                 queueLabel = reservation.queuePosition?.let { "予約順位 ${it}番目" },
-                holdExpiryLabel = reservation.holdExpiryDate?.let { "取置期限 ${dateFormatter.format(it)} まで" },
+                // 提供可能でもEmail連絡前はサイト側で取置期限が未設定のため、受取可能行では「未定」を明示する
+                holdExpiryLabel = reservation.holdExpiryDate?.let { "取置期限 ${dateFormatter.format(it)} まで" }
+                    ?: "取置期限 未定".takeIf { reservation.state == ReservationState.READY },
             )
         }
     }

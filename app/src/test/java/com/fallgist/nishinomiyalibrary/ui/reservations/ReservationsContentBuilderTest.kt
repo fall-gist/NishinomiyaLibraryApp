@@ -28,9 +28,13 @@ class ReservationsContentBuilderTest {
         assertEquals(listOf("早い期限受取", "期限なし受取", "順番待ち本"), rows.map { it.title })
         assertTrue(rows[0].isReady)
         assertEquals("受取可能", rows[0].statusLabel)
-        assertTrue(rows[0].holdExpiryLabel!!.contains("取置期限"))
+        assertEquals("取置期限 7/23(木) まで", rows[0].holdExpiryLabel)
+        // 受取可能で期限未設定(Email連絡前)は「未定」を明示する
+        assertEquals("取置期限 未定", rows[1].holdExpiryLabel)
         assertFalse(rows[2].isReady)
         assertEquals("予約順位 3番目", rows[2].queueLabel)
+        // 順番待ちは期限行を出さない
+        assertEquals(null, rows[2].holdExpiryLabel)
     }
 
     @Test

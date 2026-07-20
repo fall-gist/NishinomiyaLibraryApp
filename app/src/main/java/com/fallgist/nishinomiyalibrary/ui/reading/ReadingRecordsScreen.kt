@@ -14,6 +14,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,11 +39,17 @@ fun ReadingRecordsScreen(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
+    // TextFieldの値をController経由の非同期StateFlow往復にするとIMEの変換合成が崩れるため、
+    // 入力値は画面ローカルに保持し、Controllerへは通知のみ行う
+    var queryText by remember { mutableStateOf(state.query) }
     Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar(title = "読書記録", onOpenMenu = onOpenMenu)
         OutlinedTextField(
-            value = state.query,
-            onValueChange = onQueryChange,
+            value = queryText,
+            onValueChange = {
+                queryText = it
+                onQueryChange(it)
+            },
             placeholder = { Text("書名・著者でさがす", fontSize = 13.sp) },
             singleLine = true,
             modifier = Modifier
