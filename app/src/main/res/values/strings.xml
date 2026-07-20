@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">にしのみや図書館</string>
+    <string name="app_name">西宮市立図書館</string>
     <string name="member_registration">メンバー登録</string>
     <string name="member_name_hint">表示名</string>
     <string name="member_color_hint">識別色（#RRGGBB）</string>
