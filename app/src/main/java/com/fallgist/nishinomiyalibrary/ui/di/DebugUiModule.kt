@@ -8,7 +8,9 @@ import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.ui.debug.DebugScreenController
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
+import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
+import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -73,6 +75,26 @@ object DebugUiProvisionModule {
         familyRepository = familyRepository,
         statusRepository = statusRepository,
     )
+
+    @Provides
+    @Singleton
+    fun provideReadingRecordsScreenController(
+        familyRepository: FamilyRepository,
+        readingRecordRepository: ReadingRecordRepository,
+    ): ReadingRecordsScreenController = ReadingRecordsScreenController(
+        familyRepository = familyRepository,
+        readingRecordRepository = readingRecordRepository,
+    )
+
+    @Provides
+    @Singleton
+    fun provideBookshelfScreenController(
+        familyRepository: FamilyRepository,
+        statusRepository: StatusRepository,
+    ): BookshelfScreenController = BookshelfScreenController(
+        familyRepository = familyRepository,
+        statusRepository = statusRepository,
+    )
 }
 
 /** ActivityはこのApplication EntryPointから画面用Controllerだけを取得する。 */
@@ -84,6 +106,10 @@ interface MainActivityEntryPoint {
     fun loansScreenController(): LoansScreenController
 
     fun reservationsScreenController(): ReservationsScreenController
+
+    fun readingRecordsScreenController(): ReadingRecordsScreenController
+
+    fun bookshelfScreenController(): BookshelfScreenController
 
     fun debugScreenController(): DebugScreenController
 }

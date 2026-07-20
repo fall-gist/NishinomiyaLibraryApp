@@ -10,7 +10,9 @@ import com.fallgist.nishinomiyalibrary.ui.app.LibraryApp
 import com.fallgist.nishinomiyalibrary.ui.di.MainActivityEntryPoint
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
+import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
+import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import com.fallgist.nishinomiyalibrary.ui.theme.NishinomiyaLibraryTheme
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CoroutineScope
@@ -26,6 +28,8 @@ open class MainActivity : ComponentActivity() {
     private lateinit var controller: HomeScreenController
     private lateinit var loansController: LoansScreenController
     private lateinit var reservationsController: ReservationsScreenController
+    private lateinit var readingRecordsController: ReadingRecordsScreenController
+    private lateinit var bookshelfController: BookshelfScreenController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         window.setFlags(
@@ -40,6 +44,8 @@ open class MainActivity : ComponentActivity() {
         controller = resolveController(entryPoint)
         loansController = entryPoint.loansScreenController()
         reservationsController = entryPoint.reservationsScreenController()
+        readingRecordsController = entryPoint.readingRecordsScreenController()
+        bookshelfController = entryPoint.bookshelfScreenController()
 
         setContent {
             val state by controller.state.collectAsState()
@@ -51,6 +57,8 @@ open class MainActivity : ComponentActivity() {
                     onRegister = controller::register,
                     loansController = loansController,
                     reservationsController = reservationsController,
+                    readingRecordsController = readingRecordsController,
+                    bookshelfController = bookshelfController,
                 )
             }
         }

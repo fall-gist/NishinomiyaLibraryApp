@@ -33,8 +33,12 @@ import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreen
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
+import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreen
+import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreen
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
+import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreen
+import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import kotlinx.coroutines.launch
 
@@ -61,6 +65,8 @@ fun LibraryApp(
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
     loansController: LoansScreenController,
     reservationsController: ReservationsScreenController,
+    readingRecordsController: ReadingRecordsScreenController,
+    bookshelfController: BookshelfScreenController,
 ) {
     val colors = LocalAppColors.current
     val primaryTabs = Destination.entries.filter { it.primary }
@@ -147,6 +153,27 @@ fun LibraryApp(
                         ReservationsScreen(
                             state = reservationsState,
                             onSelectMember = reservationsController::selectMember,
+                            onOpenMenu = openMenu,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    Destination.READING -> {
+                        val readingState by readingRecordsController.state.collectAsState()
+                        ReadingRecordsScreen(
+                            state = readingState,
+                            onSelectMember = readingRecordsController::selectMember,
+                            onQueryChange = readingRecordsController::updateQuery,
+                            onOpenMenu = openMenu,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    Destination.SHELF -> {
+                        val shelfState by bookshelfController.state.collectAsState()
+                        BookshelfScreen(
+                            state = shelfState,
+                            onSelectMember = bookshelfController::selectMember,
                             onOpenMenu = openMenu,
                             modifier = Modifier.fillMaxSize(),
                         )
