@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>西宮市立図書館 開館カレンダー画面モック</title>
+<style>
+  :root{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2;
+    --papa:#3D6DB5; --mama:#C25278; --taro:#D98E2B; --hana:#5FA05A; --jiro:#8A64B8;
+    --chip-bg:#EFEAE0; --sat:#3D6DB5;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+      --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+      --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921; --sat:#7EA6E0;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+    --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+    --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921; --sat:#7EA6E0;
+  }
+  :root[data-theme="light"]{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2; --chip-bg:#EFEAE0; --sat:#3D6DB5;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 16px 64px; background:var(--paper); color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+    line-height:1.6;
+  }
+  .wrap{max-width:430px; margin:0 auto; display:flex; flex-direction:column; gap:16px;}
+
+  .variant-title{margin:28px 0 4px; font-size:16px; font-weight:700;}
+  .variant-title .badge{
+    display:inline-block; font-size:11px; font-weight:700; color:var(--green-ink);
+    background:var(--green-bg); border-radius:999px; padding:2px 10px; margin-right:8px; vertical-align:middle;
+  }
+  .variant-title:first-of-type{margin-top:0}
+
+  .phone{
+    width:100%; max-width:390px; margin:0 auto; background:var(--card); border:1px solid var(--line);
+    border-radius:28px; overflow:hidden; box-shadow:0 12px 40px rgba(40,30,10,.12);
+    display:flex; flex-direction:column; height:800px;
+  }
+  .screen{flex:1; overflow-y:auto; background:var(--paper);}
+
+  .appbar{padding:18px 18px 8px; display:flex; justify-content:space-between; align-items:center;}
+  .appbar h1{margin:0; font-size:19px; letter-spacing:.02em;}
+  .appbar .hamburger{
+    flex:0 0 auto; width:32px; height:32px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:16px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+
+  .libpicker{padding:6px 18px 4px;}
+  .libpicker select{
+    width:100%; padding:9px 10px; border-radius:10px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:13.5px; font-family:inherit;
+  }
+  .libnote{padding:6px 18px 4px; font-size:11px; color:var(--ink2);}
+
+  .pager{
+    display:flex; align-items:center; justify-content:center; gap:16px;
+    padding:10px 18px 2px;
+  }
+  .pager button{
+    width:30px; height:30px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:14px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+  .pager button:disabled{opacity:.35; cursor:default;}
+  .pager .label{font-size:14.5px; font-weight:700; min-width:110px; text-align:center;}
+
+  .cal-month{padding:2px 18px 4px;}
+  .cal-monthlabel{
+    font-size:13.5px; font-weight:700; text-align:center; margin:12px 0 8px;
+    color:var(--ink2);
+  }
+  .cal-weekdays{
+    display:grid; grid-template-columns:repeat(7,1fr); font-size:11px; color:var(--ink2);
+    text-align:center; margin-bottom:4px;
+  }
+  .cal-weekdays span.sun{color:var(--alert)}
+  .cal-weekdays span.sat{color:var(--sat)}
+  .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:6px;}
+  .cal-cell{
+    aspect-ratio:1/1; display:flex; align-items:center; justify-content:center;
+    font-size:13px; border-radius:8px; position:relative;
+  }
+  .cal-cell.empty{visibility:hidden}
+  .cal-cell.sun{color:var(--alert)}
+  .cal-cell.sat{color:var(--sat)}
+  .cal-cell.closed{background:var(--alert-bg); color:var(--alert); font-weight:700;}
+  .cal-cell.today{box-shadow:0 0 0 2px var(--green) inset; font-weight:700; color:var(--ink);}
+  .cal-cell.today.closed{color:var(--alert);}
+
+  .legend{display:flex; gap:14px; padding:4px 18px 4px; font-size:11px; color:var(--ink2); flex-wrap:wrap;}
+  .legend span{display:flex; align-items:center; gap:5px;}
+  .legend .sw{width:10px; height:10px; border-radius:3px;}
+  .todaynote{padding:0 18px 10px; font-size:11px; color:var(--ink2);}
+  .todaynote .ring{
+    display:inline-block; width:11px; height:11px; border-radius:3px;
+    box-shadow:0 0 0 2px var(--green) inset; vertical-align:middle; margin-right:4px;
+  }
+
+  .nav{display:flex; border-top:1px solid var(--line); background:var(--card); padding:6px 4px 10px;}
+  .nav a{flex:1; text-align:center; font-size:10.5px; color:var(--ink2); text-decoration:none; padding-top:4px;}
+  .nav a .ic{display:block; width:44px; height:26px; margin:0 auto 2px; border-radius:999px; line-height:26px; font-size:15px;}
+  .nav a.on{color:var(--green-ink); font-weight:700;}
+  .nav a.on .ic{background:var(--green-bg);}
+
+  .notes{max-width:390px; margin:0 auto; width:100%;}
+  .notes h2{font-size:15px; margin:16px 0 4px;}
+  .notes .lead{color:var(--ink2); font-size:13px; margin:0 0 8px;}
+  .note{display:flex; gap:10px; padding:9px 0; border-top:1px solid var(--line); font-size:13px;}
+  .note .no{flex:0 0 22px; height:22px; border-radius:50%; background:var(--green); color:#fff;
+    font-size:11.5px; font-weight:700; text-align:center; line-height:22px;}
+  .note b{display:block; margin-bottom:2px;}
+  .note p{margin:0; color:var(--ink2); font-size:12.5px;}
+
+  .divider{border:none; border-top:1px dashed var(--line); margin:26px 0 0;}
+
+  .compare{
+    border:1px solid var(--line); border-radius:12px; padding:14px; margin:20px auto 0; max-width:390px;
+    background:var(--card); font-size:13px;
+  }
+  .compare h2{margin:0 0 8px; font-size:14px;}
+  .compare table{width:100%; border-collapse:collapse; font-size:12px;}
+  .compare th, .compare td{text-align:left; padding:6px 4px; border-top:1px solid var(--line); vertical-align:top;}
+  .compare th{color:var(--ink2); font-weight:600; width:64px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============== 案A: 1ヶ月表示 + 前月/翌月ページャ ============== -->
+  <div class="variant-title"><span class="badge">案A</span>月表示 + 前月/翌月ページャ</div>
+
+  <div class="phone">
+    <div class="screen">
+
+      <div class="appbar">
+        <h1>開館カレンダー</h1>
+        <button class="hamburger" aria-label="メニュー">☰</button>
+      </div>
+
+      <div class="libpicker">
+        <select aria-label="表示する図書館">
+          <option>中央図書館</option>
+          <option>北口図書館</option>
+          <option>鳴尾図書館</option>
+          <option>北部図書館</option>
+          <option>越木岩図書館</option>
+          <option>若竹分室</option>
+          <option>段上分室</option>
+          <option>上ケ原分室</option>
+          <option>甲東園分室</option>
+          <option selected>高須分室</option>
+          <option>山口分室</option>
+          <option>義務教育校</option>
+        </select>
+      </div>
+      <div class="libnote">※既定館(設定で変更可)が初期選択されています。一度に表示できるのは一館のみです。</div>
+
+      <div class="pager">
+        <button id="pgPrev" aria-label="前月" onclick="pgMove(-1)">◀</button>
+        <span class="label" id="pgLabel">2026年7月</span>
+        <button id="pgNext" aria-label="翌月" onclick="pgMove(1)">▶</button>
+      </div>
+
+      <!-- 3ヶ月分をあらかじめ埋め込み、ページャで表示切替(取得済みデータの範囲内のみ移動) -->
+      <div class="cal-month" id="pgPages">
+        <div class="cal-page" data-idx="0">
+          <div class="cal-weekdays">
+            <span class="sun">日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span class="sat">土</span>
+          </div>
+          <div class="cal-grid">
+            <span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span>
+            <span class="cal-cell">1</span><span class="cal-cell">2</span><span class="cal-cell">3</span><span class="cal-cell sat">4</span>
+            <span class="cal-cell sun">5</span><span class="cal-cell closed">6</span><span class="cal-cell">7</span><span class="cal-cell">8</span><span class="cal-cell">9</span><span class="cal-cell">10</span><span class="cal-cell sat">11</span>
+            <span class="cal-cell sun">12</span><span class="cal-cell closed">13</span><span class="cal-cell">14</span><span class="cal-cell">15</span><span class="cal-cell">16</span><span class="cal-cell">17</span><span class="cal-cell sat">18</span>
+            <span class="cal-cell sun">19</span><span class="cal-cell closed today">20</span><span class="cal-cell">21</span><span class="cal-cell">22</span><span class="cal-cell">23</span><span class="cal-cell">24</span><span class="cal-cell sat">25</span>
+            <span class="cal-cell sun">26</span><span class="cal-cell closed">27</span><span class="cal-cell">28</span><span class="cal-cell">29</span><span class="cal-cell">30</span><span class="cal-cell closed">31</span><span class="cal-cell sat empty"></span>
+          </div>
+        </div>
+        <div class="cal-page" data-idx="1" style="display:none">
+          <div class="cal-weekdays">
+            <span class="sun">日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span class="sat">土</span>
+          </div>
+          <div class="cal-grid">
+            <span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell sat">1</span>
+            <span class="cal-cell sun">2</span><span class="cal-cell closed">3</span><span class="cal-cell">4</span><span class="cal-cell">5</span><span class="cal-cell">6</span><span class="cal-cell">7</span><span class="cal-cell sat">8</span>
+            <span class="cal-cell sun">9</span><span class="cal-cell closed">10</span><span class="cal-cell closed">11</span><span class="cal-cell">12</span><span class="cal-cell">13</span><span class="cal-cell">14</span><span class="cal-cell sat">15</span>
+            <span class="cal-cell sun">16</span><span class="cal-cell closed">17</span><span class="cal-cell">18</span><span class="cal-cell">19</span><span class="cal-cell">20</span><span class="cal-cell">21</span><span class="cal-cell sat">22</span>
+            <span class="cal-cell sun">23</span><span class="cal-cell closed">24</span><span class="cal-cell">25</span><span class="cal-cell">26</span><span class="cal-cell">27</span><span class="cal-cell">28</span><span class="cal-cell sat">29</span>
+            <span class="cal-cell sun">30</span><span class="cal-cell closed">31</span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell sat empty"></span>
+          </div>
+        </div>
+        <div class="cal-page" data-idx="2" style="display:none">
+          <div class="cal-weekdays">
+            <span class="sun">日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span class="sat">土</span>
+          </div>
+          <div class="cal-grid">
+            <span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell">1</span><span class="cal-cell">2</span><span class="cal-cell">3</span><span class="cal-cell">4</span><span class="cal-cell sat">5</span>
+            <span class="cal-cell sun">6</span><span class="cal-cell closed">7</span><span class="cal-cell">8</span><span class="cal-cell">9</span><span class="cal-cell">10</span><span class="cal-cell">11</span><span class="cal-cell sat">12</span>
+            <span class="cal-cell sun">13</span><span class="cal-cell closed">14</span><span class="cal-cell">15</span><span class="cal-cell">16</span><span class="cal-cell">17</span><span class="cal-cell">18</span><span class="cal-cell sat">19</span>
+            <span class="cal-cell sun">20</span><span class="cal-cell closed">21</span><span class="cal-cell closed">22</span><span class="cal-cell">23</span><span class="cal-cell">24</span><span class="cal-cell">25</span><span class="cal-cell sat">26</span>
+            <span class="cal-cell sun">27</span><span class="cal-cell closed">28</span><span class="cal-cell">29</span><span class="cal-cell">30</span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell sat empty"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend"><span><span class="sw" style="background:var(--alert-bg); border:1px solid var(--alert)"></span>休館</span></div>
+      <div class="todaynote"><span class="ring"></span>今日(7/20)は緑の枠で表示</div>
+
+      <div style="height:12px"></div>
+    </div>
+
+    <nav class="nav">
+      <a href="#"><span class="ic">🏠</span>ホーム</a>
+      <a href="#"><span class="ic">📚</span>本棚</a>
+      <a href="#"><span class="ic">📖</span>貸出中</a>
+      <a href="#"><span class="ic">🔖</span>予約中</a>
+      <a href="#"><span class="ic">📗</span>読書記録</a>
+    </nav>
+  </div>
+
+  <div class="notes">
+    <p class="lead">前月/翌月ボタンで1ヶ月ずつめくる。サイトから取得できるのは当月から約3ヶ月分のみのため、その範囲外ではボタンを無効化する(実装ではデータの無い月には遷移させない)。</p>
+    <div class="note"><span class="no">1</span><div><b>常に1ヶ月をフル表示</b><p>1画面に収まる情報量が一定で見やすい。「今月どうか」を素早く確認する用途に向く。</p></div></div>
+    <div class="note"><span class="no">2</span><div><b>他館との比較には不向き</b><p>ページ送りのたびにタップが要るため、複数ヶ月をざっと見渡す用途では手数が増える。</p></div></div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- ============== 案B: 3ヶ月分を縦に連ねてスクロール ============== -->
+  <div class="variant-title"><span class="badge">案B</span>3ヶ月分を縦スクロール</div>
+
+  <div class="phone">
+    <div class="screen">
+
+      <div class="appbar">
+        <h1>開館カレンダー</h1>
+        <button class="hamburger" aria-label="メニュー">☰</button>
+      </div>
+
+      <div class="libpicker">
+        <select aria-label="表示する図書館">
+          <option>中央図書館</option>
+          <option>北口図書館</option>
+          <option>鳴尾図書館</option>
+          <option>北部図書館</option>
+          <option>越木岩図書館</option>
+          <option>若竹分室</option>
+          <option>段上分室</option>
+          <option>上ケ原分室</option>
+          <option>甲東園分室</option>
+          <option selected>高須分室</option>
+          <option>山口分室</option>
+          <option>義務教育校</option>
+        </select>
+      </div>
+      <div class="libnote">※既定館(設定で変更可)が初期選択されています。一度に表示できるのは一館のみです。</div>
+
+      <div class="cal-month">
+        <div class="cal-monthlabel">2026年7月</div>
+        <div class="cal-weekdays">
+          <span class="sun">日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span class="sat">土</span>
+        </div>
+        <div class="cal-grid">
+          <span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span>
+          <span class="cal-cell">1</span><span class="cal-cell">2</span><span class="cal-cell">3</span><span class="cal-cell sat">4</span>
+          <span class="cal-cell sun">5</span><span class="cal-cell closed">6</span><span class="cal-cell">7</span><span class="cal-cell">8</span><span class="cal-cell">9</span><span class="cal-cell">10</span><span class="cal-cell sat">11</span>
+          <span class="cal-cell sun">12</span><span class="cal-cell closed">13</span><span class="cal-cell">14</span><span class="cal-cell">15</span><span class="cal-cell">16</span><span class="cal-cell">17</span><span class="cal-cell sat">18</span>
+          <span class="cal-cell sun">19</span><span class="cal-cell closed today">20</span><span class="cal-cell">21</span><span class="cal-cell">22</span><span class="cal-cell">23</span><span class="cal-cell">24</span><span class="cal-cell sat">25</span>
+          <span class="cal-cell sun">26</span><span class="cal-cell closed">27</span><span class="cal-cell">28</span><span class="cal-cell">29</span><span class="cal-cell">30</span><span class="cal-cell closed">31</span><span class="cal-cell sat empty"></span>
+        </div>
+
+        <div class="cal-monthlabel">2026年8月</div>
+        <div class="cal-weekdays">
+          <span class="sun">日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span class="sat">土</span>
+        </div>
+        <div class="cal-grid">
+          <span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell sat">1</span>
+          <span class="cal-cell sun">2</span><span class="cal-cell closed">3</span><span class="cal-cell">4</span><span class="cal-cell">5</span><span class="cal-cell">6</span><span class="cal-cell">7</span><span class="cal-cell sat">8</span>
+          <span class="cal-cell sun">9</span><span class="cal-cell closed">10</span><span class="cal-cell closed">11</span><span class="cal-cell">12</span><span class="cal-cell">13</span><span class="cal-cell">14</span><span class="cal-cell sat">15</span>
+          <span class="cal-cell sun">16</span><span class="cal-cell closed">17</span><span class="cal-cell">18</span><span class="cal-cell">19</span><span class="cal-cell">20</span><span class="cal-cell">21</span><span class="cal-cell sat">22</span>
+          <span class="cal-cell sun">23</span><span class="cal-cell closed">24</span><span class="cal-cell">25</span><span class="cal-cell">26</span><span class="cal-cell">27</span><span class="cal-cell">28</span><span class="cal-cell sat">29</span>
+          <span class="cal-cell sun">30</span><span class="cal-cell closed">31</span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell sat empty"></span>
+        </div>
+
+        <div class="cal-monthlabel">2026年9月</div>
+        <div class="cal-weekdays">
+          <span class="sun">日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span class="sat">土</span>
+        </div>
+        <div class="cal-grid">
+          <span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell">1</span><span class="cal-cell">2</span><span class="cal-cell">3</span><span class="cal-cell">4</span><span class="cal-cell sat">5</span>
+          <span class="cal-cell sun">6</span><span class="cal-cell closed">7</span><span class="cal-cell">8</span><span class="cal-cell">9</span><span class="cal-cell">10</span><span class="cal-cell">11</span><span class="cal-cell sat">12</span>
+          <span class="cal-cell sun">13</span><span class="cal-cell closed">14</span><span class="cal-cell">15</span><span class="cal-cell">16</span><span class="cal-cell">17</span><span class="cal-cell">18</span><span class="cal-cell sat">19</span>
+          <span class="cal-cell sun">20</span><span class="cal-cell closed">21</span><span class="cal-cell closed">22</span><span class="cal-cell">23</span><span class="cal-cell">24</span><span class="cal-cell">25</span><span class="cal-cell sat">26</span>
+          <span class="cal-cell sun">27</span><span class="cal-cell closed">28</span><span class="cal-cell">29</span><span class="cal-cell">30</span><span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell sat empty"></span>
+        </div>
+      </div>
+
+      <div class="legend"><span><span class="sw" style="background:var(--alert-bg); border:1px solid var(--alert)"></span>休館</span></div>
+      <div class="todaynote"><span class="ring"></span>今日(7/20)は緑の枠で表示</div>
+
+      <div style="height:12px"></div>
+    </div>
+
+    <nav class="nav">
+      <a href="#"><span class="ic">🏠</span>ホーム</a>
+      <a href="#"><span class="ic">📚</span>本棚</a>
+      <a href="#"><span class="ic">📖</span>貸出中</a>
+      <a href="#"><span class="ic">🔖</span>予約中</a>
+      <a href="#"><span class="ic">📗</span>読書記録</a>
+    </nav>
+  </div>
+
+  <div class="notes">
+    <p class="lead">取得済みの約3ヶ月分をすべて1画面に並べ、月見出しごと縦スクロールで見渡す。ページ送り操作が不要。</p>
+    <div class="note"><span class="no">1</span><div><b>3ヶ月分を一望できる</b><p>「来月の休館日」も同じ画面内で確認でき、旅行や帰省の予定と照らし合わせやすい。</p></div></div>
+    <div class="note"><span class="no">2</span><div><b>初期表示が縦長</b><p>今月分にたどり着くまでのスクロール量は最小(先頭=当月)だが、画面全体は案Aより長くなる。</p></div></div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="compare">
+    <h2>2案の比較メモ</h2>
+    <table>
+      <tr><th>操作</th><td>案A: ◀▶タップで月送り / 案B: スクロールのみ</td></tr>
+      <tr><th>情報量</th><td>案A: 1ヶ月ずつ集中 / 案B: 3ヶ月を一望</td></tr>
+      <tr><th>初期表示</th><td>両案とも当月(2026年7月)を先頭に表示</td></tr>
+      <tr><th>データ範囲</th><td>共通: 公式サイトから取得できる当月+約2ヶ月先まで(館ごと)</td></tr>
+    </table>
+  </div>
+
+</div>
+
+<script>
+  // 案Aのページャ(取得済み3ヶ月分の範囲内のみ移動。実データ・実装ではAPI取得範囲に合わせて可変)
+  var pgLabels = ["2026年7月", "2026年8月", "2026年9月"];
+  var pgIndex = 0;
+  function pgRender(){
+    document.querySelectorAll("#pgPages .cal-page").forEach(function(el){
+      el.style.display = (Number(el.dataset.idx) === pgIndex) ? "" : "none";
+    });
+    document.getElementById("pgLabel").textContent = pgLabels[pgIndex];
+    document.getElementById("pgPrev").disabled = (pgIndex <= 0);
+    document.getElementById("pgNext").disabled = (pgIndex >= pgLabels.length - 1);
+  }
+  function pgMove(delta){
+    var next = pgIndex + delta;
+    if(next < 0 || next > pgLabels.length - 1) return;
+    pgIndex = next;
+    pgRender();
+  }
+  pgRender();
+</script>
+</body>
+</html>
