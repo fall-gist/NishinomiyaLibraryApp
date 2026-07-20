@@ -12,6 +12,7 @@ import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.local.dao.ClosedDayDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.LoanDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.NewArrivalDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReadingRecordDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfItemDao
@@ -33,7 +34,11 @@ object LocalDataModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "nishinomiya_library.db")
-            .addMigrations(DatabaseMigrations.MIGRATION_1_2, DatabaseMigrations.MIGRATION_2_3)
+            .addMigrations(
+                DatabaseMigrations.MIGRATION_1_2,
+                DatabaseMigrations.MIGRATION_2_3,
+                DatabaseMigrations.MIGRATION_3_4,
+            )
             .build()
 
     @Provides
@@ -59,6 +64,9 @@ object LocalDataModule {
 
     @Provides
     fun provideUserSummaryDao(database: AppDatabase): UserSummaryDao = database.userSummaryDao()
+
+    @Provides
+    fun provideNewArrivalDao(database: AppDatabase): NewArrivalDao = database.newArrivalDao()
 
     @Provides
     @Singleton

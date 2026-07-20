@@ -726,6 +726,8 @@ class RepositoryAndSyncTest {
             return closedDaysResult
         }
 
+        override suspend fun newArrivals(): List<com.fallgist.nishinomiyalibrary.domain.model.NewArrival> = emptyList()
+
         override suspend fun fetchUserData(
             cardNumber: String,
             password: String,

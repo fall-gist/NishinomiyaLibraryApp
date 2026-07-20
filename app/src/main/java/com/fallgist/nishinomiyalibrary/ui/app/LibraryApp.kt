@@ -14,6 +14,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +33,8 @@ import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreen
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
+import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreen
+import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreen
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreen
@@ -56,6 +59,7 @@ private enum class Destination(val label: String, val emoji: String, val primary
     RESERVATIONS("予約中", "🔖", true),
     READING("読書記録", "📗", true),
     SEARCH("蔵書検索", "🔍", false),
+    NEW_ARRIVALS("新着資料", "🆕", false),
     CALENDAR("カレンダー", "📅", false),
     SETTINGS("設定", "⚙️", false),
 }
@@ -72,6 +76,7 @@ fun LibraryApp(
     bookshelfController: BookshelfScreenController,
     searchController: SearchScreenController,
     calendarController: CalendarScreenController,
+    newArrivalsController: NewArrivalsScreenController,
     settingsController: SettingsScreenController,
 ) {
     val colors = LocalAppColors.current
@@ -194,6 +199,18 @@ fun LibraryApp(
                             onLoadMore = searchController::loadMore,
                             onOpenDetail = searchController::openDetail,
                             onCloseDetail = searchController::closeDetail,
+                            onOpenMenu = openMenu,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    Destination.NEW_ARRIVALS -> {
+                        val newArrivalsState by newArrivalsController.state.collectAsState()
+                        LaunchedEffect(Unit) { newArrivalsController.onScreenLaunched() }
+                        NewArrivalsScreen(
+                            state = newArrivalsState,
+                            onQueryChange = newArrivalsController::updateQuery,
+                            onRefresh = newArrivalsController::refresh,
                             onOpenMenu = openMenu,
                             modifier = Modifier.fillMaxSize(),
                         )

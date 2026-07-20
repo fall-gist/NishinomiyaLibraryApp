@@ -286,6 +286,46 @@ class ParsersTest {
         }
     }
 
+    @Test
+    fun `新着資料ジャンル一覧からジャンルコードを抽出できる`() {
+        val codes = NewArrivalMenuParser.parseGenreCodes(fixture("new_arrival_menu.html"))
+        assertEquals(listOf("01", "22", "27"), codes)
+    }
+
+    @Test
+    fun `新着資料ジャンル一覧にリンクがなければParseExceptionになる`() = assertParseError("new_arrival_menu") {
+        NewArrivalMenuParser.parseGenreCodes("<h1>新着資料ジャンル一覧</h1><table class='list'></table>")
+    }
+
+    @Test
+    fun `新着資料一覧フィクスチャをパースできる`() {
+        val arrivals = NewArrivalListParser.parse(fixture("new_arrival_list.html"))
+        assertEquals(3, arrivals.size)
+
+        val first = arrivals[0]
+        assertEquals("1000002034242", first.tilcod)
+        assertEquals("御成敗式目の殺人", first.title)
+        assertEquals("", first.volume)
+        assertEquals("羽生 飛鳥／著", first.author)
+        assertEquals("中央公論新社", first.publisher)
+        assertEquals("2026/06", first.publishedYearMonth)
+        assertEquals("Fﾊﾆ", first.classification)
+        assertEquals(false, first.lendable)
+
+        // 巻次あり・貸出可
+        assertEquals("2", arrivals[1].volume)
+        assertEquals(true, arrivals[1].lendable)
+
+        // 貸出セルが空なら判定不能(null)
+        assertEquals(null, arrivals[2].lendable)
+        assertEquals("1000002099999", arrivals[2].tilcod)
+    }
+
+    @Test
+    fun `新着資料一覧の結果テーブルが無ければParseExceptionになる`() = assertParseError("new_arrival_list") {
+        NewArrivalListParser.parse("<h1>新着資料一覧</h1>")
+    }
+
     private fun fixture(name: String): String =
         requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
 

@@ -128,3 +128,19 @@ data class Holding(
 data class Library(val code: String, val name: String)
 
 data class ClosedDay(val libraryCode: String, val date: LocalDate)
+
+/**
+ * 新着資料の1冊。公式サイトはジャンル別に分かれているが、本アプリはジャンルを保持せず
+ * 全ジャンルを統合した書誌リストとして扱う。tilcod で名寄せ・書誌詳細へ連携する。
+ */
+data class NewArrival(
+    val tilcod: String,
+    val title: String,
+    val volume: String,
+    val author: String,
+    val publisher: String,
+    val publishedYearMonth: String,
+    val classification: String,
+    /** 貸出可否。○=true / ×=false / 判定不能=null。 */
+    val lendable: Boolean?,
+)

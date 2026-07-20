@@ -8,6 +8,7 @@ import androidx.room.withTransaction
 import com.fallgist.nishinomiyalibrary.data.local.dao.ClosedDayDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.LoanDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.NewArrivalDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReadingRecordDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfItemDao
@@ -17,6 +18,7 @@ import com.fallgist.nishinomiyalibrary.data.local.dao.UserSummaryDao
 import com.fallgist.nishinomiyalibrary.data.local.entity.ClosedDayEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.NewArrivalEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingHistoryCheckpointEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingRecordEntity
@@ -38,8 +40,9 @@ import java.time.LocalDate
         UserSummaryEntity::class,
         ReadingRecordEntity::class,
         ReadingHistoryCheckpointEntity::class,
+        NewArrivalEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 @TypeConverters(LocalDateConverters::class)
@@ -53,6 +56,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun closedDayDao(): ClosedDayDao
     abstract fun syncLogDao(): SyncLogDao
     abstract fun userSummaryDao(): UserSummaryDao
+    abstract fun newArrivalDao(): NewArrivalDao
 
     /**
      * 同期結果をメンバー単位で置き換える。予約の通知済み時刻だけは、
@@ -116,6 +120,15 @@ abstract class AppDatabase : RoomDatabase() {
             readingRecordDao().upsertAll(readingRecords)
             // サイト読書履歴由来のキーだけを差分同期の停止判定に使う。
             readingRecordDao().upsertHistoryCheckpoints(readingHistoryCheckpoints)
+        }
+    }
+
+    /** 新着資料を取得結果で全置換する(ジャンル横断の統合リストを丸ごと入れ替える)。 */
+    @Transaction
+    suspend fun replaceNewArrivals(items: List<NewArrivalEntity>) {
+        withTransaction {
+            newArrivalDao().clear()
+            newArrivalDao().insertAll(items)
         }
     }
 

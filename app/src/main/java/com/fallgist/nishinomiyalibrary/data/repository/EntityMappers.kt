@@ -3,6 +3,7 @@ package com.fallgist.nishinomiyalibrary.data.repository
 import com.fallgist.nishinomiyalibrary.data.local.entity.ClosedDayEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.NewArrivalEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingInfoProjection
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingRecordEntity
@@ -14,6 +15,7 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.UserSummaryEntity
 import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Member
+import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
@@ -23,6 +25,28 @@ import com.fallgist.nishinomiyalibrary.domain.model.Shelf
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncLog
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncTrigger
+
+internal fun NewArrivalEntity.toDomain(): NewArrival = NewArrival(
+    tilcod = tilcod,
+    title = title,
+    volume = volume,
+    author = author,
+    publisher = publisher,
+    publishedYearMonth = publishedYearMonth,
+    classification = classification,
+    lendable = lendable,
+)
+
+internal fun NewArrival.toEntity(): NewArrivalEntity = NewArrivalEntity(
+    tilcod = tilcod,
+    title = title,
+    volume = volume,
+    author = author,
+    publisher = publisher,
+    publishedYearMonth = publishedYearMonth,
+    classification = classification,
+    lendable = lendable,
+)
 
 internal fun MemberEntity.toDomain(): Member = Member(id, name, colorHex, cardNumber, sortOrder)
 

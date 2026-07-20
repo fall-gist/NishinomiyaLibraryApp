@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
+import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
@@ -17,6 +18,8 @@ interface LibraryGateway {
     suspend fun isLendable(tilcod: String): Boolean?
     suspend fun bookDetail(tilcod: String): BookDetail
     suspend fun closedDays(libraryCode: String): List<LocalDate>
+    /** 全ジャンルの新着資料を統合し、tilcodで名寄せした書誌リストを返す(認証不要)。 */
+    suspend fun newArrivals(): List<NewArrival>
     /** 既知の読書記録キーは通信層へ値だけ渡し、Roomへの依存を持ち込まない。 */
     suspend fun fetchUserData(
         cardNumber: String,

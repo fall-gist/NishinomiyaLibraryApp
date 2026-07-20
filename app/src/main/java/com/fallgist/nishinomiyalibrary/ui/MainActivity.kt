@@ -11,6 +11,7 @@ import com.fallgist.nishinomiyalibrary.ui.di.MainActivityEntryPoint
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
+import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
 import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
@@ -35,6 +36,7 @@ open class MainActivity : ComponentActivity() {
     private lateinit var bookshelfController: BookshelfScreenController
     private lateinit var searchController: SearchScreenController
     private lateinit var calendarController: CalendarScreenController
+    private lateinit var newArrivalsController: NewArrivalsScreenController
     private lateinit var settingsController: SettingsScreenController
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,6 +56,7 @@ open class MainActivity : ComponentActivity() {
         bookshelfController = entryPoint.bookshelfScreenController()
         searchController = entryPoint.searchScreenController()
         calendarController = entryPoint.calendarScreenController()
+        newArrivalsController = entryPoint.newArrivalsScreenController()
         settingsController = entryPoint.settingsScreenController()
 
         setContent {
@@ -70,6 +73,7 @@ open class MainActivity : ComponentActivity() {
                     bookshelfController = bookshelfController,
                     searchController = searchController,
                     calendarController = calendarController,
+                    newArrivalsController = newArrivalsController,
                     settingsController = settingsController,
                 )
             }

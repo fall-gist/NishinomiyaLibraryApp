@@ -3,6 +3,8 @@ package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookDetailParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.CalendarParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoanListParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.NewArrivalListParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.NewArrivalMenuParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SearchResultParser
@@ -11,6 +13,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.UsrReadListParser
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
+import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
@@ -116,6 +119,30 @@ class LicsXpClient(
         )
         requireNotMaintenance(html)
         CalendarParser.parse(html)
+    }
+
+    override suspend fun newArrivals(): List<NewArrival> = mapErrors {
+        // 認証不要の公開ページ。ジャンル一覧→各ジャンルの順にGETし、tilcodで名寄せする。
+        val menuHtml = session.get(
+            path = "WOpacMsgNewMenuDispAction.do",
+            query = mapOf("moveToGamenId" to "msgnewmenu"),
+        )
+        requireNotMaintenance(menuHtml)
+        val genreCodes = NewArrivalMenuParser.parseGenreCodes(menuHtml)
+
+        // 先勝ちで重複を除く。複数ジャンルに現れる資料は最初に見つけたジャンルの行を採用。
+        val byTilcod = LinkedHashMap<String, NewArrival>()
+        for (code in genreCodes) {
+            val listHtml = session.get(
+                path = "WOpacMsgNewMenuToMsgNewListAction.do",
+                query = mapOf("newMenuCode" to code),
+            )
+            requireNotMaintenance(listHtml)
+            for (arrival in NewArrivalListParser.parse(listHtml)) {
+                byTilcod.putIfAbsent(arrival.tilcod, arrival)
+            }
+        }
+        byTilcod.values.toList()
     }
 
     override suspend fun fetchUserData(

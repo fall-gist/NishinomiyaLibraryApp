@@ -5,6 +5,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
 import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Member
+import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
@@ -67,6 +68,14 @@ interface ReadingRecordRepository {
     fun search(query: String, memberId: Long? = null): Flow<List<ReadingRecord>>
 
     fun hasRead(tilcod: String): Flow<List<ReadingInfo>>
+}
+
+/** 全ジャンル統合の新着資料をローカルにキャッシュしつつ提供する公開API。 */
+interface NewArrivalRepository {
+    fun newArrivals(): Flow<List<NewArrival>>
+
+    /** 公式サイトから取得し直してローカルを全置換する。失敗時は例外を投げる。 */
+    suspend fun refresh()
 }
 
 enum class SyncTrigger { MANUAL, SCHEDULED }

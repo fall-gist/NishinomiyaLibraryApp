@@ -9,6 +9,7 @@ import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import com.fallgist.nishinomiyalibrary.data.local.entity.ClosedDayEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.NewArrivalEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingHistoryCheckpointEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingRecordEntity
@@ -162,6 +163,68 @@ class LocalDataTest {
             listOf("1000000000051"),
             database.readingRecordDao().getHistoryCheckpointKeys(memberId).map { it.tilcod },
         )
+    }
+
+    @Test
+    fun `新着資料DAOはtilcod主キーで全置換し出版年月の新しい順に公開する`() = runBlocking {
+        database.replaceNewArrivals(
+            listOf(
+                newArrival("100", "古い本", published = "2026/04"),
+                newArrival("200", "新しい本", published = "2026/06"),
+            ),
+        )
+        assertEquals(
+            listOf("新しい本", "古い本"),
+            database.newArrivalDao().observeAll().first().map { it.title },
+        )
+
+        // 全置換: 前回分は消え、tilcod重複は最後の値で上書きされる
+        database.replaceNewArrivals(
+            listOf(
+                newArrival("300", "別ジャンルの本", published = "2026/05"),
+                newArrival("300", "同一tilcodの改題", published = "2026/05"),
+            ),
+        )
+        val rows = database.newArrivalDao().observeAll().first()
+        assertEquals(1, rows.size)
+        assertEquals("同一tilcodの改題", rows.single().title)
+    }
+
+    @Test
+    fun `v3からv4移行は新着資料テーブルを作成する`() {
+        val databaseName = "migration-${UUID.randomUUID()}.db"
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(databaseName)
+                .callback(object : SupportSQLiteOpenHelper.Callback(3) {
+                    override fun onCreate(database: androidx.sqlite.db.SupportSQLiteDatabase) = Unit
+
+                    override fun onUpgrade(
+                        database: androidx.sqlite.db.SupportSQLiteDatabase,
+                        oldVersion: Int,
+                        newVersion: Int,
+                    ) = Unit
+                })
+                .build(),
+        )
+
+        try {
+            val sqlite = helper.writableDatabase
+            DatabaseMigrations.MIGRATION_3_4.migrate(sqlite)
+            sqlite.execSQL(
+                "INSERT INTO new_arrivals(tilcod, title, volume, author, publisher, " +
+                    "publishedYearMonth, classification, lendable) " +
+                    "VALUES ('1', '本', '', '著', '版元', '2026/06', 'F', 1)",
+            )
+            sqlite.query("SELECT tilcod, lendable FROM new_arrivals").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("1", cursor.getString(0))
+                assertEquals(1, cursor.getInt(1))
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(databaseName)
+        }
     }
 
     @Test
@@ -439,6 +502,21 @@ class LocalDataTest {
         colorHex = "#123456",
         cardNumber = "generated-${UUID.randomUUID()}",
         sortOrder = sortOrder,
+    )
+
+    private fun newArrival(
+        tilcod: String,
+        title: String,
+        published: String,
+    ): NewArrivalEntity = NewArrivalEntity(
+        tilcod = tilcod,
+        title = title,
+        volume = "",
+        author = "著者",
+        publisher = "出版者",
+        publishedYearMonth = published,
+        classification = "F",
+        lendable = null,
     )
 
     private fun loan(

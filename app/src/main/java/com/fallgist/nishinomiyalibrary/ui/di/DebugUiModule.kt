@@ -5,6 +5,7 @@ import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.data.sync.WorkManagerSyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
@@ -12,6 +13,7 @@ import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
 import com.fallgist.nishinomiyalibrary.ui.debug.DebugScreenController
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
+import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
 import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
@@ -126,6 +128,14 @@ object DebugUiProvisionModule {
 
     @Provides
     @Singleton
+    fun provideNewArrivalsScreenController(
+        newArrivalRepository: NewArrivalRepository,
+    ): NewArrivalsScreenController = NewArrivalsScreenController(
+        newArrivalRepository = newArrivalRepository,
+    )
+
+    @Provides
+    @Singleton
     fun provideSettingsScreenController(
         familyRepository: FamilyRepository,
         statusRepository: StatusRepository,
@@ -158,6 +168,8 @@ interface MainActivityEntryPoint {
     fun searchScreenController(): SearchScreenController
 
     fun calendarScreenController(): CalendarScreenController
+
+    fun newArrivalsScreenController(): NewArrivalsScreenController
 
     fun settingsScreenController(): SettingsScreenController
 

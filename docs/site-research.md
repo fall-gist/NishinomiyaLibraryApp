@@ -125,6 +125,17 @@
 - 休館日はページ内JSに `holiday="YYYY-MM-DD ..."` の形で埋め込まれており、正規表現で抽出可能(当月から約3ヶ月分)
 - 館コード: `001`中央 / `002`北口 / `003`鳴尾 / `004`北部 / `101`越木岩 / `102`若竹分室 / `103`段上分室 / `104`上ケ原分室 / `105`甲東園分室 / `106`高須分室 / `107`山口分室 / `109`義務教育校(計12施設)
 
+## 5b. 新着資料(認証不要)
+
+- ジャンル一覧: `GET /licsxp-opac/WOpacMsgNewMenuDispAction.do?moveToGamenId=msgnewmenu`
+  - `<a href="...newMenuCode=NN">` が全28ジャンル(`01`総記〜`28`コミック)。h1=「新着資料ジャンル一覧」
+- 各ジャンルの一覧: `GET /licsxp-opac/WOpacMsgNewMenuToMsgNewListAction.do?newMenuCode=NN`
+  - `table.list` に **No./書誌種別/書名/巻次/著者/出版者/出版年月/分類/貸出** の列。1ページに全件(ページングなし)
+  - 書名セルの `<a href="...tilcod=...">` からtilcod取得。貸出列は○/×
+  - `newMenuCode` を空にするとエラー画面(全ジャンル一括取得は不可)
+- GETのみで到達でき、hash/gamenidは不要。**全ジャンルを巡回してtilcodで名寄せ**して統合リストにする
+  (アプリはジャンルを保持しない)。巡回はレート制御(500ms間隔)に従う
+
 ## 6. 設計への示唆
 
 1. **パースは現実的**: 主要データはclass付きdivか素直なtableで、Jsoupで安定してパースできる

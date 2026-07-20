@@ -128,6 +128,20 @@ data class ClosedDayEntity(
     val date: LocalDate,
 )
 
+/** 全ジャンルを統合した新着資料。tilcodを主キーに名寄せ保持する。 */
+@Entity(tableName = "new_arrivals")
+data class NewArrivalEntity(
+    @PrimaryKey
+    val tilcod: String,
+    val title: String,
+    val volume: String,
+    val author: String,
+    val publisher: String,
+    val publishedYearMonth: String,
+    val classification: String,
+    val lendable: Boolean?,
+)
+
 @Entity(tableName = "sync_logs")
 data class SyncLogEntity(
     @PrimaryKey(autoGenerate = true)

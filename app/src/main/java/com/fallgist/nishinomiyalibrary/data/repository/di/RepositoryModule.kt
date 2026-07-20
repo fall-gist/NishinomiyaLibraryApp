@@ -9,6 +9,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryGateway
 import com.fallgist.nishinomiyalibrary.data.remote.openbd.OpenBdClient
 import com.fallgist.nishinomiyalibrary.data.repository.CalendarRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.FamilyRepositoryImpl
+import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.SearchRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.ReadingRecordRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.StatusRepositoryImpl
@@ -18,6 +19,7 @@ import com.fallgist.nishinomiyalibrary.data.sync.NotificationSink
 import com.fallgist.nishinomiyalibrary.data.sync.PostSyncNotifier
 import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
@@ -54,6 +56,10 @@ abstract class RepositoryBindingModule {
     @Binds
     @Singleton
     abstract fun bindReadingRecordRepository(implementation: ReadingRecordRepositoryImpl): ReadingRecordRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindNewArrivalRepository(implementation: NewArrivalRepositoryImpl): NewArrivalRepository
 
     @Binds
     @Singleton

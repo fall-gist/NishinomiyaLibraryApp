@@ -58,4 +58,17 @@ object DatabaseMigrations {
             )
         }
     }
+
+    /** v4で全ジャンル統合の新着資料テーブルを追加する。 */
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS new_arrivals (" +
+                    "tilcod TEXT NOT NULL, title TEXT NOT NULL, volume TEXT NOT NULL, " +
+                    "author TEXT NOT NULL, publisher TEXT NOT NULL, publishedYearMonth TEXT NOT NULL, " +
+                    "classification TEXT NOT NULL, lendable INTEGER, " +
+                    "PRIMARY KEY(tilcod))",
+            )
+        }
+    }
 }
