@@ -27,12 +27,12 @@
 | 画面 | spec§ | モック | 状態 | 主に叩くリポジトリAPI(backend-design §6) |
 |---|---|---|---|---|
 | ホーム(家族統合) | 3.1 | [home.html](mockups/home.html) | **Compose実装着手**(※きょうの図書館セクションは未) | `StatusRepository.loans() / reservations() / lastSync()`, `FamilyRepository.members()` |
-| 蔵書検索 | 3.2 | — | 未着手 | `SearchRepository.search() / autocomplete() / isLendable() / coverUrl()` |
-| 書誌詳細 | 3.2 | — | 未着手 | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
+| 蔵書検索 | 3.2 | [search.html](mockups/search.html) | モック作成済(Compose未着手) | `SearchRepository.search() / autocomplete() / isLendable() / coverUrl()` |
+| 書誌詳細 | 3.2 | [search.html](mockups/search.html)(同ファイル内) | モック作成済(Compose未着手) | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
 | 貸出中(下部タブ) | 3.3 | [loans.html](mockups/loans.html) | **Compose実装済** | `StatusRepository.loans()` |
 | 予約中(下部タブ) | 3.3 | [reservations.html](mockups/reservations.html) | **Compose実装済** | `StatusRepository.reservations()` |
 | 本棚(マイ本棚・下部タブ) | 3.4 | [bookshelf.html](mockups/bookshelf.html) | **Compose実装済**(みんなチップ+全員の本棚を横並び・本棚タイトル頭に識別色) | `StatusRepository.shelf(memberId)` |
-| 開館カレンダー(ハンバーガー) | 3.5 | — | 未着手 | `CalendarRepository.closedDays() / refreshClosedDays() / libraries` |
+| 開館カレンダー(ハンバーガー) | 3.5 | [calendar.html](mockups/calendar.html) | モック作成済・2案併記(Compose未着手) | `CalendarRepository.closedDays() / refreshClosedDays() / libraries` |
 | 読書記録(下部タブ・一覧・検索) | 3.5b | [reading-records.html](mockups/reading-records.html) | **Compose実装済** | `ReadingRecordRepository`(一覧/メンバー絞り込み/正規化検索/既読判定) |
 | 設定(メンバー管理・同期時刻・通知) | 2, 3.6, 3.7 | [settings.html](mockups/settings.html) | 未着手 | `FamilyRepository.*`, 設定用DataStore、通知オンオフ |
 

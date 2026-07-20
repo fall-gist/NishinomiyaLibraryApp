@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>西宮市立図書館 蔵書検索画面モック</title>
+<style>
+  :root{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2;
+    --papa:#3D6DB5; --mama:#C25278; --taro:#D98E2B; --hana:#5FA05A; --jiro:#8A64B8;
+    --chip-bg:#EFEAE0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+      --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+      --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+    --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+    --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+  }
+  :root[data-theme="light"]{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2; --chip-bg:#EFEAE0;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 16px 64px; background:var(--paper); color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+    line-height:1.6;
+  }
+  .wrap{max-width:1060px; margin:0 auto; display:grid; grid-template-columns:400px 1fr; gap:40px; align-items:start;}
+  @media (max-width:860px){ .wrap{grid-template-columns:1fr} .notes{max-width:430px; margin:0 auto} }
+
+  .phone{
+    width:390px; margin:0 auto; background:var(--card); border:1px solid var(--line);
+    border-radius:28px; overflow:hidden; box-shadow:0 12px 40px rgba(40,30,10,.12);
+    display:flex; flex-direction:column; height:800px;
+  }
+  .screen{flex:1; overflow-y:auto; background:var(--paper);}
+
+  .appbar{padding:18px 18px 8px; display:flex; justify-content:space-between; align-items:center;}
+  .appbar h1{margin:0; font-size:19px; letter-spacing:.02em;}
+  .appbar .hamburger, .appbar .backbtn{
+    flex:0 0 auto; width:32px; height:32px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:16px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+  .appbar .titlegroup{display:flex; align-items:center; gap:10px;}
+  .appbar .titlegroup h1{font-size:17px;}
+
+  /* --- 検索ボックス --- */
+  .searchwrap{padding:6px 18px 4px;}
+  .search{
+    display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--line);
+    border-radius:12px; padding:10px 12px;
+  }
+  .search .ic{color:var(--ink2); font-size:14px;}
+  .search input{
+    border:none; outline:none; background:transparent; flex:1; font-size:13.5px; color:var(--ink);
+    font-family:inherit;
+  }
+  .search input::placeholder{color:var(--ink2);}
+
+  /* --- オートコンプリート表示例 --- */
+  .acdemo{margin:10px 18px 16px; padding:12px 12px 10px; border:1px dashed var(--line); border-radius:12px;}
+  .acdemo .caption{font-size:11px; color:var(--ink2); margin:0 0 8px; display:flex; align-items:center; gap:6px;}
+  .ac-input{
+    display:flex; align-items:center; gap:8px; background:var(--paper); border:1px solid var(--line);
+    border-radius:10px 10px 0 0; padding:8px 11px; font-size:13px; color:var(--ink);
+  }
+  .ac-input .ic{color:var(--ink2); font-size:13px;}
+  .ac-list{border:1px solid var(--line); border-top:none; border-radius:0 0 10px 10px; overflow:hidden; background:var(--card); box-shadow:0 6px 16px rgba(30,20,5,.08);}
+  .ac-item{padding:8px 12px; font-size:12.5px; color:var(--ink); border-top:1px solid var(--line); display:flex; align-items:center; gap:7px;}
+  .ac-item:first-child{border-top:none;}
+  .ac-item .ic{color:var(--ink2); font-size:11px; flex:0 0 auto;}
+  .ac-item b{font-weight:700;}
+  .acdemo .note{font-size:10.5px; color:var(--ink2); margin:8px 2px 0; border:none; padding:0;}
+
+  section{padding:0 18px; margin-bottom:20px;}
+  .sec-h{display:flex; justify-content:space-between; align-items:baseline; margin:0 0 10px;}
+  .sec-h h2{margin:0; font-size:13px; letter-spacing:.02em; color:var(--ink); font-weight:600;}
+  .sec-h .count{font-size:11px; color:var(--ink2);}
+
+  /* --- 検索結果 --- */
+  .result{
+    display:flex; align-items:flex-start; gap:10px; background:var(--card); border:1px solid var(--line);
+    border-radius:12px; padding:10px 12px; margin-bottom:8px; cursor:pointer;
+  }
+  .result .cover{
+    flex:0 0 auto; width:52px; height:74px; border-radius:6px; background:var(--chip-bg);
+    display:flex; align-items:center; justify-content:center; color:var(--ink2); font-size:18px; opacity:.75;
+  }
+  .result .info{flex:1; min-width:0;}
+  .result .rtitle{font-size:13.5px; line-height:1.4; margin:0 0 3px; color:var(--ink); font-weight:600;}
+  .result .rauthor{font-size:11.5px; color:var(--ink2); margin:0 0 2px;}
+  .result .rpub{font-size:11px; color:var(--ink2); margin:0;}
+  .result .go{flex:0 0 auto; color:var(--green); font-size:16px; align-self:center; margin-left:2px;}
+
+  .badgerow{display:flex; gap:6px; margin-top:5px; flex-wrap:wrap;}
+  .lend{display:inline-flex; align-items:center; font-size:11px; font-weight:700; padding:2px 9px; border-radius:999px;}
+  .lend.ok{background:var(--green-bg); color:var(--green-ink);}
+  .lend.ng{background:var(--alert-bg); color:var(--alert);}
+
+  .readbadge{display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-top:6px; font-size:10.5px; color:var(--ink2);}
+  .readbadge .tag{display:inline-flex; align-items:center; gap:3px; font-weight:700; color:var(--green-ink);
+    background:var(--green-bg); padding:1px 7px; border-radius:999px; font-size:10px;}
+  .readbadge .who{display:inline-flex; align-items:center; gap:4px;}
+  .readbadge .who .dot{width:7px; height:7px; border-radius:50%; flex:0 0 auto;}
+
+  .dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto; display:inline-block;}
+
+  /* --- 書誌詳細ビュー --- */
+  .detailtop{display:flex; gap:14px; padding:12px 18px 8px; align-items:flex-start;}
+  .dcover{
+    flex:0 0 auto; width:96px; height:136px; border-radius:8px; background:var(--chip-bg);
+    display:flex; align-items:center; justify-content:center; font-size:32px; color:var(--ink2); opacity:.75;
+  }
+  .dbiblio{flex:1; min-width:0;}
+  .dtitle{font-size:16px; font-weight:700; margin:0 0 8px; line-height:1.4;}
+  .biblio-list{margin:0 0 8px; font-size:12px;}
+  .biblio-list > div{display:flex; gap:8px; padding:4px 0; border-top:1px solid var(--line);}
+  .biblio-list > div:first-child{border-top:none;}
+  .biblio-list dt{flex:0 0 44px; color:var(--ink2); font-weight:600; margin:0;}
+  .biblio-list dd{margin:0; color:var(--ink); flex:1; min-width:0; word-break:break-word;}
+
+  .readinfo{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px;}
+  .readrow{display:flex; align-items:center; gap:8px; font-size:12.5px; padding:5px 0;}
+  .readrow .dot{width:9px; height:9px;}
+  .readrow b{flex:0 0 auto; min-width:44px; font-weight:700;}
+  .readrow span{color:var(--ink2);}
+
+  .tablewrap{border:1px solid var(--line); border-radius:12px; overflow:hidden;}
+  table.holdings{width:100%; border-collapse:collapse; font-size:11.5px; background:var(--card);}
+  table.holdings th, table.holdings td{padding:8px 8px; text-align:left; border-bottom:1px solid var(--line);}
+  table.holdings thead th{color:var(--ink2); font-weight:600; font-size:10.5px; background:var(--chip-bg);}
+  table.holdings tbody tr:last-child td{border-bottom:none;}
+
+  .nav{display:flex; border-top:1px solid var(--line); background:var(--card); padding:6px 4px 10px;}
+  .nav a{flex:1; text-align:center; font-size:10.5px; color:var(--ink2); text-decoration:none; padding-top:4px;}
+  .nav a .ic{display:block; width:44px; height:26px; margin:0 auto 2px; border-radius:999px; line-height:26px; font-size:15px;}
+  .nav a.on{color:var(--green-ink); font-weight:700;}
+  .nav a.on .ic{background:var(--green-bg);}
+
+  .notes h2{font-size:18px; margin:0 0 4px;}
+  .notes .lead{color:var(--ink2); font-size:14px; margin:0 0 20px;}
+  .note{display:flex; gap:12px; padding:12px 0; border-top:1px solid var(--line); font-size:14px;}
+  .note .no{flex:0 0 24px; height:24px; border-radius:50%; background:var(--green); color:#fff;
+    font-size:12.5px; font-weight:700; text-align:center; line-height:24px;}
+  .note b{display:block; margin-bottom:2px;}
+  .note p{margin:0; color:var(--ink2); font-size:13px;}
+  .marker{display:inline-block; width:20px; height:20px; border-radius:50%; background:var(--green);
+    color:#fff; font-size:11px; font-weight:700; text-align:center; line-height:20px; vertical-align:middle;}
+
+  .variant{border:1px dashed var(--line); border-radius:12px; padding:14px; margin-top:8px;}
+  .variant h3{margin:0 0 8px; font-size:13px; color:var(--ink2);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="phone">
+
+    <!-- ============ 画面1: 蔵書検索(検索結果) ============ -->
+    <div class="screen" id="screen-search">
+
+      <div class="appbar">
+        <h1>蔵書検索 <span class="marker">1</span></h1>
+        <button class="hamburger" aria-label="メニュー">☰</button>
+      </div>
+
+      <div class="searchwrap">
+        <div class="search">
+          <span class="ic">🔍</span>
+          <input type="text" value="宮沢賢治" readonly>
+        </div>
+      </div>
+
+      <div class="acdemo">
+        <p class="caption"><span class="marker">2</span> 入力中の表示例(オートコンプリート・公式JSON API)</p>
+        <div class="ac-input"><span class="ic">🔍</span>宮沢</div>
+        <div class="ac-list">
+          <div class="ac-item"><span class="ic">🔍</span><b>宮沢</b>賢治全集</div>
+          <div class="ac-item"><span class="ic">🔍</span><b>宮沢</b>賢治童話集</div>
+          <div class="ac-item"><span class="ic">🔍</span><b>宮沢</b>賢治語彙辞典</div>
+          <div class="ac-item"><span class="ic">🔍</span><b>宮沢</b>賢治の元素図鑑</div>
+          <div class="ac-item"><span class="ic">🔍</span><b>宮沢</b>賢治ワールド</div>
+        </div>
+        <p class="note">※実際は検索欄のすぐ下に候補リストが浮動表示され、候補タップで即検索実行する。</p>
+      </div>
+
+      <section>
+        <div class="sec-h">
+          <h2>「宮沢賢治」の検索結果 <span class="marker">3</span></h2>
+          <span class="count">5件</span>
+        </div>
+
+        <div class="result" onclick="showDetail()">
+          <span class="cover">🖼</span>
+          <div class="info">
+            <p class="rtitle">銀河鉄道の夜</p>
+            <p class="rauthor">宮沢賢治／作、伊勢英子／絵</p>
+            <p class="rpub">偕成社</p>
+            <div class="badgerow"><span class="lend ok">○貸出可</span></div>
+          </div>
+          <span class="go">›</span>
+        </div>
+
+        <div class="result" onclick="showDetail()">
+          <span class="cover">🖼</span>
+          <div class="info">
+            <p class="rtitle">銀河鉄道の夜</p>
+            <p class="rauthor">宮沢賢治／著</p>
+            <p class="rpub">角川書店(角川文庫)</p>
+            <div class="badgerow"><span class="lend ng">×貸出不可</span></div>
+            <div class="readbadge">
+              <span class="tag">📗よんだ</span>
+              <span class="who"><span class="dot" style="background:var(--papa)"></span>パパ 2025/3</span>
+            </div>
+          </div>
+          <span class="go">›</span>
+        </div>
+
+        <div class="result" onclick="showDetail()">
+          <span class="cover">🖼</span>
+          <div class="info">
+            <p class="rtitle">注文の多い料理店</p>
+            <p class="rauthor">宮沢賢治／作</p>
+            <p class="rpub">岩波書店(岩波少年文庫)</p>
+            <div class="badgerow"><span class="lend ok">○貸出可</span></div>
+            <div class="readbadge">
+              <span class="tag">📗よんだ</span>
+              <span class="who"><span class="dot" style="background:var(--taro)"></span>たろう 2024/11</span>
+              <span class="who"><span class="dot" style="background:var(--hana)"></span>はな 2025/6</span>
+            </div>
+          </div>
+          <span class="go">›</span>
+        </div>
+
+        <div class="result" onclick="showDetail()">
+          <span class="cover">🖼</span>
+          <div class="info">
+            <p class="rtitle">風の又三郎</p>
+            <p class="rauthor">宮沢賢治／著</p>
+            <p class="rpub">新潮社(新潮文庫)</p>
+            <div class="badgerow"><span class="lend ok">○貸出可</span></div>
+          </div>
+          <span class="go">›</span>
+        </div>
+
+        <div class="result" onclick="showDetail()">
+          <span class="cover">🖼</span>
+          <div class="info">
+            <p class="rtitle">セロ弾きのゴーシュ</p>
+            <p class="rauthor">宮沢賢治／作、茂田井武／絵</p>
+            <p class="rpub">福音館書店</p>
+            <div class="badgerow"><span class="lend ng">×貸出不可</span></div>
+          </div>
+          <span class="go">›</span>
+        </div>
+      </section>
+
+      <div style="height:12px"></div>
+    </div>
+
+    <!-- ============ 画面2: 書誌詳細 ============ -->
+    <div class="screen" id="screen-detail" style="display:none">
+
+      <div class="appbar">
+        <div class="titlegroup">
+          <button class="backbtn" onclick="showSearch()" aria-label="検索結果へ戻る">←</button>
+          <h1>書誌詳細 <span class="marker">4</span></h1>
+        </div>
+      </div>
+
+      <div class="detailtop">
+        <span class="dcover">🖼</span>
+        <div class="dbiblio">
+          <p class="dtitle">注文の多い料理店</p>
+          <div class="biblio-list">
+            <div><dt>著者</dt><dd>宮沢賢治／作</dd></div>
+            <div><dt>出版社</dt><dd>岩波書店(岩波少年文庫)</dd></div>
+            <div><dt>出版年</dt><dd>1996年</dd></div>
+            <div><dt>ISBN</dt><dd>978-4-00-114563-2</dd></div>
+          </div>
+          <span class="lend ok">○貸出可</span>
+        </div>
+      </div>
+
+      <section>
+        <div class="sec-h"><h2>既読情報 <span class="marker">5</span></h2></div>
+        <div class="readinfo">
+          <div class="readrow">
+            <span class="dot" style="background:var(--taro)"></span>
+            <b>たろう</b><span>2024/11 に貸出(高須分室)</span>
+          </div>
+          <div class="readrow">
+            <span class="dot" style="background:var(--hana)"></span>
+            <b>はな</b><span>2025/6 に貸出(高須分室)</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="sec-h"><h2>所蔵一覧 <span class="marker">6</span></h2></div>
+        <div class="tablewrap">
+          <table class="holdings">
+            <thead>
+              <tr><th>館</th><th>請求記号</th><th>配架場所</th><th>在庫状態</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>高須分室</td><td>913.6/ミ</td><td>児童書コーナー</td><td><span class="lend ok">貸出可</span></td></tr>
+              <tr><td>中央図書館</td><td>913.6/ミ</td><td>児童書コーナー</td><td><span class="lend ng">貸出中</span></td></tr>
+              <tr><td>鳴尾図書館</td><td>913.6/ミ</td><td>児童書コーナー</td><td><span class="lend ok">貸出可</span></td></tr>
+              <tr><td>甲東園分室</td><td>913.6/ミ</td><td>児童書コーナー</td><td><span class="lend ng">貸出中</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div style="height:12px"></div>
+    </div>
+
+    <nav class="nav">
+      <a href="#"><span class="ic">🏠</span>ホーム</a>
+      <a href="#"><span class="ic">📚</span>本棚</a>
+      <a href="#"><span class="ic">📖</span>貸出中</a>
+      <a href="#"><span class="ic">🔖</span>予約中</a>
+      <a href="#"><span class="ic">📗</span>読書記録</a>
+    </nav>
+  </div>
+
+  <div class="notes">
+    <h2>蔵書検索画面の構成案</h2>
+    <p class="lead">spec §3.2。キーワード検索→検索結果(貸出可否・既読バッジ付き)→タップで書誌詳細(所蔵一覧)、という一連の流れを1つの画面モックに収めた。ハンバーガー経由の画面のため下部ナビはどれも非選択。予約・借りるボタンは存在しない(読み取り専用)。</p>
+
+    <div class="note"><span class="no">1</span><div><b>シンプルなアプリバー</b><p>タイトル「蔵書検索」+右端ハンバーガー。同期時刻表示はホームに集約し、ここは検索に専念する。</p></div></div>
+    <div class="note"><span class="no">2</span><div><b>オートコンプリート表示例</b><p>公式JSON APIの候補表示を模した。実装では入力欄直下に候補リストが浮動表示され、候補タップで即検索を実行する想定。本モックでは状態を分かりやすくするため、検索欄(実行後の状態)とは別に破線枠の「表示例」として静的に併記した。</p></div></div>
+    <div class="note"><span class="no">3</span><div><b>検索結果リスト</b><p>行=表紙プレースホルダ(openBD取得想定・グレー)+タイトル+著者+出版社+貸出可否バッジ(○/×)。行タップで書誌詳細へ遷移(spec §3.2)。本モックは代表として同一著者の異版(絵本版/文庫版など)を並べ、児童書・一般書が混在する現実的な検索結果を再現した。</p></div></div>
+    <div class="note"><span class="no">4</span><div><b>既読バッジ(spec §3.5b重畳)</b><p>「よんだ」タグ+識別色ドット+氏名+貸出年月(例:「よんだ パパ 2025/3」)。2件目は単独読了、3件目は複数人が読んだ例(たろう・はな)を収録。読んだことがない本にはバッジ自体を出さない。</p></div></div>
+    <div class="note"><span class="no">5</span><div><b>書誌詳細ビューへの遷移</b><p>検索結果行をタップすると別画面(戻る矢印つきアプリバー)に切り替わる想定をJSで再現。表紙(大)+書誌事項(タイトル/著者/出版社/出版年/ISBN)+既読情報(だれが・いつ)を上部に配置。モックでは代表として3件目「注文の多い料理店」1件分のみ遷移先を実装しているが、実際は行ごとに個別の書誌詳細へ遷移する。</p></div></div>
+    <div class="note"><span class="no">6</span><div><b>所蔵一覧テーブル</b><p>館/請求記号/配架場所/在庫状態の4列(spec §3.2)。館ごとに在庫状態が異なりうる(貸出可/貸出中)ことを示した。貸出回数・評価などAPIで取得できない飾りは一切含めていない。</p></div></div>
+
+    <div class="variant">
+      <h3>レイアウト判断: 貸出可否バッジの見せ方(2案、案Aを採用)</h3>
+      <p style="margin:0 0 6px; font-size:13px;"><b>案A(採用・上のモック)</b>: タイトル・著者・出版社の下に、テキスト主体のピルバッジ(○貸出可=緑/×貸出不可=赤)を独立した行で表示。表紙サムネと視覚的に分離されるため、一覧をスクロールしながらでも可否が読み取りやすく、将来openBDの実画像に差し替わっても表示が崩れない。</p>
+      <p style="margin:0; font-size:13px;"><b>案B</b>: サムネイル右上に小さな○/×アイコンをオーバーレイ表示する案。コンパクトだが、グレーのプレースホルダ段階では視認性が低く、実画像が乗った際にアイコンが表紙デザインに埋もれる懸念があるため不採用。</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  function showDetail(){
+    document.getElementById('screen-search').style.display = 'none';
+    var d = document.getElementById('screen-detail');
+    d.style.display = '';
+    d.scrollTop = 0;
+  }
+  function showSearch(){
+    document.getElementById('screen-detail').style.display = 'none';
+    var s = document.getElementById('screen-search');
+    s.style.display = '';
+    s.scrollTop = 0;
+  }
+</script>
+</body>
+</html>
