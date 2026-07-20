@@ -59,8 +59,10 @@ object ReservationsContentBuilder {
             .sortedWith(compareBy(nullsLast<LocalDate>()) { it.holdExpiryDate })
         val others = visible.filter { it.state != ReservationState.READY }
             .sortedWith(
-                compareBy<Reservation>(nullsLast<Int>()) { it.queuePosition }
-                    .thenBy { orderOf[it.memberId] ?: Int.MAX_VALUE },
+                compareBy(
+                    { it.queuePosition ?: Int.MAX_VALUE },
+                    { orderOf[it.memberId] ?: Int.MAX_VALUE },
+                ),
             )
 
         return (ready + others).map { reservation ->
