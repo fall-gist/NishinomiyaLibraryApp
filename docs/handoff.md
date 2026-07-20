@@ -105,3 +105,64 @@
 - 確認済み(2026-07-19、CI run 29699710732・commit 2851c9f): CIグリーン(`testDebugUnitTest` + `assembleDebug`)。
 - `fixtures/usrread.html` は匿名の合成HTML(実サイト由来ではない)であることを確認済み。
 - 確認済み(2026-07-19、リポジトリ所有者による実機検証・APK): 実サイトの読書履歴取得・初回同期で約600件を正しく取得できることを確認。実機/エミュレータでの読書記録の同期・表示も確認済み。
+
+## 新着資料(2026-07-20 追記)
+
+### スコープ
+
+- 公式サイトの「新着資料」(認証不要の公開ページ)を、**ジャンルを保持せず**全ジャンル横断で
+  tilcodにより名寄せした1本の書誌リストとして扱う(spec §3.9)。
+
+### 実装状況
+
+- Room v4に`new_arrivals`テーブルを追加(主キー=`tilcod`)。取得のたびに **全置換** で入れ替える
+  (`AppDatabase.replaceNewArrivals` を1トランザクションで実行)。
+- `NewArrivalRepository`(`newArrivals(): Flow<List<NewArrival>>` / `refresh()`)を公開。
+  自動同期(`SyncWorker`)には**載せない**。画面表示時に1回+手動「更新」で `refresh()` を呼ぶ設計。
+- `LibraryGateway.newArrivals()` は
+  1. `GET WOpacMsgNewMenuDispAction.do?moveToGamenId=msgnewmenu`(ジャンル一覧、hash不要)
+  2. 各ジャンルコード(`newMenuCode=01..28`)を順に `GET WOpacMsgNewMenuToMsgNewListAction.do?newMenuCode=NN`
+  3. tilcodで先勝ちの重複排除
+  というGET列だけで完結(hash/gamenidの受け渡し不要)。レート制御は既存 `LicsXpSession` の
+  500ms間隔がそのまま効く。
+- パーサ:
+  - `NewArrivalMenuParser.parseGenreCodes(html)` — ジャンルリンクから `newMenuCode` を抽出。
+  - `NewArrivalListParser.parse(html)` — `table.list` の見出し行で結果テーブルを特定
+    (summary属性は当てにならない)。列名は「書名 / 巻次 / 著者 / 出版者 / **出版年月** / 分類 / 貸出」。
+    **`出版` は `出版者` に先マッチするため厳密に `出版年月` を指定**すること。
+    貸出セルは `○` → true / `×` → false / 空 → null にマップ。
+    書名セルの `a[href*=tilcod]` または `a[onclick*=infoNext]` からタイトルコードを取り出す。
+- テスト: パーサ2本(`ParsersTest`)+DAOラウンドトリップ+v3→v4マイグレーション+
+  表示ビルダー(`NewArrivalsContentBuilderTest`)を追加。
+
+### 検証状況
+
+- 確認済み(2026-07-20、実サイトへの直接HTTP): 全28ジャンルをGETで取得できること、
+  各ジャンルはページングなし1ページで数十〜数百件返ること、`newMenuCode` 空はエラー画面。
+  ジャンル22(日本の小説)= 364件・ジャンル27(絵本・紙芝居)= 203件・ジャンル01(総記)= 68件。
+- 確認済み(2026-07-20、CI run 29750452916・commit a660f39): `testDebugUnitTest` + `assembleDebug` グリーン。
+
+## 予約のタイトルコード追加(2026-07-20 追記)
+
+### 背景
+
+- 予約一覧の資料名セルにも書誌詳細リンク(`?hTilcod=...` / `onclick=toTilInfoDetail('...')`)が
+  あるため、UIの共通「書誌詳細オーバーレイ」から予約中の行を開けるようタイトルコードを保持する。
+
+### 実装状況
+
+- `Reservation` ドメインと `ReservationEntity` に `tilcod: String`(既定 `""`)を追加。
+- Room v4 → v5 マイグレーション(`ALTER TABLE reservations ADD COLUMN tilcod TEXT NOT NULL DEFAULT ''`)。
+  既存インストールでは次回同期で実値が入る。
+- `ReservationListParser` は行内の `a[href*=hTilcod], a[onclick*=toTilInfoDetail]` から
+  `hTilcod=|toTilInfoDetail\('(\d+)'\)` の正規表現でタイトルコードを取り出す
+  (`LoanListParser` と同じ流儀)。
+- 通知の重複判定キー(`ReservationNotificationKey` = memberId+title+materialType+reservedDate)は
+  tilcod非依存のまま(挙動は変わらない)。
+- テスト: パーサテストの `assertEquals("1000001898886", result.first().tilcod)` と
+  全行 `\d{13}` チェックを追加。v4→v5マイグレーション、ビルダーテスト(`ReservationsContentBuilderTest`)も追加。
+
+### 検証状況
+
+- 確認済み(2026-07-20、CI run 29754260046・commit 2f7a41c): `testDebugUnitTest` + `assembleDebug` グリーン。
+- 実サイト由来の `fixtures/usrrsv.html` 全19行に `hTilcod` リンクがあり、13桁数字であることを確認済み。
