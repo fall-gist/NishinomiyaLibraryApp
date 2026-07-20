@@ -1,0 +1,345 @@
+package com.fallgist.nishinomiyalibrary.ui.home
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.fallgist.nishinomiyalibrary.domain.model.Member
+import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
+import android.graphics.Color as AndroidColor
+
+/** メンバー識別色の16進文字列を安全にComposeのColorへ変換する。 */
+private fun parseMemberColor(hex: String, fallback: Color): Color = runCatching {
+    Color(AndroidColor.parseColor(hex))
+}.getOrDefault(fallback)
+
+@Composable
+fun HomeScreen(
+    state: HomeUiState,
+    onSelectMember: (Long?) -> Unit,
+    onManualSync: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalAppColors.current
+    Column(
+        modifier = modifier
+            .background(colors.paper)
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 16.dp),
+    ) {
+        AppBar(
+            lastSyncText = state.lastSyncText,
+            lastSyncFailed = state.lastSyncFailed,
+            isSyncing = state.isSyncing,
+            onManualSync = onManualSync,
+        )
+        MemberFilter(
+            members = state.members,
+            selectedMemberId = state.selectedMemberId,
+            onSelectMember = onSelectMember,
+        )
+        state.syncMessage?.let { message ->
+            Text(
+                text = message,
+                color = colors.ink2,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
+            )
+        }
+
+        if (state.readyReservations.isNotEmpty()) {
+            SectionHeader("うけとれる予約")
+            Column(modifier = Modifier.padding(horizontal = 18.dp)) {
+                state.readyReservations.forEach { ReadyCard(it) }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+
+        SectionHeader("返す本")
+        if (state.dueGroups.isEmpty()) {
+            EmptyNote("借りている本はありません")
+        } else {
+            Column(modifier = Modifier.padding(horizontal = 18.dp)) {
+                state.dueGroups.forEach { DueGroupView(it) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppBar(
+    lastSyncText: String,
+    lastSyncFailed: Boolean,
+    isSyncing: Boolean,
+    onManualSync: () -> Unit,
+) {
+    val colors = LocalAppColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            text = "西宮市立図書館",
+            color = colors.ink,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = lastSyncText,
+                color = if (lastSyncFailed) colors.alert else colors.ink2,
+                fontSize = 11.sp,
+            )
+            Spacer(Modifier.height(4.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .border(1.dp, colors.line, RoundedCornerShape(999.dp))
+                    .clickable(enabled = !isSyncing, onClick = onManualSync)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    text = if (isSyncing) "同期中…" else "↻ いますぐ同期",
+                    color = if (isSyncing) colors.ink2 else colors.ink,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemberFilter(
+    members: List<Member>,
+    selectedMemberId: Long?,
+    onSelectMember: (Long?) -> Unit,
+) {
+    val colors = LocalAppColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        MemberChip(
+            label = "みんな",
+            dotColor = null,
+            selected = selectedMemberId == null,
+            onClick = { onSelectMember(null) },
+        )
+        members.forEach { member ->
+            MemberChip(
+                label = member.name,
+                dotColor = parseMemberColor(member.colorHex, colors.ink2),
+                selected = selectedMemberId == member.id,
+                onClick = { onSelectMember(member.id) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun MemberChip(
+    label: String,
+    dotColor: Color?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = LocalAppColors.current
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) colors.green else colors.chipBg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (dotColor != null) {
+            Box(
+                modifier = Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(dotColor),
+            )
+        }
+        Text(
+            text = label,
+            color = if (selected) Color.White else colors.ink2,
+            fontSize = 13.sp,
+        )
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    val colors = LocalAppColors.current
+    Text(
+        text = title,
+        color = colors.ink2,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 4.dp, bottom = 8.dp),
+    )
+}
+
+@Composable
+private fun EmptyNote(text: String) {
+    val colors = LocalAppColors.current
+    Text(
+        text = text,
+        color = colors.ink2,
+        fontSize = 13.sp,
+        modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun ReadyCard(reservation: HomeReservation) {
+    val colors = LocalAppColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(colors.greenBg)
+            .border(1.dp, colors.green.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Text(
+            text = "■ ${reservation.pickupLibrary} で受取可能",
+            color = colors.greenInk,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = reservation.title,
+            color = colors.ink,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(4.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            MemberTag(reservation.memberName, parseMemberColor(reservation.memberColorHex, colors.ink2))
+            reservation.holdExpiryText?.let {
+                Text(text = it, color = colors.alert, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DueGroupView(group: DueGroup) {
+    val colors = LocalAppColors.current
+    Column(modifier = Modifier.padding(bottom = 4.dp)) {
+        Row(
+            modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = if (group.overdue) "⚠ ${group.headerLabel}" else group.headerLabel,
+                color = if (group.overdue) colors.alert else colors.ink,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(text = "${group.count}冊", color = colors.ink2, fontSize = 12.sp)
+        }
+        if (group.expanded) {
+            group.books.forEach { BookRow(it) }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.card)
+                    .border(1.dp, colors.line, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
+                Text(text = "▸ ${group.foldedSummary}", color = colors.ink2, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookRow(book: HomeBook) {
+    val colors = LocalAppColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (book.overdue) colors.alertBg else colors.card)
+            .border(
+                1.dp,
+                if (book.overdue) colors.alert.copy(alpha = 0.45f) else colors.line,
+                RoundedCornerShape(12.dp),
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        MemberTag(book.memberName, parseMemberColor(book.memberColorHex, colors.ink2), minWidth = 44.dp)
+        Text(
+            text = book.title,
+            color = colors.ink,
+            fontSize = 13.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(text = book.library, color = colors.ink2, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun MemberTag(name: String, dotColor: Color, minWidth: androidx.compose.ui.unit.Dp = 0.dp) {
+    val colors = LocalAppColors.current
+    Row(
+        modifier = if (minWidth > 0.dp) Modifier.width(minWidth) else Modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(9.dp)
+                .clip(CircleShape)
+                .background(dotColor),
+        )
+        Text(text = name, color = colors.ink2, fontSize = 11.sp)
+    }
+}

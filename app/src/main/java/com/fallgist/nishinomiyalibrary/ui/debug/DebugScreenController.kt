@@ -1,5 +1,6 @@
 package com.fallgist.nishinomiyalibrary.ui.debug
 
+import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
@@ -24,11 +25,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-
-/** 自動同期の設定を開始するための、Android非依存の境界。 */
-interface SyncScheduleStarter {
-    suspend fun scheduleFromSettings()
-}
 
 data class DebugUiState(
     val display: DebugScreenDisplay = DebugScreenDisplay(),

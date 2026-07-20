@@ -1,11 +1,12 @@
 package com.fallgist.nishinomiyalibrary.ui.di
 
+import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.data.sync.WorkManagerSyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.ui.debug.DebugScreenController
-import com.fallgist.nishinomiyalibrary.ui.debug.SyncScheduleStarter
+import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -38,11 +39,25 @@ object DebugUiProvisionModule {
         readingRecordRepository = readingRecordRepository,
         scheduleStarter = scheduleStarter,
     )
+
+    @Provides
+    @Singleton
+    fun provideHomeScreenController(
+        familyRepository: FamilyRepository,
+        statusRepository: StatusRepository,
+        scheduleStarter: SyncScheduleStarter,
+    ): HomeScreenController = HomeScreenController(
+        familyRepository = familyRepository,
+        statusRepository = statusRepository,
+        scheduleStarter = scheduleStarter,
+    )
 }
 
 /** ActivityはこのApplication EntryPointから画面用Controllerだけを取得する。 */
 @EntryPoint
 @InstallIn(SingletonComponent::class)
 interface MainActivityEntryPoint {
+    fun homeScreenController(): HomeScreenController
+
     fun debugScreenController(): DebugScreenController
 }

@@ -12,17 +12,21 @@
 3. [docs/mockups/](mockups/) — HTMLモック(ブラウザで開いて確認する)
 4. [docs/backend-design.md](backend-design.md) §6 — UIが叩くリポジトリ層の公開API
 
+本書は画面設計の**仕様メモ**として扱う(デザイン方針の記録が主目的で、逐次のモック追補は前提としない)。
+
 ## スコープと現状
 
 - バックエンド(データ層)は実装・実サイト検証まで完了済み(handoff.md 参照)
-- UIは**未着手**。まずHTMLモックでレイアウトを固め、合意後にJetpack Compose実装へ進む
-- モックはあくまで**レイアウト検討用**。最終実装はComposeで行う(HTMLをそのまま移植するわけではない)
+- デザインの方向性は**ひととおり確定**(トップ画面モック+デザイン体系+画面ごとの仕様対応)。以降は実装フェーズ
+- UIツールキットは **Jetpack Compose + Material 3** に決定
+- モックはあくまで**レイアウト検討用**。実装はComposeで行う(HTMLをそのまま移植するわけではない)
+- ホーム画面はComposeで実装着手済み(5タブScaffold+返却本グループ+受取可能予約+メンバーフィルタ)
 
 ## 画面インベントリ(進捗)
 
 | 画面 | spec§ | モック | 状態 | 主に叩くリポジトリAPI(backend-design §6) |
 |---|---|---|---|---|
-| ホーム(家族統合) | 3.1 | [home.html](mockups/home.html) | **モック済** | `StatusRepository.loans() / reservations() / lastSync()`, `FamilyRepository.members()` |
+| ホーム(家族統合) | 3.1 | [home.html](mockups/home.html) | **Compose実装着手**(※きょうの図書館セクションは未) | `StatusRepository.loans() / reservations() / lastSync()`, `FamilyRepository.members()` |
 | 蔵書検索 | 3.2 | — | 未着手 | `SearchRepository.search() / autocomplete() / isLendable() / coverUrl()` |
 | 書誌詳細 | 3.2 | — | 未着手 | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
 | 利用状況(メンバー別) | 3.3 | — | 未着手 | `StatusRepository.loans() / reservations()` |
@@ -85,15 +89,24 @@ spec §2 のとおり識別色は**登録時にメンバーごとに選ぶ**。�
 - 「きょうの図書館」は**既定館のみ1行**(館は設定で変更可、決定済み)
 - 同期失敗時はヘッダーの最終同期時刻を赤で表示する想定
 
-## 次のセッションの進め方
+## 実装の進め方
+
+デザインの方向性は確定済みのため、以降は画面ごとにCompose実装を進める。追加モックは必要になった画面だけ作れば十分。
 
 1. 未着手画面から1つ選び、spec該当§と対応リポジトリAPI(上表)を確認する
-2. `docs/mockups/<screen>.html` にHTMLモックを作る。**home.html のカラートークン・
-   メンバー識別色・コンポーネント様式を流用**して体系を揃える
-3. モックは実サイトの実データ構造(site-research.md / fixtures)と矛盾しないこと。
-   例えば予約の「受取館」は割当前は空、日付形式は画面ごとに異なる等
-4. 合意が取れた画面からCompose実装へ。実装は `StateFlow` をリポジトリのFlowから購読する
-5. モック追加・更新は都度 `docs/mockups/` にコミットし、本書の画面インベントリ表を更新する
+2. 実装体系はホーム画面(`ui/home/`, `ui/theme/`, `ui/app/`)に倣う:
+   - `ui/theme/` のカラートークン(`LocalAppColors`)とメンバー識別色パターンを共通利用
+   - 純関数の表示ビルダー(例: `HomeContentBuilder`)+ Flow集約Controller(例: `HomeScreenController`)+ Composableに分離し、ロジックはAndroid非依存でユニットテストする
+   - ControllerはHilt EntryPoint(`MainActivityEntryPoint`)経由で取得し、`StateFlow` を `collectAsState` で購読する
+3. 表示は実サイトの実データ構造(site-research.md / fixtures)と矛盾しないこと
+   (例: 予約の「受取館」は割当前は空、日付形式は画面ごとに異なる)
+4. 画面を追加したら本書の画面インベントリ表を更新する。モックを新規に作る場合のみ
+   `docs/mockups/` にコミットし、home.htmlの体系を流用する
+
+### ホーム画面の積み残し
+
+- 「きょうの図書館」セクション未実装(既定館の開館状況表示。`CalendarRepository` + `SettingsStore` 連携が必要)。
+  開館時刻は公式サイトのデータに含まれないため、休館日判定ベースの開/休表示に留める想定
 
 ## 注意(spec由来の必須事項)
 
