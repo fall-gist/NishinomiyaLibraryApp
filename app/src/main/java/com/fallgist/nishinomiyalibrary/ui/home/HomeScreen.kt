@@ -91,10 +91,10 @@ private fun HomeContent(
             )
         }
 
-        if (state.readyReservations.isNotEmpty()) {
+        if (state.readyGroups.isNotEmpty()) {
             SectionHeader("うけとれる予約")
             Column(modifier = Modifier.padding(horizontal = 18.dp)) {
-                state.readyReservations.forEach { ReadyCard(it) }
+                state.readyGroups.forEach { ReadyGroupView(it) }
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -243,40 +243,55 @@ private fun EmptyNote(text: String) {
 }
 
 @Composable
-private fun ReadyCard(reservation: HomeReservation) {
+private fun ReadyGroupView(group: ReadyGroup) {
     val colors = LocalAppColors.current
-    Column(
+    Column(modifier = Modifier.padding(bottom = 4.dp)) {
+        Row(
+            modifier = Modifier.padding(top = 10.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = if (group.undated) group.headerLabel else "◗ ${group.headerLabel}",
+                color = if (group.undated) colors.ink2 else colors.greenInk,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(text = "${group.items.size}冊", color = colors.ink2, fontSize = 12.sp)
+        }
+        group.items.forEach { ReadyRow(it) }
+    }
+}
+
+@Composable
+private fun ReadyRow(item: ReadyItem) {
+    val colors = LocalAppColors.current
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 6.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(colors.greenBg)
-            .border(1.dp, colors.green.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .border(1.dp, colors.green.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            text = "■ ${reservation.pickupLibrary} で受取可能",
-            color = colors.greenInk,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
+        Box(
+            modifier = Modifier
+                .size(9.dp)
+                .clip(CircleShape)
+                .background(parseMemberColor(item.memberColorHex, colors.ink2)),
         )
-        Spacer(Modifier.height(6.dp))
         Text(
-            text = reservation.title,
+            text = item.title,
             color = colors.ink,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
-        Spacer(Modifier.height(4.dp))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            MemberTag(reservation.memberName, parseMemberColor(reservation.memberColorHex, colors.ink2))
-            reservation.holdExpiryText?.let {
-                Text(text = it, color = colors.alert, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
+        Text(text = item.memberName, color = colors.ink2, fontSize = 11.sp)
     }
 }
 

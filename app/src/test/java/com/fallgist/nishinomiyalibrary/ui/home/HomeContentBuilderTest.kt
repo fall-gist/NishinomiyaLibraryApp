@@ -9,7 +9,6 @@ import com.fallgist.nishinomiyalibrary.domain.repository.SyncTrigger
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -17,7 +16,8 @@ class HomeContentBuilderTest {
     private val today = LocalDate.of(2026, 7, 20)
     private val papa = Member(id = 1, name = "パパ", colorHex = "#3D6DB5", cardNumber = "", sortOrder = 0)
     private val hana = Member(id = 2, name = "はな", colorHex = "#5FA05A", cardNumber = "", sortOrder = 1)
-    private val members = listOf(papa, hana)
+    private val taro = Member(id = 3, name = "たろう", colorHex = "#D98E2B", cardNumber = "", sortOrder = 2)
+    private val members = listOf(papa, hana, taro)
 
     private fun loan(memberId: Long, title: String, dueDate: LocalDate) = Loan(
         memberId = memberId,
@@ -95,11 +95,12 @@ class HomeContentBuilderTest {
     }
 
     @Test
-    fun readyReservations_onlyReadyStateSortedByHoldExpiry() {
+    fun readyGroups_onlyReadyGroupedByHoldExpiryUndatedLast() {
         val reservations = listOf(
             Reservation(hana.id, "予約待ち", "本", "中央", today, 3, ReservationState.WAITING, null),
             Reservation(hana.id, "期限なし受取", "本", "北口", today, null, ReservationState.READY, null),
             Reservation(papa.id, "早い期限受取", "本", "高須分室", today, null, ReservationState.READY, today.plusDays(3)),
+            Reservation(taro.id, "同じ期限の本", "本", "中央", today, null, ReservationState.READY, today.plusDays(3)),
         )
 
         val content = HomeContentBuilder.build(
@@ -111,11 +112,20 @@ class HomeContentBuilderTest {
             today = today,
         )
 
-        assertEquals(2, content.readyReservations.size)
-        assertEquals("早い期限受取", content.readyReservations[0].title)
-        assertTrue(content.readyReservations[0].holdExpiryText!!.contains("7/23"))
-        assertEquals("期限なし受取", content.readyReservations[1].title)
-        assertNull(content.readyReservations[1].holdExpiryText)
+        // WAITING は除外。期限あり(7/23)グループが先頭、期限未定が末尾。
+        assertEquals(2, content.readyGroups.size)
+        assertEquals(3, content.readyGroups.sumOf { it.items.size })
+
+        val dated = content.readyGroups[0]
+        assertFalse(dated.undated)
+        assertTrue(dated.headerLabel.contains("7/23"))
+        assertEquals(2, dated.items.size)
+        assertEquals("早い期限受取", dated.items[0].title) // papa(sortOrder 0) が先
+        assertEquals("同じ期限の本", dated.items[1].title) // taro(sortOrder 2)
+
+        val undated = content.readyGroups[1]
+        assertTrue(undated.undated)
+        assertEquals("期限なし受取", undated.items.single().title)
     }
 
     @Test

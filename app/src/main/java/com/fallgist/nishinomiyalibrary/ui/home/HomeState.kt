@@ -19,7 +19,7 @@ data class HomeUiState(
     val selectedMemberId: Long? = null,
     val lastSyncText: String = "まだ同期していません",
     val lastSyncFailed: Boolean = false,
-    val readyReservations: List<HomeReservation> = emptyList(),
+    val readyGroups: List<ReadyGroup> = emptyList(),
     val dueGroups: List<DueGroup> = emptyList(),
     val isSyncing: Boolean = false,
     val syncMessage: String? = null,
@@ -29,16 +29,22 @@ data class HomeUiState(
 data class HomeContent(
     val lastSyncText: String,
     val lastSyncFailed: Boolean,
-    val readyReservations: List<HomeReservation>,
+    val readyGroups: List<ReadyGroup>,
     val dueGroups: List<DueGroup>,
 )
 
-data class HomeReservation(
+/** うけとれる予約の1件。受取館は表示しないためタイトルと利用者のみ持つ。 */
+data class ReadyItem(
     val memberName: String,
     val memberColorHex: String,
     val title: String,
-    val pickupLibrary: String,
-    val holdExpiryText: String?,
+)
+
+/** うけとれる予約を取置期限でまとめた1グループ。期限未定([undated])は末尾に置く。 */
+data class ReadyGroup(
+    val headerLabel: String,
+    val undated: Boolean,
+    val items: List<ReadyItem>,
 )
 
 data class HomeBook(
@@ -94,19 +100,8 @@ object HomeContentBuilder {
         fun nameFor(memberId: Long) = nameOf[memberId] ?: "?"
         fun orderFor(memberId: Long) = orderOf[memberId] ?: Int.MAX_VALUE
 
-        val ready = reservations
-            .filter { it.state == ReservationState.READY && visible(it.memberId) }
-            .sortedWith(compareBy(nullsLast<LocalDate>()) { it.holdExpiryDate })
-            .map { reservation ->
-                HomeReservation(
-                    memberName = nameFor(reservation.memberId),
-                    memberColorHex = colorFor(reservation.memberId),
-                    title = reservation.title,
-                    pickupLibrary = reservation.pickupLibrary,
-                    holdExpiryText = reservation.holdExpiryDate
-                        ?.let { "取置期限 ${dateFormatter.format(it)} まで" },
-                )
-            }
+        val visibleReady = reservations.filter { it.state == ReservationState.READY && visible(it.memberId) }
+        val readyGroups = buildReadyGroups(visibleReady, ::nameFor, ::colorFor, ::orderFor)
 
         val visibleLoans = loans.filter { visible(it.memberId) }
         val dueGroups = buildDueGroups(visibleLoans, ::nameFor, ::colorFor, ::orderFor, today)
@@ -114,9 +109,55 @@ object HomeContentBuilder {
         return HomeContent(
             lastSyncText = formatLastSync(lastSync, today),
             lastSyncFailed = lastSync?.succeeded == false,
-            readyReservations = ready,
+            readyGroups = readyGroups,
             dueGroups = dueGroups,
         )
+    }
+
+    /**
+     * うけとれる予約を取置期限でグループ化する。期限ありは日付昇順、期限未定は末尾。
+     * 受取館は表示しない。グループ内は利用者の並び順→書名の順。
+     */
+    private fun buildReadyGroups(
+        ready: List<Reservation>,
+        nameFor: (Long) -> String,
+        colorFor: (Long) -> String,
+        orderFor: (Long) -> Int,
+    ): List<ReadyGroup> {
+        if (ready.isEmpty()) return emptyList()
+
+        fun itemOf(reservation: Reservation) = ReadyItem(
+            memberName = nameFor(reservation.memberId),
+            memberColorHex = colorFor(reservation.memberId),
+            title = reservation.title,
+        )
+
+        fun ordered(list: List<Reservation>) =
+            list.sortedWith(compareBy({ orderFor(it.memberId) }, { it.title }))
+
+        val groups = mutableListOf<ReadyGroup>()
+
+        ready.filter { it.holdExpiryDate != null }
+            .groupBy { it.holdExpiryDate!! }
+            .toSortedMap()
+            .forEach { (date, sameDate) ->
+                groups += ReadyGroup(
+                    headerLabel = "${dateFormatter.format(date)} まで",
+                    undated = false,
+                    items = ordered(sameDate).map(::itemOf),
+                )
+            }
+
+        val undated = ready.filter { it.holdExpiryDate == null }
+        if (undated.isNotEmpty()) {
+            groups += ReadyGroup(
+                headerLabel = "取置期限 未定",
+                undated = true,
+                items = ordered(undated).map(::itemOf),
+            )
+        }
+
+        return groups
     }
 
     private fun buildDueGroups(

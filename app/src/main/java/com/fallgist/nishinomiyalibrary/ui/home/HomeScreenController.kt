@@ -74,7 +74,7 @@ class HomeScreenController(
                         selectedMemberId = selection,
                         lastSyncText = content.lastSyncText,
                         lastSyncFailed = content.lastSyncFailed,
-                        readyReservations = content.readyReservations,
+                        readyGroups = content.readyGroups,
                         dueGroups = content.dueGroups,
                     )
                 }
