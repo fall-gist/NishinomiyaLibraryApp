@@ -152,6 +152,15 @@
   .switch.on{background:var(--green);}
   .switch.on::after{left:20px;}
 
+  /* --- 通知: 従属設定(トグル配下のオプション) --- */
+  .row.grouped{border-bottom:none; padding-bottom:6px;}
+  .subrow{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:6px 0 12px 16px; border-left:2px solid var(--line); border-bottom:1px solid var(--line);
+  }
+  .subrow .label{font-size:12px; color:var(--ink2);}
+  .subrow select.selectval{padding:5px 10px; font-size:12.5px; min-width:112px;}
+
   .nav{display:flex; border-top:1px solid var(--line); background:var(--card); padding:6px 4px 10px;}
   .nav a{flex:1; text-align:center; font-size:10.5px; color:var(--ink2); text-decoration:none; padding-top:4px;}
   .nav a .ic{display:block; width:44px; height:26px; margin:0 auto 2px; border-radius:999px; line-height:26px; font-size:15px;}
@@ -318,12 +327,24 @@
         <div class="sec-h"><h2>通知</h2> <span class="marker">4</span></div>
         <p class="sec-lead">種類ごとにオン/オフを切り替えられます。該当する通知は家族分をまとめて1通で届きます。</p>
         <div class="card">
-          <div class="row">
+          <div class="row grouped">
             <div>
               <div class="label">返却期限リマインダー</div>
-              <div class="sub">期限前日にまとめて通知</div>
+              <div class="sub">設定した日数前にまとめて通知(既定: 前日)</div>
             </div>
             <button class="switch on" aria-label="返却期限リマインダー"></button>
+          </div>
+          <div class="subrow">
+            <div class="label">通知タイミング</div>
+            <select class="selectval" aria-label="返却期限リマインダーの通知タイミング">
+              <option selected>1日前(前日)</option>
+              <option>2日前</option>
+              <option>3日前</option>
+              <option>4日前</option>
+              <option>5日前</option>
+              <option>6日前</option>
+              <option>7日前</option>
+            </select>
           </div>
           <div class="row">
             <div>
@@ -381,7 +402,7 @@
     <div class="note"><span class="no">1</span><div><b>メンバー管理は上限を明記しつつ拡張可能を示す</b><p>spec §2「5人分・拡張可能な設計」に合わせ、「4/5人・上限は拡張可能」の注記を添えた。並び替え(↑↓)は端(先頭/末尾)で該当ボタンをdisabled表示。</p></div></div>
     <div class="note"><span class="no">2</span><div><b>フォームはMemberRegistrationForm.ktと同一項目</b><p>表示名・カード番号・パスワード・識別色(プリセット5色+自由hex)。実装済みの初期登録フォームと入力項目・注記文言を揃え、Compose側は<code>ui/member/</code>の型を編集フォームにも再利用する想定を示した。カード番号・パスワードは編集時も平文を画面に出さない(パスワードは伏字固定、カード番号は下4桁マスクを一覧側で徹底)。</p></div></div>
     <div class="note"><span class="no">3</span><div><b>同期時刻はネイティブtimeピッカー、最終同期は読み取り専用</b><p>spec §3.7「時刻は設定で変更可能」に対応。同期実行ボタンはここに置かない(手動同期はプルリフレッシュのみ、というホーム側の方針を踏襲)。</p></div></div>
-    <div class="note"><span class="no">4</span><div><b>通知は種類ごとに2トグル</b><p>spec §3.6の表と1:1対応。「順位上昇などは通知しない」という非対応項目は増やさない。まとめて1通で届く旨をリード文で明示。</p></div></div>
+    <div class="note"><span class="no">4</span><div><b>通知は種類ごとに2トグル</b><p>spec §3.6の表と1:1対応。「順位上昇などは通知しない」という非対応項目は増やさない。まとめて1通で届く旨をリード文で明示。返却期限リマインダーのみ、トグル配下に「何日前に通知するか」の従属セレクト(既定: 1日前=前日、1〜7日前の範囲)を追加し、左のインデント罫線で従属関係を示した。通知は同期時判定で発火する仕組みのため時刻設定は置かない。予約受取可能には日数設定を付けない。</p></div></div>
     <div class="note"><span class="no">5</span><div><b>既定表示館は全12施設のセレクト</b><p>カレンダー画面自体は未着手だが、設定からの既定館選択のみ本画面のスコープ。カレンダー画面側の「一度に一館のみ表示」原則と対応。</p></div></div>
 
     <div class="variant">
