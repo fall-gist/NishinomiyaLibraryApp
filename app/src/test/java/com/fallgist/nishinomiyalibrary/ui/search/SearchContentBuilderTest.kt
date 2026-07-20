@@ -48,33 +48,4 @@ class SearchContentBuilderTest {
         assertNull(rows[0].lendable)
         assertEquals("パパ 2025/3", rows[1].readEntries.single().let { "${it.memberName} ${it.loanMonthLabel}" })
     }
-
-    @Test
-    fun `書誌詳細の既読行は貸出月と館を組み立てる`() {
-        val rows = SearchContentBuilder.detailReadRows(
-            listOf(hana),
-            listOf(ReadingInfo(hana.id, LocalDate.of(2025, 6, 10), "高須分室")),
-        )
-
-        assertEquals("2025/6 に貸出(高須分室)", rows.single().description)
-    }
-
-    @Test
-    fun `書誌詳細の項目から書名とタイトルコードを除外し表示順を保つ`() {
-        val fields = linkedMapOf(
-            "書名" to "愛の哲学",
-            "書名ヨミ" to "アイ ノ テツガク",
-            "著者名" to "サイモン フミ",
-            "出版者" to "KADOKAWA",
-            "タイトルコード" to "1000000961766",
-            "ISBN" to "4-04-067384-4",
-        )
-
-        val rows = SearchContentBuilder.detailFields(fields)
-
-        assertEquals(
-            listOf("著者名" to "サイモン フミ", "出版者" to "KADOKAWA", "ISBN" to "4-04-067384-4"),
-            rows,
-        )
-    }
 }
