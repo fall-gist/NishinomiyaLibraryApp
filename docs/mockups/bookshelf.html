@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>西宮市立図書館 本棚(マイ本棚)画面モック</title>
+<style>
+  :root{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2;
+    --papa:#3D6DB5; --mama:#C25278; --taro:#D98E2B; --hana:#5FA05A; --jiro:#8A64B8;
+    --chip-bg:#EFEAE0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+      --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+      --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 16px 64px; background:var(--paper); color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+    line-height:1.6;
+  }
+  .wrap{max-width:1060px; margin:0 auto; display:grid; grid-template-columns:400px 1fr; gap:40px; align-items:start;}
+  @media (max-width:860px){ .wrap{grid-template-columns:1fr} .notes{max-width:400px; margin:0 auto} }
+
+  .phone{
+    width:390px; margin:0 auto; background:var(--card); border:1px solid var(--line);
+    border-radius:28px; overflow:hidden; box-shadow:0 12px 40px rgba(40,30,10,.12);
+    display:flex; flex-direction:column; height:800px;
+  }
+  .screen{flex:1; overflow-y:auto; background:var(--paper);}
+
+  .appbar{padding:18px 18px 8px; display:flex; justify-content:space-between; align-items:center;}
+  .appbar h1{margin:0; font-size:19px; letter-spacing:.02em;}
+  .appbar .hamburger{
+    flex:0 0 auto; width:32px; height:32px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:16px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+
+  .chips{display:flex; gap:8px; padding:8px 18px 10px; overflow-x:auto; scrollbar-width:none;}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{
+    flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:6px 13px;
+    border-radius:999px; background:var(--chip-bg); font-size:13px; color:var(--ink2); cursor:pointer;
+  }
+  .chip.on{background:var(--green); color:#fff;}
+  .dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto;}
+
+  .shelfrow{display:flex; gap:8px; padding:2px 18px 14px; overflow-x:auto; scrollbar-width:none;}
+  .shelfrow::-webkit-scrollbar{display:none}
+  .shelfchip{
+    flex:0 0 auto; min-width:96px; padding:7px 12px; border-radius:12px; background:var(--card);
+    border:1px solid var(--line); cursor:pointer;
+  }
+  .shelfchip .name{display:block; font-size:12.5px; font-weight:600; color:var(--ink); white-space:nowrap;}
+  .shelfchip .cnt{display:block; font-size:10.5px; color:var(--ink2); margin-top:1px;}
+  .shelfchip.on{background:var(--green-bg); border-color:var(--green);}
+  .shelfchip.on .name{color:var(--green-ink);}
+
+  section{padding:0 18px; margin-bottom:20px;}
+  .sec-h{display:flex; justify-content:space-between; align-items:baseline; margin:0 0 8px;}
+  .sec-h h2{margin:0; font-size:13px; letter-spacing:.08em; color:var(--ink2); font-weight:600;}
+
+  .shelfmeta{
+    background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
+    margin-bottom:12px; font-size:12px; color:var(--ink2);
+  }
+  .shelfmeta b{display:block; font-size:14px; color:var(--ink); margin-bottom:3px; font-weight:600;}
+
+  .shelfbook{
+    display:flex; gap:10px; align-items:flex-start; background:var(--card); border:1px solid var(--line);
+    border-radius:12px; padding:10px 12px; margin-bottom:8px;
+  }
+  .shelfbook .cover{
+    flex:0 0 auto; width:42px; height:42px; border-radius:8px; background:var(--chip-bg);
+    display:flex; align-items:center; justify-content:center; font-size:18px; color:var(--ink2);
+  }
+  .shelfbook .info{flex:1; min-width:0;}
+  .shelfbook .title{font-size:13.5px; line-height:1.45; margin:0 0 3px; color:var(--ink);}
+  .shelfbook .memo{font-size:12px; color:var(--green-ink); background:var(--green-bg); border-radius:6px;
+    padding:2px 7px; display:inline-block; margin:0 0 4px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .shelfbook .memo.empty{background:transparent; color:var(--ink2); padding:0;}
+  .shelfbook .meta{display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--ink2);}
+  .shelfbook .go{color:var(--green); font-size:15px; flex:0 0 auto; align-self:center; margin-left:2px;}
+
+  .nav{display:flex; border-top:1px solid var(--line); background:var(--card); padding:6px 4px 10px;}
+  .nav a{flex:1; text-align:center; font-size:10.5px; color:var(--ink2); text-decoration:none; padding-top:4px;}
+  .nav a .ic{display:block; width:44px; height:26px; margin:0 auto 2px; border-radius:999px; line-height:26px; font-size:15px;}
+  .nav a.on{color:var(--green-ink); font-weight:700;}
+  .nav a.on .ic{background:var(--green-bg);}
+
+  .notes h2{font-size:18px; margin:0 0 4px;}
+  .notes .lead{color:var(--ink2); font-size:14px; margin:0 0 20px;}
+  .note{display:flex; gap:12px; padding:12px 0; border-top:1px solid var(--line); font-size:14px;}
+  .note .no{flex:0 0 24px; height:24px; border-radius:50%; background:var(--green); color:#fff;
+    font-size:12.5px; font-weight:700; text-align:center; line-height:24px;}
+  .note b{display:block; margin-bottom:2px;}
+  .note p{margin:0; color:var(--ink2); font-size:13px;}
+  .marker{display:inline-block; width:20px; height:20px; border-radius:50%; background:var(--green);
+    color:#fff; font-size:11px; font-weight:700; text-align:center; line-height:20px; vertical-align:middle;}
+
+  .variant{border:1px dashed var(--line); border-radius:12px; padding:14px; margin-top:8px;}
+  .variant h3{margin:0 0 8px; font-size:13px; color:var(--ink2);}
+  .variant-b-mock{background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:13px;}
+  .variant-b-mock .sel{display:flex; align-items:center; justify-content:space-between; background:var(--card);
+    border:1px solid var(--line); border-radius:8px; padding:8px 10px;}
+  .variant-b-mock .sel .arrow{color:var(--ink2); font-size:11px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="phone">
+    <div class="screen">
+
+      <div class="appbar">
+        <h1>本棚 <span class="marker">1</span></h1>
+        <button class="hamburger" aria-label="メニュー">☰</button>
+      </div>
+
+      <div class="chips">
+        <span class="chip"><span class="dot" style="background:var(--papa)"></span>パパ</span>
+        <span class="chip"><span class="dot" style="background:var(--mama)"></span>ママ</span>
+        <span class="chip on"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+        <span class="chip"><span class="dot" style="background:var(--hana)"></span>はな</span>
+        <span class="chip"><span class="dot" style="background:var(--jiro)"></span>じろう</span>
+        <span class="marker" style="align-self:center">2</span>
+      </div>
+
+      <div class="shelfrow">
+        <span class="shelfchip on"><span class="name">よみたい本</span><span class="cnt">5冊</span></span>
+        <span class="shelfchip"><span class="name">怪獣ずかんシリーズ</span><span class="cnt">3冊</span></span>
+        <span class="shelfchip"><span class="name">夏やすみの自由研究</span><span class="cnt">2冊</span></span>
+        <span class="marker" style="align-self:center">3</span>
+      </div>
+
+      <section>
+        <div class="shelfmeta">
+          <b>よみたい本</b>
+          今度の週末に借りたいものリスト。図書館で見つけたら追加していく。 <span class="marker">4</span>
+        </div>
+
+        <div class="sec-h"><h2>資料一覧(5件) <span class="marker">5</span></h2></div>
+
+        <div class="shelfbook">
+          <span class="cover">📕</span>
+          <div class="info">
+            <p class="title">かいけつゾロリ ケーキ城のひみつ</p>
+            <span class="memo">つぎ借りる</span>
+            <div class="meta"><span>登録日 2026/06/02</span></div>
+          </div>
+          <span class="go">›</span>
+        </div>
+
+        <div class="shelfbook">
+          <span class="cover">📗</span>
+          <div class="info">
+            <p class="title">ドラゴンボール 巻2</p>
+            <span class="memo empty">メモなし</span>
+            <div class="meta"><span>登録日 2026/06/02</span></div>
+          </div>
+          <span class="go">›</span>
+        </div>
+
+        <div class="shelfbook">
+          <span class="cover">📘</span>
+          <div class="info">
+            <p class="title">こんちゅう大図鑑</p>
+            <span class="memo">図書館で見つけた</span>
+            <div class="meta"><span>登録日 2026/05/20</span></div>
+          </div>
+          <span class="go">›</span>
+        </div>
+
+        <div class="shelfbook">
+          <span class="cover">📙</span>
+          <div class="info">
+            <p class="title">なぞとき忍者修行の書</p>
+            <span class="memo">たんじょうびに借りたい</span>
+            <div class="meta"><span>登録日 2026/05/11</span></div>
+          </div>
+          <span class="go">›</span>
+        </div>
+
+        <div class="shelfbook">
+          <span class="cover">📕</span>
+          <div class="info">
+            <p class="title">わらいばなし101</p>
+            <span class="memo empty">メモなし</span>
+            <div class="meta"><span>登録日 2026/04/30</span></div>
+          </div>
+          <span class="go">›</span>
+        </div>
+      </section>
+
+      <div style="height:12px"></div>
+    </div>
+
+    <nav class="nav">
+      <a href="#"><span class="ic">🏠</span>ホーム</a>
+      <a class="on" href="#"><span class="ic">📚</span>本棚</a>
+      <a href="#"><span class="ic">📖</span>貸出中</a>
+      <a href="#"><span class="ic">🔖</span>予約中</a>
+      <a href="#"><span class="ic">📗</span>読書記録</a>
+    </nav>
+  </div>
+
+  <div class="notes">
+    <h2>本棚(マイ本棚)画面の構成案</h2>
+    <p class="lead">spec §3.4。公式サイトの「マイ本棚」を読み取り専用で表示する。1人の利用者が複数の本棚(リスト)を持てるため、「誰の・どの本棚か」を1画面で迷わず選べることを最優先にした。</p>
+
+    <div class="note"><span class="no">1</span><div><b>タイトルのみのシンプルなアプリバー</b><p>ホーム画面と違い最終同期時刻・手動同期ボタンは省略(データの鮮度確認はホームで完結する想定)。☰から全メニューへ。</p></div></div>
+    <div class="note"><span class="no">2</span><div><b>メンバーチップ(「みんな」なし)</b><p>本棚は利用者アカウントごとの機能のため、ホームと違い統合ビューは存在しない。常に1人を選択(既定は最後に見ていた人)。</p></div></div>
+    <div class="note"><span class="no">3</span><div><b>本棚チップ(2段目・新設)</b><p>選択中メンバーが持つ本棚を横スクロールの2段目チップで並べる。件数を添えて中身の見当がつくようにした。下記「レイアウト判断」参照。</p></div></div>
+    <div class="note"><span class="no">4</span><div><b>本棚メモ</b><p>公式サイトの「本棚属性」テーブルにある本棚名+メモをそのまま表示(空の場合はメモ行ごと非表示)。</p></div></div>
+    <div class="note"><span class="no">5</span><div><b>資料カード(表紙プレースホルダ+資料名+メモ+登録日)</b><p>メモは全件にあるとは限らないため「メモなし」は控えめな表示に。表紙は実装時にopenBD等から遅延取得(スクリーンショットは絵文字で代替)。カード全体〜「›」タップで書誌詳細へ遷移。</p></div></div>
+
+    <div class="variant">
+      <h3>レイアウト判断: メンバー×本棚の選び方(2案)</h3>
+      <p style="margin:0 0 10px; font-size:13px; color:var(--ink2);">1人が複数本棚を持つ構造をどう出すかが本画面唯一の分岐点。</p>
+      <p style="margin:0 0 6px; font-size:13px;"><b>案A(採用・上のモック)</b>: チップを2段(メンバー→本棚)に分ける。他画面のメンバーチップと見た目が揃い、本棚が少人数なら一覧性も高い。本棚が多いメンバーだと2段目が長くなる弱点。</p>
+      <div class="variant-b-mock">
+        <div class="sel"><span>たろうの本棚: よみたい本</span><span class="arrow">▾</span></div>
+      </div>
+      <p style="margin:8px 0 0; font-size:13px;"><b>案B</b>: 「メンバー＋本棚名」を1つのドロップダウンに統合。省スペースだが「他のメンバーも本棚を持つ」ことが一目でわからず、切替が2タップ(開く→選ぶ)になる。</p>
+      <p style="margin:8px 0 0; font-size:12px; color:var(--ink2);">→ 家族利用・本棚数が少ない想定(fixtureでも1利用者5件程度)なので案Aを採用。本棚数が多いメンバーが実際に出てきたら案Bへの切替を検討。</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

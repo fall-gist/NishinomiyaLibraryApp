@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>西宮市立図書館 読書記録画面モック</title>
+<style>
+  :root{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2;
+    --papa:#3D6DB5; --mama:#C25278; --taro:#D98E2B; --hana:#5FA05A; --jiro:#8A64B8;
+    --chip-bg:#EFEAE0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+      --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+      --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 16px 64px; background:var(--paper); color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+    line-height:1.6;
+  }
+  .wrap{max-width:1060px; margin:0 auto; display:grid; grid-template-columns:400px 1fr; gap:40px; align-items:start;}
+  @media (max-width:860px){ .wrap{grid-template-columns:1fr} .notes{max-width:400px; margin:0 auto} }
+
+  .phone{
+    width:390px; margin:0 auto; background:var(--card); border:1px solid var(--line);
+    border-radius:28px; overflow:hidden; box-shadow:0 12px 40px rgba(40,30,10,.12);
+    display:flex; flex-direction:column; height:800px;
+  }
+  .screen{flex:1; overflow-y:auto; background:var(--paper);}
+
+  .appbar{padding:18px 18px 8px; display:flex; justify-content:space-between; align-items:center;}
+  .appbar h1{margin:0; font-size:19px; letter-spacing:.02em;}
+  .appbar .hamburger{
+    flex:0 0 auto; width:32px; height:32px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:16px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+
+  .searchwrap{padding:6px 18px 10px;}
+  .search{
+    display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--line);
+    border-radius:12px; padding:9px 12px;
+  }
+  .search .ic{color:var(--ink2); font-size:14px;}
+  .search input{
+    border:none; outline:none; background:transparent; flex:1; font-size:13.5px; color:var(--ink);
+    font-family:inherit;
+  }
+  .search input::placeholder{color:var(--ink2);}
+  .searchhint{font-size:10.5px; color:var(--ink2); margin:5px 2px 0;}
+
+  .chips{display:flex; gap:8px; padding:4px 18px 12px; overflow-x:auto; scrollbar-width:none;}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{
+    flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:6px 13px;
+    border-radius:999px; background:var(--chip-bg); font-size:13px; color:var(--ink2); cursor:pointer;
+  }
+  .chip.on{background:var(--green); color:#fff;}
+  .chip .zero{font-size:10px; opacity:.75;}
+  .dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto;}
+
+  section{padding:0 18px; margin-bottom:20px;}
+  .sec-h{display:flex; justify-content:space-between; align-items:baseline; margin:0 0 8px;}
+  .sec-h h2{margin:0; font-size:13px; letter-spacing:.08em; color:var(--ink2); font-weight:600;}
+
+  .rec{
+    display:flex; align-items:flex-start; gap:10px; background:var(--card); border:1px solid var(--line);
+    border-radius:12px; padding:10px 12px; margin-bottom:8px;
+  }
+  .rec .who{flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:3px; width:38px; font-size:10.5px; color:var(--ink2); margin-top:1px;}
+  .rec .body{flex:1; min-width:0;}
+  .rec .title{font-size:13.5px; line-height:1.4; margin:0 0 3px;}
+  .rec .author{font-size:11.5px; color:var(--ink2); margin:0 0 3px;}
+  .rec .sub{font-size:11px; color:var(--ink2); display:flex; gap:8px; flex-wrap:wrap;}
+
+  .emptybox{
+    background:var(--card); border:1px dashed var(--line); border-radius:12px; padding:16px 14px; text-align:center;
+  }
+  .emptybox .icon{font-size:22px; margin-bottom:6px;}
+  .emptybox p{margin:0 0 4px; font-size:13px; color:var(--ink);}
+  .emptybox p.sub{font-size:11.5px; color:var(--ink2); margin:0;}
+
+  .examplewrap{margin:24px 18px 0; padding-top:14px; border-top:1px dashed var(--line);}
+  .examplewrap .caption{font-size:11px; color:var(--ink2); margin:0 0 8px; display:flex; align-items:center; gap:6px;}
+
+  .nav{display:flex; border-top:1px solid var(--line); background:var(--card); padding:6px 4px 10px;}
+  .nav a{flex:1; text-align:center; font-size:10.5px; color:var(--ink2); text-decoration:none; padding-top:4px;}
+  .nav a .ic{display:block; width:44px; height:26px; margin:0 auto 2px; border-radius:999px; line-height:26px; font-size:15px;}
+  .nav a.on{color:var(--green-ink); font-weight:700;}
+  .nav a.on .ic{background:var(--green-bg);}
+
+  .notes h2{font-size:18px; margin:0 0 4px;}
+  .notes .lead{color:var(--ink2); font-size:14px; margin:0 0 20px;}
+  .note{display:flex; gap:12px; padding:12px 0; border-top:1px solid var(--line); font-size:14px;}
+  .note .no{flex:0 0 24px; height:24px; border-radius:50%; background:var(--green); color:#fff;
+    font-size:12.5px; font-weight:700; text-align:center; line-height:24px;}
+  .note b{display:block; margin-bottom:2px;}
+  .note p{margin:0; color:var(--ink2); font-size:13px;}
+  .marker{display:inline-block; width:20px; height:20px; border-radius:50%; background:var(--green);
+    color:#fff; font-size:11px; font-weight:700; text-align:center; line-height:20px; vertical-align:middle;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="phone">
+    <div class="screen">
+
+      <div class="appbar">
+        <h1>読書記録 <span class="marker">1</span></h1>
+        <button class="hamburger" aria-label="メニュー">☰</button>
+      </div>
+
+      <div class="searchwrap">
+        <div class="search">
+          <span class="ic">🔍</span>
+          <input type="text" placeholder="書名・著者で検索">
+        </div>
+        <div class="searchhint">全角/半角・大文字小文字のゆらぎを吸収して検索します <span class="marker">2</span></div>
+      </div>
+
+      <div class="chips">
+        <span class="chip on">みんな</span>
+        <span class="chip"><span class="dot" style="background:var(--papa)"></span>パパ</span>
+        <span class="chip"><span class="dot" style="background:var(--mama)"></span>ママ</span>
+        <span class="chip"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+        <span class="chip"><span class="dot" style="background:var(--hana)"></span>はな</span>
+        <span class="chip"><span class="dot" style="background:var(--jiro)"></span>じろう<span class="zero">(0)</span></span>
+        <span class="marker" style="align-self:center">3</span>
+      </div>
+
+      <section>
+        <div class="sec-h"><h2>貸出日の新しい順(287件) <span class="marker">4</span></h2></div>
+
+        <div class="rec">
+          <span class="who"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+          <div class="body">
+            <p class="title">かいけつゾロリ大けっとう!ゾロリじょう</p>
+            <p class="author">原ゆたか／さく</p>
+            <div class="sub"><span>貸出日 2026/07/06</span><span>高須分室</span></div>
+          </div>
+        </div>
+
+        <div class="rec">
+          <span class="who"><span class="dot" style="background:var(--hana)"></span>はな</span>
+          <div class="body">
+            <p class="title">いきもの必殺技図鑑</p>
+            <p class="author">今泉忠明／監修</p>
+            <div class="sub"><span>貸出日 2026/07/06</span><span>高須分室</span></div>
+          </div>
+        </div>
+
+        <div class="rec">
+          <span class="who"><span class="dot" style="background:var(--mama)"></span>ママ</span>
+          <div class="body">
+            <p class="title">頭をつかう新習慣!ナゾときタイム 2</p>
+            <p class="author">ナゾトキラボ／編</p>
+            <div class="sub"><span>貸出日 2026/07/03</span><span>高須分室</span></div>
+          </div>
+        </div>
+
+        <div class="rec">
+          <span class="who"><span class="dot" style="background:var(--papa)"></span>パパ</span>
+          <div class="body">
+            <p class="title">経営戦略の教科書</p>
+            <p class="author">遠藤功／著</p>
+            <div class="sub"><span>貸出日 2026/06/20</span><span>中央図書館</span></div>
+          </div>
+        </div>
+
+        <div class="rec">
+          <span class="who"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+          <div class="body">
+            <p class="title">ドラゴンボール 巻1 孫悟空と仲間たち</p>
+            <p class="author">鳥山明／著</p>
+            <div class="sub"><span>貸出日 2026/06/15</span><span>高須分室</span></div>
+          </div>
+        </div>
+
+        <div class="rec">
+          <span class="who"><span class="dot" style="background:var(--hana)"></span>はな</span>
+          <div class="body">
+            <p class="title">わらいばなし101</p>
+            <p class="author">松谷みよ子／編</p>
+            <div class="sub"><span>貸出日 2026/05/30</span><span>高須分室</span></div>
+          </div>
+        </div>
+
+        <div class="rec">
+          <span class="who"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+          <div class="body">
+            <p class="title">こんちゅう大図鑑</p>
+            <p class="author">丸山宗利／監修</p>
+            <div class="sub"><span>貸出日 2026/05/20</span><span>高須分室</span></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="examplewrap">
+        <p class="caption"><span class="marker">5</span> 表示例: 「じろう」を選択し、履歴が0件だった場合</p>
+        <div class="emptybox">
+          <div class="icon">📗</div>
+          <p>じろうの読書記録はまだありません</p>
+          <p class="sub">図書館サイト側で読書履歴機能が有効になっていない可能性があります。<br>次回の同期以降、貸出した資料から記録が貯まっていきます。</p>
+        </div>
+      </div>
+
+      <div style="height:12px"></div>
+    </div>
+
+    <nav class="nav">
+      <a href="#"><span class="ic">🏠</span>ホーム</a>
+      <a href="#"><span class="ic">📚</span>本棚</a>
+      <a href="#"><span class="ic">📖</span>貸出中</a>
+      <a href="#"><span class="ic">🔖</span>予約中</a>
+      <a class="on" href="#"><span class="ic">📗</span>読書記録</a>
+    </nav>
+  </div>
+
+  <div class="notes">
+    <h2>読書記録画面の構成案</h2>
+    <p class="lead">spec §3.5b。本アプリの中心機能。「この本、前に読んだっけ?」を即座に確認できることが目的のため、検索欄を最上部に固定し、一覧は貸出日の新しい順+メンバー絞り込みを基本とした。</p>
+
+    <div class="note"><span class="no">1</span><div><b>シンプルなアプリバー</b><p>他の下部タブ画面と統一。同期時刻はホームに集約。</p></div></div>
+    <div class="note"><span class="no">2</span><div><b>テキスト検索(必須・最上部)</b><p>書名・著者の部分一致。全角/半角・大小文字のゆらぎを吸収した正規化列で検索する旨をヒントテキストで明示(spec §3.5bの要件をUI上でも可視化)。</p></div></div>
+    <div class="note"><span class="no">3</span><div><b>メンバーチップ(「みんな」既定)</b><p>他タブと共通の絞り込みUI。サイトの読書履歴が未有効なメンバーは件数0が続くため、チップに小さく(0)を添えて事前に察知できるようにした。</p></div></div>
+    <div class="note"><span class="no">4</span><div><b>一覧(貸出日新しい順)</b><p>資料名・著者・貸出日を表示。件数は「初回同期で全件取得→以降は差分取込」の永続蓄積データ(spec §3.5b)なので数百件規模になりうる想定。書誌詳細への導線・既読バッジ表示は蔵書検索側の要素なので本画面では扱わない。</p></div></div>
+    <div class="note"><span class="no">5</span><div><b>0件時の案内(spec必須要件)</b><p>読書履歴はサイト側でアカウントごとに有効化が必要な場合があり、0件のメンバーには原因の推測(未有効の可能性)を案内する。1枚のモックで両状態を同時に見せるため、実際の遷移とは別に「表示例」として下部に区切って配置した(実装では選択メンバーの結果としてこのカードのみが表示される)。</p></div></div>
+  </div>
+</div>
+</body>
+</html>

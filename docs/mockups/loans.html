@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>西宮市立図書館 貸出中画面モック</title>
+<style>
+  :root{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2;
+    --papa:#3D6DB5; --mama:#C25278; --taro:#D98E2B; --hana:#5FA05A; --jiro:#8A64B8;
+    --chip-bg:#EFEAE0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+      --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+      --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 16px 64px; background:var(--paper); color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+    line-height:1.6;
+  }
+  .wrap{max-width:1060px; margin:0 auto; display:grid; grid-template-columns:400px 1fr; gap:40px; align-items:start;}
+  @media (max-width:860px){ .wrap{grid-template-columns:1fr} .notes{max-width:400px; margin:0 auto} }
+
+  .phone{
+    width:390px; margin:0 auto; background:var(--card); border:1px solid var(--line);
+    border-radius:28px; overflow:hidden; box-shadow:0 12px 40px rgba(40,30,10,.12);
+    display:flex; flex-direction:column; height:800px;
+  }
+  .screen{flex:1; overflow-y:auto; background:var(--paper);}
+
+  .appbar{padding:18px 18px 8px; display:flex; justify-content:space-between; align-items:center;}
+  .appbar h1{margin:0; font-size:19px; letter-spacing:.02em;}
+  .appbar .hamburger{
+    flex:0 0 auto; width:32px; height:32px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:16px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+
+  .chips{display:flex; gap:8px; padding:8px 18px 6px; overflow-x:auto; scrollbar-width:none;}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{
+    flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:6px 13px;
+    border-radius:999px; background:var(--chip-bg); font-size:13px; color:var(--ink2); cursor:pointer;
+  }
+  .chip.on{background:var(--green); color:#fff;}
+  .dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto;}
+
+  .sortline{padding:6px 18px 10px; font-size:11.5px; color:var(--ink2); display:flex; justify-content:space-between; align-items:center;}
+
+  section{padding:0 18px; margin-bottom:20px;}
+  .sec-h{display:flex; justify-content:space-between; align-items:baseline; margin:0 0 8px;}
+  .sec-h h2{margin:0; font-size:13px; letter-spacing:.08em; color:var(--ink2); font-weight:600;}
+
+  .loan{
+    display:flex; align-items:center; gap:10px; background:var(--card);
+    border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:8px;
+  }
+  .loan .who{display:flex; flex-direction:column; align-items:center; gap:3px; flex:0 0 auto; width:40px; font-size:10.5px; color:var(--ink2);}
+  .loan .body{flex:1; min-width:0;}
+  .loan .btitle{font-size:13.5px; line-height:1.4; margin:0 0 4px; overflow:hidden; text-overflow:ellipsis;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;}
+  .loan .sub{font-size:11px; color:var(--ink2); display:flex; gap:8px; flex-wrap:wrap;}
+  .loan .due{flex:0 0 auto; text-align:right; font-size:11.5px; color:var(--ink2); min-width:64px;}
+  .loan .due b{display:block; font-size:13px; color:var(--ink); font-weight:700;}
+  .loan.overdue{border-color:color-mix(in srgb, var(--alert) 45%, transparent); background:var(--alert-bg);}
+  .loan.overdue .due b{color:var(--alert);}
+  .loan.overdue .due .lbl{color:var(--alert); font-weight:700;}
+  .loan.soon .due b{color:var(--alert);}
+  .loan.soon .due .lbl{color:var(--alert);}
+
+  .legend{display:flex; gap:14px; padding:0 18px 8px; font-size:11px; color:var(--ink2); flex-wrap:wrap;}
+  .legend span{display:flex; align-items:center; gap:5px;}
+  .legend .sw{width:10px; height:10px; border-radius:3px;}
+
+  .nav{display:flex; border-top:1px solid var(--line); background:var(--card); padding:6px 4px 10px;}
+  .nav a{flex:1; text-align:center; font-size:10.5px; color:var(--ink2); text-decoration:none; padding-top:4px;}
+  .nav a .ic{display:block; width:44px; height:26px; margin:0 auto 2px; border-radius:999px; line-height:26px; font-size:15px;}
+  .nav a.on{color:var(--green-ink); font-weight:700;}
+  .nav a.on .ic{background:var(--green-bg);}
+
+  .notes h2{font-size:18px; margin:0 0 4px;}
+  .notes .lead{color:var(--ink2); font-size:14px; margin:0 0 20px;}
+  .note{display:flex; gap:12px; padding:12px 0; border-top:1px solid var(--line); font-size:14px;}
+  .note .no{flex:0 0 24px; height:24px; border-radius:50%; background:var(--green); color:#fff;
+    font-size:12.5px; font-weight:700; text-align:center; line-height:24px;}
+  .note b{display:block; margin-bottom:2px;}
+  .note p{margin:0; color:var(--ink2); font-size:13px;}
+  .marker{display:inline-block; width:20px; height:20px; border-radius:50%; background:var(--green);
+    color:#fff; font-size:11px; font-weight:700; text-align:center; line-height:20px; vertical-align:middle;}
+
+  .variant{border:1px dashed var(--line); border-radius:12px; padding:14px; margin-top:8px;}
+  .variant h3{margin:0 0 8px; font-size:13px; color:var(--ink2);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="phone">
+    <div class="screen">
+
+      <div class="appbar">
+        <h1>貸出中 <span class="marker">1</span></h1>
+        <button class="hamburger" aria-label="メニュー">☰</button>
+      </div>
+
+      <div class="chips">
+        <span class="chip on">みんな</span>
+        <span class="chip"><span class="dot" style="background:var(--papa)"></span>パパ</span>
+        <span class="chip"><span class="dot" style="background:var(--mama)"></span>ママ</span>
+        <span class="chip"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+        <span class="chip"><span class="dot" style="background:var(--hana)"></span>はな</span>
+        <span class="chip"><span class="dot" style="background:var(--jiro)"></span>じろう</span>
+        <span class="marker" style="align-self:center">2</span>
+      </div>
+
+      <div class="sortline">返却期限が近い順 <span class="marker">3</span> <span>全7件</span></div>
+
+      <section>
+        <div class="loan overdue">
+          <span class="who"><span class="dot" style="background:var(--mama)"></span>ママ</span>
+          <div class="body">
+            <p class="btitle">頭をつかう新習慣!ナゾときタイム 2</p>
+            <div class="sub"><span>高須分室</span><span>貸出日 7/3</span></div>
+          </div>
+          <div class="due"><span class="lbl">⚠期限切れ</span><b>7/17(金)</b></div>
+        </div>
+
+        <div class="loan soon">
+          <span class="who"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+          <div class="body">
+            <p class="btitle">かいけつゾロリ大けっとう!ゾロリじょう</p>
+            <div class="sub"><span>高須分室</span><span>貸出日 7/6</span></div>
+          </div>
+          <div class="due"><span class="lbl">本日</span><b>7/20(月)</b></div>
+        </div>
+
+        <div class="loan soon">
+          <span class="who"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+          <div class="body">
+            <p class="btitle">ドラゴンボール 巻1 孫悟空と仲間たち</p>
+            <div class="sub"><span>高須分室</span><span>貸出日 7/6</span></div>
+          </div>
+          <div class="due"><span class="lbl">本日</span><b>7/20(月)</b></div>
+        </div>
+
+        <div class="loan soon">
+          <span class="who"><span class="dot" style="background:var(--hana)"></span>はな</span>
+          <div class="body">
+            <p class="btitle">いきもの必殺技図鑑</p>
+            <div class="sub"><span>高須分室</span><span>貸出日 7/6</span></div>
+          </div>
+          <div class="due"><span class="lbl">あと2日</span><b>7/22(水)</b></div>
+        </div>
+
+        <div class="loan">
+          <span class="who"><span class="dot" style="background:var(--papa)"></span>パパ</span>
+          <div class="body">
+            <p class="btitle">経営戦略の教科書</p>
+            <div class="sub"><span>中央図書館</span><span>貸出日 7/10</span></div>
+          </div>
+          <div class="due"><span class="lbl">あと4日</span><b>7/24(金)</b></div>
+        </div>
+
+        <div class="loan">
+          <span class="who"><span class="dot" style="background:var(--mama)"></span>ママ</span>
+          <div class="body">
+            <p class="btitle">半分、青い。 上</p>
+            <div class="sub"><span>高須分室</span><span>貸出日 7/12</span></div>
+          </div>
+          <div class="due"><span class="lbl">あと6日</span><b>7/26(日)</b></div>
+        </div>
+
+        <div class="loan">
+          <span class="who"><span class="dot" style="background:var(--jiro)"></span>じろう</span>
+          <div class="body">
+            <p class="btitle">きかんしゃトーマス ずかん</p>
+            <div class="sub"><span>高須分室</span><span>貸出日 7/13</span></div>
+          </div>
+          <div class="due"><span class="lbl">あと7日</span><b>7/27(月)</b></div>
+        </div>
+      </section>
+
+      <div class="legend">
+        <span><span class="sw" style="background:var(--alert)"></span>期限切れ</span>
+        <span><span class="sw" style="background:var(--alert-bg); border:1px solid var(--alert)"></span>3日以内</span>
+        <span><span class="sw" style="background:var(--card); border:1px solid var(--line)"></span>それ以外</span>
+      </div>
+
+      <div style="height:12px"></div>
+    </div>
+
+    <nav class="nav">
+      <a href="#"><span class="ic">🏠</span>ホーム</a>
+      <a href="#"><span class="ic">📚</span>本棚</a>
+      <a class="on" href="#"><span class="ic">📖</span>貸出中</a>
+      <a href="#"><span class="ic">🔖</span>予約中</a>
+      <a href="#"><span class="ic">📗</span>読書記録</a>
+    </nav>
+  </div>
+
+  <div class="notes">
+    <h2>貸出中画面の構成案</h2>
+    <p class="lead">spec §3.3。「資料名/貸出館/貸出日/返却期限日」を家族全員分、返却期限が近い順に並べる。ホームの要約から来た利用者がそのまま全件を確認できる詳細ビューという位置づけ。</p>
+
+    <div class="note"><span class="no">1</span><div><b>シンプルなアプリバー</b><p>同期時刻表示はホームに集約。ここは一覧に専念する。</p></div></div>
+    <div class="note"><span class="no">2</span><div><b>メンバーチップ(「みんな」既定)</b><p>ホーム・予約中と共通の絞り込みUI。家族の色分けを全画面で統一。</p></div></div>
+    <div class="note"><span class="no">3</span><div><b>並び順の明示+件数</b><p>「期限が近い順」を明文化。件数は絞り込み後の値に追従する想定。</p></div></div>
+
+    <div class="variant">
+      <h3>レイアウト判断: 期限の見せ方(2案、案Aを採用)</h3>
+      <p style="margin:0 0 6px; font-size:13px;"><b>案A(採用・上のモック)</b>: 期限昇順のフラットな1行1冊リストで、各行右端に期限日を直接表示(期限切れ=赤地、3日以内=赤文字で強調)。「この本棚の何が今いちばん危ないか」を上から読むだけで把握できる。</p>
+      <p style="margin:0; font-size:13px;"><b>案B</b>: ホームと同じ「期限日でグループ化+折りたたみ」形式。ホームとの一貫性は高いが、本タブは元々「全件を見る」ための詳細画面なので、折りたたみを挟むと逆に情報を隠すことになり不採用。</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

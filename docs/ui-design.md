@@ -29,11 +29,11 @@
 | ホーム(家族統合) | 3.1 | [home.html](mockups/home.html) | **Compose実装着手**(※きょうの図書館セクションは未) | `StatusRepository.loans() / reservations() / lastSync()`, `FamilyRepository.members()` |
 | 蔵書検索 | 3.2 | — | 未着手 | `SearchRepository.search() / autocomplete() / isLendable() / coverUrl()` |
 | 書誌詳細 | 3.2 | — | 未着手 | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
-| 貸出中(下部タブ) | 3.3 | — | 未着手 | `StatusRepository.loans()` |
-| 予約中(下部タブ) | 3.3 | — | 未着手 | `StatusRepository.reservations()` |
-| 本棚(マイ本棚・下部タブ) | 3.4 | — | 未着手 | `StatusRepository.shelf(memberId)` |
+| 貸出中(下部タブ) | 3.3 | [loans.html](mockups/loans.html) | モック済 | `StatusRepository.loans()` |
+| 予約中(下部タブ) | 3.3 | [reservations.html](mockups/reservations.html) | モック済 | `StatusRepository.reservations()` |
+| 本棚(マイ本棚・下部タブ) | 3.4 | [bookshelf.html](mockups/bookshelf.html) | モック済 | `StatusRepository.shelf(memberId)` |
 | 開館カレンダー(ハンバーガー) | 3.5 | — | 未着手 | `CalendarRepository.closedDays() / refreshClosedDays() / libraries` |
-| 読書記録(下部タブ・一覧・検索) | 3.5b | — | 未着手 | `ReadingRecordRepository`(一覧/メンバー絞り込み/正規化検索/既読判定) |
+| 読書記録(下部タブ・一覧・検索) | 3.5b | [reading-records.html](mockups/reading-records.html) | モック済 | `ReadingRecordRepository`(一覧/メンバー絞り込み/正規化検索/既読判定) |
 | 設定(メンバー管理・同期時刻・通知) | 2, 3.6, 3.7 | — | 未着手 | `FamilyRepository.*`, 設定用DataStore、通知オンオフ |
 
 > 既読バッジ(spec §3.5b)は独立画面ではなく、**蔵書検索の結果・書誌詳細に重畳**する要素。
