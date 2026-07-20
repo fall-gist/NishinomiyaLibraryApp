@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>西宮市立図書館 設定画面モック</title>
+<style>
+  :root{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2;
+    --papa:#3D6DB5; --mama:#C25278; --taro:#D98E2B; --hana:#5FA05A; --jiro:#8A64B8;
+    --chip-bg:#EFEAE0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+      --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+      --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+    --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+    --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+  }
+  :root[data-theme="light"]{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2; --chip-bg:#EFEAE0;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 16px 64px; background:var(--paper); color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+    line-height:1.6;
+  }
+  .wrap{max-width:1060px; margin:0 auto; display:grid; grid-template-columns:400px 1fr; gap:40px; align-items:start;}
+  @media (max-width:860px){ .wrap{grid-template-columns:1fr} .notes{max-width:400px; margin:0 auto} }
+
+  .phone{
+    width:390px; margin:0 auto; background:var(--card); border:1px solid var(--line);
+    border-radius:28px; overflow:hidden; box-shadow:0 12px 40px rgba(40,30,10,.12);
+    display:flex; flex-direction:column; height:800px;
+  }
+  .screen{flex:1; overflow-y:auto; background:var(--paper);}
+
+  .appbar{padding:18px 18px 8px; display:flex; justify-content:space-between; align-items:center;}
+  .appbar h1{margin:0; font-size:19px; letter-spacing:.02em;}
+  .appbar .hamburger{
+    flex:0 0 auto; width:32px; height:32px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:16px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+
+  section{padding:0 18px; margin-bottom:22px;}
+  .sec-h{display:flex; justify-content:space-between; align-items:baseline; margin:0 0 8px;}
+  .sec-h h2{margin:0; font-size:13px; letter-spacing:.08em; color:var(--ink2); font-weight:600;}
+  .sec-lead{margin:0 0 10px; font-size:11.5px; color:var(--ink2);}
+
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:4px 12px;
+  }
+  .card + .card{margin-top:10px;}
+
+  /* --- メンバー管理 --- */
+  .member-row{
+    display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line);
+  }
+  .member-row:last-child{border-bottom:none;}
+  .member-row .dot{width:13px; height:13px; border-radius:50%; flex:0 0 auto;}
+  .member-row .info{flex:1; min-width:0;}
+  .member-row .info .name{font-size:14px; font-weight:600; margin:0 0 2px;}
+  .member-row .info .card-no{font-size:11px; color:var(--ink2); font-variant-numeric:tabular-nums;}
+  .member-row .ops{display:flex; align-items:center; gap:2px; flex:0 0 auto;}
+  .iconbtn{
+    width:28px; height:28px; border-radius:8px; border:1px solid var(--line); background:var(--card);
+    color:var(--ink2); font-size:13px; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; padding:0;
+  }
+  .iconbtn:disabled{opacity:.35; cursor:default;}
+  .iconbtn.danger{color:var(--alert);}
+
+  .add-member-btn{
+    width:100%; margin-top:10px; padding:10px; border-radius:10px; border:1px dashed var(--line);
+    background:transparent; color:var(--green-ink); font-size:13.5px; font-weight:600; cursor:pointer;
+  }
+  .member-cap{margin:8px 0 0; font-size:11px; color:var(--ink2); text-align:center;}
+
+  /* --- フォーム --- */
+  .form-card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-top:10px;
+  }
+  .form-card h3{margin:0 0 12px; font-size:14px;}
+  .field{margin-bottom:12px;}
+  .field label{display:block; font-size:11.5px; color:var(--ink2); margin-bottom:4px;}
+  .field input[type="text"], .field input[type="password"]{
+    width:100%; padding:9px 11px; border-radius:9px; border:1px solid var(--line);
+    background:var(--paper); color:var(--ink); font-size:13.5px; font-family:inherit;
+  }
+  .field input::placeholder{color:var(--ink2); opacity:.7;}
+  .swatches{display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;}
+  .swatch{
+    width:28px; height:28px; border-radius:50%; border:2px solid transparent; cursor:pointer; padding:0;
+  }
+  .swatch.selected{border-color:var(--ink); box-shadow:0 0 0 2px var(--paper);}
+  .hexbox{
+    display:flex; align-items:center; gap:8px; padding:8px 11px; border-radius:9px; border:1px solid var(--line);
+    background:var(--paper); font-size:12.5px; color:var(--ink2);
+  }
+  .hexbox .sw-preview{width:16px; height:16px; border-radius:50%; flex:0 0 auto;}
+  .hexbox input{
+    border:none; background:transparent; color:var(--ink); font-size:12.5px; font-family:inherit;
+    outline:none; width:90px;
+  }
+  .form-actions{display:flex; gap:8px; margin-top:14px;}
+  .btn{
+    flex:1; padding:10px; border-radius:10px; font-size:13.5px; font-weight:600; cursor:pointer; border:1px solid var(--line);
+  }
+  .btn.primary{background:var(--green); border-color:var(--green); color:#fff;}
+  .btn.ghost{background:transparent; color:var(--ink2);}
+  .encrypt-note{
+    display:flex; gap:6px; align-items:flex-start; margin-top:12px; padding-top:12px; border-top:1px solid var(--line);
+    font-size:11px; color:var(--ink2);
+  }
+  .encrypt-note .lock{flex:0 0 auto;}
+
+  /* --- 同期・カレンダー(行形式) --- */
+  .row{
+    display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .row:last-child{border-bottom:none;}
+  .row .label{font-size:13.5px;}
+  .row .sub{font-size:11px; color:var(--ink2); margin-top:2px;}
+  .timeval, .selectval{
+    padding:7px 12px; border-radius:9px; border:1px solid var(--line); background:var(--paper);
+    color:var(--ink); font-size:13px; font-family:inherit;
+  }
+  select.selectval{appearance:none; -webkit-appearance:none; min-width:120px;}
+
+  /* --- 通知トグル --- */
+  .switch{
+    position:relative; width:42px; height:24px; flex:0 0 auto; border-radius:999px; background:var(--line);
+    cursor:pointer; border:none; padding:0;
+  }
+  .switch::after{
+    content:""; position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%;
+    background:var(--card); box-shadow:0 1px 3px rgba(0,0,0,.25); transition:left .15s;
+  }
+  .switch.on{background:var(--green);}
+  .switch.on::after{left:20px;}
+
+  .nav{display:flex; border-top:1px solid var(--line); background:var(--card); padding:6px 4px 10px;}
+  .nav a{flex:1; text-align:center; font-size:10.5px; color:var(--ink2); text-decoration:none; padding-top:4px;}
+  .nav a .ic{display:block; width:44px; height:26px; margin:0 auto 2px; border-radius:999px; line-height:26px; font-size:15px;}
+  .nav a.on{color:var(--green-ink); font-weight:700;}
+  .nav a.on .ic{background:var(--green-bg);}
+
+  .notes h2{font-size:18px; margin:0 0 4px;}
+  .notes .lead{color:var(--ink2); font-size:14px; margin:0 0 20px;}
+  .note{display:flex; gap:12px; padding:12px 0; border-top:1px solid var(--line); font-size:14px;}
+  .note .no{flex:0 0 24px; height:24px; border-radius:50%; background:var(--green); color:#fff;
+    font-size:12.5px; font-weight:700; text-align:center; line-height:24px;}
+  .note b{display:block; margin-bottom:2px;}
+  .note p{margin:0; color:var(--ink2); font-size:13px;}
+  .marker{display:inline-block; width:20px; height:20px; border-radius:50%; background:var(--green);
+    color:#fff; font-size:11px; font-weight:700; text-align:center; line-height:20px; vertical-align:middle;}
+
+  .variant{border:1px dashed var(--line); border-radius:12px; padding:14px; margin-top:8px;}
+  .variant h3{margin:0 0 8px; font-size:13px; color:var(--ink2);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="phone">
+    <div class="screen">
+
+      <div class="appbar">
+        <h1>設定</h1>
+        <button class="hamburger" aria-label="メニュー">☰</button>
+      </div>
+
+      <!-- 1. メンバー管理 -->
+      <section>
+        <div class="sec-h"><h2>メンバー管理</h2> <span class="marker">1</span></div>
+        <div class="card">
+          <div class="member-row">
+            <span class="dot" style="background:var(--papa)"></span>
+            <div class="info">
+              <p class="name">パパ</p>
+              <p class="card-no">カード番号 ****1234</p>
+            </div>
+            <div class="ops">
+              <button class="iconbtn" disabled aria-label="上へ">↑</button>
+              <button class="iconbtn" aria-label="下へ">↓</button>
+              <button class="iconbtn" aria-label="編集">✎</button>
+              <button class="iconbtn danger" aria-label="削除">✕</button>
+            </div>
+          </div>
+          <div class="member-row">
+            <span class="dot" style="background:var(--mama)"></span>
+            <div class="info">
+              <p class="name">ママ</p>
+              <p class="card-no">カード番号 ****5678</p>
+            </div>
+            <div class="ops">
+              <button class="iconbtn" aria-label="上へ">↑</button>
+              <button class="iconbtn" aria-label="下へ">↓</button>
+              <button class="iconbtn" aria-label="編集">✎</button>
+              <button class="iconbtn danger" aria-label="削除">✕</button>
+            </div>
+          </div>
+          <div class="member-row">
+            <span class="dot" style="background:var(--taro)"></span>
+            <div class="info">
+              <p class="name">たろう</p>
+              <p class="card-no">カード番号 ****9012</p>
+            </div>
+            <div class="ops">
+              <button class="iconbtn" aria-label="上へ">↑</button>
+              <button class="iconbtn" aria-label="下へ">↓</button>
+              <button class="iconbtn" aria-label="編集">✎</button>
+              <button class="iconbtn danger" aria-label="削除">✕</button>
+            </div>
+          </div>
+          <div class="member-row">
+            <span class="dot" style="background:var(--hana)"></span>
+            <div class="info">
+              <p class="name">はな</p>
+              <p class="card-no">カード番号 ****3456</p>
+            </div>
+            <div class="ops">
+              <button class="iconbtn" aria-label="上へ">↑</button>
+              <button class="iconbtn" disabled aria-label="下へ">↓</button>
+              <button class="iconbtn" aria-label="編集">✎</button>
+              <button class="iconbtn danger" aria-label="削除">✕</button>
+            </div>
+          </div>
+        </div>
+        <button class="add-member-btn">+ メンバーを追加</button>
+        <p class="member-cap">4/5人 登録済み(あと1人追加できます・上限は拡張可能)</p>
+      </section>
+
+      <!-- 2. メンバー追加/編集フォーム -->
+      <section>
+        <div class="sec-h"><h2>メンバー追加・編集(表示例)</h2> <span class="marker">2</span></div>
+        <div class="form-card">
+          <h3>じろう を編集</h3>
+
+          <div class="field">
+            <label for="f-name">表示名</label>
+            <input id="f-name" type="text" value="じろう">
+          </div>
+
+          <div class="field">
+            <label for="f-card">図書館カード番号</label>
+            <input id="f-card" type="text" placeholder="例) 0000001234" value="0000007890">
+          </div>
+
+          <div class="field">
+            <label for="f-pass">パスワード</label>
+            <input id="f-pass" type="password" value="********" autocomplete="off">
+          </div>
+
+          <div class="field">
+            <label>識別色</label>
+            <div class="swatches">
+              <button class="swatch" style="background:#3D6DB5" aria-label="#3D6DB5"></button>
+              <button class="swatch" style="background:#C25278" aria-label="#C25278"></button>
+              <button class="swatch" style="background:#D98E2B" aria-label="#D98E2B"></button>
+              <button class="swatch" style="background:#5FA05A" aria-label="#5FA05A"></button>
+              <button class="swatch selected" style="background:#8A64B8" aria-label="#8A64B8"></button>
+            </div>
+            <div class="hexbox">
+              <span class="sw-preview" style="background:#8A64B8"></span>
+              <input type="text" value="#8A64B8" spellcheck="false">
+              <span style="font-size:11px">自由入力可</span>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button class="btn ghost">キャンセル</button>
+            <button class="btn primary">保存</button>
+          </div>
+
+          <div class="encrypt-note">
+            <span class="lock">🔒</span>
+            <span>認証情報は端末内に暗号化保存されます。図書館の公式サイト以外へは送信されません。</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. 同期 -->
+      <section>
+        <div class="sec-h"><h2>同期</h2> <span class="marker">3</span></div>
+        <div class="card">
+          <div class="row">
+            <div>
+              <div class="label">自動同期時刻</div>
+              <div class="sub">1日1回、この時刻に自動で同期します</div>
+            </div>
+            <input class="timeval" type="time" value="18:00">
+          </div>
+          <div class="row">
+            <div>
+              <div class="label">最終同期</div>
+              <div class="sub">同期に失敗した場合は赤字で表示</div>
+            </div>
+            <div class="sub" style="text-align:right; font-size:12px; color:var(--ink)">7/20(月) 18:00</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. 通知 -->
+      <section>
+        <div class="sec-h"><h2>通知</h2> <span class="marker">4</span></div>
+        <p class="sec-lead">種類ごとにオン/オフを切り替えられます。該当する通知は家族分をまとめて1通で届きます。</p>
+        <div class="card">
+          <div class="row">
+            <div>
+              <div class="label">返却期限リマインダー</div>
+              <div class="sub">期限前日にまとめて通知</div>
+            </div>
+            <button class="switch on" aria-label="返却期限リマインダー"></button>
+          </div>
+          <div class="row">
+            <div>
+              <div class="label">予約受取可能</div>
+              <div class="sub">受取可を検知した同期時にまとめて通知</div>
+            </div>
+            <button class="switch on" aria-label="予約受取可能"></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. カレンダー -->
+      <section>
+        <div class="sec-h"><h2>カレンダー</h2> <span class="marker">5</span></div>
+        <div class="card">
+          <div class="row">
+            <div>
+              <div class="label">既定表示館</div>
+              <div class="sub">開館カレンダーを開いたとき最初に表示する館</div>
+            </div>
+            <select class="selectval">
+              <option>中央図書館</option>
+              <option>北口図書館</option>
+              <option>鳴尾図書館</option>
+              <option>北部図書館</option>
+              <option>越木岩図書館</option>
+              <option>若竹図書館</option>
+              <option>段上図書館</option>
+              <option>上ケ原図書館</option>
+              <option>甲東園図書館</option>
+              <option selected>高須分室</option>
+              <option>山口図書館</option>
+              <option>義務教育学校図書館</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <div style="height:12px"></div>
+    </div>
+
+    <nav class="nav">
+      <a href="#"><span class="ic">🏠</span>ホーム</a>
+      <a href="#"><span class="ic">📚</span>本棚</a>
+      <a href="#"><span class="ic">📖</span>貸出中</a>
+      <a href="#"><span class="ic">🔖</span>予約中</a>
+      <a href="#"><span class="ic">📗</span>読書記録</a>
+    </nav>
+  </div>
+
+  <div class="notes">
+    <h2>設定画面の構成案</h2>
+    <p class="lead">spec §2(アカウント)・§3.5(既定館)・§3.6(通知)・§3.7(同期)。ハンバーガーメニュー経由で開く独立画面のため下部ナビはどれも非選択。メンバー管理を最上段に置き、それ以外の設定項目を続ける構成。</p>
+
+    <div class="note"><span class="no">1</span><div><b>メンバー管理は上限を明記しつつ拡張可能を示す</b><p>spec §2「5人分・拡張可能な設計」に合わせ、「4/5人・上限は拡張可能」の注記を添えた。並び替え(↑↓)は端(先頭/末尾)で該当ボタンをdisabled表示。</p></div></div>
+    <div class="note"><span class="no">2</span><div><b>フォームはMemberRegistrationForm.ktと同一項目</b><p>表示名・カード番号・パスワード・識別色(プリセット5色+自由hex)。実装済みの初期登録フォームと入力項目・注記文言を揃え、Compose側は<code>ui/member/</code>の型を編集フォームにも再利用する想定を示した。カード番号・パスワードは編集時も平文を画面に出さない(パスワードは伏字固定、カード番号は下4桁マスクを一覧側で徹底)。</p></div></div>
+    <div class="note"><span class="no">3</span><div><b>同期時刻はネイティブtimeピッカー、最終同期は読み取り専用</b><p>spec §3.7「時刻は設定で変更可能」に対応。同期実行ボタンはここに置かない(手動同期はプルリフレッシュのみ、というホーム側の方針を踏襲)。</p></div></div>
+    <div class="note"><span class="no">4</span><div><b>通知は種類ごとに2トグル</b><p>spec §3.6の表と1:1対応。「順位上昇などは通知しない」という非対応項目は増やさない。まとめて1通で届く旨をリード文で明示。</p></div></div>
+    <div class="note"><span class="no">5</span><div><b>既定表示館は全12施設のセレクト</b><p>カレンダー画面自体は未着手だが、設定からの既定館選択のみ本画面のスコープ。カレンダー画面側の「一度に一館のみ表示」原則と対応。</p></div></div>
+
+    <div class="variant">
+      <h3>判断: メンバー編集フォームの見せ方(2案、案Aを採用)</h3>
+      <p style="margin:0 0 6px; font-size:13px;"><b>案A(採用・上のモック)</b>: リストの下にインライン展開のフォームカードとして表示例を1つ常設し、「追加」「編集」どちらでも同じ構造を使うことを示す。モック上で操作フローを省略しつつ全項目を一望できる。</p>
+      <p style="margin:0; font-size:13px;"><b>案B</b>: モーダルダイアログのオーバーレイとして重ねる案。実機の見た目には近いが、静的HTMLモックでは表示/非表示の状態を出し分けにくく、フォーム項目そのものの検討がしづらいため不採用(実装はComposeのモーダル/ボトムシートいずれでもよい)。</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

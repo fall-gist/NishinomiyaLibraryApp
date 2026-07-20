@@ -34,7 +34,7 @@
 | 本棚(マイ本棚・下部タブ) | 3.4 | [bookshelf.html](mockups/bookshelf.html) | **Compose実装済**(みんなチップ+全員の本棚を横並び・本棚タイトル頭に識別色) | `StatusRepository.shelf(memberId)` |
 | 開館カレンダー(ハンバーガー) | 3.5 | — | 未着手 | `CalendarRepository.closedDays() / refreshClosedDays() / libraries` |
 | 読書記録(下部タブ・一覧・検索) | 3.5b | [reading-records.html](mockups/reading-records.html) | **Compose実装済** | `ReadingRecordRepository`(一覧/メンバー絞り込み/正規化検索/既読判定) |
-| 設定(メンバー管理・同期時刻・通知) | 2, 3.6, 3.7 | — | 未着手 | `FamilyRepository.*`, 設定用DataStore、通知オンオフ |
+| 設定(メンバー管理・同期時刻・通知) | 2, 3.6, 3.7 | [settings.html](mockups/settings.html) | 未着手 | `FamilyRepository.*`, 設定用DataStore、通知オンオフ |
 
 > 既読バッジ(spec §3.5b)は独立画面ではなく、**蔵書検索の結果・書誌詳細に重畳**する要素。
 > タイトルコード一致で「よんだ(だれが・いつ)」を表示する。
