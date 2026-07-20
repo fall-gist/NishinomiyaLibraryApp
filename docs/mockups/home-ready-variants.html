@@ -1,0 +1,274 @@
+<title>うけとれる予約 表示案の比較</title>
+<style>
+  :root{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2; --chip-bg:#EFEAE0;
+    --papa:#3D6DB5; --mama:#C25278; --taro:#D98E2B; --hana:#5FA05A;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+      --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+      --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+    --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+    --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+  }
+  :root[data-theme="light"]{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2; --chip-bg:#EFEAE0;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 20px 72px; background:var(--paper); color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+    line-height:1.6;
+  }
+  .head{max-width:1180px; margin:0 auto 28px;}
+  .head h1{margin:0 0 8px; font-size:24px; letter-spacing:.01em; text-wrap:balance;}
+  .head p{margin:0; color:var(--ink2); font-size:14px; max-width:70ch;}
+  .head .prob{
+    margin-top:14px; padding:12px 16px; border-left:3px solid var(--alert);
+    background:var(--alert-bg); border-radius:0 10px 10px 0; font-size:13.5px; color:var(--ink);
+    max-width:70ch;
+  }
+
+  .grid{
+    max-width:1180px; margin:0 auto; display:grid; gap:28px;
+    grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));
+    align-items:start;
+  }
+  .col{display:flex; flex-direction:column; gap:12px;}
+  .cap .lbl{
+    display:inline-block; font-size:11px; font-weight:700; letter-spacing:.08em;
+    color:var(--green-ink); background:var(--green-bg); padding:3px 10px; border-radius:999px;
+  }
+  .cap.ref .lbl{color:var(--ink2); background:var(--chip-bg);}
+  .cap h2{margin:8px 0 2px; font-size:15px;}
+  .cap p{margin:0; font-size:12.5px; color:var(--ink2);}
+
+  /* 端末フレーム */
+  .phone{
+    background:var(--card); border:1px solid var(--line); border-radius:24px; overflow:hidden;
+    box-shadow:0 10px 32px rgba(40,30,10,.10);
+  }
+  .screen{background:var(--paper); padding-bottom:14px;}
+  .appbar{padding:14px 16px 6px; display:flex; justify-content:space-between; align-items:flex-start;}
+  .appbar h3{margin:0; font-size:16px;}
+  .appbar .sync{font-size:10px; color:var(--ink2); text-align:right;}
+  section{padding:0 16px;}
+  .sec-h{display:flex; align-items:baseline; gap:8px; margin:6px 0 10px;}
+  .sec-h h4{margin:0; font-size:12px; letter-spacing:.06em; color:var(--ink2); font-weight:700;}
+  .sec-h .count{font-size:12px; color:var(--green-ink); font-weight:700;}
+
+  .dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto; display:inline-block;}
+
+  /* ---- 現状(参考): タイトル大・縦に伸びる ---- */
+  .ready-old{
+    background:var(--green-bg); border-radius:14px; padding:12px 14px; margin-bottom:8px;
+    border:1px solid color-mix(in srgb, var(--green) 30%, transparent);
+  }
+  .ready-old .tag{font-size:10.5px; font-weight:700; color:var(--green-ink); letter-spacing:.04em;}
+  .ready-old .title{font-size:14px; font-weight:600; margin:5px 0 6px; line-height:1.45;}
+  .ready-old .meta{font-size:11.5px; color:var(--ink2); display:flex; align-items:center; gap:6px;}
+  .ready-old .limit{color:var(--alert); font-weight:600;}
+
+  /* ---- 1-1: タイトルなし・取置期限でグループ ---- */
+  .rv-date{
+    font-size:11.5px; font-weight:700; margin:10px 0 6px; color:var(--ink); display:flex; gap:6px; align-items:center;
+  }
+  .rv-date.undated{color:var(--ink2);}
+  .rv-date .pin{color:var(--green);}
+  .rv-row{
+    display:flex; align-items:center; gap:10px; background:var(--card); border:1px solid var(--line);
+    border-radius:11px; padding:9px 12px; margin-bottom:6px;
+  }
+  .rv-row .lib{font-size:12.5px; font-weight:600; flex:0 0 auto;}
+  .rv-row .who{display:flex; align-items:center; gap:5px; font-size:12px; color:var(--ink2); margin-left:auto;}
+  .rv-row .n{font-size:12px; color:var(--ink2); flex:0 0 auto; min-width:26px; text-align:right; font-variant-numeric:tabular-nums;}
+
+  /* ---- 1-2: タイトルなし・期限なし・受取館ごと ---- */
+  .rv2-row{
+    display:flex; align-items:center; gap:10px; background:var(--card); border:1px solid var(--line);
+    border-radius:11px; padding:9px 12px; margin-bottom:6px;
+  }
+  .rv2-row .lib{font-size:12.5px; font-weight:600; flex:0 0 auto;}
+  .rv2-row .whos{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-left:auto; justify-content:flex-end;}
+  .rv2-row .whos span{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--ink2);}
+  .rv2-row .n{font-size:12px; color:var(--green-ink); font-weight:700; flex:0 0 auto; min-width:26px; text-align:right; font-variant-numeric:tabular-nums;}
+
+  /* ---- 2: タイトルを1行の箇条書き ---- */
+  .rv3-row{
+    display:flex; align-items:center; gap:9px; background:var(--card); border:1px solid var(--line);
+    border-radius:11px; padding:8px 12px; margin-bottom:6px;
+  }
+  .rv3-row .title{
+    flex:1; min-width:0; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .rv3-row .meta{flex:0 0 auto; font-size:10.5px; color:var(--ink2); white-space:nowrap;}
+  .rv3-row .meta .lim{color:var(--alert);}
+
+  .foot{max-width:1180px; margin:32px auto 0; border-top:1px solid var(--line); padding-top:20px;}
+  .foot h2{font-size:16px; margin:0 0 12px;}
+  .foot table{border-collapse:collapse; width:100%; font-size:13px; overflow:auto; display:block;}
+  .foot th,.foot td{border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top;}
+  .foot th{background:var(--chip-bg); font-weight:700; white-space:nowrap;}
+  .foot .rec{margin-top:14px; font-size:13.5px; color:var(--ink2); max-width:74ch;}
+</style>
+
+<div class="head">
+  <h1>「うけとれる予約」 表示案の比較</h1>
+  <p>ホーム画面の受取可能予約セクションについて、縦幅を抑える表示案を検討する。サンプルは4冊(受取館3か所・メンバー4人・取置期限は2日+未定が混在)。</p>
+  <div class="prob">現状はタイトルを大きく見せるため、長い書名だと1冊で高さが出る。数冊たまるとスクロール必須になり、「どこで・誰が・いつまでに受け取るか」の一覧性が落ちる。</div>
+</div>
+
+<div class="grid">
+
+  <!-- 現状(参考) -->
+  <div class="col">
+    <div class="cap ref">
+      <span class="lbl">現状 · 参考</span>
+      <h2>タイトルを大きく表示</h2>
+      <p>長い書名で縦に伸びる。4冊でこの高さ。</p>
+    </div>
+    <div class="phone"><div class="screen">
+      <div class="appbar"><h3>西宮市立図書館</h3><div class="sync">最終同期<br>きょう 18:05</div></div>
+      <section>
+        <div class="sec-h"><h4>うけとれる予約</h4></div>
+        <div class="ready-old">
+          <div class="tag">■ 高須分室 で受取可能</div>
+          <div class="title">クリシュナのつるぎ インドのむかしばなし</div>
+          <div class="meta"><span class="dot" style="background:var(--papa)"></span>パパ<span class="limit">· 取置期限 7/23(水) まで</span></div>
+        </div>
+        <div class="ready-old">
+          <div class="tag">■ 中央図書館 で受取可能</div>
+          <div class="title">ぐりとぐら</div>
+          <div class="meta"><span class="dot" style="background:var(--hana)"></span>はな<span class="limit">· 取置期限 7/23(水) まで</span></div>
+        </div>
+        <div class="ready-old">
+          <div class="tag">■ 北口図書館 で受取可能</div>
+          <div class="title">掃除婦のための手引き書 ルシア・ベルリン作品集</div>
+          <div class="meta"><span class="dot" style="background:var(--mama)"></span>ママ<span class="limit">· 取置期限 7/25(金) まで</span></div>
+        </div>
+        <div class="ready-old">
+          <div class="tag">■ 中央図書館 で受取可能</div>
+          <div class="title">はらぺこあおむし</div>
+          <div class="meta"><span class="dot" style="background:var(--taro)"></span>たろう<span>· 取置期限 未定</span></div>
+        </div>
+      </section>
+    </div></div>
+  </div>
+
+  <!-- 1-1 -->
+  <div class="col">
+    <div class="cap">
+      <span class="lbl">案 1-1</span>
+      <h2>タイトルなし × 取置期限で分ける</h2>
+      <p>いつまでに・どこで・誰が・何冊。期限順に束ねる。</p>
+    </div>
+    <div class="phone"><div class="screen">
+      <div class="appbar"><h3>西宮市立図書館</h3><div class="sync">最終同期<br>きょう 18:05</div></div>
+      <section>
+        <div class="sec-h"><h4>うけとれる予約</h4><span class="count">4冊</span></div>
+
+        <div class="rv-date"><span class="pin">◗</span>7/23(水) まで</div>
+        <div class="rv-row"><span class="lib">中央図書館</span><span class="who"><span class="dot" style="background:var(--hana)"></span>はな</span><span class="n">1冊</span></div>
+        <div class="rv-row"><span class="lib">高須分室</span><span class="who"><span class="dot" style="background:var(--papa)"></span>パパ</span><span class="n">1冊</span></div>
+
+        <div class="rv-date"><span class="pin">◗</span>7/25(金) まで</div>
+        <div class="rv-row"><span class="lib">北口図書館</span><span class="who"><span class="dot" style="background:var(--mama)"></span>ママ</span><span class="n">1冊</span></div>
+
+        <div class="rv-date undated">取置期限 未定</div>
+        <div class="rv-row"><span class="lib">中央図書館</span><span class="who"><span class="dot" style="background:var(--taro)"></span>たろう</span><span class="n">1冊</span></div>
+      </section>
+    </div></div>
+  </div>
+
+  <!-- 1-2 -->
+  <div class="col">
+    <div class="cap">
+      <span class="lbl">案 1-2</span>
+      <h2>タイトルなし × 期限も出さない</h2>
+      <p>受取館ごとに、誰が何冊。行き先が最短で分かる。</p>
+    </div>
+    <div class="phone"><div class="screen">
+      <div class="appbar"><h3>西宮市立図書館</h3><div class="sync">最終同期<br>きょう 18:05</div></div>
+      <section>
+        <div class="sec-h"><h4>うけとれる予約</h4><span class="count">4冊</span></div>
+        <div class="rv2-row">
+          <span class="lib">中央図書館</span>
+          <span class="whos">
+            <span><span class="dot" style="background:var(--hana)"></span>はな1</span>
+            <span><span class="dot" style="background:var(--taro)"></span>たろう1</span>
+          </span>
+          <span class="n">2冊</span>
+        </div>
+        <div class="rv2-row">
+          <span class="lib">高須分室</span>
+          <span class="whos"><span><span class="dot" style="background:var(--papa)"></span>パパ1</span></span>
+          <span class="n">1冊</span>
+        </div>
+        <div class="rv2-row">
+          <span class="lib">北口図書館</span>
+          <span class="whos"><span><span class="dot" style="background:var(--mama)"></span>ママ1</span></span>
+          <span class="n">1冊</span>
+        </div>
+      </section>
+    </div></div>
+  </div>
+
+  <!-- 2 -->
+  <div class="col">
+    <div class="cap">
+      <span class="lbl">案 2</span>
+      <h2>タイトルを1行の箇条書き</h2>
+      <p>書名は出すが1行上限。溢れは…で省略。</p>
+    </div>
+    <div class="phone"><div class="screen">
+      <div class="appbar"><h3>西宮市立図書館</h3><div class="sync">最終同期<br>きょう 18:05</div></div>
+      <section>
+        <div class="sec-h"><h4>うけとれる予約</h4><span class="count">4冊</span></div>
+        <div class="rv3-row">
+          <span class="dot" style="background:var(--papa)"></span>
+          <span class="title">クリシュナのつるぎ インドのむかしばなし</span>
+          <span class="meta">高須 · <span class="lim">7/23</span></span>
+        </div>
+        <div class="rv3-row">
+          <span class="dot" style="background:var(--hana)"></span>
+          <span class="title">ぐりとぐら</span>
+          <span class="meta">中央 · <span class="lim">7/23</span></span>
+        </div>
+        <div class="rv3-row">
+          <span class="dot" style="background:var(--mama)"></span>
+          <span class="title">掃除婦のための手引き書 ルシア・ベルリン作品集</span>
+          <span class="meta">北口 · <span class="lim">7/25</span></span>
+        </div>
+        <div class="rv3-row">
+          <span class="dot" style="background:var(--taro)"></span>
+          <span class="title">はらぺこあおむし</span>
+          <span class="meta">中央 · 未定</span>
+        </div>
+      </section>
+    </div></div>
+  </div>
+
+</div>
+
+<div class="foot">
+  <h2>比較</h2>
+  <table>
+    <thead><tr><th>案</th><th>1冊あたり高さ</th><th>分かること</th><th>向き / 弱み</th></tr></thead>
+    <tbody>
+      <tr><td>現状</td><td>大(可変)</td><td>書名・館・人・期限すべて</td><td>1画面性が最も低い。長い書名で破綻</td></tr>
+      <tr><td>1-1</td><td>小・固定</td><td>いつまでに / どこで / 誰 / 何冊</td><td>「期限が近い順」が主眼のときに最良。館は期限内で分散</td></tr>
+      <tr><td>1-2</td><td>最小・固定</td><td>どこで / 誰 / 何冊</td><td>受取の外出計画に最短。ただし期限の緊急度は別画面頼み</td></tr>
+      <tr><td>2</td><td>小・固定(1行)</td><td>書名(要約) / 館 / 期限</td><td>「どの本か」を残しつつ圧縮。館名は略称になる</td></tr>
+    </tbody>
+  </table>
+  <p class="rec">補足: いずれの案も、行/グループをタップで予約画面へ遷移して詳細確認できる前提。取置期限の「未定」は、公式サイトで受取館が割当前(全館名が並ぶ状態)のもの。案1-1と案2は期限を色(赤)で強調でき、案1-2は最終同期時刻に依存せず「今どこに何冊あるか」だけを見せる割り切り。</p>
+</div>
