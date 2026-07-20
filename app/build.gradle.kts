@@ -21,6 +21,18 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        // 家族端末に直接インストールする非公開アプリのため、全ビルドで共通の固定debug鍵を使う。
+        // これでCI実行ごとに鍵が変わらず、アンインストールせずに上書き更新できる。
+        // debug鍵は本来秘匿情報ではなく、パスワードも慣例の "android" 固定。
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
