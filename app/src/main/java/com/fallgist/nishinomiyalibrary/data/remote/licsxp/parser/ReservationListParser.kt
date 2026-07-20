@@ -31,6 +31,7 @@ object ReservationListParser {
             Reservation(
                 memberId = memberId,
                 title = row.cell(title, screen, "資料名"),
+                tilcod = titleCodeOf(row),
                 materialType = row.cell(materialType, screen, "書誌種別"),
                 pickupLibrary = pickupLibrary(row, row.cell(pickupLibraryColumn, screen, "受取館")),
                 reservedDate = reserved,
@@ -45,6 +46,15 @@ object ReservationListParser {
             )
         }
     }
+
+    /** 資料名セルの書誌詳細リンク(hTilcod / toTilInfoDetail)からタイトルコードを取り出す。 */
+    private fun titleCodeOf(row: org.jsoup.nodes.Element): String {
+        val link = row.selectFirst("a[href*=hTilcod], a[onclick*=toTilInfoDetail]") ?: return ""
+        val source = link.attr("href") + " " + link.attr("onclick")
+        return TITLE_CODE_REGEX.find(source)?.groupValues?.get(1).orEmpty()
+    }
+
+    private val TITLE_CODE_REGEX = Regex("(?:hTilcod=|toTilInfoDetail\\(')(\\d+)")
 
     private fun parseReservationDates(value: String): List<LocalDate> =
         shortDateRegex.findAll(value).map { match ->

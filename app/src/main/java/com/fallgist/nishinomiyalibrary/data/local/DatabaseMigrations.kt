@@ -71,4 +71,11 @@ object DatabaseMigrations {
             )
         }
     }
+
+    /** v5で予約に書誌詳細リンク用のタイトルコードを追加する。 */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE reservations ADD COLUMN tilcod TEXT NOT NULL DEFAULT ''")
+        }
+    }
 }

@@ -38,6 +38,17 @@ class ReservationsContentBuilderTest {
     }
 
     @Test
+    fun rowsCarryTilcodForDetailNavigation() {
+        val reservations = listOf(
+            Reservation(papa.id, "詳細あり", "本", "中央", today, 1, ReservationState.WAITING, null, "1000000000001"),
+        )
+
+        val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null)
+
+        assertEquals("1000000000001", rows.single().tilcod)
+    }
+
+    @Test
     fun blankPickupLibraryShownAsUndecided() {
         val reservations = listOf(
             Reservation(papa.id, "割当前の本", "本", "", today, 1, ReservationState.WAITING, null),

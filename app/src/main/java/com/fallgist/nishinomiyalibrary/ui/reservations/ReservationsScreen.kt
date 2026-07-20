@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.reservations
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,6 +34,7 @@ fun ReservationsScreen(
     state: ReservationsUiState,
     onSelectMember: (Long?) -> Unit,
     onOpenMenu: () -> Unit,
+    onOpenDetail: (tilcod: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -51,14 +53,16 @@ fun ReservationsScreen(
                     .fillMaxSize()
                     .padding(horizontal = 18.dp),
             ) {
-                items(state.rows) { row -> ReservationRowView(row) }
+                items(state.rows) { row ->
+                    ReservationRowView(row, onClick = { onOpenDetail(row.tilcod, row.title) })
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ReservationRowView(row: ReservationRow) {
+private fun ReservationRowView(row: ReservationRow, onClick: () -> Unit) {
     val colors = LocalAppColors.current
     Column(
         modifier = Modifier
@@ -71,6 +75,7 @@ private fun ReservationRowView(row: ReservationRow) {
                 if (row.isReady) colors.green.copy(alpha = 0.3f) else colors.line,
                 RoundedCornerShape(14.dp),
             )
+            .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

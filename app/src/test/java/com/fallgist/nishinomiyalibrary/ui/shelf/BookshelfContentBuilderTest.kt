@@ -43,6 +43,8 @@ class BookshelfContentBuilderTest {
         // 本棚内は登録日の新しい順
         assertEquals(listOf("パパ本C", "パパ本A"), columns[0].books.map { it.title })
         assertEquals("2026/7/1", columns[0].books[0].registeredDateLabel)
+        // 書誌詳細遷移用にタイトルコードを保持する
+        assertEquals("t-パパ本C", columns[0].books[0].tilcod)
     }
 
     @Test

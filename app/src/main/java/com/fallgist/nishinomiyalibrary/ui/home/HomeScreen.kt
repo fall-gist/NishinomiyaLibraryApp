@@ -47,6 +47,7 @@ fun HomeScreen(
     onManualSync: () -> Unit,
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
     onOpenMenu: () -> Unit,
+    onOpenDetail: (tilcod: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -55,7 +56,7 @@ fun HomeScreen(
         !state.initialized -> Box(modifier.background(colors.paper))
         // 認証済みメンバーが1人もいなければ、その場で完結する登録フォームだけを出す。
         state.members.isEmpty() -> MemberRegistrationForm(onRegister = onRegister, modifier = modifier)
-        else -> HomeContent(state, onSelectMember, onManualSync, onOpenMenu, modifier)
+        else -> HomeContent(state, onSelectMember, onManualSync, onOpenMenu, onOpenDetail, modifier)
     }
 }
 
@@ -65,6 +66,7 @@ private fun HomeContent(
     onSelectMember: (Long?) -> Unit,
     onManualSync: () -> Unit,
     onOpenMenu: () -> Unit,
+    onOpenDetail: (tilcod: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -98,7 +100,7 @@ private fun HomeContent(
         if (state.readyGroups.isNotEmpty()) {
             SectionHeader("うけとれる予約")
             Column(modifier = Modifier.padding(horizontal = 18.dp)) {
-                state.readyGroups.forEach { ReadyGroupView(it) }
+                state.readyGroups.forEach { ReadyGroupView(it, onOpenDetail) }
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -108,7 +110,7 @@ private fun HomeContent(
             EmptyNote("借りている本はありません")
         } else {
             Column(modifier = Modifier.padding(horizontal = 18.dp)) {
-                state.dueGroups.forEach { DueGroupView(it) }
+                state.dueGroups.forEach { DueGroupView(it, onOpenDetail) }
             }
         }
     }
@@ -256,7 +258,10 @@ private fun EmptyNote(text: String) {
 }
 
 @Composable
-private fun ReadyGroupView(group: ReadyGroup) {
+private fun ReadyGroupView(
+    group: ReadyGroup,
+    onOpenDetail: (tilcod: String, title: String) -> Unit,
+) {
     val colors = LocalAppColors.current
     Column(modifier = Modifier.padding(bottom = 4.dp)) {
         Row(
@@ -272,12 +277,14 @@ private fun ReadyGroupView(group: ReadyGroup) {
             )
             Text(text = "${group.items.size}冊", color = colors.ink2, fontSize = 12.sp)
         }
-        group.items.forEach { ReadyRow(it) }
+        group.items.forEach { item ->
+            ReadyRow(item, onClick = { onOpenDetail(item.tilcod, item.title) })
+        }
     }
 }
 
 @Composable
-private fun ReadyRow(item: ReadyItem) {
+private fun ReadyRow(item: ReadyItem, onClick: () -> Unit) {
     val colors = LocalAppColors.current
     Row(
         modifier = Modifier
@@ -286,6 +293,7 @@ private fun ReadyRow(item: ReadyItem) {
             .clip(RoundedCornerShape(12.dp))
             .background(colors.greenBg)
             .border(1.dp, colors.green.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+            .clickable(enabled = item.tilcod.isNotBlank(), onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -309,7 +317,10 @@ private fun ReadyRow(item: ReadyItem) {
 }
 
 @Composable
-private fun DueGroupView(group: DueGroup) {
+private fun DueGroupView(
+    group: DueGroup,
+    onOpenDetail: (tilcod: String, title: String) -> Unit,
+) {
     val colors = LocalAppColors.current
     Column(modifier = Modifier.padding(bottom = 4.dp)) {
         Row(
@@ -326,7 +337,9 @@ private fun DueGroupView(group: DueGroup) {
             Text(text = "${group.count}冊", color = colors.ink2, fontSize = 12.sp)
         }
         if (group.expanded) {
-            group.books.forEach { BookRow(it) }
+            group.books.forEach { book ->
+                BookRow(book, onClick = { onOpenDetail(book.tilcod, book.title) })
+            }
         } else {
             Box(
                 modifier = Modifier
@@ -344,7 +357,7 @@ private fun DueGroupView(group: DueGroup) {
 }
 
 @Composable
-private fun BookRow(book: HomeBook) {
+private fun BookRow(book: HomeBook, onClick: () -> Unit) {
     val colors = LocalAppColors.current
     Row(
         modifier = Modifier
@@ -357,6 +370,7 @@ private fun BookRow(book: HomeBook) {
                 if (book.overdue) colors.alert.copy(alpha = 0.45f) else colors.line,
                 RoundedCornerShape(12.dp),
             )
+            .clickable(enabled = book.tilcod.isNotBlank(), onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),

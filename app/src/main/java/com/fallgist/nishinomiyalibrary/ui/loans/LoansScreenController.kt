@@ -28,6 +28,8 @@ data class LoanRow(
     val dueLabel: String,
     val overdue: Boolean,
     val dueSoon: Boolean,
+    /** 書誌詳細リンク用。空文字列のときは遷移しない。 */
+    val tilcod: String = "",
 )
 
 data class LoansUiState(
@@ -68,6 +70,7 @@ object LoansContentBuilder {
                     dueLabel = dueLabel(loan.dueDate, today),
                     overdue = overdue,
                     dueSoon = !overdue && daysUntil <= DUE_SOON_DAYS,
+                    tilcod = loan.tilcod,
                 )
             }
     }

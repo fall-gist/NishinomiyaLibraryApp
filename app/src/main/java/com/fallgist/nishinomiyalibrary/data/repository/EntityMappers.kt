@@ -94,14 +94,15 @@ internal fun ReadingRecord.toEntity(): ReadingRecordEntity = ReadingRecordEntity
 internal fun ReadingInfoProjection.toDomain(): ReadingInfo = ReadingInfo(memberId, loanDate, library)
 
 internal fun ReservationEntity.toDomain(): Reservation = Reservation(
-    memberId,
-    title,
-    materialType,
-    pickupLibrary,
-    reservedDate,
-    queuePosition,
-    state,
-    holdExpiryDate,
+    memberId = memberId,
+    title = title,
+    materialType = materialType,
+    pickupLibrary = pickupLibrary,
+    reservedDate = reservedDate,
+    queuePosition = queuePosition,
+    state = state,
+    holdExpiryDate = holdExpiryDate,
+    tilcod = tilcod,
 )
 
 internal fun Reservation.toEntity(memberId: Long): ReservationEntity = ReservationEntity(
@@ -114,6 +115,7 @@ internal fun Reservation.toEntity(memberId: Long): ReservationEntity = Reservati
     state = state,
     holdExpiryDate = holdExpiryDate,
     firstReadyNotifiedAt = null,
+    tilcod = tilcod,
 )
 
 internal fun ShelfItemWithShelfName.toDomain(): ShelfItem = ShelfItem(

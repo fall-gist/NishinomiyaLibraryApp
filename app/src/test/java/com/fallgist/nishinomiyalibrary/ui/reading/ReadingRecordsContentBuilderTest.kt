@@ -23,6 +23,8 @@ class ReadingRecordsContentBuilderTest {
         assertEquals("パパ", rows[0].memberName)
         assertEquals("2026/7/1", rows[0].loanDateLabel)
         assertEquals("中央図書館", rows[0].library)
+        // 書誌詳細遷移用にタイトルコードを保持する
+        assertEquals("100", rows[0].tilcod)
         // 識別色が空のメンバーはフォールバック色になる
         assertEquals("#6E675C", rows[1].memberColorHex)
         assertEquals("2025/12/24", rows[1].loanDateLabel)

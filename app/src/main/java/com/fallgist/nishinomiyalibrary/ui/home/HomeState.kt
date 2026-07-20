@@ -38,6 +38,8 @@ data class ReadyItem(
     val memberName: String,
     val memberColorHex: String,
     val title: String,
+    /** 書誌詳細リンク用。空文字列のときは遷移しない。 */
+    val tilcod: String = "",
 )
 
 /** うけとれる予約を取置期限でまとめた1グループ。期限未定([undated])は末尾に置く。 */
@@ -53,6 +55,8 @@ data class HomeBook(
     val title: String,
     val library: String,
     val overdue: Boolean,
+    /** 書誌詳細リンク用。空文字列のときは遷移しない。 */
+    val tilcod: String = "",
 )
 
 /**
@@ -130,6 +134,7 @@ object HomeContentBuilder {
             memberName = nameFor(reservation.memberId),
             memberColorHex = colorFor(reservation.memberId),
             title = reservation.title,
+            tilcod = reservation.tilcod,
         )
 
         fun ordered(list: List<Reservation>) =
@@ -175,6 +180,7 @@ object HomeContentBuilder {
             title = loan.title,
             library = loan.lendingLibrary,
             overdue = overdue,
+            tilcod = loan.tilcod,
         )
 
         fun foldedSummary(groupLoans: List<Loan>): String = groupLoans

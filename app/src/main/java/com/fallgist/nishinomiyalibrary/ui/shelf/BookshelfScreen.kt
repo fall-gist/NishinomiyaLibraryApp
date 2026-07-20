@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.shelf
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -38,6 +39,7 @@ fun BookshelfScreen(
     state: BookshelfUiState,
     onSelectMember: (Long?) -> Unit,
     onOpenMenu: () -> Unit,
+    onOpenDetail: (tilcod: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -57,14 +59,17 @@ fun BookshelfScreen(
                 contentPadding = PaddingValues(horizontal = 18.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(state.columns) { column -> ShelfColumnView(column) }
+                items(state.columns) { column -> ShelfColumnView(column, onOpenDetail) }
             }
         }
     }
 }
 
 @Composable
-private fun ShelfColumnView(column: ShelfColumn) {
+private fun ShelfColumnView(
+    column: ShelfColumn,
+    onOpenDetail: (tilcod: String, title: String) -> Unit,
+) {
     val colors = LocalAppColors.current
     Column(
         modifier = Modifier
@@ -100,13 +105,15 @@ private fun ShelfColumnView(column: ShelfColumn) {
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(10.dp),
         ) {
-            items(column.books) { book -> ShelfBookView(book) }
+            items(column.books) { book ->
+                ShelfBookView(book, onClick = { onOpenDetail(book.tilcod, book.title) })
+            }
         }
     }
 }
 
 @Composable
-private fun ShelfBookView(book: ShelfBook) {
+private fun ShelfBookView(book: ShelfBook, onClick: () -> Unit) {
     val colors = LocalAppColors.current
     Column(
         modifier = Modifier
@@ -115,6 +122,7 @@ private fun ShelfBookView(book: ShelfBook) {
             .clip(RoundedCornerShape(10.dp))
             .background(colors.paper)
             .border(1.dp, colors.line, RoundedCornerShape(10.dp))
+            .clickable(enabled = book.tilcod.isNotBlank(), onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
         Text(

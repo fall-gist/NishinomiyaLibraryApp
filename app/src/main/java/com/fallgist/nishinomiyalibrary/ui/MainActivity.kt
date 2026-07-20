@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.fallgist.nishinomiyalibrary.ui.app.LibraryApp
+import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
 import com.fallgist.nishinomiyalibrary.ui.di.MainActivityEntryPoint
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
@@ -38,6 +39,7 @@ open class MainActivity : ComponentActivity() {
     private lateinit var calendarController: CalendarScreenController
     private lateinit var newArrivalsController: NewArrivalsScreenController
     private lateinit var settingsController: SettingsScreenController
+    private lateinit var bookDetailController: BookDetailController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         window.setFlags(
@@ -58,6 +60,7 @@ open class MainActivity : ComponentActivity() {
         calendarController = entryPoint.calendarScreenController()
         newArrivalsController = entryPoint.newArrivalsScreenController()
         settingsController = entryPoint.settingsScreenController()
+        bookDetailController = entryPoint.bookDetailController()
 
         setContent {
             val state by controller.state.collectAsState()
@@ -75,6 +78,7 @@ open class MainActivity : ComponentActivity() {
                     calendarController = calendarController,
                     newArrivalsController = newArrivalsController,
                     settingsController = settingsController,
+                    bookDetailController = bookDetailController,
                 )
             }
         }

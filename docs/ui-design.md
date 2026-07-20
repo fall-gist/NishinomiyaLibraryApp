@@ -31,7 +31,7 @@
 |---|---|---|---|---|
 | ホーム(家族統合) | 3.1 | [home.html](mockups/home.html) | **Compose実装済**(※きょうの図書館セクションのみ未) | `StatusRepository.loans() / reservations() / lastSync()`, `FamilyRepository.members()` |
 | 蔵書検索 | 3.2 | [search.html](mockups/search.html) | **Compose実装済**(`ui/search/`) | `SearchRepository.search() / autocomplete() / isLendable() / coverUrl()` |
-| 書誌詳細 | 3.2 | [search.html](mockups/search.html)(同ファイル内) | **Compose実装済**(検索と同一機能内の2ビュー) | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
+| 書誌詳細 | 3.2 | [search.html](mockups/search.html)(同ファイル内) | **Compose実装済**(`ui/detail/` の共通オーバーレイ。tilcodを持つ全画面=ホーム/本棚/貸出中/予約中/読書記録/新着資料/蔵書検索の行タップで開く) | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
 | 貸出中(下部タブ) | 3.3 | [loans.html](mockups/loans.html) | **Compose実装済** | `StatusRepository.loans()` |
 | 予約中(下部タブ) | 3.3 | [reservations.html](mockups/reservations.html) | **Compose実装済** | `StatusRepository.reservations()` |
 | 本棚(マイ本棚・下部タブ) | 3.4 | [bookshelf.html](mockups/bookshelf.html) | **Compose実装済**(みんなチップ+全員の本棚を横並び・本棚タイトル頭に識別色) | `StatusRepository.shelf(memberId)` |
@@ -42,6 +42,11 @@
 
 > 既読バッジ(spec §3.5b)は独立画面ではなく、**蔵書検索の結果・書誌詳細に重畳**する要素。
 > タイトルコード一致で「よんだ(だれが・いつ)」を表示する。
+>
+> 書誌詳細は `ui/detail/BookDetailController` + `BookDetailView` の**アプリ共通オーバーレイ**として実装。
+> tilcodを持つ行(ホーム/本棚/貸出中/予約中/読書記録/新着資料/蔵書検索)をタップすると、
+> どの画面の上にも重ねて開く。予約は詳細リンクが `hTilcod` にあるため、予約モデル/エンティティに
+> `tilcod` を追加した(DB v5マイグレーション)。tilcodが空の行(旧データ等)はタップ無効。
 
 ## ナビゲーション構成(2026-07-20 改訂)
 

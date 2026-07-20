@@ -1,5 +1,6 @@
 package com.fallgist.nishinomiyalibrary.ui.app
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -27,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreen
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
+import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
+import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailView
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreen
 import com.fallgist.nishinomiyalibrary.ui.home.HomeUiState
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreen
@@ -78,6 +81,7 @@ fun LibraryApp(
     calendarController: CalendarScreenController,
     newArrivalsController: NewArrivalsScreenController,
     settingsController: SettingsScreenController,
+    bookDetailController: BookDetailController,
 ) {
     val colors = LocalAppColors.current
     val primaryTabs = Destination.entries.filter { it.primary }
@@ -87,6 +91,8 @@ fun LibraryApp(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val openMenu: () -> Unit = { scope.launch { drawerState.open() } }
+    // tilcodを持つどの一覧からでも共通の書誌詳細を開く
+    val openDetail: (String, String) -> Unit = bookDetailController::open
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -111,6 +117,7 @@ fun LibraryApp(
                         selected = dest == current,
                         onClick = {
                             currentName = dest.name
+                            bookDetailController.close()
                             scope.launch { drawerState.close() }
                         },
                         modifier = Modifier.padding(horizontal = 12.dp),
@@ -126,7 +133,10 @@ fun LibraryApp(
                     primaryTabs.forEach { dest ->
                         NavigationBarItem(
                             selected = current == dest,
-                            onClick = { currentName = dest.name },
+                            onClick = {
+                                currentName = dest.name
+                                bookDetailController.close()
+                            },
                             icon = { Text(dest.emoji, fontSize = 16.sp) },
                             label = { Text(dest.label, fontSize = 10.sp) },
                         )
@@ -146,6 +156,7 @@ fun LibraryApp(
                         onManualSync = onManualSync,
                         onRegister = onRegister,
                         onOpenMenu = openMenu,
+                        onOpenDetail = openDetail,
                         modifier = Modifier.fillMaxSize(),
                     )
 
@@ -155,6 +166,7 @@ fun LibraryApp(
                             state = loansState,
                             onSelectMember = loansController::selectMember,
                             onOpenMenu = openMenu,
+                            onOpenDetail = openDetail,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -165,6 +177,7 @@ fun LibraryApp(
                             state = reservationsState,
                             onSelectMember = reservationsController::selectMember,
                             onOpenMenu = openMenu,
+                            onOpenDetail = openDetail,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -176,6 +189,7 @@ fun LibraryApp(
                             onSelectMember = readingRecordsController::selectMember,
                             onQueryChange = readingRecordsController::updateQuery,
                             onOpenMenu = openMenu,
+                            onOpenDetail = openDetail,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -186,6 +200,7 @@ fun LibraryApp(
                             state = shelfState,
                             onSelectMember = bookshelfController::selectMember,
                             onOpenMenu = openMenu,
+                            onOpenDetail = openDetail,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -197,8 +212,7 @@ fun LibraryApp(
                             onQueryChange = searchController::updateQuery,
                             onSearch = searchController::search,
                             onLoadMore = searchController::loadMore,
-                            onOpenDetail = searchController::openDetail,
-                            onCloseDetail = searchController::closeDetail,
+                            onOpenDetail = openDetail,
                             onOpenMenu = openMenu,
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -212,6 +226,7 @@ fun LibraryApp(
                             onQueryChange = newArrivalsController::updateQuery,
                             onRefresh = newArrivalsController::refresh,
                             onOpenMenu = openMenu,
+                            onOpenDetail = openDetail,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -243,6 +258,16 @@ fun LibraryApp(
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
+                }
+
+                // どの画面の上にも重ねられる共通の書誌詳細オーバーレイ
+                val detailState by bookDetailController.state.collectAsState()
+                if (detailState.open) {
+                    BookDetailView(
+                        detail = detailState,
+                        onBack = bookDetailController::close,
+                        modifier = Modifier.fillMaxSize().background(colors.paper),
+                    )
                 }
             }
         }

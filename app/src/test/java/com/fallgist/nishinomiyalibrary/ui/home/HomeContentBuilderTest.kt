@@ -99,7 +99,7 @@ class HomeContentBuilderTest {
         val reservations = listOf(
             Reservation(hana.id, "予約待ち", "本", "中央", today, 3, ReservationState.WAITING, null),
             Reservation(hana.id, "期限なし受取", "本", "北口", today, null, ReservationState.READY, null),
-            Reservation(papa.id, "早い期限受取", "本", "高須分室", today, null, ReservationState.READY, today.plusDays(3)),
+            Reservation(papa.id, "早い期限受取", "本", "高須分室", today, null, ReservationState.READY, today.plusDays(3), "1000000000009"),
             Reservation(taro.id, "同じ期限の本", "本", "中央", today, null, ReservationState.READY, today.plusDays(3)),
         )
 
@@ -121,6 +121,7 @@ class HomeContentBuilderTest {
         assertTrue(dated.headerLabel.contains("7/23"))
         assertEquals(2, dated.items.size)
         assertEquals("早い期限受取", dated.items[0].title) // papa(sortOrder 0) が先
+        assertEquals("1000000000009", dated.items[0].tilcod) // 書誌詳細遷移用にtilcodを保持
         assertEquals("同じ期限の本", dated.items[1].title) // taro(sortOrder 2)
 
         val undated = content.readyGroups[1]

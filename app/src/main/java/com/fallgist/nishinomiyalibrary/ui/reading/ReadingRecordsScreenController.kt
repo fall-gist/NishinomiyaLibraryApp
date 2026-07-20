@@ -25,6 +25,8 @@ data class ReadingRow(
     val title: String,
     val loanDateLabel: String,
     val library: String,
+    /** 書誌詳細リンク用。空文字列のときは遷移しない。 */
+    val tilcod: String = "",
 )
 
 data class ReadingRecordsUiState(
@@ -52,6 +54,7 @@ object ReadingRecordsContentBuilder {
                 title = record.title,
                 loanDateLabel = dateFormatter.format(record.loanDate),
                 library = record.library,
+                tilcod = record.tilcod,
             )
         }
     }

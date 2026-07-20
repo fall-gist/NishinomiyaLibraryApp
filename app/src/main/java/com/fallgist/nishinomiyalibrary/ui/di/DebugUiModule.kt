@@ -11,6 +11,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
 import com.fallgist.nishinomiyalibrary.ui.debug.DebugScreenController
+import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
@@ -136,6 +137,18 @@ object DebugUiProvisionModule {
 
     @Provides
     @Singleton
+    fun provideBookDetailController(
+        searchRepository: SearchRepository,
+        readingRecordRepository: ReadingRecordRepository,
+        familyRepository: FamilyRepository,
+    ): BookDetailController = BookDetailController(
+        searchRepository = searchRepository,
+        readingRecordRepository = readingRecordRepository,
+        familyRepository = familyRepository,
+    )
+
+    @Provides
+    @Singleton
     fun provideSettingsScreenController(
         familyRepository: FamilyRepository,
         statusRepository: StatusRepository,
@@ -170,6 +183,8 @@ interface MainActivityEntryPoint {
     fun calendarScreenController(): CalendarScreenController
 
     fun newArrivalsScreenController(): NewArrivalsScreenController
+
+    fun bookDetailController(): BookDetailController
 
     fun settingsScreenController(): SettingsScreenController
 

@@ -22,7 +22,19 @@ class LoansContentBuilderTest {
         loanDate = today.minusDays(14),
         dueDate = dueDate,
         status = "貸出中",
+        tilcod = "T-$title",
     )
+
+    @Test
+    fun rows_carryTilcodForDetailNavigation() {
+        val rows = LoansContentBuilder.build(
+            members,
+            listOf(loan(papa.id, "本A", today.plusDays(1))),
+            selectedMemberId = null,
+            today = today,
+        )
+        assertEquals("T-本A", rows.single().tilcod)
+    }
 
     @Test
     fun rows_sortedByDueDateWithOverdueAndSoonFlags() {

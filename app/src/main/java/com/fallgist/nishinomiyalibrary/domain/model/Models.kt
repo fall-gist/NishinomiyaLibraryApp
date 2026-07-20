@@ -65,6 +65,8 @@ data class Reservation(
     val queuePosition: Int?,
     val state: ReservationState,
     val holdExpiryDate: LocalDate?,
+    /** 予約一覧の書誌詳細リンク(hTilcod)から取得するタイトルコード。旧データは空文字列。 */
+    val tilcod: String = "",
 )
 
 enum class ReservationState { WAITING, READY, UNKNOWN }

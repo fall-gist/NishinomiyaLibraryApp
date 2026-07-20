@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.reading
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +37,7 @@ fun ReadingRecordsScreen(
     onSelectMember: (Long?) -> Unit,
     onQueryChange: (String) -> Unit,
     onOpenMenu: () -> Unit,
+    onOpenDetail: (tilcod: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -77,14 +79,16 @@ fun ReadingRecordsScreen(
                     .fillMaxSize()
                     .padding(horizontal = 18.dp),
             ) {
-                items(state.rows) { row -> ReadingRowView(row) }
+                items(state.rows) { row ->
+                    ReadingRowView(row, onClick = { onOpenDetail(row.tilcod, row.title) })
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ReadingRowView(row: ReadingRow) {
+private fun ReadingRowView(row: ReadingRow, onClick: () -> Unit) {
     val colors = LocalAppColors.current
     Row(
         modifier = Modifier
@@ -93,6 +97,7 @@ private fun ReadingRowView(row: ReadingRow) {
             .clip(RoundedCornerShape(12.dp))
             .background(colors.card)
             .border(1.dp, colors.line, RoundedCornerShape(12.dp))
+            .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),

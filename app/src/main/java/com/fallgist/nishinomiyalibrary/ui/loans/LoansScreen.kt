@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.loans
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,7 @@ fun LoansScreen(
     state: LoansUiState,
     onSelectMember: (Long?) -> Unit,
     onOpenMenu: () -> Unit,
+    onOpenDetail: (tilcod: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -50,14 +52,16 @@ fun LoansScreen(
                     .fillMaxSize()
                     .padding(horizontal = 18.dp),
             ) {
-                items(state.rows) { row -> LoanRowView(row) }
+                items(state.rows) { row ->
+                    LoanRowView(row, onClick = { onOpenDetail(row.tilcod, row.title) })
+                }
             }
         }
     }
 }
 
 @Composable
-private fun LoanRowView(row: LoanRow) {
+private fun LoanRowView(row: LoanRow, onClick: () -> Unit) {
     val colors = LocalAppColors.current
     Row(
         modifier = Modifier
@@ -70,6 +74,7 @@ private fun LoanRowView(row: LoanRow) {
                 if (row.overdue) colors.alert.copy(alpha = 0.45f) else colors.line,
                 RoundedCornerShape(12.dp),
             )
+            .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),

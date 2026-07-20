@@ -140,6 +140,8 @@ class ParsersTest {
         val result = ReservationListParser.parse(fixture("usrrsv.html"))
         assertEquals(19, result.size)
         assertEquals(UNASSIGNED_MEMBER_ID, result.first().memberId)
+        assertEquals("1000001898886", result.first().tilcod)
+        assertTrue(result.all { it.tilcod.matches(Regex("\\d{13}")) })
         assertEquals("", result.first().pickupLibrary)
         assertEquals(13, result.first().queuePosition)
         assertEquals(ReservationState.WAITING, result.first().state)

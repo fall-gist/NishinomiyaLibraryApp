@@ -84,6 +84,8 @@ data class ReservationEntity(
     val state: ReservationState,
     val holdExpiryDate: LocalDate?,
     val firstReadyNotifiedAt: Long?,
+    /** 予約一覧の書誌詳細リンク(hTilcod)由来のタイトルコード。旧データは空文字列。 */
+    val tilcod: String = "",
 )
 
 @Entity(

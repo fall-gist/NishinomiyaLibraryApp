@@ -1,7 +1,6 @@
 package com.fallgist.nishinomiyalibrary.ui.search
 
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
-import com.fallgist.nishinomiyalibrary.domain.model.Holding
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
 import com.fallgist.nishinomiyalibrary.domain.model.SearchHit
@@ -39,27 +38,6 @@ data class SearchResultRow(
     val readEntries: List<ReadBadgeEntry> = emptyList(),
 )
 
-/** 書誌詳細の既読情報1行(「たろう 2024/11 に貸出(高須分室)」)。 */
-data class DetailReadRow(
-    val memberName: String,
-    val memberColorHex: String,
-    val description: String,
-)
-
-data class BookDetailUiState(
-    val tilcod: String,
-    val title: String,
-    val loading: Boolean = true,
-    val errorMessage: String? = null,
-    /** サイトの詳細情報テーブルの表示順そのまま(書名・タイトルコードは除外)。 */
-    val fields: List<Pair<String, String>> = emptyList(),
-    val coverUrl: String? = null,
-    /** 在庫数>0 を貸出可として表示する。 */
-    val lendable: Boolean? = null,
-    val readRows: List<DetailReadRow> = emptyList(),
-    val holdings: List<Holding> = emptyList(),
-)
-
 data class SearchUiState(
     val suggestions: List<String> = emptyList(),
     val searching: Boolean = false,
@@ -70,15 +48,12 @@ data class SearchUiState(
     val hasNext: Boolean = false,
     val loadingMore: Boolean = false,
     val errorMessage: String? = null,
-    /** null 以外のとき書誌詳細ビューを表示する。 */
-    val detail: BookDetailUiState? = null,
 )
 
 /** 検索結果・既読バッジの表示を組み立てる純関数。 */
 object SearchContentBuilder {
     private const val FALLBACK_COLOR = "#6E675C"
     private val monthFormatter = DateTimeFormatter.ofPattern("yyyy/M", Locale.JAPANESE)
-    private val excludedDetailFields = setOf("書名", "書名ヨミ", "タイトルコード")
 
     fun resultRows(
         hits: List<SearchHit>,
@@ -105,19 +80,6 @@ object SearchContentBuilder {
             )
         }
 
-    fun detailReadRows(members: List<Member>, infos: List<ReadingInfo>): List<DetailReadRow> =
-        latestPerMember(infos).map { info ->
-            val member = members.find { it.id == info.memberId }
-            DetailReadRow(
-                memberName = member?.name ?: "?",
-                memberColorHex = member?.colorHex?.takeIf { it.isNotBlank() } ?: FALLBACK_COLOR,
-                description = "${monthFormatter.format(info.loanDate)} に貸出(${info.library})",
-            )
-        }
-
-    fun detailFields(fields: Map<String, String>): List<Pair<String, String>> =
-        fields.filterKeys { it !in excludedDetailFields }.toList()
-
     private fun latestPerMember(infos: List<ReadingInfo>): List<ReadingInfo> = infos
         .groupBy { it.memberId }
         .map { (_, records) -> records.maxBy { it.loanDate } }
@@ -143,7 +105,6 @@ class SearchScreenController(
     private var autocompleteJob: Job? = null
     private var searchJob: Job? = null
     private var lendableJob: Job? = null
-    private var detailJob: Job? = null
     private var currentPage = 1
 
     init {
@@ -182,7 +143,6 @@ class SearchScreenController(
             suggestions = emptyList(),
             searching = true,
             errorMessage = null,
-            detail = null,
         )
         searchJob = scope.launch {
             try {
@@ -235,57 +195,6 @@ class SearchScreenController(
                 _state.value = _state.value.copy(loadingMore = false, errorMessage = errorMessage(exception))
             }
         }
-    }
-
-    fun openDetail(tilcod: String, title: String) {
-        detailJob?.cancel()
-        _state.value = _state.value.copy(detail = BookDetailUiState(tilcod = tilcod, title = title))
-        detailJob = scope.launch {
-            try {
-                val detail = searchRepository.bookDetail(tilcod)
-                val coverUrl = detail.isbn?.let { isbn ->
-                    try {
-                        searchRepository.coverUrl(isbn)
-                    } catch (exception: CancellationException) {
-                        throw exception
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
-                val readRows = SearchContentBuilder.detailReadRows(
-                    members.value,
-                    readingRecordRepository.hasRead(tilcod).first(),
-                )
-                _state.value = _state.value.copy(
-                    detail = BookDetailUiState(
-                        tilcod = detail.tilcod,
-                        title = detail.fields["書名"] ?: title,
-                        loading = false,
-                        fields = SearchContentBuilder.detailFields(detail.fields),
-                        coverUrl = coverUrl,
-                        lendable = detail.availableCount > 0,
-                        readRows = readRows,
-                        holdings = detail.holdings,
-                    ),
-                )
-            } catch (exception: CancellationException) {
-                throw exception
-            } catch (exception: Exception) {
-                _state.value = _state.value.copy(
-                    detail = BookDetailUiState(
-                        tilcod = tilcod,
-                        title = title,
-                        loading = false,
-                        errorMessage = errorMessage(exception),
-                    ),
-                )
-            }
-        }
-    }
-
-    fun closeDetail() {
-        detailJob?.cancel()
-        _state.value = _state.value.copy(detail = null)
     }
 
     fun close() {

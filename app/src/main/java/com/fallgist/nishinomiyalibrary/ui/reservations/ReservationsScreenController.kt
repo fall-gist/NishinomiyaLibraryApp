@@ -28,6 +28,8 @@ data class ReservationRow(
     val pickupLabel: String,
     val queueLabel: String?,
     val holdExpiryLabel: String?,
+    /** 書誌詳細リンク用。空文字列のときは遷移しない。 */
+    val tilcod: String = "",
 )
 
 data class ReservationsUiState(
@@ -77,6 +79,7 @@ object ReservationsContentBuilder {
                 // 提供可能でもEmail連絡前はサイト側で取置期限が未設定のため、受取可能行では「未定」を明示する
                 holdExpiryLabel = reservation.holdExpiryDate?.let { "取置期限 ${dateFormatter.format(it)} まで" }
                     ?: "取置期限 未定".takeIf { reservation.state == ReservationState.READY },
+                tilcod = reservation.tilcod,
             )
         }
     }

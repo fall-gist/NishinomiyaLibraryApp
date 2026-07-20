@@ -38,6 +38,7 @@ fun NewArrivalsScreen(
     onQueryChange: (String) -> Unit,
     onRefresh: () -> Unit,
     onOpenMenu: () -> Unit,
+    onOpenDetail: (tilcod: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -114,7 +115,9 @@ fun NewArrivalsScreen(
                         Spacer(Modifier.height(6.dp))
                     }
                 }
-                items(state.rows) { row -> NewArrivalRowView(row) }
+                items(state.rows) { row ->
+                    NewArrivalRowView(row, onClick = { onOpenDetail(row.tilcod, row.title) })
+                }
                 item { Spacer(Modifier.height(12.dp)) }
             }
         }
@@ -122,7 +125,7 @@ fun NewArrivalsScreen(
 }
 
 @Composable
-private fun NewArrivalRowView(row: NewArrivalRow) {
+private fun NewArrivalRowView(row: NewArrivalRow, onClick: () -> Unit) {
     val colors = LocalAppColors.current
     Row(
         modifier = Modifier
@@ -131,6 +134,7 @@ private fun NewArrivalRowView(row: NewArrivalRow) {
             .clip(RoundedCornerShape(12.dp))
             .background(colors.card)
             .border(1.dp, colors.line, RoundedCornerShape(12.dp))
+            .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),

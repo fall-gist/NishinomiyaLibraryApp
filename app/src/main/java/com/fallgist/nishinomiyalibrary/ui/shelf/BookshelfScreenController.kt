@@ -26,6 +26,8 @@ data class ShelfBook(
     val title: String,
     val memo: String,
     val registeredDateLabel: String,
+    /** 書誌詳細リンク用。空文字列のときは遷移しない。 */
+    val tilcod: String = "",
 )
 
 /** 横並びに表示する1本棚(メンバー×本棚名)。タイトル頭にメンバー識別色を付ける。 */
@@ -74,6 +76,7 @@ object BookshelfContentBuilder {
                                     title = item.title,
                                     memo = item.memo,
                                     registeredDateLabel = dateFormatter.format(item.registeredDate),
+                                    tilcod = item.tilcod,
                                 )
                             },
                     )
