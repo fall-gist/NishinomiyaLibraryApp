@@ -10,8 +10,11 @@ import com.fallgist.nishinomiyalibrary.ui.app.LibraryApp
 import com.fallgist.nishinomiyalibrary.ui.di.MainActivityEntryPoint
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
+import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
+import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
+import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import com.fallgist.nishinomiyalibrary.ui.theme.NishinomiyaLibraryTheme
 import dagger.hilt.android.EntryPointAccessors
@@ -30,6 +33,9 @@ open class MainActivity : ComponentActivity() {
     private lateinit var reservationsController: ReservationsScreenController
     private lateinit var readingRecordsController: ReadingRecordsScreenController
     private lateinit var bookshelfController: BookshelfScreenController
+    private lateinit var searchController: SearchScreenController
+    private lateinit var calendarController: CalendarScreenController
+    private lateinit var settingsController: SettingsScreenController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         window.setFlags(
@@ -46,6 +52,9 @@ open class MainActivity : ComponentActivity() {
         reservationsController = entryPoint.reservationsScreenController()
         readingRecordsController = entryPoint.readingRecordsScreenController()
         bookshelfController = entryPoint.bookshelfScreenController()
+        searchController = entryPoint.searchScreenController()
+        calendarController = entryPoint.calendarScreenController()
+        settingsController = entryPoint.settingsScreenController()
 
         setContent {
             val state by controller.state.collectAsState()
@@ -59,6 +68,9 @@ open class MainActivity : ComponentActivity() {
                     reservationsController = reservationsController,
                     readingRecordsController = readingRecordsController,
                     bookshelfController = bookshelfController,
+                    searchController = searchController,
+                    calendarController = calendarController,
+                    settingsController = settingsController,
                 )
             }
         }

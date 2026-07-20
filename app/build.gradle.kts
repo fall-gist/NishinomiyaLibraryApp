@@ -61,6 +61,7 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     implementation(libs.coil)
+    implementation(libs.coil.compose)
     implementation(libs.datastore.preferences)
     implementation(libs.hilt.android)
     implementation(libs.jsoup)

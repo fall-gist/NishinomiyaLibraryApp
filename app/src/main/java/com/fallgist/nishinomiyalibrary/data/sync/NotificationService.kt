@@ -30,6 +30,7 @@ class NotificationService @Inject constructor(
         if (settings.notifyReturnReminder) {
             val reminderPlan = NotificationPlanner.returnReminder(
                 today = java.time.LocalDate.now(clock),
+                daysBefore = settings.returnReminderDaysBefore,
                 loans = loanDao.getAll().asSequence()
                     .filter { it.memberId in successfulMemberIds }
                     .map { loan ->

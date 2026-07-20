@@ -22,21 +22,22 @@
 - モックはあくまで**レイアウト検討用**。実装はComposeで行う(HTMLをそのまま移植するわけではない)
   - モック内のダミーデータ(書名・休館日など)は**仮表示**。実装は必ず同期データ/公式APIの実データを使う
 - **下部ナビ5画面(ホーム/本棚/貸出中/予約中/読書記録)はCompose実装済み**(ホームの「きょうの図書館」のみ未)。
-  残る未実装はハンバーガー側の**蔵書検索・開館カレンダー・設定**(モック・設計は確定済み、下記「確定済みデザイン」参照)
+- **ハンバーガー側の蔵書検索・開館カレンダー・設定もCompose実装済み**(2026-07-20実装。下記「確定済みデザイン」参照)。
+  残る未実装はホームの「きょうの図書館」セクションのみ
 
 ## 画面インベントリ(進捗)
 
 | 画面 | spec§ | モック | 状態 | 主に叩くリポジトリAPI(backend-design §6) |
 |---|---|---|---|---|
 | ホーム(家族統合) | 3.1 | [home.html](mockups/home.html) | **Compose実装済**(※きょうの図書館セクションのみ未) | `StatusRepository.loans() / reservations() / lastSync()`, `FamilyRepository.members()` |
-| 蔵書検索 | 3.2 | [search.html](mockups/search.html) | モック作成済(Compose未着手) | `SearchRepository.search() / autocomplete() / isLendable() / coverUrl()` |
-| 書誌詳細 | 3.2 | [search.html](mockups/search.html)(同ファイル内) | モック作成済(Compose未着手) | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
+| 蔵書検索 | 3.2 | [search.html](mockups/search.html) | **Compose実装済**(`ui/search/`) | `SearchRepository.search() / autocomplete() / isLendable() / coverUrl()` |
+| 書誌詳細 | 3.2 | [search.html](mockups/search.html)(同ファイル内) | **Compose実装済**(検索と同一機能内の2ビュー) | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
 | 貸出中(下部タブ) | 3.3 | [loans.html](mockups/loans.html) | **Compose実装済** | `StatusRepository.loans()` |
 | 予約中(下部タブ) | 3.3 | [reservations.html](mockups/reservations.html) | **Compose実装済** | `StatusRepository.reservations()` |
 | 本棚(マイ本棚・下部タブ) | 3.4 | [bookshelf.html](mockups/bookshelf.html) | **Compose実装済**(みんなチップ+全員の本棚を横並び・本棚タイトル頭に識別色) | `StatusRepository.shelf(memberId)` |
-| 開館カレンダー(ハンバーガー) | 3.5 | [calendar.html](mockups/calendar.html) | モック作成済・**案B(3ヶ月縦スクロール)採用**(2026-07-20確定、Compose未着手) | `CalendarRepository.closedDays() / refreshClosedDays() / libraries` |
+| 開館カレンダー(ハンバーガー) | 3.5 | [calendar.html](mockups/calendar.html) | **Compose実装済**(`ui/calendar/`・案B=3ヶ月縦スクロール) | `CalendarRepository.closedDays() / refreshClosedDays() / libraries` |
 | 読書記録(下部タブ・一覧・検索) | 3.5b | [reading-records.html](mockups/reading-records.html) | **Compose実装済** | `ReadingRecordRepository`(一覧/メンバー絞り込み/正規化検索/既読判定) |
-| 設定(メンバー管理・同期時刻・通知) | 2, 3.6, 3.7 | [settings.html](mockups/settings.html) | モック作成済(Compose未着手)。通知は返却期限の**通知日数(既定:前日)設定**を含む | `FamilyRepository.*`, 設定用DataStore、通知オンオフ |
+| 設定(メンバー管理・同期時刻・通知) | 2, 3.6, 3.7 | [settings.html](mockups/settings.html) | **Compose実装済**(`ui/settings/`)。返却期限の**通知日数(既定:前日)設定**を含む | `FamilyRepository.*`, `SettingsStore`, `StatusRepository.lastSync()` |
 
 > 既読バッジ(spec §3.5b)は独立画面ではなく、**蔵書検索の結果・書誌詳細に重畳**する要素。
 > タイトルコード一致で「よんだ(だれが・いつ)」を表示する。
@@ -106,9 +107,9 @@ spec §2 のとおり識別色は**登録時にメンバーごとに選ぶ**。�
 - 予約中画面の**受取可能の本は取置期限を常時表示**する(2026-07-20確定・実装済み)。
   サイト仕様上、提供可能でもEmail連絡前は取置期限が未設定のため、その場合は「取置期限 未定」と明示する
 
-## 確定済みデザイン: ハンバーガー3画面(2026-07-20確定・Compose未着手)
+## 確定済みデザイン: ハンバーガー3画面(2026-07-20確定・同日Compose実装済み)
 
-モックで検討し以下のとおり確定。次の実装対象。
+モックで検討し以下のとおり確定し、Composeで実装済み。
 
 ### 蔵書検索+書誌詳細([search.html](mockups/search.html))
 
@@ -143,8 +144,12 @@ spec §2 のとおり識別色は**登録時にメンバーごとに選ぶ**。�
    返却期限側には従属設定として**通知日数(1〜7日前、既定1日前=前日)**のセレクト(2026-07-20仕様追加)
 5. **カレンダー** — 既定表示館ドロップダウン(12施設)
 
-実装メモ: 通知日数・同期時刻・通知オンオフ・既定館は設定用DataStore(SettingsStore)に保存し、
-通知日数は `NotificationPlanner` の前日判定を日数可変に改修して連携する。
+実装メモ(2026-07-20実装済み): 通知日数・同期時刻・通知オンオフ・既定館は設定用DataStore(SettingsStore)に保存。
+通知日数は `AppSettings.returnReminderDaysBefore`(1〜7、既定1)として追加し、`NotificationPlanner.returnReminder`
+を日数可変(期限がn日後以内+超過を対象)に改修、`NotificationService` が設定値を渡す。
+同期時刻の変更後は `SyncScheduleStarter.scheduleFromSettings()` でWorkManagerのスケジュールを引き直す。
+メンバー編集は `RegistrationValidator.validate(form, requirePassword = false)` で
+パスワード空欄=変更なしを表す(`ui/member/` の型を追加/編集の両方で再利用)。
 パスワードは表示・ログ出力とも厳禁(編集時も伏字のまま)。
 
 ## 実装の進め方
@@ -178,6 +183,28 @@ spec §2 のとおり識別色は**登録時にメンバーごとに選ぶ**。�
 
 - 「きょうの図書館」セクション未実装(既定館の開館状況表示。`CalendarRepository` + `SettingsStore` 連携が必要)。
   開館時刻は公式サイトのデータに含まれないため、休館日判定ベースの開/休表示に留める想定
+
+## ハンバーガー3画面の実装メモ(2026-07-20 追記)
+
+- **蔵書検索**(`ui/search/`): 検索⇄書誌詳細は `SearchUiState.detail` の有無で切り替え、詳細表示中の
+  戻る操作は `BackHandler` で検索結果へ戻す。オートコンプリートは300msデバウンス。
+  貸出可否(`getIsLend`)は検索結果表示後に**1件ずつ順次取得**して行を更新する
+  (通信は `LicsXpSession` が500ms間隔を保証。失敗したら以降は取得せず未表示のまま)。
+  検索結果には ISBN が無いため表紙はプレースホルダのみ、書誌詳細でopenBDの表紙を表示する。
+  表紙は `coil-compose` の `AsyncImage` + ディスクキャッシュ無効の専用 `ImageLoader`
+  (`CoverImageLoaderHolder`、spec §3.8のメモリキャッシュのみ)。
+  書誌詳細の貸出可否ピルは在庫数>0で判定(追加リクエストなし)。書誌事項はサイトの
+  詳細情報テーブルの表示順のまま(書名・書名ヨミ・タイトルコードは除外)
+- **開館カレンダー**(`ui/calendar/`): 案B(当月から3ヶ月縦スクロール)。月グリッドは
+  `CalendarContentBuilder`(純関数・日曜始まり)で組み立てユニットテスト済み。
+  初期選択は設定の既定館。館を選ぶと(セッション中1回だけ)`refreshClosedDays` を裏で実行し、
+  失敗しても既存データの表示は継続する
+- **設定**(`ui/settings/`): メンバーの並び替えは隣接メンバーと `sortOrder` を入れ替える2回の
+  `updateMember` で実現。削除は確認ダイアログあり。カード番号は `****`+下4桁でマスク。
+  同期時刻は時(0-23)+分(5分刻み)のドロップダウン。上限5人(`MAX_MEMBERS`、拡張可)
+- 3画面ともControllerはAndroid非依存(Hilt EntryPoint経由で取得、`StateFlow` 購読)。
+  純関数ビルダー(`SearchContentBuilder` / `CalendarContentBuilder` / `SettingsContentBuilder`)に
+  ユニットテストあり
 
 ## 注意(spec由来の必須事項)
 

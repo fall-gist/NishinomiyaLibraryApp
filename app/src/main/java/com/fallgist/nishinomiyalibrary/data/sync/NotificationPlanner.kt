@@ -43,10 +43,18 @@ data class ReservationNotificationSource(
 )
 
 object NotificationPlanner {
-    /** 明日返却と当日以前の返却期限を、メンバーごとの一通へまとめる。 */
-    fun returnReminder(today: LocalDate, loans: List<LoanNotificationSource>): ReturnReminderPlan? {
+    /**
+     * 返却期限が[daysBefore]日後以内(期限超過を含む)の貸出を、メンバーごとの一通へまとめる。
+     * 既定の1(前日)では従来どおり「明日返却+当日以前」が対象になる。
+     */
+    fun returnReminder(
+        today: LocalDate,
+        loans: List<LoanNotificationSource>,
+        daysBefore: Int = 1,
+    ): ReturnReminderPlan? {
+        require(daysBefore >= 1) { "通知日数は1以上で指定してください" }
         val relevant = loans.filter { loan ->
-            loan.dueDate == today.plusDays(1) || !loan.dueDate.isAfter(today)
+            !loan.dueDate.isAfter(today.plusDays(daysBefore.toLong()))
         }
         if (relevant.isEmpty()) return null
 

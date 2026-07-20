@@ -370,8 +370,12 @@ class LocalDataTest {
         val settingsStore = SettingsStore(dataStore)
         assertEquals(AppSettings(), settingsStore.settings.first())
 
-        settingsStore.update(AppSettings(7, 15, false, false, "107"))
-        assertEquals(AppSettings(7, 15, false, false, "107"), settingsStore.settings.first())
+        settingsStore.update(AppSettings(7, 15, false, false, "107", 3))
+        assertEquals(AppSettings(7, 15, false, false, "107", 3), settingsStore.settings.first())
+        settingsStore.updateReturnReminderDaysBefore(7)
+        assertEquals(7, settingsStore.settings.first().returnReminderDaysBefore)
+        assertTrue(runCatching { settingsStore.updateReturnReminderDaysBefore(0) }.isFailure)
+        assertTrue(runCatching { settingsStore.updateReturnReminderDaysBefore(8) }.isFailure)
         assertFalse(dataStore.data.first().asMap().values.toString().contains(credentialValue))
         assertFalse(
             context.getSharedPreferences("ordinary_settings", Context.MODE_PRIVATE)

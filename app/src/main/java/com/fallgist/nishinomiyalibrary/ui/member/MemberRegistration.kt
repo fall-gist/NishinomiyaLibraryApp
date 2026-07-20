@@ -52,7 +52,11 @@ object RegistrationValidator {
     private val colorPattern = Regex("^#[0-9a-fA-F]{6}$")
     private val cardNumberPattern = Regex("^[0-9]+$")
 
-    fun validate(form: RegistrationForm): RegistrationValidation {
+    /**
+     * [requirePassword] を false にすると空パスワードを許す(既存メンバー編集の
+     * 「変更しない」を表す)。空でない場合は新規登録と同じ扱いになる。
+     */
+    fun validate(form: RegistrationForm, requirePassword: Boolean = true): RegistrationValidation {
         val normalizedName = form.name.trim()
         val normalizedColor = form.colorHex.trim()
         val normalizedCardNumber = form.cardNumber.trim()
@@ -64,7 +68,7 @@ object RegistrationValidator {
                 !cardNumberPattern.matches(normalizedCardNumber) -> "カード番号は数字で入力してください"
                 else -> null
             },
-            password = if (form.password.isBlank()) "パスワードを入力してください" else null,
+            password = if (requirePassword && form.password.isBlank()) "パスワードを入力してください" else null,
         )
         if (!errors.isValid) return RegistrationValidation.Invalid(errors)
 

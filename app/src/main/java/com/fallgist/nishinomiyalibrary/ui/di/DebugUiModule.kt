@@ -1,15 +1,21 @@
 package com.fallgist.nishinomiyalibrary.ui.di
 
+import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.data.sync.WorkManagerSyncScheduleStarter
+import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
+import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
 import com.fallgist.nishinomiyalibrary.ui.debug.DebugScreenController
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
+import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
+import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import dagger.Binds
 import dagger.Module
@@ -95,6 +101,44 @@ object DebugUiProvisionModule {
         familyRepository = familyRepository,
         statusRepository = statusRepository,
     )
+
+    @Provides
+    @Singleton
+    fun provideSearchScreenController(
+        searchRepository: SearchRepository,
+        readingRecordRepository: ReadingRecordRepository,
+        familyRepository: FamilyRepository,
+    ): SearchScreenController = SearchScreenController(
+        searchRepository = searchRepository,
+        readingRecordRepository = readingRecordRepository,
+        familyRepository = familyRepository,
+    )
+
+    @Provides
+    @Singleton
+    fun provideCalendarScreenController(
+        calendarRepository: CalendarRepository,
+        settingsStore: SettingsStore,
+    ): CalendarScreenController = CalendarScreenController(
+        calendarRepository = calendarRepository,
+        settingsStore = settingsStore,
+    )
+
+    @Provides
+    @Singleton
+    fun provideSettingsScreenController(
+        familyRepository: FamilyRepository,
+        statusRepository: StatusRepository,
+        settingsStore: SettingsStore,
+        calendarRepository: CalendarRepository,
+        scheduleStarter: SyncScheduleStarter,
+    ): SettingsScreenController = SettingsScreenController(
+        familyRepository = familyRepository,
+        statusRepository = statusRepository,
+        settingsStore = settingsStore,
+        calendarRepository = calendarRepository,
+        scheduleStarter = scheduleStarter,
+    )
 }
 
 /** ActivityはこのApplication EntryPointから画面用Controllerだけを取得する。 */
@@ -110,6 +154,12 @@ interface MainActivityEntryPoint {
     fun readingRecordsScreenController(): ReadingRecordsScreenController
 
     fun bookshelfScreenController(): BookshelfScreenController
+
+    fun searchScreenController(): SearchScreenController
+
+    fun calendarScreenController(): CalendarScreenController
+
+    fun settingsScreenController(): SettingsScreenController
 
     fun debugScreenController(): DebugScreenController
 }

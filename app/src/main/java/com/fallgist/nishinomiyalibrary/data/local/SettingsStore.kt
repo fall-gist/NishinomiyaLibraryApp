@@ -15,6 +15,8 @@ data class AppSettings(
     val notifyReturnReminder: Boolean = DEFAULT_NOTIFY_RETURN_REMINDER,
     val notifyPickupReady: Boolean = DEFAULT_NOTIFY_PICKUP_READY,
     val defaultCalendarLibrary: String = DEFAULT_CALENDAR_LIBRARY,
+    /** 返却期限リマインダーを期限の何日前から通知するか(1=前日)。 */
+    val returnReminderDaysBefore: Int = DEFAULT_RETURN_REMINDER_DAYS_BEFORE,
 )
 
 class SettingsStore(private val dataStore: DataStore<Preferences>) {
@@ -25,17 +27,21 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
             notifyReturnReminder = preferences[NOTIFY_RETURN_REMINDER] ?: DEFAULT_NOTIFY_RETURN_REMINDER,
             notifyPickupReady = preferences[NOTIFY_PICKUP_READY] ?: DEFAULT_NOTIFY_PICKUP_READY,
             defaultCalendarLibrary = preferences[DEFAULT_CALENDAR_LIBRARY_KEY] ?: DEFAULT_CALENDAR_LIBRARY,
+            returnReminderDaysBefore = preferences[RETURN_REMINDER_DAYS_BEFORE]
+                ?: DEFAULT_RETURN_REMINDER_DAYS_BEFORE,
         )
     }
 
     suspend fun update(value: AppSettings) {
         requireValidSyncTime(value.syncHour, value.syncMinute)
+        requireValidReminderDays(value.returnReminderDaysBefore)
         dataStore.edit { preferences ->
             preferences[SYNC_HOUR] = value.syncHour
             preferences[SYNC_MINUTE] = value.syncMinute
             preferences[NOTIFY_RETURN_REMINDER] = value.notifyReturnReminder
             preferences[NOTIFY_PICKUP_READY] = value.notifyPickupReady
             preferences[DEFAULT_CALENDAR_LIBRARY_KEY] = value.defaultCalendarLibrary
+            preferences[RETURN_REMINDER_DAYS_BEFORE] = value.returnReminderDaysBefore
         }
     }
 
@@ -59,9 +65,18 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[DEFAULT_CALENDAR_LIBRARY_KEY] = libraryCode }
     }
 
+    suspend fun updateReturnReminderDaysBefore(days: Int) {
+        requireValidReminderDays(days)
+        dataStore.edit { it[RETURN_REMINDER_DAYS_BEFORE] = days }
+    }
+
     private fun requireValidSyncTime(hour: Int, minute: Int) {
         require(hour in 0..23) { "同期時刻の時は0から23で指定してください" }
         require(minute in 0..59) { "同期時刻の分は0から59で指定してください" }
+    }
+
+    private fun requireValidReminderDays(days: Int) {
+        require(days in RETURN_REMINDER_DAYS_RANGE) { "通知日数は1から7日前で指定してください" }
     }
 
     private companion object {
@@ -70,6 +85,7 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
         val NOTIFY_RETURN_REMINDER = booleanPreferencesKey("notify_return_reminder")
         val NOTIFY_PICKUP_READY = booleanPreferencesKey("notify_pickup_ready")
         val DEFAULT_CALENDAR_LIBRARY_KEY = stringPreferencesKey("default_calendar_library")
+        val RETURN_REMINDER_DAYS_BEFORE = intPreferencesKey("return_reminder_days_before")
     }
 }
 
@@ -78,3 +94,5 @@ const val DEFAULT_SYNC_MINUTE = 0
 const val DEFAULT_NOTIFY_RETURN_REMINDER = true
 const val DEFAULT_NOTIFY_PICKUP_READY = true
 const val DEFAULT_CALENDAR_LIBRARY = "106"
+const val DEFAULT_RETURN_REMINDER_DAYS_BEFORE = 1
+val RETURN_REMINDER_DAYS_RANGE = 1..7

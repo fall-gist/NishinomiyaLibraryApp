@@ -1,7 +1,6 @@
 package com.fallgist.nishinomiyalibrary.ui.app
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.DrawerValue
@@ -21,12 +20,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
+import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreen
+import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreen
 import com.fallgist.nishinomiyalibrary.ui.home.HomeUiState
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreen
@@ -37,6 +36,10 @@ import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreen
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreen
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
+import com.fallgist.nishinomiyalibrary.ui.search.SearchScreen
+import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
+import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreen
+import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreen
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
@@ -67,6 +70,9 @@ fun LibraryApp(
     reservationsController: ReservationsScreenController,
     readingRecordsController: ReadingRecordsScreenController,
     bookshelfController: BookshelfScreenController,
+    searchController: SearchScreenController,
+    calendarController: CalendarScreenController,
+    settingsController: SettingsScreenController,
 ) {
     val colors = LocalAppColors.current
     val primaryTabs = Destination.entries.filter { it.primary }
@@ -179,25 +185,49 @@ fun LibraryApp(
                         )
                     }
 
-                    else -> PlaceholderScreen(current.label, onOpenMenu = openMenu)
+                    Destination.SEARCH -> {
+                        val searchState by searchController.state.collectAsState()
+                        SearchScreen(
+                            state = searchState,
+                            onQueryChange = searchController::updateQuery,
+                            onSearch = searchController::search,
+                            onLoadMore = searchController::loadMore,
+                            onOpenDetail = searchController::openDetail,
+                            onCloseDetail = searchController::closeDetail,
+                            onOpenMenu = openMenu,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    Destination.CALENDAR -> {
+                        val calendarState by calendarController.state.collectAsState()
+                        CalendarScreen(
+                            state = calendarState,
+                            onSelectLibrary = calendarController::selectLibrary,
+                            onOpenMenu = openMenu,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    Destination.SETTINGS -> {
+                        val settingsState by settingsController.state.collectAsState()
+                        SettingsScreen(
+                            state = settingsState,
+                            onSaveMember = settingsController::saveMember,
+                            onMoveMemberUp = settingsController::moveMemberUp,
+                            onMoveMemberDown = settingsController::moveMemberDown,
+                            onRemoveMember = settingsController::removeMember,
+                            onUpdateSyncTime = settingsController::updateSyncTime,
+                            onSetNotifyReturnReminder = settingsController::setNotifyReturnReminder,
+                            onSetNotifyPickupReady = settingsController::setNotifyPickupReady,
+                            onSetReturnReminderDaysBefore = settingsController::setReturnReminderDaysBefore,
+                            onSetDefaultCalendarLibrary = settingsController::setDefaultCalendarLibrary,
+                            onOpenMenu = openMenu,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PlaceholderScreen(label: String, onOpenMenu: () -> Unit) {
-    val colors = LocalAppColors.current
-    Column(modifier = Modifier.fillMaxSize()) {
-        ScreenTopBar(title = label, onOpenMenu = onOpenMenu)
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = "$label は準備中です",
-                color = colors.ink2,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-            )
         }
     }
 }
