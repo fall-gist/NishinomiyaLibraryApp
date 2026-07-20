@@ -29,8 +29,9 @@
 | ホーム(家族統合) | 3.1 | [home.html](mockups/home.html) | **Compose実装着手**(※きょうの図書館セクションは未) | `StatusRepository.loans() / reservations() / lastSync()`, `FamilyRepository.members()` |
 | 蔵書検索 | 3.2 | — | 未着手 | `SearchRepository.search() / autocomplete() / isLendable() / coverUrl()` |
 | 書誌詳細 | 3.2 | — | 未着手 | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
-| 利用状況(メンバー別) | 3.3 | — | 未着手 | `StatusRepository.loans() / reservations()` |
-| マイ本棚 | 3.4 | — | 未着手 | `StatusRepository.shelf(memberId)` |
+| 貸出中(下部タブ) | 3.3 | — | 未着手 | `StatusRepository.loans()` |
+| 予約中(下部タブ) | 3.3 | — | 未着手 | `StatusRepository.reservations()` |
+| 本棚(マイ本棚・下部タブ) | 3.4 | — | 未着手 | `StatusRepository.shelf(memberId)` |
 | 開館カレンダー | 3.5 | — | 未着手 | `CalendarRepository.closedDays() / refreshClosedDays() / libraries` |
 | 読書記録(一覧・検索) | 3.5b | — | 未着手 | `ReadingRecordRepository`(一覧/メンバー絞り込み/正規化検索/既読判定) |
 | 設定(メンバー管理・同期時刻・通知) | 2, 3.6, 3.7 | — | 未着手 | `FamilyRepository.*`, 設定用DataStore、通知オンオフ |
@@ -38,14 +39,20 @@
 > 既読バッジ(spec §3.5b)は独立画面ではなく、**蔵書検索の結果・書誌詳細に重畳**する要素。
 > タイトルコード一致で「よんだ(だれが・いつ)」を表示する。
 
-## ナビゲーション構成(モックで確定)
+## ナビゲーション構成(2026-07-20 改訂)
 
-下部タブ5つ。ホームがデフォルト表示。
+下部ナビは**家族の「いまの状態」を見る5画面**。ホームがデフォルト表示。
 
-`ホーム / さがす(蔵書検索) / 本棚(マイ本棚) / カレンダー / 設定`
+`ホーム / 本棚 / 貸出中 / 予約中 / カレンダー`
 
-- 読書記録・利用状況・書誌詳細は独立タブを持たず、各タブ内からの遷移で開く想定
-  (最終的な導線は各画面モック作成時に確定する)
+- 右上に**ハンバーガーメニュー(☰)**を置き、**全メニューをここに格納**する。
+  下部の5項目に加え、下部に置かない項目(**蔵書検索・読書記録・設定** など)もここから開く。
+- 蔵書検索・読書記録・設定・書誌詳細は独立した下部タブを持たず、ハンバーガー
+  または各画面からの遷移で開く。
+- 「貸出中」「予約中」は spec §3.3 の利用状況を2タブに分けたもの。「本棚」は §3.4 マイ本棚。
+
+> 旧構成(`ホーム / さがす / 本棚 / カレンダー / 設定` の下部5タブ)から変更。
+> 現行のComposeコード(`LibraryApp`)はまだ旧タブのままで、各画面実装時に本構成へ更新する。
 
 ## デザイン方針(home.html モックから抽出。以降の画面でも共通に使う)
 
