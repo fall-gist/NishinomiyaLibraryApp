@@ -37,6 +37,12 @@
 
   .appbar{padding:18px 18px 8px; display:flex; justify-content:space-between; align-items:flex-start;}
   .appbar h1{margin:0; font-size:20px; letter-spacing:.02em;}
+  .appbar-right{display:flex; align-items:flex-start; gap:8px;}
+  .appbar .hamburger{
+    flex:0 0 auto; width:32px; height:32px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:16px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
   .appbar .sync{font-size:11px; color:var(--ink2); text-align:right; line-height:1.4;}
   .appbar .sync .btn{
     display:inline-block; margin-top:4px; padding:4px 12px; border:1px solid var(--line);
@@ -136,7 +142,11 @@
 
       <div class="appbar">
         <h1>西宮市立図書館 <span class="marker">1</span></h1>
-        <div class="sync">最終同期 きょう 18:05<br><span class="btn">↻ いますぐ同期</span> <span class="marker">2</span></div>
+        <div class="appbar-right">
+          <button class="hamburger" aria-label="メニュー">☰</button>
+          <span class="marker">2</span>
+          <div class="sync">最終同期 きょう 18:05<br><span class="btn">↻ いますぐ同期</span> <span class="marker">3</span></div>
+        </div>
       </div>
 
       <div class="chips">
@@ -146,11 +156,11 @@
         <span class="chip"><span class="dot" style="background:var(--taro)"></span>たろう</span>
         <span class="chip"><span class="dot" style="background:var(--hana)"></span>はな</span>
         <span class="chip"><span class="dot" style="background:var(--jiro)"></span>じろう</span>
-        <span class="marker" style="align-self:center">3</span>
+        <span class="marker" style="align-self:center">4</span>
       </div>
 
       <section>
-        <div class="sec-h"><h2>うけとれる予約 <span class="marker">4</span></h2><a class="more" href="#">予約ぜんぶ →</a></div>
+        <div class="sec-h"><h2>うけとれる予約 <span class="marker">5</span></h2><a class="more" href="#">予約ぜんぶ →</a></div>
         <div class="ready">
           <span class="tag">■ 高須分室 で受取可能</span>
           <p class="title">クリシュナのつるぎ インドのむかしばなし</p>
@@ -162,7 +172,7 @@
       </section>
 
       <section>
-        <div class="sec-h"><h2>返す本 <span class="marker">5</span></h2><a class="more" href="#">借りている本ぜんぶ →</a></div>
+        <div class="sec-h"><h2>返す本 <span class="marker">6</span></h2><a class="more" href="#">借りている本ぜんぶ →</a></div>
 
         <div class="duegroup">
           <div class="duedate overdue">⚠ 期限切れ <span class="count">1冊</span></div>
@@ -202,7 +212,7 @@
       </section>
 
       <section>
-        <div class="sec-h"><h2>きょうの図書館 <span class="marker">6</span></h2></div>
+        <div class="sec-h"><h2>きょうの図書館 <span class="marker">7</span></h2></div>
         <div class="openrow">
           <span>高須分室</span>
           <span class="st">開館中 10:00–18:00</span>
@@ -214,10 +224,10 @@
 
     <nav class="nav">
       <a class="on" href="#"><span class="ic">🏠</span>ホーム</a>
-      <a href="#"><span class="ic">🔍</span>さがす</a>
       <a href="#"><span class="ic">📚</span>本棚</a>
+      <a href="#"><span class="ic">📖</span>貸出中</a>
+      <a href="#"><span class="ic">🔖</span>予約中</a>
       <a href="#"><span class="ic">📅</span>カレンダー</a>
-      <a href="#"><span class="ic">⚙️</span>設定</a>
     </nav>
   </div>
 
@@ -226,12 +236,13 @@
     <p class="lead">「返し忘れ・受取忘れを開いた瞬間に防ぐ」を最優先に、緊急度の高い順に上から配置しています。データはすべて実際の同期結果から出せるものです。</p>
 
     <div class="note"><span class="no">1</span><div><b>アプリ名+最終同期時刻</b><p>データの鮮度が常に見える位置に。同期が失敗しているときはここに赤で表示する想定。</p></div></div>
-    <div class="note"><span class="no">2</span><div><b>手動同期ボタン</b><p>プルリフレッシュも併用可。5分クールダウン中は押せない見た目にする。</p></div></div>
-    <div class="note"><span class="no">3</span><div><b>メンバーフィルタ</b><p>統合ビューが既定(「みんな」)。タップで1人に絞り込み。色は登録時に選んだ識別色で、以降すべての画面で共通。</p></div></div>
-    <div class="note"><span class="no">4</span><div><b>うけとれる予約(最上部)</b><p>取置期限があるため最優先枠。なければセクションごと非表示にして「返す本」が繰り上がる。</p></div></div>
-    <div class="note"><span class="no">5</span><div><b>返す本(期限日でグループ化)</b><p>期限切れ+7日以内は全冊を展開表示。8日以上先は日付ごとに折りたたみ(タップで展開)。表紙画像はホームでは出さない(決定済み)。</p></div></div>
-    <div class="note"><span class="no">6</span><div><b>きょうの図書館(1行だけ)</b><p>既定館(設定で変更可)の今日の開館状況のみ。詳細はカレンダータブへ。表示は既定館のみ。館は設定で変更可(決定済み)。</p></div></div>
-    <div class="note"><span class="no">→</span><div><b>下部タブ</b><p>ホーム/さがす(蔵書検索)/本棚(マイ本棚)/カレンダー/設定 の5タブ構成。</p></div></div>
+    <div class="note"><span class="no">2</span><div><b>ハンバーガーメニュー(☰・新設)</b><p>全メニューの入口。下部5タブに加え、下部に置かない蔵書検索・読書記録・設定などをここから開く。</p></div></div>
+    <div class="note"><span class="no">3</span><div><b>手動同期ボタン</b><p>プルリフレッシュも併用可。5分クールダウン中は押せない見た目にする。</p></div></div>
+    <div class="note"><span class="no">4</span><div><b>メンバーフィルタ</b><p>統合ビューが既定(「みんな」)。タップで1人に絞り込み。色は登録時に選んだ識別色で、以降すべての画面で共通。</p></div></div>
+    <div class="note"><span class="no">5</span><div><b>うけとれる予約(最上部)</b><p>取置期限があるため最優先枠。なければセクションごと非表示にして「返す本」が繰り上がる。</p></div></div>
+    <div class="note"><span class="no">6</span><div><b>返す本(期限日でグループ化)</b><p>期限切れ+7日以内は全冊を展開表示。8日以上先は日付ごとに折りたたみ(タップで展開)。表紙画像はホームでは出さない(決定済み)。</p></div></div>
+    <div class="note"><span class="no">7</span><div><b>きょうの図書館(1行だけ)</b><p>既定館(設定で変更可)の今日の開館状況のみ。詳細はカレンダータブへ。表示は既定館のみ。館は設定で変更可(決定済み)。</p></div></div>
+    <div class="note"><span class="no">→</span><div><b>下部タブ(2026-07-20 改訂)</b><p>ホーム/本棚(マイ本棚)/貸出中/予約中/カレンダー の5タブ構成。蔵書検索・読書記録・設定は下部タブを持たず、右上のハンバーガーメニューから開く。</p></div></div>
   </div>
 </div>
 </body>

@@ -57,11 +57,38 @@
     background:var(--card); border:1px solid var(--line); border-radius:24px; overflow:hidden;
     box-shadow:0 10px 32px rgba(40,30,10,.10);
   }
-  .screen{background:var(--paper); padding-bottom:14px;}
+  .screen{background:var(--paper);}
   .appbar{padding:14px 16px 6px; display:flex; justify-content:space-between; align-items:flex-start;}
   .appbar h3{margin:0; font-size:16px;}
+  .appbar-right{display:flex; align-items:flex-start; gap:7px;}
+  .appbar .hamburger{
+    flex:0 0 auto; width:26px; height:26px; border-radius:7px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:13px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
   .appbar .sync{font-size:10px; color:var(--ink2); text-align:right;}
   section{padding:0 16px;}
+
+  /* 下部ナビ(新構成・5タブ) */
+  .nav{display:flex; border-top:1px solid var(--line); background:var(--card); padding:6px 4px 9px; margin-top:12px;}
+  .nav a{flex:1; text-align:center; font-size:9px; color:var(--ink2); text-decoration:none; padding-top:3px;}
+  .nav a .ic{
+    display:block; width:34px; height:22px; margin:0 auto 2px; border-radius:999px;
+    line-height:22px; font-size:12.5px;
+  }
+  .nav a.on{color:var(--green-ink); font-weight:700;}
+  .nav a.on .ic{background:var(--green-bg);}
+
+  /* ハンバーガーメニューの中身プレビュー */
+  .menu-preview{
+    max-width:300px; margin:18px 0 0; background:var(--card); border:1px solid var(--line);
+    border-radius:14px; padding:14px 16px;
+  }
+  .menu-preview-h{font-size:12px; font-weight:700; color:var(--ink2); letter-spacing:.04em; margin:0 0 8px;}
+  .menu-list{list-style:none; margin:0; padding:0; font-size:13px;}
+  .menu-list li{padding:5px 2px;}
+  .menu-list li.sep{padding:0; margin:5px 0; border-top:1px solid var(--line);}
+  .menu-note{margin:10px 0 0; font-size:11.5px; color:var(--ink2); max-width:60ch;}
   .sec-h{display:flex; align-items:baseline; gap:8px; margin:6px 0 10px;}
   .sec-h h4{margin:0; font-size:12px; letter-spacing:.06em; color:var(--ink2); font-weight:700;}
   .sec-h .count{font-size:12px; color:var(--green-ink); font-weight:700;}
@@ -125,6 +152,22 @@
   <h1>「うけとれる予約」 表示案の比較</h1>
   <p>ホーム画面の受取可能予約セクションについて、縦幅を抑える表示案を検討する。サンプルは4冊(受取館3か所・メンバー4人・取置期限は2日+未定が混在)。</p>
   <div class="prob">現状はタイトルを大きく見せるため、長い書名だと1冊で高さが出る。数冊たまるとスクロール必須になり、「どこで・誰が・いつまでに受け取るか」の一覧性が落ちる。</div>
+
+  <div class="menu-preview">
+    <p class="menu-preview-h">各フレームの外枠(アプリバーの☰・下部5タブ)は2026-07-20改訂のナビ構成。ハンバーガーメニューの中身は例えば:</p>
+    <ul class="menu-list">
+      <li>🏠 ホーム</li>
+      <li>📚 本棚</li>
+      <li>📖 貸出中</li>
+      <li>🔖 予約中</li>
+      <li>📅 カレンダー</li>
+      <li class="sep" role="separator"></li>
+      <li>🔍 蔵書検索</li>
+      <li>📝 読書記録</li>
+      <li>⚙️ 設定</li>
+    </ul>
+    <p class="menu-note">区切り上は下部タブと同じ5遷移先、区切り下は下部タブを持たない画面(蔵書検索・読書記録・設定など)への入口。</p>
+  </div>
 </div>
 
 <div class="grid">
@@ -137,7 +180,7 @@
       <p>長い書名で縦に伸びる。4冊でこの高さ。</p>
     </div>
     <div class="phone"><div class="screen">
-      <div class="appbar"><h3>西宮市立図書館</h3><div class="sync">最終同期<br>きょう 18:05</div></div>
+      <div class="appbar"><h3>西宮市立図書館</h3><div class="appbar-right"><button class="hamburger" aria-label="メニュー">☰</button><div class="sync">最終同期<br>きょう 18:05</div></div></div>
       <section>
         <div class="sec-h"><h4>うけとれる予約</h4></div>
         <div class="ready-old">
@@ -161,6 +204,13 @@
           <div class="meta"><span class="dot" style="background:var(--taro)"></span>たろう<span>· 取置期限 未定</span></div>
         </div>
       </section>
+      <nav class="nav">
+        <a class="on" href="#"><span class="ic">🏠</span>ホーム</a>
+        <a href="#"><span class="ic">📚</span>本棚</a>
+        <a href="#"><span class="ic">📖</span>貸出中</a>
+        <a href="#"><span class="ic">🔖</span>予約中</a>
+        <a href="#"><span class="ic">📅</span>カレンダー</a>
+      </nav>
     </div></div>
   </div>
 
@@ -172,7 +222,7 @@
       <p>いつまでに・どこで・誰が・何冊。期限順に束ねる。</p>
     </div>
     <div class="phone"><div class="screen">
-      <div class="appbar"><h3>西宮市立図書館</h3><div class="sync">最終同期<br>きょう 18:05</div></div>
+      <div class="appbar"><h3>西宮市立図書館</h3><div class="appbar-right"><button class="hamburger" aria-label="メニュー">☰</button><div class="sync">最終同期<br>きょう 18:05</div></div></div>
       <section>
         <div class="sec-h"><h4>うけとれる予約</h4><span class="count">4冊</span></div>
 
@@ -186,6 +236,13 @@
         <div class="rv-date undated">取置期限 未定</div>
         <div class="rv-row"><span class="lib">中央図書館</span><span class="who"><span class="dot" style="background:var(--taro)"></span>たろう</span><span class="n">1冊</span></div>
       </section>
+      <nav class="nav">
+        <a class="on" href="#"><span class="ic">🏠</span>ホーム</a>
+        <a href="#"><span class="ic">📚</span>本棚</a>
+        <a href="#"><span class="ic">📖</span>貸出中</a>
+        <a href="#"><span class="ic">🔖</span>予約中</a>
+        <a href="#"><span class="ic">📅</span>カレンダー</a>
+      </nav>
     </div></div>
   </div>
 
@@ -197,7 +254,7 @@
       <p>受取館ごとに、誰が何冊。行き先が最短で分かる。</p>
     </div>
     <div class="phone"><div class="screen">
-      <div class="appbar"><h3>西宮市立図書館</h3><div class="sync">最終同期<br>きょう 18:05</div></div>
+      <div class="appbar"><h3>西宮市立図書館</h3><div class="appbar-right"><button class="hamburger" aria-label="メニュー">☰</button><div class="sync">最終同期<br>きょう 18:05</div></div></div>
       <section>
         <div class="sec-h"><h4>うけとれる予約</h4><span class="count">4冊</span></div>
         <div class="rv2-row">
@@ -219,6 +276,13 @@
           <span class="n">1冊</span>
         </div>
       </section>
+      <nav class="nav">
+        <a class="on" href="#"><span class="ic">🏠</span>ホーム</a>
+        <a href="#"><span class="ic">📚</span>本棚</a>
+        <a href="#"><span class="ic">📖</span>貸出中</a>
+        <a href="#"><span class="ic">🔖</span>予約中</a>
+        <a href="#"><span class="ic">📅</span>カレンダー</a>
+      </nav>
     </div></div>
   </div>
 
@@ -230,7 +294,7 @@
       <p>書名は出すが1行上限。溢れは…で省略。</p>
     </div>
     <div class="phone"><div class="screen">
-      <div class="appbar"><h3>西宮市立図書館</h3><div class="sync">最終同期<br>きょう 18:05</div></div>
+      <div class="appbar"><h3>西宮市立図書館</h3><div class="appbar-right"><button class="hamburger" aria-label="メニュー">☰</button><div class="sync">最終同期<br>きょう 18:05</div></div></div>
       <section>
         <div class="sec-h"><h4>うけとれる予約</h4><span class="count">4冊</span></div>
         <div class="rv3-row">
@@ -254,6 +318,13 @@
           <span class="meta">中央 · 未定</span>
         </div>
       </section>
+      <nav class="nav">
+        <a class="on" href="#"><span class="ic">🏠</span>ホーム</a>
+        <a href="#"><span class="ic">📚</span>本棚</a>
+        <a href="#"><span class="ic">📖</span>貸出中</a>
+        <a href="#"><span class="ic">🔖</span>予約中</a>
+        <a href="#"><span class="ic">📅</span>カレンダー</a>
+      </nav>
     </div></div>
   </div>
 
