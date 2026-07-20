@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.domain.model.Member
+import com.fallgist.nishinomiyalibrary.ui.components.HamburgerButton
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
@@ -45,6 +46,7 @@ fun HomeScreen(
     onSelectMember: (Long?) -> Unit,
     onManualSync: () -> Unit,
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
+    onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -53,7 +55,7 @@ fun HomeScreen(
         !state.initialized -> Box(modifier.background(colors.paper))
         // 認証済みメンバーが1人もいなければ、その場で完結する登録フォームだけを出す。
         state.members.isEmpty() -> MemberRegistrationForm(onRegister = onRegister, modifier = modifier)
-        else -> HomeContent(state, onSelectMember, onManualSync, modifier)
+        else -> HomeContent(state, onSelectMember, onManualSync, onOpenMenu, modifier)
     }
 }
 
@@ -62,6 +64,7 @@ private fun HomeContent(
     state: HomeUiState,
     onSelectMember: (Long?) -> Unit,
     onManualSync: () -> Unit,
+    onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -76,6 +79,7 @@ private fun HomeContent(
             lastSyncFailed = state.lastSyncFailed,
             isSyncing = state.isSyncing,
             onManualSync = onManualSync,
+            onOpenMenu = onOpenMenu,
         )
         MemberFilter(
             members = state.members,
@@ -116,34 +120,43 @@ private fun AppBar(
     lastSyncFailed: Boolean,
     isSyncing: Boolean,
     onManualSync: () -> Unit,
+    onOpenMenu: () -> Unit,
 ) {
     val colors = LocalAppColors.current
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top,
+            .padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 8.dp),
     ) {
-        Text(
-            text = "西宮市立図書館",
-            color = colors.ink,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Column(horizontalAlignment = Alignment.End) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "西宮市立図書館",
+                color = colors.ink,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            HamburgerButton(onClick = onOpenMenu)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Text(
                 text = lastSyncText,
                 color = if (lastSyncFailed) colors.alert else colors.ink2,
                 fontSize = 11.sp,
             )
-            Spacer(Modifier.height(4.dp))
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
                     .border(1.dp, colors.line, RoundedCornerShape(999.dp))
                     .clickable(enabled = !isSyncing, onClick = onManualSync)
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    .padding(horizontal = 12.dp, vertical = 5.dp),
             ) {
                 Text(
                     text = if (isSyncing) "同期中…" else "↻ いますぐ同期",
