@@ -17,6 +17,15 @@ class ParsersTest {
     }
 
     @Test
+    fun `JavaScript action無しLBFormを解析できる`() {
+        val parsed = DirectReservationConfirmParser.parse(fixture("reservation_confirm_js_action.html"), "1000000000001")
+
+        assertEquals("confirm-hash", parsed.hiddenFields.toMap()["hash"])
+        assertEquals("keep-me", parsed.hiddenFields.toMap()["siteIssued"])
+        assertEquals(setOf("001", "106"), parsed.pickupLibraryCodes)
+    }
+
+    @Test
     fun `予約確認画面のtilcod不一致は拒否する`() = assertParseError("reservation-confirm") {
         DirectReservationConfirmParser.parse(fixture("reservation_confirm.html"), "999")
     }

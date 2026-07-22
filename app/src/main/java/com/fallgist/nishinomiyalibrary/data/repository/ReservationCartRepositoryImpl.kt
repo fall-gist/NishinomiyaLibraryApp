@@ -120,6 +120,12 @@ class ReservationCartRepositoryImpl @Inject constructor(
                 gateway.openAuthenticatedSession(member.cardNumber, password)
             } catch (_: LibraryError.Auth) {
                 return allFailure(memberId, targets, FailureReason.AUTH)
+            } catch (_: LibraryError.Parse) {
+                return allFailure(memberId, targets, FailureReason.SITE_RESPONSE_CHANGED)
+            } catch (_: LibraryError.Maintenance) {
+                return allFailure(memberId, targets, FailureReason.SITE_MAINTENANCE)
+            } catch (_: LibraryError.Network) {
+                return allFailure(memberId, targets, FailureReason.NETWORK)
             } catch (exception: Exception) {
                 exception.rethrowIfCancellation()
                 return allFailure(memberId, targets, FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
@@ -135,16 +141,13 @@ class ReservationCartRepositoryImpl @Inject constructor(
                     targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.INVALID_PICKUP_LIBRARY) }
                     break
                 } catch (_: LibraryError.Parse) {
-                    provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
-                    targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
+                    failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_RESPONSE_CHANGED)
                     break
                 } catch (_: LibraryError.Maintenance) {
-                    provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
-                    targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
+                    failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_MAINTENANCE)
                     break
                 } catch (_: LibraryError.Network) {
-                    provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
-                    targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
+                    failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.NETWORK)
                     break
                 }
                 when (attempt) {
@@ -177,6 +180,15 @@ class ReservationCartRepositoryImpl @Inject constructor(
                             provisional[target] = Provisional.Failure(FailureReason.AUTH)
                             targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.AUTH) }
                             break
+                        } catch (_: LibraryError.Parse) {
+                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_RESPONSE_CHANGED)
+                            break
+                        } catch (_: LibraryError.Maintenance) {
+                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_MAINTENANCE)
+                            break
+                        } catch (_: LibraryError.Network) {
+                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.NETWORK)
+                            break
                         } catch (exception: Exception) {
                             exception.rethrowIfCancellation()
                             provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
@@ -191,16 +203,13 @@ class ReservationCartRepositoryImpl @Inject constructor(
                             targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.INVALID_PICKUP_LIBRARY) }
                             break
                         } catch (_: LibraryError.Parse) {
-                            provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
-                            targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
+                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_RESPONSE_CHANGED)
                             break
                         } catch (_: LibraryError.Maintenance) {
-                            provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
-                            targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
+                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_MAINTENANCE)
                             break
                         } catch (_: LibraryError.Network) {
-                            provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
-                            targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
+                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.NETWORK)
                             break
                         }
                         when (retried) {
@@ -272,6 +281,18 @@ class ReservationCartRepositoryImpl @Inject constructor(
 
     private fun allFailure(memberId: Long, targets: List<ReservationTarget>, reason: FailureReason) =
         MemberReservationResult(memberId, targets.map { ReservationItemResult(it, ReservationOutcome.Failure(reason)) })
+
+    private fun failCurrentAndAbortRemaining(
+        provisional: MutableMap<ReservationTarget, Provisional>,
+        targets: List<ReservationTarget>,
+        index: Int,
+        reason: FailureReason,
+    ) {
+        provisional[targets[index]] = Provisional.Failure(reason)
+        targets.drop(index + 1).forEach { target ->
+            provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
+        }
+    }
 
     private fun validateTarget(target: ReservationTarget, permitCartItemId: Boolean) {
         require(target.memberId > 0) { "memberIdが不正です" }

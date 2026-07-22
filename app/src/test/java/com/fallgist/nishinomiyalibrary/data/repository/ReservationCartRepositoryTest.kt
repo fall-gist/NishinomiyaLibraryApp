@@ -12,6 +12,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSession
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
+import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
@@ -317,6 +318,57 @@ class ReservationCartRepositoryTest {
 
         assertEquals(listOf("initial"), sent)
         assertEquals(listOf("added-during-confirm"), repository.cartItems().first().map { it.tilcod })
+    }
+
+    @Test
+    fun `予約画面解析失敗は当該資料に原因を示し後続を中止する`() = runBlocking {
+        val member = addMember("解析失敗", "parse")
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = object : ReservationSession {
+                override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt =
+                    throw LibraryError.Parse("reservation-confirm", "fixture")
+                override suspend fun fetchReservations(): List<Reservation> = emptyList()
+                override fun close() = Unit
+            }
+        })
+        repository.addToCart(ReservationTarget(null, member, "first", "一冊目"))
+        repository.addToCart(ReservationTarget(null, member, "second", "二冊目"))
+
+        val result = repository.confirmCart(ReservationConfirmation("106", 1000))
+
+        assertEquals(
+            ReservationOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED),
+            result.members.single().itemResults[0].outcome,
+        )
+        assertEquals(
+            ReservationOutcome.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE),
+            result.members.single().itemResults[1].outcome,
+        )
+    }
+
+    @Test
+    fun `予約処理の保守中と通信失敗を区別する`() = runBlocking {
+        val cases = listOf(
+            LibraryError.Maintenance() to FailureReason.SITE_MAINTENANCE,
+            LibraryError.Network(IllegalStateException("offline")) to FailureReason.NETWORK,
+        )
+        cases.forEachIndexed { index, (error, expected) ->
+            val member = addMember("失敗$index", "error-$index")
+            val repository = repository(object : ReservationGateway {
+                override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = object : ReservationSession {
+                    override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt = throw error
+                    override suspend fun fetchReservations(): List<Reservation> = emptyList()
+                    override fun close() = Unit
+                }
+            })
+
+            val result = repository.reserveNow(
+                ReservationTarget(null, member, "book-$index", "資料"),
+                ReservationConfirmation("106", 1000),
+            )
+
+            assertEquals(ReservationOutcome.Failure(expected), result.members.single().itemResults.single().outcome)
+        }
     }
 
     private suspend fun addMember(name: String, card: String): Long {

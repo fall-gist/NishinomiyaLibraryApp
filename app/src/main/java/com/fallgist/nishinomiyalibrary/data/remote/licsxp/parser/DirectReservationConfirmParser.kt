@@ -12,9 +12,13 @@ object DirectReservationConfirmParser {
     fun parse(html: String, expectedTilcod: String): DirectReservationConfirmationPage {
         val document = Jsoup.parse(html)
         val forms = document.select("form").filter { form ->
-            form.attr("action").contains("WOpacEsTifDirectYoyExecAction.do") &&
-                form.select("input[name=gamenid]").any { it.attr("value") == "tiles.WEsYoyConfirm" } &&
-                form.select("input[name=tilcod]").any { it.attr("value") == expectedTilcod }
+            // LICS-XP の確認画面は LBForm の action を JavaScript で設定するため、
+            // form.action は空の場合がある。送信先ではなく、確認画面固有の hidden 値と
+            // 受取館セレクトでフォームを特定する。
+            form.select("input[type=hidden][name=gamenid]").any { it.attr("value") == "tiles.WEsYoyConfirm" } &&
+                form.select("input[type=hidden][name=tilcod]").any { it.attr("value") == expectedTilcod } &&
+                form.select("input[type=hidden][name=contactweb]").any { it.attr("value") == "4" } &&
+                form.select("select[name=receivename]").size == 1
         }
         if (forms.size != 1) throw ParseException("reservation-confirm", "予約確認フォームを一意に特定できません")
         val form = forms.single()

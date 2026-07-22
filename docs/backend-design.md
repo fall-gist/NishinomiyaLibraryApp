@@ -383,6 +383,10 @@ sequenceDiagram
 
 ## 11. 予約機能(バックエンド実装済み・UI未実装)
 
+> 2026-07-22追記: 確認フォームの`action`はJavaScript駆動で空になり得るため、フォームの一意特定には使わない。
+> `Parse`・`Maintenance`・`Network`は利用者向け失敗理由を分離し、後続資料だけを中止理由として扱う。
+> 実機での再予約成立は未検証。
+
 ### 11.1 現在の実装状況と設計判断
 
 - **確認済みの現状**: `AppDatabase` はv6。`LibraryGateway` / `LicsXpClient`は引き続き検索・

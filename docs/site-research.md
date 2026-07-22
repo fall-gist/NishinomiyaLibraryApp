@@ -140,6 +140,11 @@
 
 ## 6. 直接予約(2026-07-22ライブ検証済み)
 
+> 2026-07-22追記: 確認画面の`LBForm`は`action`を持たず、ボタンのJavaScriptが
+> `WOpacEsTifDirectYoyExecAction.do`を設定する場合がある。確認フォームは固定`action`ではなく、
+> `gamenid=tiles.WEsYoyConfirm`・`tilcod`・`contactweb=4`のhidden値と`receivename`のselectで
+> 一意に特定する。実機での再予約成立は未検証。
+
 ### 6.1 公式カートと直接予約は別導線
 
 - 公開検索結果には、別々の「カート」と「予約 / いますぐ予約」アクションが存在する

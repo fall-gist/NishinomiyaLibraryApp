@@ -284,6 +284,9 @@ private fun FailureReason.label(): String = when (this) {
     FailureReason.INVALID_PICKUP_LIBRARY -> "受取館の指定が無効です"
     FailureReason.REJECTED_BY_SITE -> "図書館サイトで予約を受け付けませんでした"
     FailureReason.SESSION_EXPIRED_BEFORE_SUBMIT -> "ログイン状態が失効しました。再度お試しください"
+    FailureReason.SITE_RESPONSE_CHANGED -> "図書館サイトの応答を確認できませんでした。時間をおいて再度お試しください"
+    FailureReason.SITE_MAINTENANCE -> "図書館サイトがメンテナンス中です"
+    FailureReason.NETWORK -> "通信に失敗しました。接続を確認して再度お試しください"
     FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE -> "サイトの状態が変わったため、このメンバーの処理を停止しました"
 }
 
