@@ -42,6 +42,9 @@ import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreen
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreen
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationCartScreen
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationConfirmDialog
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiController
 import com.fallgist.nishinomiyalibrary.ui.search.SearchScreen
 import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreen
@@ -65,6 +68,7 @@ private enum class Destination(val label: String, val emoji: String, val primary
     NEW_ARRIVALS("新着資料", "🆕", false),
     CALENDAR("カレンダー", "📅", false),
     SETTINGS("設定", "⚙️", false),
+    RESERVATION_CART("予約カート", "🛒", false),
 }
 
 @Composable
@@ -82,8 +86,10 @@ fun LibraryApp(
     newArrivalsController: NewArrivalsScreenController,
     settingsController: SettingsScreenController,
     bookDetailController: BookDetailController,
+    reservationUiController: ReservationUiController,
 ) {
     val colors = LocalAppColors.current
+    val reservationState by reservationUiController.state.collectAsState()
     val primaryTabs = Destination.entries.filter { it.primary }
     var currentName by rememberSaveable { mutableStateOf(Destination.HOME.name) }
     val current = Destination.valueOf(currentName)
@@ -258,6 +264,22 @@ fun LibraryApp(
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
+
+                    Destination.RESERVATION_CART -> {
+                        ReservationCartScreen(
+                            state = reservationState,
+                            onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
+                            onRemoveFromCart = reservationUiController::removeFromCart,
+                            onRequestConfirmation = reservationUiController::requestCartConfirmation,
+                            onOpenSearch = {
+                                currentName = Destination.SEARCH.name
+                                bookDetailController.close()
+                            },
+                            onClearResults = reservationUiController::clearCartFeedback,
+                            onOpenMenu = openMenu,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
 
                 // どの画面の上にも重ねられる共通の書誌詳細オーバーレイ
@@ -266,7 +288,22 @@ fun LibraryApp(
                     BookDetailView(
                         detail = detailState,
                         onBack = bookDetailController::close,
+                        reservation = reservationState,
+                        onSelectReservationMember = reservationUiController::selectMember,
+                        onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
+                        onAddToCart = reservationUiController::addToCart,
+                        onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
                         modifier = Modifier.fillMaxSize().background(colors.paper),
+                    )
+                }
+                reservationState.pendingConfirmation?.let { request ->
+                    ReservationConfirmDialog(
+                        request = request,
+                        libraryName = reservationState.libraries.find { it.code == reservationState.pickupLibraryCode }?.name
+                            ?: reservationState.pickupLibraryCode,
+                        members = reservationState.members,
+                        onConfirm = reservationUiController::confirmPending,
+                        onDismiss = reservationUiController::dismissConfirmation,
                     )
                 }
             }

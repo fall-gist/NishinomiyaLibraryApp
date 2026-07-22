@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,8 +31,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.fallgist.nishinomiyalibrary.domain.model.Holding
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.PickupLibrarySelector
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationCartContentBuilder
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiState
 import com.fallgist.nishinomiyalibrary.ui.search.CoverImageLoaderHolder
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
@@ -40,6 +45,11 @@ import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 fun BookDetailView(
     detail: BookDetailUiState,
     onBack: () -> Unit,
+    reservation: ReservationUiState,
+    onSelectReservationMember: (Long) -> Unit,
+    onSelectPickupLibrary: (String) -> Unit,
+    onAddToCart: (ReservationTarget) -> Unit,
+    onRequestReserveNow: (ReservationTarget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -140,6 +150,16 @@ fun BookDetailView(
                     }
                 }
 
+                Spacer(Modifier.height(16.dp))
+                ReservationActions(
+                    detail = detail,
+                    reservation = reservation,
+                    onSelectMember = onSelectReservationMember,
+                    onSelectPickupLibrary = onSelectPickupLibrary,
+                    onAddToCart = onAddToCart,
+                    onRequestReserveNow = onRequestReserveNow,
+                )
+
                 if (detail.holdings.isNotEmpty()) {
                     Spacer(Modifier.height(16.dp))
                     Text("所蔵一覧", color = colors.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -147,6 +167,105 @@ fun BookDetailView(
                     HoldingsTable(detail.holdings)
                 }
                 Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReservationActions(
+    detail: BookDetailUiState,
+    reservation: ReservationUiState,
+    onSelectMember: (Long) -> Unit,
+    onSelectPickupLibrary: (String) -> Unit,
+    onAddToCart: (ReservationTarget) -> Unit,
+    onRequestReserveNow: (ReservationTarget) -> Unit,
+) {
+    val colors = LocalAppColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.card)
+            .border(1.dp, colors.line, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+    ) {
+        Text("予約", color = colors.ink2, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        if (reservation.members.isEmpty()) {
+            Text("予約するには、先に設定からメンバーを登録してください。", color = colors.ink2, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+            return@Column
+        }
+        Text("対象メンバー", color = colors.ink2, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+        LazyRow(
+            modifier = Modifier.padding(top = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            reservation.members.forEach { member ->
+                item(key = member.id) {
+                    val selected = member.id == reservation.selectedMemberId
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (selected) colors.green else colors.chipBg)
+                            .clickable(enabled = !reservation.processing) { onSelectMember(member.id) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        MemberDot(member.colorHex, size = 7.dp)
+                        Text(member.name, color = if (selected) androidx.compose.ui.graphics.Color.White else colors.ink2, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+        PickupLibrarySelector(
+            libraries = reservation.libraries,
+            selectedCode = reservation.pickupLibraryCode,
+            onSelect = onSelectPickupLibrary,
+            enabled = !reservation.processing,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+        val memberId = reservation.selectedMemberId
+        val target = memberId?.let {
+            ReservationTarget(
+                cartItemId = null,
+                memberId = it,
+                tilcod = detail.tilcod,
+                title = detail.title,
+                writerLine = BookDetailContentBuilder.writerLine(detail.fields),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            androidx.compose.material3.OutlinedButton(
+                onClick = { target?.let(onAddToCart) },
+                enabled = target != null && !reservation.processing && reservation.hasValidPickupLibrary,
+                modifier = Modifier.weight(1f),
+            ) { Text("カートへ追加") }
+            androidx.compose.material3.Button(
+                onClick = { target?.let(onRequestReserveNow) },
+                enabled = target != null && !reservation.processing && reservation.hasValidPickupLibrary,
+                modifier = Modifier.weight(1f),
+            ) { Text(if (reservation.processing) "処理中…" else "今すぐ予約") }
+        }
+        if (!reservation.hasValidPickupLibrary) {
+            Text("受取館を選択してください", color = colors.alert, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
+        }
+        val feedback = ReservationCartContentBuilder.feedbackForDetail(reservation.feedback, detail.tilcod)
+        feedback?.notice?.let { Text(it, color = colors.greenInk, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp)) }
+        feedback?.errorMessage?.let { Text(it, color = colors.alert, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp)) }
+        feedback?.results?.takeIf { it.isNotEmpty() }?.let { results ->
+            Text("予約結果", color = colors.ink2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
+            results.forEach { result ->
+                val memberName = reservation.members.find { it.id == result.memberId }?.name ?: "不明なメンバー"
+                Text(
+                    "$memberName：${result.title}：${result.outcomeLabel}${result.detail?.let { "（$it）" }.orEmpty()}",
+                    color = if (result.completed) colors.greenInk else colors.alert,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
             }
         }
     }

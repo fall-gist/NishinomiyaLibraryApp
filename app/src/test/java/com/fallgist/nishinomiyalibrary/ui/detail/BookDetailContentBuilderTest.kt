@@ -39,4 +39,12 @@ class BookDetailContentBuilderTest {
             rows,
         )
     }
+
+    @Test
+    fun `著者項目から予約カート用の著者行を取り出す`() {
+        assertEquals(
+            "著者名",
+            BookDetailContentBuilder.writerLine(listOf("出版社" to "出版社", "著者名" to "著者名")),
+        )
+    }
 }

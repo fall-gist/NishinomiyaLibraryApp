@@ -18,6 +18,7 @@ import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenControl
 import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiController
 import com.fallgist.nishinomiyalibrary.ui.theme.NishinomiyaLibraryTheme
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CoroutineScope
@@ -40,6 +41,7 @@ open class MainActivity : ComponentActivity() {
     private lateinit var newArrivalsController: NewArrivalsScreenController
     private lateinit var settingsController: SettingsScreenController
     private lateinit var bookDetailController: BookDetailController
+    private lateinit var reservationUiController: ReservationUiController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         window.setFlags(
@@ -61,6 +63,7 @@ open class MainActivity : ComponentActivity() {
         newArrivalsController = entryPoint.newArrivalsScreenController()
         settingsController = entryPoint.settingsScreenController()
         bookDetailController = entryPoint.bookDetailController()
+        reservationUiController = entryPoint.reservationUiController()
 
         setContent {
             val state by controller.state.collectAsState()
@@ -79,6 +82,7 @@ open class MainActivity : ComponentActivity() {
                     newArrivalsController = newArrivalsController,
                     settingsController = settingsController,
                     bookDetailController = bookDetailController,
+                    reservationUiController = reservationUiController,
                 )
             }
         }

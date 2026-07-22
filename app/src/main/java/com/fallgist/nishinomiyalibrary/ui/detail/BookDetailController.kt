@@ -65,6 +65,12 @@ object BookDetailContentBuilder {
 
     fun detailFields(fields: Map<String, String>): List<Pair<String, String>> =
         fields.filterKeys { it !in excludedDetailFields }.toList()
+
+    /** 書誌詳細の表示項目から、予約カートに添える著者行を取り出す。 */
+    fun writerLine(fields: List<Pair<String, String>>): String? =
+        fields.firstOrNull { (label, _) -> label.contains("著者") || label.contains("作者") }
+            ?.second
+            ?.takeIf { it.isNotBlank() }
 }
 
 /**

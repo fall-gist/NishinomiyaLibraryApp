@@ -7,6 +7,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
@@ -17,6 +18,7 @@ import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiController
 import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
@@ -149,6 +151,20 @@ object DebugUiProvisionModule {
 
     @Provides
     @Singleton
+    fun provideReservationUiController(
+        cartRepository: ReservationCartRepository,
+        familyRepository: FamilyRepository,
+        calendarRepository: CalendarRepository,
+        settingsStore: SettingsStore,
+    ): ReservationUiController = ReservationUiController(
+        cartRepository = cartRepository,
+        familyRepository = familyRepository,
+        calendarRepository = calendarRepository,
+        settings = settingsStore.settings,
+    )
+
+    @Provides
+    @Singleton
     fun provideSettingsScreenController(
         familyRepository: FamilyRepository,
         statusRepository: StatusRepository,
@@ -185,6 +201,8 @@ interface MainActivityEntryPoint {
     fun newArrivalsScreenController(): NewArrivalsScreenController
 
     fun bookDetailController(): BookDetailController
+
+    fun reservationUiController(): ReservationUiController
 
     fun settingsScreenController(): SettingsScreenController
 
