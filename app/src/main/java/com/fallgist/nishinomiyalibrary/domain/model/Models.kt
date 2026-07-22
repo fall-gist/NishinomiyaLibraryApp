@@ -146,3 +146,64 @@ data class NewArrival(
     /** 貸出可否。○=true / ×=false / 判定不能=null。 */
     val lendable: Boolean?,
 )
+
+/** アプリ内の予約カートに保存する、まだサイトへ送信していない候補。 */
+data class ReservationCartItem(
+    val id: Long,
+    val memberId: Long,
+    val tilcod: String,
+    val title: String,
+    val writerLine: String?,
+    val addedAtEpochMillis: Long,
+)
+
+/** 予約バッチの入力。cartItemId が null の場合は即時予約である。 */
+data class ReservationTarget(
+    val cartItemId: Long?,
+    val memberId: Long,
+    val tilcod: String,
+    val title: String,
+    /** 検索結果由来の著者等。カート追加時に失わず保存する。 */
+    val writerLine: String? = null,
+)
+
+/** UI の最終確認後にだけ Repository へ渡す予約条件。 */
+data class ReservationConfirmation(
+    val pickupLibraryCode: String,
+    val confirmedAtEpochMillis: Long,
+)
+
+data class ReservationItemResult(
+    val target: ReservationTarget,
+    val outcome: ReservationOutcome,
+)
+
+sealed interface ReservationOutcome {
+    data object Success : ReservationOutcome
+    data object AlreadyReserved : ReservationOutcome
+    data class Failure(val reason: FailureReason) : ReservationOutcome
+    data class Unknown(val reason: UnknownReason) : ReservationOutcome
+}
+
+enum class FailureReason {
+    AUTH,
+    INVALID_PICKUP_LIBRARY,
+    REJECTED_BY_SITE,
+    SESSION_EXPIRED_BEFORE_SUBMIT,
+    MEMBER_ABORTED_AFTER_SITE_CHANGE,
+}
+
+enum class UnknownReason {
+    POST_CONNECTION_LOST,
+    POST_RESPONSE_UNEXPECTED,
+    VERIFICATION_UNAVAILABLE,
+}
+
+data class MemberReservationResult(
+    val memberId: Long,
+    val itemResults: List<ReservationItemResult>,
+)
+
+data class ReservationBatchResult(
+    val members: List<MemberReservationResult>,
+)

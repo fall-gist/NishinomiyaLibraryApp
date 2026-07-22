@@ -12,6 +12,10 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartItem
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
 import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 
@@ -76,6 +80,22 @@ interface NewArrivalRepository {
 
     /** 公式サイトから取得し直してローカルを全置換する。失敗時は例外を投げる。 */
     suspend fun refresh()
+}
+
+/** 明示的な最終確認を境界とする、ローカル予約カートの公開API。 */
+interface ReservationCartRepository {
+    fun cartItems(): Flow<List<ReservationCartItem>>
+
+    suspend fun addToCart(target: ReservationTarget)
+
+    suspend fun removeFromCart(cartItemId: Long)
+
+    suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult
+
+    suspend fun reserveNow(
+        target: ReservationTarget,
+        confirmation: ReservationConfirmation,
+    ): ReservationBatchResult
 }
 
 enum class SyncTrigger { MANUAL, SCHEDULED }

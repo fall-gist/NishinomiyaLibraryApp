@@ -2,7 +2,7 @@
 
 対象: 西宮市立図書館 家族用アプリ(Android)のデータ層
 前提資料: [仕様書](spec.md) / [サイト調査結果](site-research.md)
-最終更新: 2026-07-17
+最終更新: 2026-07-22(予約バックエンド実装済み、UIは未実装)
 
 UIは本書のスコープ外(バックエンド完成後に別途設計)。ただしUIから使う公開API
 (リポジトリ層のインターフェース)は本書で確定させる。
@@ -144,9 +144,11 @@ data class ClosedDay(val libraryCode: String, val date: LocalDate)
   自動同送する
 - **User-Agent**: ブラウザ相当のUA文字列を必ず送る(ボットUAは403になる)。
   UAは1箇所で定数管理
-- **礼儀**: リクエスト間に最低500msのディレイ。リトライは1回まで(指数バックオフ)
-- **書き込み拡張**: 予約等を将来追加する場合は `LicsXpClient` にメソッドを
-  追加する(既存メソッドは変更しない)。書き込み系は必ず別メソッド・別テストとする
+- **礼儀**: リクエスト間に最低500msのディレイ。参照系リクエストのリトライは1回まで
+  (指数バックオフ)。**予約確定POSTはこの一般リトライの対象外**とする(§11)
+- **書き込み分離**: 現行の `LibraryGateway` は参照系のままとし、予約確定だけは専用の
+  `ReservationGateway` / `ReservationSession` に隔離する(§11)。延長・取消・登録変更・
+  公式サイトカート操作は追加しない
 
 ### 3.2 公開インターフェース
 
@@ -265,6 +267,10 @@ Parseエラーは同期結果に記録し、UIで「サイト構造が変わっ�
 | `notifyPickupReady` | Boolean | true |
 | `defaultCalendarLibrary` | String | `"106"`(高須分室) |
 
+現行`SettingsStore.defaultCalendarLibrary`とDataStoreキー`default_calendar_library`は保存済み設定との
+互換性のため維持する。以後の意味はカレンダー専用ではなく、UI表記「既定館」で表すアプリ共通の
+既定館(予約受取館の初期値を含む)である。メンバー別の既定館は保存しない。
+
 ## 6. リポジトリ層(UIへの公開API)
 
 UIはこの層だけを見る。**読み取りはすべてRoomのFlow**(オフラインでも最終取得
@@ -359,7 +365,8 @@ sequenceDiagram
 3. HTTP通信ログ(OkHttp Interceptor)はデバッグビルドのみ有効化し、
    `j_password` はマスクする
 4. アクセス頻度: 自動同期1日1回+手動(クールダウン5分)。リクエスト間500ms
-5. 読み取り専用: フォームPOSTは調査済みの参照系画面のみ。予約・延長・変更系の
+5. サイト書き込みは、専用の`ReservationGateway`経由で、ユーザーが最終確認した
+   直接予約確定だけに限定する(§11)。延長・取消・登録変更・公式サイトカート操作の
    URLへは接続しない
 
 ## 10. テスト戦略
@@ -373,3 +380,265 @@ sequenceDiagram
 - **同期・通知判定**: 時計を注入(`Clock`)して前日判定・READY遷移をテスト
 - **疎通スモークテスト**(任意実行): 環境変数に認証情報を渡して実サイトに
   1往復するJVMテスト。CIでは実行しない(`@Tag("live")` で分離)
+
+## 11. 予約機能(バックエンド実装済み・UI未実装)
+
+### 11.1 現在の実装状況と設計判断
+
+- **確認済みの現状**: `AppDatabase` はv6。`LibraryGateway` / `LicsXpClient`は引き続き検索・
+  同期などの参照系だけを実装し、書込みを混在させない。`reservation_cart_items`、予約確定用
+  `ReservationGateway`、`ReservationCartRepository`は実装済みである。予約画面と導線は未実装である
+- **採用**: アプリ独自のRoomローカルカートに候補を保持し、確定時に直接予約する。
+  カート追加・削除はネットワークを使わない
+- **不採用**: 公式サイトカートを正とする方式。資料を追加するたびに通信し、
+  アカウント切替時のログイン、サイト側に残った項目、部分失敗の後始末を管理する必要がある
+- **トレードオフ**: ローカルカート方式は通信量を減らしてメンバーごとのセッションを明確に
+  分離できる反面、アプリ側でカート永続化、部分成功、最終照合を実装・テストする必要がある
+
+### 11.2 ドメイン契約
+
+次の型は`domain/model/`および`domain/repository/`に追加済みの契約である。
+既存の`Reservation`(サイト上の予約一覧)とは用途を分け、確定前の項目を混在させない。
+
+```kotlin
+data class ReservationCartItem(
+    val id: Long,
+    val memberId: Long,            // 追加時に確定。後から暗黙に変更しない
+    val tilcod: String,
+    val title: String,
+    val writerLine: String?,
+    val addedAtEpochMillis: Long,
+)
+
+data class ReservationTarget(
+    val cartItemId: Long?,         // 即時予約はnull、カート由来はRoomのID
+    val memberId: Long,
+    val tilcod: String,
+    val title: String,
+)
+
+data class ReservationConfirmation(
+    val pickupLibraryCode: String,
+    val confirmedAtEpochMillis: Long, // UIの最終確認後にだけ生成する
+)
+
+data class ReservationItemResult(
+    val target: ReservationTarget,
+    val outcome: ReservationOutcome,
+)
+
+sealed interface ReservationOutcome {
+    data object Success : ReservationOutcome
+    data object AlreadyReserved : ReservationOutcome
+    data class Failure(val reason: ReservationFailureReason) : ReservationOutcome
+    data class Unknown(val reason: ReservationUnknownReason) : ReservationOutcome
+}
+
+enum class ReservationFailureReason {
+    AUTH, INVALID_PICKUP_LIBRARY, REJECTED_BY_SITE,
+    SESSION_EXPIRED_BEFORE_SUBMIT, MEMBER_ABORTED_AFTER_SITE_CHANGE,
+}
+
+enum class ReservationUnknownReason {
+    POST_CONNECTION_LOST, POST_RESPONSE_UNEXPECTED, VERIFICATION_UNAVAILABLE,
+}
+
+// `data/remote/licsxp/`だけで使う、予約POST直後の未照合結果。
+sealed interface DirectReservationAttempt {
+    data object Submitted : DirectReservationAttempt
+    data object DuplicateDetected : DirectReservationAttempt
+    data object SessionExpiredBeforeSubmit : DirectReservationAttempt
+    data object RejectedBeforeSubmit : DirectReservationAttempt
+    data object IndeterminateAfterPost : DirectReservationAttempt
+}
+
+data class MemberReservationResult(
+    val memberId: Long,
+    val itemResults: List<ReservationItemResult>,
+)
+
+data class ReservationBatchResult(
+    val members: List<MemberReservationResult>,
+)
+```
+
+- `Success`は確定POSTを送った後、予約一覧に同じ`tilcod`が存在することを確認できた場合だけ
+  返す。成功alertの文言は未取得なので、成功判定に使用しない
+- `AlreadyReserved`は、既知の重複応答「予約済の書誌があります。予約できません。」を受け、
+  最終予約一覧にも同じ`tilcod`が存在すると確認できた場合に返す。これは失敗ではない
+- `Failure`はPOST未送信が確定している拒否・認証・無効受取館等、`Unknown`は確定POST後に
+  成否を断定できない場合だけに使う。どちらもローカルカートには残す
+
+### 11.3 Roomローカルカート
+
+DBマイグレーションは**v5→v6**として、`ReservationCartItemEntity`と
+`ReservationCartDao`を追加済みである。
+
+| 項目 | 設計 |
+|---|---|
+| テーブル | `reservation_cart_items` |
+| 主キー | `id: Long` 自動採番 |
+| 列 | `memberId`, `tilcod`, `title`, `writerLine`, `addedAtEpochMillis` |
+| 関係 | `members.id`への外部キー。メンバー削除時はローカルカート項目もCASCADE削除 |
+| 一意性 | `(memberId, tilcod)` を一意索引にし、同じメンバーへ同じ資料を二重追加しない |
+| 表示順 | `addedAtEpochMillis ASC, id ASC`。画面側でメンバーごとにグループ化する |
+
+DAOは少なくとも`observeAll()`、`getByIds(ids)`、`insertIgnoreDuplicate(item)`、
+`deleteByIds(ids)`、`delete(id)`を持つ。`confirmCart`は処理対象を最初に読み出して固定し、
+最終結果が`Success`または`AlreadyReserved`の**カート由来IDだけ**を1トランザクションで削除する。
+ネットワーク中はRoomトランザクションを保持しない。
+
+### 11.4 Gateway / Repository境界
+
+UIはRepositoryだけを呼び、カード番号・パスワードの取得とHTTPセッション管理はRepositoryと
+Gatewayの内側に閉じ込める。既存の`LibraryGateway`参照系APIに書き込みメソッドを混ぜない。
+
+```kotlin
+interface ReservationCartRepository {
+    fun cartItems(): Flow<List<ReservationCartItem>>
+    suspend fun addToCart(target: ReservationTarget)
+    suspend fun removeFromCart(cartItemId: Long)
+
+    // 最終確認ダイアログの肯定操作からだけ呼ぶ。
+    suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult
+    suspend fun reserveNow(
+        target: ReservationTarget,
+        confirmation: ReservationConfirmation,
+    ): ReservationBatchResult
+}
+
+interface ReservationGateway {
+    suspend fun openAuthenticatedSession(
+        cardNumber: String,
+        password: String,
+    ): ReservationSession
+}
+
+interface ReservationSession {
+    suspend fun directReserve(
+        tilcod: String,
+        pickupLibraryCode: String,
+    ): DirectReservationAttempt
+
+    suspend fun fetchReservations(): List<Reservation>
+    fun close()
+}
+```
+
+`confirmCart`と`reserveNow`は、内部の`ReservationBatchProcessor.execute(targets, confirmation)`を
+共用する。即時予約は`cartItemId=null`の一時`ReservationTarget`を1件渡すため、予約通信・
+エラー分類・照合の規則はカート確定と同じである。即時予約には削除対象のローカル項目がない。
+
+`ReservationGateway`の実装は既存`LicsXpSession`のCookie、ブラウザ相当UA、500msスロットリングを
+再利用する。ただしセッションはメンバーごとに新規作成してメモリ内だけに置き、メンバー間で
+Cookieを共有・永続化しない。`close()`は例外時も`finally`で必ず呼ぶ。
+
+確定POSTは、現行`LicsXpSession.post()`の`IOException`時の自動再送をそのまま使ってはならない。
+予約専用の「自動ネットワークリトライ無効・1回だけ送信する」primitiveを設け、1回の
+`directReserve`試行につき確定POSTを厳密に1回だけ送る。POST送信後に`IOException`等が起きた場合は
+そのprimitiveから`IndeterminateAfterPost`を返し、再送せず予約一覧照合へ進む。
+
+### 11.5 直接予約プロトコルとパーサ
+
+これはライブ検証済みの経路であり、実装時は固定HTMLフィクスチャとMockWebServerで再現する。
+
+1. ログアウト状態では`OpacInitLoginAction.do?...yoycartflg=WYoyConfirm&tilcod={tilcod}`が
+   直接予約導線のログイン画面である。ログイン済みセッションでは
+   `GET WOpacEsTifDirectYoyDispAction.do?tilcod={tilcod}`で確認画面を開く
+2. `DirectReservationConfirmParser`は確認フォームから`gamenid=tiles.WEsYoyConfirm`、`tilcod`、
+   `receivename`の選択肢、`contactweb=4`を抽出する。フォームに存在する`hash`等のhidden値は
+   そのまま同送し、実装側で任意のhidden値を作らない
+3. 選択した受取館コードが`receivename`の選択肢に存在しなければ、POSTせず
+   `Failure(INVALID_PICKUP_LIBRARY)`にする。設定の既定館であっても暗黙に別コードへ置換しない
+4. `POST WOpacEsTifDirectYoyExecAction.do?tilcod={tilcod}`へ、確認画面から得た必須hidden値、
+   `receivename={選択コード}`、`contact=4`、`contactweb=4`を同一セッションで送る。連絡方法は
+   Email固定であり、UI・ドメインモデルに選択肢を増やさない。このPOSTは自動ネットワーク
+   リトライを無効化した予約専用primitiveで厳密に1回だけ送信し、現行`LicsXpSession.post()`の
+   `IOException`時再送を利用しない
+5. `DirectReservationResponseParser`はログインフォーム、既知の重複alert、メンテナンス・確認画面の
+   再表示・予期しない画面を区別する。**確定POST後**のログインフォームも予約不成立とは推測せず
+   成否不明として照合へ進み、再認証・再POSTしない。成功alertの正確な文言は未取得のため、
+   成功をalert文字列で判定してはならない
+
+   実サイトの成功結果HTMLには、対象`tilcod`と結び付けられる「予約済み」表示の構造が未取得である。
+   このため実装は`#stat-login`やページ内の別資料の表示から`Submitted`を推測せず、既知重複以外の
+   POST後応答をすべて成否不明として、予約一覧の`tilcod`照合だけで成功を確定する。
+   成否不明の項目は同一セッションで直ちに予約一覧を1回取得し、対象`tilcod`を確認できた場合だけ
+   次資料へ進む。確認不能なら再送せず残件を停止するため、現在の制約下では成功1冊ごとに追加の読取通信を要する。
+
+確認GETと確定POSTの間にUI待機を挟まない。ライブ検証では、確認画面を開いてから時間を空けると
+確定POSTが`OpacLoginAction.do`のログインフォームを返す事例があるが、POST後は成否を断定せず
+予約一覧照合でのみ解決する。
+
+### 11.6 バッチシーケンスと再試行規則
+
+```mermaid
+sequenceDiagram
+    participant UI as 最終確認済みUI
+    participant R as ReservationCartRepository
+    participant G as ReservationGateway/Session
+    participant S as LICS-XP
+    participant DB as Room
+
+    UI->>R: confirmCart または reserveNow
+    R->>DB: 対象を固定(カート由来のみ)
+    loop memberIdごと(順次・分離セッション)
+        R->>G: openAuthenticatedSession(1回)
+        G->>S: login(1回)
+        loop 対象資料ごと
+            G->>S: confirm GET → exec POST(500ms間隔、POSTは1回送信)
+        end
+        G->>S: POST後不明ごとに即時予約一覧照合（未照合項目があれば末尾で最大1回）
+        G-->>R: tilcod照合結果
+    end
+    R->>DB: Success/AlreadyReservedのカート項目だけ削除
+    R-->>UI: メンバー別・資料別の部分成功結果
+```
+
+- 同一メンバーではログインを1回だけ行い、そのセッション内で資料を逐次処理する。認証失敗なら
+  そのメンバーの残件を`Failure(AUTH)`として中止し、次のメンバーを続行する
+- **明確に確定POST前のセッション切れ**(確認GETがログインフォームになる等)だけ、新しい
+  セッションを作って当該資料を1回だけ再試行できる。2回目も同じなら
+  `Failure(SESSION_EXPIRED_BEFORE_SUBMIT)`にする
+- 確定POST送信後の切断、タイムアウト、予期しない応答は再送しない。当該資料ごとに同一セッションで
+  予約一覧を即時1回取得し、`tilcod`を確認できた場合だけ次資料へ進む。未確認または取得失敗なら
+  `Unknown`として残件を中止する。即時照合済み項目は末尾照合対象外であり、未照合の`Submitted`/重複だけ
+  が残る場合に限りメンバー末尾で最大1回取得する（最大通信増加は不明項目N回+末尾最大1回）
+- `Submitted`またはPOST後に成否不明となった資料でも、予約一覧に`tilcod`があれば`Success`とする。
+  既知の重複応答かつ同じ`tilcod`を確認できた場合は`AlreadyReserved`とする。予約一覧を取得
+  できない、または成否不明のPOST後に`tilcod`が確認できない資料は`Unknown`にする
+- 予約確認/実行のパース失敗、サイト変更を示す予期しない応答、メンテナンスでは当該メンバーの
+  残件を`Failure(MEMBER_ABORTED_AFTER_SITE_CHANGE)`として中止する。POST済みの当該項目だけは
+  `Unknown(POST_RESPONSE_UNEXPECTED)`を優先する
+
+### 11.7 エラー分類とUIへの伝達
+
+| 条件 | 項目結果 | 同一メンバーの残件 | 他メンバー |
+|---|---|---|---|
+| 認証失敗 | `Failure(AUTH)` | 中止して保持 | 続行 |
+| 受取館が確認画面の選択肢にない | `Failure(INVALID_PICKUP_LIBRARY)` | 当該資料は未送信。選択館が共通なら以降も送信しない | 続行 |
+| 既知の重複応答 | `AlreadyReserved` | 続行 | 続行 |
+| POST前に明確なセッション切れ | 新セッションで1回だけ再試行 | 再試行後に継続/失敗 | 続行 |
+| POST後の通信断・不明応答 | `Unknown`。予約一覧で照合 | 中止 | 続行 |
+| Parse / サイト変更 / メンテナンス | 未送信なら`Failure`、POST済みなら`Unknown` | 中止 | 続行 |
+
+UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重複・失敗・不明を資料ごとに表示する。
+`Failure`と`Unknown`が残ったカートを再試行する場合も、改めて受取館選択と最終確認を要求する。
+
+### 11.8 テスト観点
+
+- **Room**: v5→v6マイグレーション、メンバー削除時のCASCADE、同一`memberId+tilcod`重複追加、
+  成功/重複だけの削除、失敗/不明の残存、確定中にRoomトランザクションを保持しないこと
+- **Gateway/パーサ**: ログアウト導線、ログイン済み直接確認、hidden値抽出、12館コード、
+  `receivename`不一致、`contact=4` / `contactweb=4`、既知の重複alert、ログインフォーム返却を
+  MockWebServerと匿名化フィクスチャで検証する
+- **バッチ**: 2メンバー以上でメンバーごとにログイン1回、同一セッション内の逐次処理、
+  500msスロットリング、認証失敗時の他メンバー続行、部分成功、不明項目ごとの即時照合と未照合項目だけの
+  末尾最大1回照合を
+  Fake Gatewayで検証する
+- **再試行**: POST前セッション切れだけ1回再認証すること、POST後通信断ではPOSTを再送せず照合へ
+  進むこと、照合不能時に`Unknown`が残ることを検証する。`IOException`を発生させる
+  MockWebServerの切断応答でも、確定POSTを1回しか受信しないことを検証する
+- **実サイト**: 自動テスト・CIでは予約確定POSTを実行しない。ライブ検証はユーザーが明示的に
+  操作し、最終確認した予約だけに限定する。予約上限、利用制限、予約不可資料、無効受取館応答、
+  メンテナンス時の詳細挙動は未検証として残す

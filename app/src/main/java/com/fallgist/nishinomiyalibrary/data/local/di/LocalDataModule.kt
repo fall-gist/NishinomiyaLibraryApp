@@ -14,6 +14,7 @@ import com.fallgist.nishinomiyalibrary.data.local.dao.LoanDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.NewArrivalDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationCartDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReadingRecordDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfItemDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.SyncLogDao
@@ -39,6 +40,7 @@ object LocalDataModule {
                 DatabaseMigrations.MIGRATION_2_3,
                 DatabaseMigrations.MIGRATION_3_4,
                 DatabaseMigrations.MIGRATION_4_5,
+                DatabaseMigrations.MIGRATION_5_6,
             )
             .build()
 
@@ -50,6 +52,9 @@ object LocalDataModule {
 
     @Provides
     fun provideReservationDao(database: AppDatabase): ReservationDao = database.reservationDao()
+
+    @Provides
+    fun provideReservationCartDao(database: AppDatabase): ReservationCartDao = database.reservationCartDao()
 
     @Provides
     fun provideReadingRecordDao(database: AppDatabase): ReadingRecordDao = database.readingRecordDao()

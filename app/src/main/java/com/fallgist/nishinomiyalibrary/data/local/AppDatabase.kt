@@ -10,6 +10,7 @@ import com.fallgist.nishinomiyalibrary.data.local.dao.LoanDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.NewArrivalDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationCartDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReadingRecordDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfItemDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfDao
@@ -20,6 +21,7 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.NewArrivalEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationCartItemEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingHistoryCheckpointEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingRecordEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity
@@ -41,8 +43,9 @@ import java.time.LocalDate
         ReadingRecordEntity::class,
         ReadingHistoryCheckpointEntity::class,
         NewArrivalEntity::class,
+        ReservationCartItemEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 @TypeConverters(LocalDateConverters::class)
@@ -50,6 +53,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun memberDao(): MemberDao
     abstract fun loanDao(): LoanDao
     abstract fun reservationDao(): ReservationDao
+    abstract fun reservationCartDao(): ReservationCartDao
     abstract fun readingRecordDao(): ReadingRecordDao
     abstract fun shelfItemDao(): ShelfItemDao
     abstract fun shelfDao(): ShelfDao
@@ -160,6 +164,13 @@ abstract class AppDatabase : RoomDatabase() {
             readingRecordDao().deleteHistoryCheckpointsForMember(member.id)
             memberDao().delete(member)
         }
+    }
+
+    /** ネットワーク処理完了後に、達成済みのカート由来項目だけをまとめて削除する。 */
+    @Transaction
+    suspend fun deleteReservationCartItems(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        withTransaction { reservationCartDao().deleteByIds(ids) }
     }
 
     /** sortOrderを既存順序の末尾に安定して採番してメンバーを保存する。 */

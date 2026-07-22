@@ -45,6 +45,10 @@ class LicsXpSession private constructor(
             chain.proceed(request)
         }
         .build()
+    /** OkHttp自身の接続失敗再試行も、予約確定だけは明示的に無効化する。 */
+    private val noRetryClient: OkHttpClient = client.newBuilder()
+        .retryOnConnectionFailure(false)
+        .build()
 
     var lastPageTokens: PageTokens? = null
         private set
@@ -82,6 +86,27 @@ class LicsXpSession private constructor(
             .post(form)
             .build(),
     )
+
+    /**
+     * 副作用を持つ予約確定専用。IOException を含め、呼出し一回につき HTTP POST は一度だけ。
+     * 呼出し側は例外を成否不明として照合へ進み、絶対に再送してはならない。
+     */
+    internal suspend fun postExactlyOnce(
+        path: String,
+        query: Map<String, String> = emptyMap(),
+        form: FormBody,
+    ): String = try {
+        executeOnceWithoutRetry(
+            Request.Builder()
+                .url(endpointUrl(path, query))
+                .post(form)
+                .build(),
+        )
+    } catch (exception: IOException) {
+        throw LibraryError.Network(exception)
+    } catch (exception: HttpFailure) {
+        throw LibraryError.Network(exception)
+    }
 
     internal fun updateTokens(html: String): PageTokens = HashExtractor.extract(html).also { tokens ->
         lastPageTokens = tokens
@@ -123,6 +148,15 @@ class LicsXpSession private constructor(
     private suspend fun executeOnce(request: Request): String = withContext(Dispatchers.IO) {
         rateLimiter.executeWhenAllowed {
             client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw HttpFailure(response)
+                response.body?.string().orEmpty()
+            }
+        }
+    }
+
+    private suspend fun executeOnceWithoutRetry(request: Request): String = withContext(Dispatchers.IO) {
+        rateLimiter.executeWhenAllowed {
+            noRetryClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw HttpFailure(response)
                 response.body?.string().orEmpty()
             }

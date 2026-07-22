@@ -8,6 +8,60 @@ import org.junit.Test
 
 class ParsersTest {
     @Test
+    fun `予約確認画面のhiddenと12館を保持する`() {
+        val parsed = DirectReservationConfirmParser.parse(fixture("reservation_confirm.html"), "1000000000001")
+        assertEquals("confirm-hash", parsed.hiddenFields.toMap()["hash"])
+        assertEquals("keep-me", parsed.hiddenFields.toMap()["siteIssued"])
+        assertEquals(12, parsed.pickupLibraryCodes.size)
+        assertTrue("106" in parsed.pickupLibraryCodes)
+    }
+
+    @Test
+    fun `予約確認画面のtilcod不一致は拒否する`() = assertParseError("reservation-confirm") {
+        DirectReservationConfirmParser.parse(fixture("reservation_confirm.html"), "999")
+    }
+
+    @Test
+    fun `予約確認フォームは先行する別formを選ばず重複候補を拒否する`() = assertParseError("reservation-confirm") {
+        val valid = fixture("reservation_confirm.html")
+        val other = "<form action='x'><input name='gamenid' value='tiles.WEsYoyConfirm'><input name='tilcod' value='1000000000001'></form>"
+        DirectReservationConfirmParser.parse(other + valid + valid, "1000000000001")
+    }
+
+    @Test
+    fun `予約確認フォームの危険なhidden重複を拒否する`() = assertParseError("reservation-confirm") {
+        val duplicated = fixture("reservation_confirm.html").replace(
+            "<input type=\"hidden\" name=\"hash\" value=\"confirm-hash\" />",
+            "<input type=\"hidden\" name=\"hash\" value=\"confirm-hash\" /><input type=\"hidden\" name=\"hash\" value=\"other\" />",
+        )
+        DirectReservationConfirmParser.parse(duplicated, "1000000000001")
+    }
+
+    @Test
+    fun `予約応答はログインと既知重複を安全に区別する`() {
+        assertEquals(
+            DirectReservationResponseParser.Result.LoginAfterPost,
+            DirectReservationResponseParser.parse("<form action='j_security_check'><input name='j_password'></form>"),
+        )
+        assertEquals(
+            DirectReservationResponseParser.Result.DuplicateDetected,
+            DirectReservationResponseParser.parse("<script>alert('予約済の書誌があります。予約できません。')</script>"),
+        )
+        assertEquals(
+            DirectReservationResponseParser.Result.IndeterminateAfterPost,
+            DirectReservationResponseParser.parse("<html><body>想定外</body></html>"),
+        )
+        assertEquals(
+            DirectReservationResponseParser.Result.IndeterminateAfterPost,
+            DirectReservationResponseParser.parse("<html><div id='stat-login'></div><p>メニュー</p></html>"),
+        )
+        assertEquals(
+            DirectReservationResponseParser.Result.IndeterminateAfterPost,
+            DirectReservationResponseParser.parse("<tr data-tilcod='999'><button disabled>予約済み</button></tr>"),
+        )
+    }
+
+    @Test
     fun `検索結果フィクスチャをパースできる`() {
         val result = SearchResultParser.parse(fixture("search_result.html"))
         assertEquals(20, result.hits.size)

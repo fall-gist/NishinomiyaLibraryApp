@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
@@ -14,6 +15,28 @@ data class MemberEntity(
     val colorHex: String,
     val cardNumber: String,
     val sortOrder: Int,
+)
+
+@Entity(
+    tableName = "reservation_cart_items",
+    foreignKeys = [
+        ForeignKey(
+            entity = MemberEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["memberId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["memberId"]), Index(value = ["memberId", "tilcod"], unique = true)],
+)
+data class ReservationCartItemEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val memberId: Long,
+    val tilcod: String,
+    val title: String,
+    val writerLine: String?,
+    val addedAtEpochMillis: Long,
 )
 
 @Entity(tableName = "loans")

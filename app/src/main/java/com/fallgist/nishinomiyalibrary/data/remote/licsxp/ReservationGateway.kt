@@ -1,0 +1,145 @@
+package com.fallgist.nishinomiyalibrary.data.remote.licsxp
+
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.DirectReservationConfirmParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.DirectReservationResponseParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
+import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import org.jsoup.Jsoup
+import okhttp3.FormBody
+
+/** 読み取り用 LibraryGateway と切り離した、予約確定だけの通信境界。 */
+interface ReservationGateway {
+    suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession
+}
+
+interface ReservationSession {
+    suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt
+
+    suspend fun fetchReservations(): List<Reservation>
+
+    fun close()
+}
+
+sealed interface DirectReservationAttempt {
+    data object Submitted : DirectReservationAttempt
+    data object DuplicateDetected : DirectReservationAttempt
+    data object SessionExpiredBeforeSubmit : DirectReservationAttempt
+    data object RejectedBeforeSubmit : DirectReservationAttempt
+    data object IndeterminateAfterPost : DirectReservationAttempt
+}
+
+/** POST前に確定した館不一致。ネットワーク境界内だけで利用する。 */
+internal class InvalidPickupLibraryException : Exception()
+/** 確定POST後のHTMLが既知構造ではない。再送せず照合に委ねる。 */
+
+/** root session のスロットリングだけを共有し、Cookieはメンバーごとに隔離する。 */
+class LicsXpReservationGateway(
+    private val rootSession: LicsXpSession,
+) : ReservationGateway {
+    override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession {
+        require(cardNumber.isNotBlank()) { "カード番号が空です" }
+        require(password.isNotBlank()) { "パスワードが空です" }
+        val session = rootSession.newIsolatedSession()
+        try {
+            session.get("WOpacEsSchCmpdDispAction.do")
+            val loginForm = session.get("OpacInitLoginAction.do", mapOf("subSystemFlag" to "0"))
+            requireNotMaintenance(loginForm)
+            session.post(
+                path = "j_security_check",
+                query = mapOf("subSystemFlag" to "0"),
+                form = FormBody.Builder()
+                    .add("j_username", "0".repeat(CARD_NUMBER_PREFIX_LENGTH) + cardNumber)
+                    .add("j_password", password)
+                    .build(),
+            )
+            val menu = session.get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
+            classifyLoginMenu(menu)
+            session.updateTokens(menu)
+            return LicsXpReservationSession(session)
+        } catch (exception: ParseException) {
+            throw LibraryError.Parse(exception.screen, exception.reason)
+        }
+    }
+
+    private fun classifyLoginMenu(html: String) {
+        val document = Jsoup.parse(html)
+        if (document.selectFirst("#stat-login") != null || document.select("a[href*=logout], [id*=logout], [class*=logout]").isNotEmpty()) return
+        if (isLoginForm(document)) throw LibraryError.Auth(null)
+        requireNotMaintenance(html)
+        throw ParseException("login", "ログイン後メニューを判定できません")
+    }
+}
+
+private class LicsXpReservationSession(private val session: LicsXpSession) : ReservationSession {
+    override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
+        require(tilcod.isNotBlank()) { "tilcodが空です" }
+        require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
+        val confirmHtml = session.get(
+            "WOpacEsTifDirectYoyDispAction.do",
+            mapOf("tilcod" to tilcod),
+        )
+        requireNotMaintenance(confirmHtml)
+        if (isLoginForm(Jsoup.parse(confirmHtml))) return DirectReservationAttempt.SessionExpiredBeforeSubmit
+        val confirmation = try {
+            DirectReservationConfirmParser.parse(confirmHtml, tilcod)
+        } catch (exception: ParseException) {
+            throw LibraryError.Parse(exception.screen, exception.reason)
+        }
+        if (pickupLibraryCode !in confirmation.pickupLibraryCodes) throw InvalidPickupLibraryException()
+        val form = FormBody.Builder().apply {
+            confirmation.hiddenFields.filterNot { (name, _) -> name in CONTROLLED_FORM_FIELDS }.forEach { (name, value) -> add(name, value) }
+            add("receivename", pickupLibraryCode)
+            add("contact", "4")
+            add("contactweb", "4")
+        }.build()
+        val response = try {
+            session.postExactlyOnce(
+                "WOpacEsTifDirectYoyExecAction.do",
+                mapOf("tilcod" to tilcod),
+                form,
+            )
+        } catch (_: LibraryError.Network) {
+            return DirectReservationAttempt.IndeterminateAfterPost
+        }
+        return when (DirectReservationResponseParser.parse(response)) {
+            DirectReservationResponseParser.Result.LoginAfterPost -> DirectReservationAttempt.IndeterminateAfterPost
+            DirectReservationResponseParser.Result.DuplicateDetected -> DirectReservationAttempt.DuplicateDetected
+            DirectReservationResponseParser.Result.IndeterminateAfterPost -> DirectReservationAttempt.IndeterminateAfterPost
+        }
+    }
+
+    override suspend fun fetchReservations(): List<Reservation> {
+        val menu = session.get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
+        requireNotMaintenance(menu)
+        if (isLoginForm(Jsoup.parse(menu))) throw LibraryError.Auth(null)
+        session.updateTokens(menu)
+        val tokens = session.requireTokens()
+        val html = session.post(
+            "WOpacMnuTopToPwdLibraryAction.do",
+            mapOf("gamen" to "usrrsv"),
+            FormBody.Builder().add("hash", tokens.hash).add("gamenid", tokens.gamenId).build(),
+        )
+        requireNotMaintenance(html)
+        try {
+            return ReservationListParser.parse(html)
+        } catch (exception: ParseException) {
+            throw LibraryError.Parse(exception.screen, exception.reason)
+        }
+    }
+
+    override fun close() = Unit
+}
+
+private fun isLoginForm(document: org.jsoup.nodes.Document): Boolean =
+    document.selectFirst("input[name=j_password], input[name=j_username], form[action*=j_security_check]") != null
+
+private fun requireNotMaintenance(html: String) {
+    if (MAINTENANCE_MARKERS.any(html::contains)) throw LibraryError.Maintenance()
+}
+
+private const val CARD_NUMBER_PREFIX_LENGTH = 16
+private val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")
+/** 設定とライブ確認で確定している12館。 */
+internal val PICKUP_LIBRARY_CODES = setOf("001", "002", "003", "004", "101", "102", "103", "104", "105", "106", "107", "109")
+private val CONTROLLED_FORM_FIELDS = setOf("receivename", "contact", "contactweb")

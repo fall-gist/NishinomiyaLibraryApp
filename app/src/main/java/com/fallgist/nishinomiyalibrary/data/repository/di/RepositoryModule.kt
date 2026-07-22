@@ -13,6 +13,9 @@ import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.SearchRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.ReadingRecordRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.StatusRepositoryImpl
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationCartRepositoryImpl
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpReservationGateway
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.data.sync.AndroidNotificationSink
 import com.fallgist.nishinomiyalibrary.data.sync.NotificationService
 import com.fallgist.nishinomiyalibrary.data.sync.NotificationSink
@@ -23,6 +26,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -63,6 +67,10 @@ abstract class RepositoryBindingModule {
 
     @Binds
     @Singleton
+    abstract fun bindReservationCartRepository(implementation: ReservationCartRepositoryImpl): ReservationCartRepository
+
+    @Binds
+    @Singleton
     abstract fun bindNotificationSink(implementation: AndroidNotificationSink): NotificationSink
 
     @Binds
@@ -79,9 +87,15 @@ object RepositoryProvisionModule {
 
     @Provides
     @Singleton
-    fun provideLibraryGateway(): LibraryGateway = LicsXpClient(
-        LicsXpSession(LicsXpSession.DEFAULT_BASE_URL.toHttpUrl()),
-    )
+    fun provideRootLicsXpSession(): LicsXpSession = LicsXpSession(LicsXpSession.DEFAULT_BASE_URL.toHttpUrl())
+
+    @Provides
+    @Singleton
+    fun provideLibraryGateway(session: LicsXpSession): LibraryGateway = LicsXpClient(session)
+
+    @Provides
+    @Singleton
+    fun provideReservationGateway(session: LicsXpSession): ReservationGateway = LicsXpReservationGateway(session)
 
     @Provides
     @Singleton

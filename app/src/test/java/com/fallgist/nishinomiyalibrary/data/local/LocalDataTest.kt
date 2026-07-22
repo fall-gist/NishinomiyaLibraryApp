@@ -11,6 +11,7 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.NewArrivalEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationCartItemEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingHistoryCheckpointEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingRecordEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity
@@ -41,6 +42,52 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class LocalDataTest {
+    @Test
+    fun `予約カートは重複を無視し追加順で公開しメンバー削除でCASCADEする`() = runBlocking {
+        val memberId = database.memberDao().insert(member(name = "カート利用者", sortOrder = 0))
+        val dao = database.reservationCartDao()
+        val second = dao.insertIgnoreDuplicate(ReservationCartItemEntity(memberId = memberId, tilcod = "2", title = "後", writerLine = "著者", addedAtEpochMillis = 20))
+        dao.insertIgnoreDuplicate(ReservationCartItemEntity(memberId = memberId, tilcod = "1", title = "先", writerLine = null, addedAtEpochMillis = 10))
+        assertEquals(-1L, dao.insertIgnoreDuplicate(ReservationCartItemEntity(memberId = memberId, tilcod = "2", title = "重複", writerLine = null, addedAtEpochMillis = 30)))
+        assertEquals(listOf("先", "後"), dao.observeAll().first().map { it.title })
+        database.deleteReservationCartItems(listOf(second))
+        assertEquals(listOf("先"), dao.observeAll().first().map { it.title })
+        database.deleteMemberAndLocalData(requireNotNull(database.memberDao().getById(memberId)))
+        assertTrue(dao.observeAll().first().isEmpty())
+    }
+
+    @Test
+    fun `v5からv6移行は予約カートと外部キー索引を作成する`() {
+        val databaseName = "migration-${UUID.randomUUID()}.db"
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context).name(databaseName)
+                .callback(object : SupportSQLiteOpenHelper.Callback(5) {
+                    override fun onCreate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        database.execSQL("CREATE TABLE members (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL)")
+                        database.execSQL("INSERT INTO members(id, name) VALUES (1, '利用者')")
+                    }
+                    override fun onUpgrade(database: androidx.sqlite.db.SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                }).build(),
+        )
+        try {
+            val sqlite = helper.writableDatabase
+            sqlite.execSQL("PRAGMA foreign_keys=ON")
+            DatabaseMigrations.MIGRATION_5_6.migrate(sqlite)
+            sqlite.execSQL("INSERT INTO reservation_cart_items(memberId, tilcod, title, writerLine, addedAtEpochMillis) VALUES (1, 'x', '本', NULL, 1)")
+            sqlite.query("SELECT tilcod FROM reservation_cart_items").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("x", cursor.getString(0))
+            }
+            sqlite.execSQL("DELETE FROM members WHERE id = 1")
+            sqlite.query("SELECT COUNT(*) FROM reservation_cart_items").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
     private lateinit var context: Context
     private lateinit var database: AppDatabase
 

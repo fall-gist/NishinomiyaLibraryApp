@@ -78,4 +78,19 @@ object DatabaseMigrations {
             database.execSQL("ALTER TABLE reservations ADD COLUMN tilcod TEXT NOT NULL DEFAULT ''")
         }
     }
+
+    /** v6でアプリ独自の予約カートを追加する。 */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS reservation_cart_items (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "memberId INTEGER NOT NULL, tilcod TEXT NOT NULL, title TEXT NOT NULL, " +
+                    "writerLine TEXT, addedAtEpochMillis INTEGER NOT NULL, " +
+                    "FOREIGN KEY(memberId) REFERENCES members(id) ON UPDATE NO ACTION ON DELETE CASCADE)",
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_reservation_cart_items_memberId ON reservation_cart_items(memberId)")
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_reservation_cart_items_memberId_tilcod ON reservation_cart_items(memberId, tilcod)")
+        }
+    }
 }
