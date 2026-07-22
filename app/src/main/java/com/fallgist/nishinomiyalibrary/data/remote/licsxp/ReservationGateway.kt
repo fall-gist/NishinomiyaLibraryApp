@@ -34,9 +34,19 @@ internal class InvalidPickupLibraryException : Exception()
 /** 確定POST後のHTMLが既知構造ではない。再送せず照合に委ねる。 */
 
 /** root session のスロットリングだけを共有し、Cookieはメンバーごとに隔離する。 */
-class LicsXpReservationGateway(
+class LicsXpReservationGateway private constructor(
     private val rootSession: LicsXpSession,
+    private val sequenceHooks: ReservationSequenceHooks,
 ) : ReservationGateway {
+    constructor(rootSession: LicsXpSession) : this(rootSession, ReservationSequenceHooks())
+
+    companion object {
+        internal fun forTesting(
+            rootSession: LicsXpSession,
+            sequenceHooks: ReservationSequenceHooks,
+        ): LicsXpReservationGateway = LicsXpReservationGateway(rootSession, sequenceHooks)
+    }
+
     override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession {
         require(cardNumber.isNotBlank()) { "カード番号が空です" }
         require(password.isNotBlank()) { "パスワードが空です" }
@@ -56,7 +66,7 @@ class LicsXpReservationGateway(
             val menu = session.get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
             classifyLoginMenu(menu)
             session.updateTokens(menu)
-            return LicsXpReservationSession(session)
+            return LicsXpReservationSession(session, sequenceHooks)
         } catch (exception: ParseException) {
             throw LibraryError.Parse(exception.screen, exception.reason)
         }
@@ -71,41 +81,47 @@ class LicsXpReservationGateway(
     }
 }
 
-private class LicsXpReservationSession(private val session: LicsXpSession) : ReservationSession {
+private class LicsXpReservationSession(
+    private val session: LicsXpSession,
+    private val sequenceHooks: ReservationSequenceHooks,
+) : ReservationSession {
     override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
         require(tilcod.isNotBlank()) { "tilcodが空です" }
         require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
-        val confirmHtml = session.get(
-            "WOpacEsTifDirectYoyDispAction.do",
-            mapOf("tilcod" to tilcod),
-        )
-        requireNotMaintenance(confirmHtml)
-        if (isLoginForm(Jsoup.parse(confirmHtml))) return DirectReservationAttempt.SessionExpiredBeforeSubmit
-        val confirmation = try {
-            DirectReservationConfirmParser.parse(confirmHtml, tilcod)
-        } catch (exception: ParseException) {
-            throw LibraryError.Parse(exception.screen, exception.reason)
-        }
-        if (pickupLibraryCode !in confirmation.pickupLibraryCodes) throw InvalidPickupLibraryException()
-        val form = FormBody.Builder().apply {
-            confirmation.hiddenFields.filterNot { (name, _) -> name in CONTROLLED_FORM_FIELDS }.forEach { (name, value) -> add(name, value) }
-            add("receivename", pickupLibraryCode)
-            add("contact", "4")
-            add("contactweb", "4")
-        }.build()
-        val response = try {
-            session.postExactlyOnce(
-                "WOpacEsTifDirectYoyExecAction.do",
+        return session.withExclusiveRequestSequence {
+            val confirmHtml = get(
+                "WOpacEsTifDirectYoyDispAction.do",
                 mapOf("tilcod" to tilcod),
-                form,
             )
-        } catch (_: LibraryError.Network) {
-            return DirectReservationAttempt.IndeterminateAfterPost
-        }
-        return when (DirectReservationResponseParser.parse(response)) {
-            DirectReservationResponseParser.Result.LoginAfterPost -> DirectReservationAttempt.IndeterminateAfterPost
-            DirectReservationResponseParser.Result.DuplicateDetected -> DirectReservationAttempt.DuplicateDetected
-            DirectReservationResponseParser.Result.IndeterminateAfterPost -> DirectReservationAttempt.IndeterminateAfterPost
+            sequenceHooks.afterConfirmFetched()
+            requireNotMaintenance(confirmHtml)
+            if (isLoginForm(Jsoup.parse(confirmHtml))) return@withExclusiveRequestSequence DirectReservationAttempt.SessionExpiredBeforeSubmit
+            val confirmation = try {
+                DirectReservationConfirmParser.parse(confirmHtml, tilcod)
+            } catch (exception: ParseException) {
+                throw LibraryError.Parse(exception.screen, exception.reason)
+            }
+            if (pickupLibraryCode !in confirmation.pickupLibraryCodes) throw InvalidPickupLibraryException()
+            val form = FormBody.Builder().apply {
+                confirmation.hiddenFields.filterNot { (name, _) -> name in CONTROLLED_FORM_FIELDS }.forEach { (name, value) -> add(name, value) }
+                add("receivename", pickupLibraryCode)
+                add("contact", "4")
+                add("contactweb", "4")
+            }.build()
+            val response = try {
+                postExactlyOnce(
+                    "WOpacEsTifDirectYoyExecAction.do",
+                    mapOf("tilcod" to tilcod),
+                    form,
+                )
+            } catch (_: LibraryError.Network) {
+                return@withExclusiveRequestSequence DirectReservationAttempt.IndeterminateAfterPost
+            }
+            when (DirectReservationResponseParser.parse(response)) {
+                DirectReservationResponseParser.Result.LoginAfterPost -> DirectReservationAttempt.IndeterminateAfterPost
+                DirectReservationResponseParser.Result.DuplicateDetected -> DirectReservationAttempt.DuplicateDetected
+                DirectReservationResponseParser.Result.IndeterminateAfterPost -> DirectReservationAttempt.IndeterminateAfterPost
+            }
         }
     }
 
@@ -130,6 +146,11 @@ private class LicsXpReservationSession(private val session: LicsXpSession) : Res
 
     override fun close() = Unit
 }
+
+/** 競合試験で確認GET直後の状態を再現するための内部フック。 */
+internal data class ReservationSequenceHooks(
+    val afterConfirmFetched: suspend () -> Unit = {},
+)
 
 private fun isLoginForm(document: org.jsoup.nodes.Document): Boolean =
     document.selectFirst("input[name=j_password], input[name=j_username], form[action*=j_security_check]") != null

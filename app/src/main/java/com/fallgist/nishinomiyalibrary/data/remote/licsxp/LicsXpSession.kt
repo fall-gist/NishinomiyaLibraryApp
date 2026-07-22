@@ -108,6 +108,43 @@ class LicsXpSession private constructor(
         throw LibraryError.Network(exception)
     }
 
+    /**
+     * 確認画面の取得から確定送信までのように、途中へ別セッションの通信を入れてはいけない
+     * 要求列を実行する。各要求の開始間隔は通常どおり 500ms 以上に保つ。
+     */
+    internal suspend fun <T> withExclusiveRequestSequence(
+        block: suspend ExclusiveRequestSequence.() -> T,
+    ): T = rateLimiter.withExclusiveSequence {
+        ExclusiveRequestSequence().block()
+    }
+
+    internal inner class ExclusiveRequestSequence internal constructor() {
+        suspend fun get(
+            path: String,
+            query: Map<String, String> = emptyMap(),
+        ): String = executeInExclusiveSequence(
+            Request.Builder()
+                .url(endpointUrl(path, query))
+                .get()
+                .build(),
+            client,
+            retryOnIOException = true,
+        )
+
+        suspend fun postExactlyOnce(
+            path: String,
+            query: Map<String, String> = emptyMap(),
+            form: FormBody,
+        ): String = executeInExclusiveSequence(
+            Request.Builder()
+                .url(endpointUrl(path, query))
+                .post(form)
+                .build(),
+            noRetryClient,
+            retryOnIOException = false,
+        )
+    }
+
     internal fun updateTokens(html: String): PageTokens = HashExtractor.extract(html).also { tokens ->
         lastPageTokens = tokens
     }
@@ -163,6 +200,32 @@ class LicsXpSession private constructor(
         }
     }
 
+    private suspend fun executeInExclusiveSequence(
+        request: Request,
+        requestClient: OkHttpClient,
+        retryOnIOException: Boolean,
+    ): String {
+        var latestIOException: IOException? = null
+        val attempts = if (retryOnIOException) MAX_NETWORK_ATTEMPTS else 1
+        repeat(attempts) {
+            try {
+                return withContext(Dispatchers.IO) {
+                    rateLimiter.executeWhileExclusive {
+                        requestClient.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) throw HttpFailure(response)
+                            response.body?.string().orEmpty()
+                        }
+                    }
+                }
+            } catch (exception: IOException) {
+                latestIOException = exception
+            } catch (exception: HttpFailure) {
+                throw LibraryError.Network(exception)
+            }
+        }
+        throw LibraryError.Network(requireNotNull(latestIOException))
+    }
+
     private class HttpFailure(response: Response) : Exception() {
         val statusCode: Int = response.code
     }
@@ -177,12 +240,20 @@ private class RequestRateLimiter(
     private var lastRequestStartedAtMillis: Long? = null
 
     suspend fun <T> executeWhenAllowed(block: () -> T): T = mutex.withLock {
+        executeWithRateLimit(block)
+    }
+
+    suspend fun <T> withExclusiveSequence(block: suspend () -> T): T = mutex.withLock { block() }
+
+    suspend fun <T> executeWhileExclusive(block: () -> T): T = executeWithRateLimit(block)
+
+    private suspend fun <T> executeWithRateLimit(block: () -> T): T {
         lastRequestStartedAtMillis?.let { previousStart ->
             val remaining = MINIMUM_REQUEST_INTERVAL_MILLIS - (nowMillis() - previousStart)
             if (remaining > 0) waitForRequestSlot(remaining)
         }
         lastRequestStartedAtMillis = nowMillis()
-        block()
+        return block()
     }
 }
 
