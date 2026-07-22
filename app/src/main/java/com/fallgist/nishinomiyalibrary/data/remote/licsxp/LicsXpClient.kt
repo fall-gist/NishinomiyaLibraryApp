@@ -3,6 +3,7 @@ package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookDetailParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.CalendarParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoanListParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoginFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.NewArrivalListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.NewArrivalMenuParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
@@ -164,10 +165,7 @@ class LicsXpClient(
         userSession.post(
             path = "j_security_check",
             query = mapOf("subSystemFlag" to "0"),
-            form = FormBody.Builder()
-                .add("j_username", "0".repeat(CARD_NUMBER_PREFIX_LENGTH) + cardNumber)
-                .add("j_password", password)
-                .build(),
+            form = LoginFormParser.parse(loginForm).buildForm(cardNumber, password),
         )
 
         val menu = userSession.get(
@@ -368,7 +366,6 @@ class LicsXpClient(
     }
 
     private companion object {
-        const val CARD_NUMBER_PREFIX_LENGTH = 16
         const val SEARCH_PAGE_SIZE = 20
         const val USR_READ_PAGE_SIZE = 100
         val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")

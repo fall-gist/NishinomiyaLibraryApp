@@ -3,10 +3,153 @@ package com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ParsersTest {
+    @Test
+    fun `通常書誌詳細LBFormのsuccessful controlsをDOM順で予約表示へ送る`() {
+        val form = BookDetailReservationFormParser.parse(fixture("book_detail.html"), "1000000961766").buildForm()
+        val fields = (0 until form.size).map { index -> form.name(index) to form.value(index) }
+
+        assertEquals(
+            listOf("islogin", "gamentilcod", "prevORnext", "preNextTilcod", "hash"),
+            fields.take(5).map { it.first },
+        )
+        assertTrue(fields.contains("gamenid" to "tiles.WTifTilDetail"))
+        assertTrue(fields.contains("tilcod" to "1000000961766"))
+        assertFalse(fields.any { it.first == "yoyb" || it.first == "addlistbnt" })
+    }
+
+    @Test
+    fun `通常書誌詳細LBFormの期待hiddenは型重複disabledでfail-closedにする`() {
+        val valid = fixture("book_detail.html")
+        assertParseError("reservation-detail") {
+            BookDetailReservationFormParser.parse(
+                valid.replace("type=\"hidden\" name=\"gamenid\"", "type=\"text\" name=\"gamenid\""),
+                "1000000961766",
+            )
+        }
+        assertParseError("reservation-detail") {
+            BookDetailReservationFormParser.parse(
+                valid.replace("</form>", "<input type=\"hidden\" name=\"tilcod\" value=\"1000000961766\" /></form>"),
+                "1000000961766",
+            )
+        }
+        assertParseError("reservation-detail") {
+            BookDetailReservationFormParser.parse(
+                valid.replace("name=\"kensakuFlg\"", "name=\"kensakuFlg\" disabled"),
+                "1000000961766",
+            )
+        }
+    }
+
+    @Test
+    fun `ログインフォームのsuccessful controlsをDOM順で構築する`() {
+        val form = LoginFormParser.parse(fixture("login_form.html")).buildForm("1234", "password")
+
+        assertEquals(
+            listOf(
+                "hash" to "",
+                "gamenid" to "tiles.WMnuTop",
+                "username" to "1234",
+                "j_username" to "00000000000000001234",
+                "h_username" to "",
+                "j_password" to "password",
+            ),
+            (0 until form.size).map { index -> form.name(index) to form.value(index) },
+        )
+    }
+
+    @Test
+    fun `ログインフォームの重複制御項目は一度だけ送る`() {
+        val duplicated = fixture("login_form.html").replace(
+            "<input type=\"hidden\" name=\"j_username\">",
+            "<input type=\"hidden\" name=\"j_username\"><input type=\"hidden\" name=\"j_username\" value=\"old\">",
+        )
+        val form = LoginFormParser.parse(duplicated).buildForm("1234", "password")
+
+        assertEquals(1, (0 until form.size).count { form.name(it) == "j_username" })
+        assertEquals("00000000000000001234", form.value((0 until form.size).first { form.name(it) == "j_username" }))
+    }
+
+    @Test
+    fun `ログインフォームはunknown hiddenだけを送り無名disabledbuttonを除外する`() {
+        val html = """
+            <form>
+              <input type="hidden" name="hash" value="" />
+              <input name="username" value="old" />
+              <input type="hidden" name="j_username" value="old" />
+              <input type="password" name="j_password" value="old" />
+              <input type="hidden" name="siteHidden" value="keep" />
+              <input type="text" name="unknownText" value="drop" />
+              <input type="hidden" name="disabledHidden" value="drop" disabled />
+              <input type="button" name="button" value="drop" />
+              <input type="hidden" value="drop" />
+            </form>
+        """.trimIndent()
+        val form = LoginFormParser.parse(html).buildForm("1234", "password")
+
+        assertEquals(
+            listOf(
+                "hash" to "",
+                "username" to "1234",
+                "j_username" to "00000000000000001234",
+                "j_password" to "password",
+                "siteHidden" to "keep",
+            ),
+            (0 until form.size).map { index -> form.name(index) to form.value(index) },
+        )
+    }
+
+    @Test
+    fun `ログインフォームの欠落と複数候補はParseExceptionになる`() {
+        assertParseError("login") {
+            LoginFormParser.parse("<form><input name='username'><input name='j_username'></form>")
+        }
+        assertParseError("login") {
+            val valid = "<form><input name='username'><input name='j_username'><input name='j_password'></form>"
+            LoginFormParser.parse(valid + valid)
+        }
+    }
+
+    @Test
+    fun `ログイン制御項目は実フォームの型以外を採用しない`() {
+        listOf("button", "submit", "reset", "image", "file", "checkbox", "radio").forEach { type ->
+            assertParseError("login") {
+                LoginFormParser.parse(loginFormWith(usernameType = type))
+            }
+        }
+        assertParseError("login") {
+            LoginFormParser.parse(loginFormWith(jUsernameType = "text"))
+        }
+        assertParseError("login") {
+            LoginFormParser.parse(loginFormWith(passwordType = "hidden"))
+        }
+    }
+
+    @Test
+    fun `ログイン例外は認証値を含まない`() {
+        val password = "password-secret"
+        val error = try {
+            LoginFormParser.parse("<form><input name='username' value='card-secret'><input name='j_username'></form>")
+            throw AssertionError("ParseException が送出されませんでした")
+        } catch (exception: ParseException) {
+            exception
+        }
+        assertFalse(error.message.orEmpty().contains("card-secret"))
+
+        val form = LoginFormParser.parse(fixture("login_form.html"))
+        val buildError = try {
+            form.buildForm("", password)
+            throw AssertionError("IllegalArgumentException が送出されませんでした")
+        } catch (exception: IllegalArgumentException) {
+            exception
+        }
+        assertFalse(buildError.message.orEmpty().contains(password))
+    }
+
     @Test
     fun `予約確認画面のhiddenと12館を保持する`() {
         val parsed = DirectReservationConfirmParser.parse(fixture("reservation_confirm.html"), "1000000000001")
@@ -21,7 +164,7 @@ class ParsersTest {
         val parsed = DirectReservationConfirmParser.parse(fixture("reservation_confirm_js_action.html"), "1000000000001")
 
         assertEquals("confirm-hash", parsed.hiddenFields.toMap()["hash"])
-        assertEquals("keep-me", parsed.hiddenFields.toMap()["siteIssued"])
+        assertEquals("0", parsed.hiddenFields.toMap()["contactFocus"])
         assertEquals(setOf("001", "106"), parsed.pickupLibraryCodes)
     }
 
@@ -33,7 +176,7 @@ class ParsersTest {
     @Test
     fun `予約確認フォームは先行する別formを選ばず重複候補を拒否する`() = assertParseError("reservation-confirm") {
         val valid = fixture("reservation_confirm.html")
-        val other = "<form action='x'><input name='gamenid' value='tiles.WEsYoyConfirm'><input name='tilcod' value='1000000000001'></form>"
+        val other = "<form action='x'><input name='gamenid' value='tiles.WYoyConfirm'><input name='tilcod' value='1000000000001'></form>"
         DirectReservationConfirmParser.parse(other + valid + valid, "1000000000001")
     }
 
@@ -68,6 +211,23 @@ class ParsersTest {
             DirectReservationResponseParser.Result.IndeterminateAfterPost,
             DirectReservationResponseParser.parse("<tr data-tilcod='999'><button disabled>予約済み</button></tr>"),
         )
+    }
+
+    @Test
+    fun `予約確認フォームの制御項目は正しい型で一意に必要になる`() {
+        val valid = fixture("reservation_confirm.html")
+        assertParseError("reservation-confirm") {
+            DirectReservationConfirmParser.parse(
+                valid.replace("<select name=\"contact\">", "<input type=\"hidden\" name=\"contact\" value=\"4\" />"),
+                "1000000000001",
+            )
+        }
+        assertParseError("reservation-confirm") {
+            DirectReservationConfirmParser.parse(
+                valid.replace("</form>", "<select name=\"contact\"><option value=\"4\">Email</option></select></form>"),
+                "1000000000001",
+            )
+        }
     }
 
     @Test
@@ -393,6 +553,18 @@ class ParsersTest {
 
     private fun fixture(name: String): String =
         requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
+
+    private fun loginFormWith(
+        usernameType: String = "text",
+        jUsernameType: String = "hidden",
+        passwordType: String = "password",
+    ): String = """
+        <form>
+          <input type="$usernameType" name="username" />
+          <input type="$jUsernameType" name="j_username" />
+          <input type="$passwordType" name="j_password" />
+        </form>
+    """.trimIndent()
 
     private fun assertParseError(screen: String, block: () -> Unit) {
         val error = try {

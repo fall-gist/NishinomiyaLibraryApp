@@ -141,8 +141,8 @@
 ## 6. 直接予約(2026-07-22ライブ検証済み)
 
 > 2026-07-22追記: 確認画面の`LBForm`は`action`を持たず、ボタンのJavaScriptが
-> `WOpacEsTifDirectYoyExecAction.do`を設定する場合がある。確認フォームは固定`action`ではなく、
-> `gamenid=tiles.WEsYoyConfirm`・`tilcod`・`contactweb=4`のhidden値と`receivename`のselectで
+> `WOpacTifDirectYoyExecAction.do`を設定する。確認フォームは固定`action`ではなく、
+> `gamenid=tiles.WYoyConfirm`・`tilcod`・`contactweb=4`のhidden値と`receivename`のselectで
 > 一意に特定する。実機での再予約成立は未検証。
 >
 > 2026-07-22の追加ライブ検証では、同じ確認フォームでも時間を空けて確定するとログイン画面へ戻り
@@ -162,9 +162,10 @@
 | 状態/操作 | 経路・項目 |
 |---|---|
 | ログアウト状態の直接予約導線 | `OpacInitLoginAction.do?...yoycartflg=WYoyConfirm&tilcod=...` |
-| ログイン済みの直接予約確認 | `GET WOpacEsTifDirectYoyDispAction.do?tilcod=...` |
-| 予約確定 | `POST WOpacEsTifDirectYoyExecAction.do?tilcod=...` |
-| 確認フォームhidden | `gamenid=tiles.WEsYoyConfirm`、`tilcod` |
+| 通常書誌詳細 | `GET WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=...` |
+| ログイン済みの予約確認表示 | 詳細LBFormを`POST WOpacTifDirectYoyDispAction.do?tilcod=...`へ送信 |
+| 予約確定 | `POST WOpacTifDirectYoyExecAction.do?tilcod=...` |
+| 確認フォームhidden | `gamenid=tiles.WYoyConfirm`、`tilcod` |
 | 受取館 | select名=`receivename` |
 | 連絡方法 | select名=`contact`。Email値=`4`、連絡不要値=`9`。hidden `contactweb=4` |
 
@@ -203,6 +204,26 @@
   `OpacLoginAction.do`のログインフォームを返し、予約は成立しなかった。そのため、
   実装は`login → confirm GET → fields抽出 → exec POST`をUI待機なしで同一セッション内に
   連続実行する
+- ライブ診断では、確認GETの直後の確定POSTが200であっても、本文が詳細検索フォーム
+  (`gamenid=tiles.WEsSchCmpd`、`condition1Text`)となり、予約後一覧で対象`tilcod`が確認できない
+  事象を確認した。確認フォームの項目名・値はブラウザ実測と一致していた。確認GETの完全URLを
+  同一originの`Referer`、サイトoriginを`Origin`として確定POSTへ付与して再検証したが、単独では
+  解消しなかった。このヘッダはブラウザ等価性のため維持する
+- 次の有力仮説はログインPOSTのsuccessful controls不足である。ブラウザのログインフォームには
+  `hash`、`gamenid=tiles.WMnuTop`、`username`、`j_username`、`h_username`、`j_password`があり、
+  これまでは後者2項目だけを送っていた。ログインフォームからhidden項目をDOM順で抽出し、
+  `username`・`j_username`・`j_password`を制御上書きした全項目を送る
+- 予約確定ボタンの`onclick=exec(tilcod)`は、送信抑止フラグをfalseにして`LBForm.action`を設定し
+  `submit()`するだけで、hiddenやselectの値を変更しないことを確認した。確定POSTは確認フォームの
+  successful controlsをDOM順で送る必要がある。特に`contactweb`はフォーム中間位置にあるため、
+  末尾追加ではなく元位置でEmail値`4`に上書きする
+- 実サイト確認で、検索結果用の`EsTif`直接予約導線は検索セッション状態を前提とし、アプリ独自
+  カートの通常書誌コンテキストからは予約確認へ遷移できないことが分かった。通常書誌詳細を開き、
+  `imasuguyoyk`と同様に詳細LBFormのsuccessful controlsをDOM順で
+  `WOpacTifDirectYoyDispAction.do`へPOSTしてから、`tiles.WYoyConfirm`の確認フォームを確定する
+- 診断画面分類は、ページ内の共通JavaScript文字列に依存しない。予約確認は同一`form`に
+  `gamenid=tiles.WYoyConfirm`、`tilcod`、`select[name=receivename]`が揃う場合だけと判定する。
+  詳細検索フォームは`tiles.WEsSchCmpd`または`condition1Text`で`search-form`と判定する
 - POST後の通信断など成否不明時は、POSTを再送してはならない。メンバーごとに予約一覧を
   1回取得して`tilcod`を照合し、`Success` / `AlreadyReserved` / `Unknown`を確定する
 - 明確に確定POST前のセッション切れだけは、新しいセッションで1回だけ再試行できる

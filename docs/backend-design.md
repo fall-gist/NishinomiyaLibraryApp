@@ -558,13 +558,13 @@ Cookieを共有・永続化しない。`close()`は例外時も`finally`で必�
 
 1. ログアウト状態では`OpacInitLoginAction.do?...yoycartflg=WYoyConfirm&tilcod={tilcod}`が
    直接予約導線のログイン画面である。ログイン済みセッションでは
-   `GET WOpacEsTifDirectYoyDispAction.do?tilcod={tilcod}`で確認画面を開く
-2. `DirectReservationConfirmParser`は確認フォームから`gamenid=tiles.WEsYoyConfirm`、`tilcod`、
+   通常書誌詳細を開き、LBFormを`POST WOpacTifDirectYoyDispAction.do?tilcod={tilcod}`して確認画面を開く
+2. `DirectReservationConfirmParser`は確認フォームから`gamenid=tiles.WYoyConfirm`、`tilcod`、
    `receivename`の選択肢、`contactweb=4`を抽出する。フォームに存在する`hash`等のhidden値は
    そのまま同送し、実装側で任意のhidden値を作らない
 3. 選択した受取館コードが`receivename`の選択肢に存在しなければ、POSTせず
    `Failure(INVALID_PICKUP_LIBRARY)`にする。設定の既定館であっても暗黙に別コードへ置換しない
-4. `POST WOpacEsTifDirectYoyExecAction.do?tilcod={tilcod}`へ、確認画面から得た必須hidden値、
+4. `POST WOpacTifDirectYoyExecAction.do?tilcod={tilcod}`へ、確認画面から得た必須hidden値、
    `receivename={選択コード}`、`contact=4`、`contactweb=4`を同一セッションで送る。連絡方法は
    Email固定であり、UI・ドメインモデルに選択肢を増やさない。このPOSTは自動ネットワーク
    リトライを無効化した予約専用primitiveで厳密に1回だけ送信し、現行`LicsXpSession.post()`の

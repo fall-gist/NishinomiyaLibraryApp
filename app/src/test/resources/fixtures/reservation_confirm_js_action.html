@@ -1,21 +1,28 @@
 <!doctype html>
 <html><body>
-<form name="searchForm" action="WOpacEsTifDirectYoyExecAction.do">
-  <input type="hidden" name="gamenid" value="tiles.WEsYoyConfirm" />
+<form name="searchForm" action="WOpacTifDirectYoyExecAction.do">
+  <input type="hidden" name="gamenid" value="tiles.WYoyConfirm" />
   <input type="hidden" name="tilcod" value="9999999999999" />
   <input type="hidden" name="contactweb" value="4" />
   <select name="receivename"><option value="001">おとり館</option></select>
 </form>
 <form name="LBForm" method="post">
+  <input type="hidden" name="gamenFlag" value="" />
   <input type="hidden" name="hash" value="confirm-hash" />
-  <input type="hidden" name="gamenid" value="tiles.WEsYoyConfirm" />
+  <input type="hidden" name="returnid" value="" />
+  <input type="hidden" name="gamenid" value="tiles.WYoyConfirm" />
   <input type="hidden" name="tilcod" value="1000000000001" />
+  <input type="hidden" name="loginshuflag" value="" />
+  <input type="hidden" name="returnValue" value="" />
   <input type="hidden" name="contactweb" value="4" />
-  <input type="hidden" name="siteIssued" value="keep-me" />
+  <input type="hidden" name="receivenameFocus" value="0" />
+  <input type="hidden" name="watsptcodFocus" value="0" />
+  <input type="hidden" name="contactFocus" value="0" />
   <select name="receivename">
     <option value="106">高須分室</option>
     <option value="001">中央図書館</option>
   </select>
-  <button type="button" onclick="document.LBForm.action='WOpacEsTifDirectYoyExecAction.do?tilcod=1000000000001'; document.LBForm.submit();">予約する</button>
+  <select name="contact"><option value="4" selected>Email</option></select>
+  <button type="button" onclick="document.LBForm.action='WOpacTifDirectYoyExecAction.do?tilcod=1000000000001'; document.LBForm.submit();">予約する</button>
 </form>
 </body></html>

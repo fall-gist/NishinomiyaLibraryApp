@@ -17,6 +17,7 @@ import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -39,6 +40,7 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("login_form.html")))
         server.enqueue(page("<html>中継</html>"))
         server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(reservationDetailFixture()))
         server.enqueue(page(fixture("reservation_confirm_js_action.html")))
         server.enqueue(page("<html><div id='stat-login'></div></html>"))
         server.enqueue(page(fixture("menu.html")))
@@ -50,21 +52,59 @@ class ReservationGatewayTest {
         assertTrue(session.fetchReservations().isNotEmpty())
         session.close()
 
-        val requests = List(8) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        val requests = List(9) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals("/WOpacEsSchCmpdDispAction.do", requests[0].path)
         assertEquals("/OpacInitLoginAction.do?subSystemFlag=0", requests[1].path)
         assertEquals("/j_security_check?subSystemFlag=0", requests[2].path)
-        assertTrue(requests[2].body.readUtf8().contains("j_username=00000000000000001234"))
-        assertEquals("/WOpacEsTifDirectYoyDispAction.do?tilcod=1000000000001", requests[4].path)
-        assertEquals("/WOpacEsTifDirectYoyExecAction.do?tilcod=1000000000001", requests[5].path)
-        assertEquals(1, requests.count { it.path?.startsWith("/WOpacEsTifDirectYoyExecAction.do") == true })
-        val body = requests[5].body.readUtf8()
-        val fields = decodeForm(body)
-        assertEquals(listOf("106"), fields["receivename"])
-        assertEquals(listOf("4"), fields["contact"])
-        assertEquals(listOf("4"), fields["contactweb"])
-        assertEquals(listOf("keep-me"), fields["siteIssued"])
-        assertNotNull(requests[5].getHeader("User-Agent"))
+        assertEquals(
+            listOf(
+                "hash" to "",
+                "gamenid" to "tiles.WMnuTop",
+                "username" to "1234",
+                "j_username" to "00000000000000001234",
+                "h_username" to "",
+                "j_password" to "secret",
+            ),
+            decodeFormFields(requests[2].body.readUtf8()),
+        )
+        assertEquals("/WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001", requests[4].path)
+        assertEquals("GET", requests[4].method)
+        assertEquals("/WOpacTifDirectYoyDispAction.do?tilcod=1000000000001", requests[5].path)
+        assertEquals("POST", requests[5].method)
+        assertEquals("tiles.WTifTilDetail", decodeForm(requests[5].body.readUtf8())["gamenid"]?.single())
+        assertEquals(server.url("/WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001").toString(), requests[5].getHeader("Referer"))
+        assertEquals("${server.url("/").scheme}://${server.url("/").host}:${server.url("/").port}", requests[5].getHeader("Origin"))
+        assertEquals("/WOpacTifDirectYoyExecAction.do?tilcod=1000000000001", requests[6].path)
+        assertEquals(1, requests.count { it.path?.startsWith("/WOpacTifDirectYoyExecAction.do") == true })
+        assertTrue(requests.none { it.path?.contains("EsTif") == true })
+        assertEquals(server.url("/WOpacTifDirectYoyDispAction.do?tilcod=1000000000001").toString(), requests[6].getHeader("Referer"))
+        assertEquals("${server.url("/").scheme}://${server.url("/").host}:${server.url("/").port}", requests[6].getHeader("Origin"))
+        assertNull(requests[2].getHeader("Referer"))
+        assertNull(requests[2].getHeader("Origin"))
+        assertNull(requests[4].getHeader("Referer"))
+        assertNull(requests[4].getHeader("Origin"))
+        assertNull(requests[8].getHeader("Referer"))
+        assertNull(requests[8].getHeader("Origin"))
+        val body = requests[6].body.readUtf8()
+        assertEquals(
+            listOf(
+                "gamenFlag" to "",
+                "hash" to "confirm-hash",
+                "returnid" to "",
+                "gamenid" to "tiles.WYoyConfirm",
+                "tilcod" to "1000000000001",
+                "loginshuflag" to "",
+                "returnValue" to "",
+                "contactweb" to "4",
+                "receivenameFocus" to "0",
+                "watsptcodFocus" to "0",
+                "contactFocus" to "0",
+                "receivename" to "106",
+                "contact" to "4",
+            ),
+            decodeFormFields(body),
+        )
+        assertNotNull(requests[6].getHeader("User-Agent"))
     }
 
     @Test
@@ -73,6 +113,7 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("login_form.html")))
         server.enqueue(page("<html>中継</html>"))
         server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(reservationDetailFixture()))
         server.enqueue(page(fixture("reservation_confirm.html").replace("<option value=\"106\">高須分室</option>", "")))
         val root = LicsXpSession(server.url("/"), waitForRequestSlot = {})
         val session = LicsXpReservationGateway(root).openAuthenticatedSession("1234", "secret")
@@ -83,6 +124,24 @@ class ReservationGatewayTest {
             exception
         }
         assertNotNull(error)
+        assertEquals(6, server.requestCount)
+    }
+
+    @Test
+    fun `通常書誌詳細がログインフォームなら表示と確定POSTを送らない`() = runBlocking {
+        server.enqueue(page("<html>温め</html>"))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("login_form.html")))
+        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+
+        assertEquals(DirectReservationAttempt.SessionExpiredBeforeSubmit, session.directReserve("1000000000001", "106"))
+
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals("/WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001", requests.last().path)
+        assertTrue(requests.none { it.path?.contains("WOpacTifDirectYoy") == true })
         assertEquals(5, server.requestCount)
     }
 
@@ -92,13 +151,14 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("login_form.html")))
         server.enqueue(page("<html>中継</html>"))
         server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(reservationDetailFixture()))
         server.enqueue(page(fixture("reservation_confirm.html")))
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
         val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
             .openAuthenticatedSession("1234", "secret")
 
         assertEquals(DirectReservationAttempt.IndeterminateAfterPost, session.directReserve("1000000000001", "106"))
-        assertEquals(6, server.requestCount)
+        assertEquals(7, server.requestCount)
     }
 
     @Test
@@ -107,24 +167,26 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("login_form.html")))
         server.enqueue(page("<html>中継</html>"))
         server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(reservationDetailFixture()))
         server.enqueue(page(fixture("reservation_confirm.html")))
         server.enqueue(page(fixture("login_form.html")))
         val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
             .openAuthenticatedSession("1234", "secret")
 
         assertEquals(DirectReservationAttempt.IndeterminateAfterPost, session.directReserve("1000000000001", "106"))
-        assertEquals(6, server.requestCount)
+        assertEquals(7, server.requestCount)
     }
 
     @Test
     fun `hash無し確認フォームでもサーバー発行hiddenを保持して確定できる`() = runBlocking {
         server.enqueue(page("<html>温め</html>")); server.enqueue(page(fixture("login_form.html")))
         server.enqueue(page("<html>中継</html>")); server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(reservationDetailFixture()))
         server.enqueue(page(fixture("reservation_confirm.html").replace("<input type=\"hidden\" name=\"hash\" value=\"confirm-hash\" />", "")))
         server.enqueue(page("<div id='stat-login'></div>"))
         val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {})).openAuthenticatedSession("1", "p")
         assertEquals(DirectReservationAttempt.IndeterminateAfterPost, session.directReserve("1000000000001", "106"))
-        repeat(5) { server.takeRequest() }
+        repeat(6) { server.takeRequest() }
         val fields = decodeForm(requireNotNull(server.takeRequest()).body.readUtf8())
         assertEquals(listOf("keep-me"), fields["siteIssued"])
     }
@@ -137,8 +199,9 @@ class ReservationGatewayTest {
                 "/OpacInitLoginAction.do" -> page(fixture("login_form.html"))
                 "/j_security_check" -> page("<html>login relay</html>")
                 "/WOpacMnuTopInitAction.do" -> page(fixture("menu.html"))
-                "/WOpacEsTifDirectYoyDispAction.do" -> page(fixture("reservation_confirm_js_action.html"))
-                "/WOpacEsTifDirectYoyExecAction.do" -> page("<html><div id='stat-login'></div></html>")
+                "/WOpacTifTilListToTifTilDetailAction.do" -> page(reservationDetailFixture())
+                "/WOpacTifDirectYoyDispAction.do" -> page(fixture("reservation_confirm_js_action.html"))
+                "/WOpacTifDirectYoyExecAction.do" -> page("<html><div id='stat-login'></div></html>")
                 "/background" -> page("background")
                 else -> MockResponse().setResponseCode(404)
             }
@@ -179,16 +242,17 @@ class ReservationGatewayTest {
         backgroundStarted.await()
         yield()
 
-        assertEquals(5, server.requestCount)
+        assertEquals(6, server.requestCount)
         allowConfirmProcessing.complete(Unit)
         assertEquals(DirectReservationAttempt.IndeterminateAfterPost, reservation.await())
         assertEquals("background", background.await())
 
-        val requests = List(7) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
-        assertEquals("/WOpacEsTifDirectYoyDispAction.do?tilcod=1000000000001", requests[4].path)
-        assertEquals("/WOpacEsTifDirectYoyExecAction.do?tilcod=1000000000001", requests[5].path)
-        assertEquals("/background", requests[6].path)
-        assertEquals(1, requests.count { it.path?.startsWith("/WOpacEsTifDirectYoyExecAction.do") == true })
+        val requests = List(8) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals("/WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001", requests[4].path)
+        assertEquals("/WOpacTifDirectYoyDispAction.do?tilcod=1000000000001", requests[5].path)
+        assertEquals("/WOpacTifDirectYoyExecAction.do?tilcod=1000000000001", requests[6].path)
+        assertEquals("/background", requests[7].path)
+        assertEquals(1, requests.count { it.path?.startsWith("/WOpacTifDirectYoyExecAction.do") == true })
         assertTrue(waits.all { it >= 500 })
     }
 
@@ -198,7 +262,8 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("login_form.html")))
         server.enqueue(page("<html>login relay</html>"))
         server.enqueue(page(fixture("menu.html")))
-        server.enqueue(page(fixture("reservation_confirm.html").replace("tiles.WEsYoyConfirm", "unexpected")))
+        server.enqueue(page(reservationDetailFixture()))
+        server.enqueue(page(fixture("reservation_confirm.html").replace("tiles.WYoyConfirm", "unexpected")))
         server.enqueue(page("after-error"))
         val root = LicsXpSession(server.url("/"), waitForRequestSlot = {})
         val session = LicsXpReservationGateway(root).openAuthenticatedSession("1234", "secret")
@@ -212,7 +277,7 @@ class ReservationGatewayTest {
 
         assertNotNull(error)
         assertEquals("after-error", root.get("after-error"))
-        assertEquals(6, server.requestCount)
+        assertEquals(7, server.requestCount)
     }
 
     @Test
@@ -252,7 +317,11 @@ class ReservationGatewayTest {
     private fun fixture(name: String): String =
         requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
 
-    private fun decodeForm(body: String): Map<String, List<String>> = body.split('&').filter(String::isNotBlank)
-        .map { part -> part.substringBefore('=') to URLDecoder.decode(part.substringAfter('=', ""), Charsets.UTF_8.name()) }
+    private fun reservationDetailFixture(): String = fixture("book_detail.html").replace("1000000961766", "1000000000001")
+
+    private fun decodeForm(body: String): Map<String, List<String>> = decodeFormFields(body)
         .groupBy({ it.first }, { it.second })
+
+    private fun decodeFormFields(body: String): List<Pair<String, String>> = body.split('&').filter(String::isNotBlank)
+        .map { part -> part.substringBefore('=') to URLDecoder.decode(part.substringAfter('=', ""), Charsets.UTF_8.name()) }
 }

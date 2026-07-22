@@ -233,8 +233,9 @@
    共通バッチ処理へ一時項目1件として渡す
 2. 項目を`memberId`ごとにグループ化し、メンバーごとにログイン/分離セッションを1回だけ
    確立する。その中で資料を順次直接予約し、既存の500ms間隔を維持する
-3. メンバーごとにログインを1回だけ行い、各資料では`WOpacEsTifDirectYoyDispAction.do?tilcod=... →
-   fields抽出 → WOpacEsTifDirectYoyExecAction.do?tilcod=...`を同一セッションで連続実行する。確認画面の
+3. メンバーごとにログインを1回だけ行い、各資料では通常書誌詳細GET →
+   `WOpacTifDirectYoyDispAction.do?tilcod=...`への詳細LBForm POST → fields抽出 →
+   `WOpacTifDirectYoyExecAction.do?tilcod=...`を同一セッションで連続実行する。確認画面の
    `receivename`候補に選択館がなければ、POSTせずエラーにする
    - この確認GET・解析・確定POSTは、共有のサイト全体レート制御mutexを保持した排他区間とする。
      パース失敗・館不一致・例外時も必ず解放し、別セッションの同期やログイン要求を間に入れない
@@ -250,10 +251,10 @@
 
 #### ライブ検証済みの重要点
 
-- ログアウト導線は`OpacInitLoginAction.do?...yoycartflg=WYoyConfirm&tilcod=...`、ログイン後の
-  直接確認は`WOpacEsTifDirectYoyDispAction.do?tilcod=...`、確定POSTは
-  `WOpacEsTifDirectYoyExecAction.do?tilcod=...`
-- 確認フォームの`gamenid=tiles.WEsYoyConfirm`、`tilcod`、`receivename`、`contact`、
+- ログアウト導線は`OpacInitLoginAction.do?...yoycartflg=WYoyConfirm&tilcod=...`、ログイン後は通常書誌詳細の
+  LBFormを`WOpacTifDirectYoyDispAction.do?tilcod=...`へ送信し、確定POSTは
+  `WOpacTifDirectYoyExecAction.do?tilcod=...`
+- 確認フォームの`gamenid=tiles.WYoyConfirm`、`tilcod`、`receivename`、`contact`、
   `contactweb=4`を扱う。確認画面を開いたまま待つとセッション切れでログインフォームが返り、
   予約不成立になる
 - 重複時のalertは「予約済の書誌があります。予約できません。」であり、
@@ -264,3 +265,56 @@
 予約確定以外のサイト書き込み(自動予約、延長、予約取消、登録変更、公式サイトカートの
 追加・削除)は禁止のままである。予約確定を含め、ライブPOSTをテストコード・CI・
 バックグラウンド処理から自動実行してはならない。
+
+## ライブ予約診断（2026-07-22追加）
+
+実サイトへの予約 POST を、アプリの `LicsXpReservationGateway` / `LicsXpSession` で再現して差異を調べる専用タスクを追加した。通常の `:app:testDebugUnitTest` と CI はこの診断クラスを除外しており、外部通信・予約は絶対に実行しない。
+
+実行は明示的な環境変数が全て揃った場合に限る。**このコマンドは本番サイトに予約を1回送信する副作用がある。** 既に対象資料が予約一覧にあれば POST を送らずに停止する。
+
+```powershell
+$env:LICSXP_LIVE_RESERVATION = 'YES_I_UNDERSTAND'
+$env:LICSXP_LIVE_RESERVATION_CONFIRM = 'RESERVE_ON_PRODUCTION'
+$env:LICSXP_CARD_NUMBER = 'カード番号'
+$env:LICSXP_PASSWORD = 'パスワード'
+$env:LICSXP_TILCOD = '予約対象の資料コード'
+$env:LICSXP_PICKUP_LIBRARY = '106' # 受取館コード
+.\gradlew.bat :app:liveReservationDiagnostic
+```
+
+診断はログイン、予約前一覧、確認 GET、確定 POST（既存のexactly-once処理）、予約後一覧を順に実行する。ログには HTTP メソッド・パス・ステータス・リダイレクト・フォームの名前と安全な制御値・画面分類だけを出す。`j_username`、`j_password`、`hash`、Cookie、レスポンス本文は出力・保存しない。認証情報をコード、fixture、Gradleプロパティ、コミットへ入れてはならない。
+
+### 予約確定の追加確認（2026-07-22）
+
+ライブ診断で、確認GETとフォーム項目がブラウザ実測に一致しているにもかかわらず、確定POSTの
+200本文が詳細検索フォームとなり、予約後一覧で対象資料を確認できない事象が出た。HTTP 200は
+予約成立を意味しない。`Referer`/`Origin`不足の仮説は、確認GET完全URLの`Referer`とサイトoriginの
+`Origin`を確定POSTだけへ付与した2回目のライブ診断でも解消しなかったため反証済みである。ただし
+ブラウザ等価性としてヘッダ付与は残す。確認GET→確定POSTの排他・500ms間隔・一回限りPOSTは維持する。
+
+次の仮説はログインPOSTがブラウザのsuccessful controlsを欠いていること。実フォームには
+`hash`、`gamenid=tiles.WMnuTop`、`username`、`j_username`、`h_username`、`j_password`があり、
+従来の実装は後者2項目しか送っていなかった。共通の`LoginFormParser`がフォームを一意特定し、
+hidden項目をDOM順で保持して3つの認証制御項目を上書きする。未知フィールドはhiddenだけを許可し、
+無名・disabled・button・未知の非hidden項目は送らない。`LicsXpClient`と`LicsXpReservationGateway`の
+両方が同じビルダーを使用する。認証値を例外・ログ・fixtureへ残してはならない。
+
+予約確定ボタンの`exec(tilcod)`は、送信抑止フラグと`LBForm.action`を設定して`submit()`するだけで、
+hidden値を変更しないことを確認済み。`DirectReservationConfirmationPage`もログインと同様に
+successful controlsをDOM順で保持し、`receivename`・`contact`・`contactweb`だけを元位置で一度だけ
+上書きする。旧実装の`contactweb`末尾追加はブラウザ送信順と異なるため廃止した。期待制御項目は
+`receivename`/`contact`がselect、`contactweb`がhiddenで一意に存在しなければfail-closedで停止する。
+
+### 通常書誌コンテキストへの予約導線変更（2026-07-22）
+
+`EsTif`系の直接予約は検索セッション状態を必要とし、アプリ独自カートからは確認画面へ進まないことを
+実サイトで確認した。予約処理は、通常書誌詳細の
+`GET WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=...`、詳細LBFormのDOM順successful controlsを
+`POST WOpacTifDirectYoyDispAction.do?tilcod=...`、`gamenid=tiles.WYoyConfirm`の確認フォームを
+`POST WOpacTifDirectYoyExecAction.do?tilcod=...`で確定する順へ変更した。表示POSTは読み取り表示遷移で、
+最終確定POSTだけをexactly-once/noRetryとする。詳細フォームは`LBForm`、`tiles.WTifTilDetail`、対象`tilcod`、
+`kensakuFlg`、`kensaku`をhiddenかつ一意に要求してfail-closedにする。
+
+診断の予約確認分類は、HTMLに現れる共通JavaScriptの文字列ではなく、同一フォームの
+`gamenid=tiles.WYoyConfirm`、`tilcod`、`select[name=receivename]`で判定する。詳細検索フォームは
+`tiles.WEsSchCmpd`または`condition1Text`で明示的に`search-form`と扱う。

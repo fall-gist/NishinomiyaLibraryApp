@@ -2,6 +2,8 @@ package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.DirectReservationConfirmParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.DirectReservationResponseParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookDetailReservationFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoginFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
@@ -58,10 +60,7 @@ class LicsXpReservationGateway private constructor(
             session.post(
                 path = "j_security_check",
                 query = mapOf("subSystemFlag" to "0"),
-                form = FormBody.Builder()
-                    .add("j_username", "0".repeat(CARD_NUMBER_PREFIX_LENGTH) + cardNumber)
-                    .add("j_password", password)
-                    .build(),
+                form = LoginFormParser.parse(loginForm).buildForm(cardNumber, password),
             )
             val menu = session.get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
             classifyLoginMenu(menu)
@@ -89,10 +88,27 @@ private class LicsXpReservationSession(
         require(tilcod.isNotBlank()) { "tilcodが空です" }
         require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
         return session.withExclusiveRequestSequence {
-            val confirmHtml = get(
-                "WOpacEsTifDirectYoyDispAction.do",
-                mapOf("tilcod" to tilcod),
+            val detailPage = getReservationDetail(
+                "WOpacTifTilListToTifTilDetailAction.do",
+                mapOf("urlNotFlag" to "1", "tilcod" to tilcod),
             )
+            val detailHtml = detailPage.html
+            requireNotMaintenance(detailHtml)
+            if (isLoginForm(Jsoup.parse(detailHtml))) {
+                return@withExclusiveRequestSequence DirectReservationAttempt.SessionExpiredBeforeSubmit
+            }
+            val detailForm = try {
+                BookDetailReservationFormParser.parse(detailHtml, tilcod)
+            } catch (exception: ParseException) {
+                throw LibraryError.Parse(exception.screen, exception.reason)
+            }
+            val confirmationPage = postReservationConfirmation(
+                "WOpacTifDirectYoyDispAction.do",
+                mapOf("tilcod" to tilcod),
+                detailForm.buildForm(),
+                detailPage,
+            )
+            val confirmHtml = confirmationPage.html
             sequenceHooks.afterConfirmFetched()
             requireNotMaintenance(confirmHtml)
             if (isLoginForm(Jsoup.parse(confirmHtml))) return@withExclusiveRequestSequence DirectReservationAttempt.SessionExpiredBeforeSubmit
@@ -102,17 +118,13 @@ private class LicsXpReservationSession(
                 throw LibraryError.Parse(exception.screen, exception.reason)
             }
             if (pickupLibraryCode !in confirmation.pickupLibraryCodes) throw InvalidPickupLibraryException()
-            val form = FormBody.Builder().apply {
-                confirmation.hiddenFields.filterNot { (name, _) -> name in CONTROLLED_FORM_FIELDS }.forEach { (name, value) -> add(name, value) }
-                add("receivename", pickupLibraryCode)
-                add("contact", "4")
-                add("contactweb", "4")
-            }.build()
+            val form = confirmation.buildForm(pickupLibraryCode)
             val response = try {
-                postExactlyOnce(
-                    "WOpacEsTifDirectYoyExecAction.do",
+                postReservationExactlyOnce(
+                    "WOpacTifDirectYoyExecAction.do",
                     mapOf("tilcod" to tilcod),
                     form,
+                    confirmationPage,
                 )
             } catch (_: LibraryError.Network) {
                 return@withExclusiveRequestSequence DirectReservationAttempt.IndeterminateAfterPost
@@ -159,8 +171,6 @@ private fun requireNotMaintenance(html: String) {
     if (MAINTENANCE_MARKERS.any(html::contains)) throw LibraryError.Maintenance()
 }
 
-private const val CARD_NUMBER_PREFIX_LENGTH = 16
 private val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")
 /** 設定とライブ確認で確定している12館。 */
 internal val PICKUP_LIBRARY_CODES = setOf("001", "002", "003", "004", "101", "102", "103", "104", "105", "106", "107", "109")
-private val CONTROLLED_FORM_FIELDS = setOf("receivename", "contact", "contactweb")

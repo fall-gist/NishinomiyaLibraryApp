@@ -15,7 +15,7 @@ object DirectReservationResponseParser {
         }
         if (html.contains(DUPLICATE_MESSAGE)) return Result.DuplicateDetected
         if (MAINTENANCE_MARKERS.any(html::contains)) return Result.IndeterminateAfterPost
-        if (document.select("form[action*=WOpacEsTifDirectYoyExecAction], form:has(input[name=gamenid][value=tiles.WEsYoyConfirm])").isNotEmpty()) {
+        if (document.select("form[action*=WOpacTifDirectYoyExecAction], form:has(input[name=gamenid][value=tiles.WYoyConfirm])").isNotEmpty()) {
             return Result.IndeterminateAfterPost
         }
         // 成功alertと、対象tilcodに結び付く成功済み表示のライブHTML構造は未取得である。

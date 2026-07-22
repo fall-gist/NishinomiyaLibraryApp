@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     alias(libs.plugins.android.application)
@@ -79,4 +80,40 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockwebserver)
     testImplementation(libs.robolectric)
+}
+
+val liveReservationDiagnosticClass = "**/LiveReservationDiagnosticTest.class"
+
+// 通常の unit test / CI は本番通信を行う診断クラスを発見対象から除外する。
+tasks.withType<Test>().configureEach {
+    if (name != "liveReservationDiagnostic") {
+        exclude(liveReservationDiagnosticClass)
+    }
+}
+
+// このタスクだけが本番サイトへ予約 POST を行い得る。環境変数が一つでも不足すれば開始前に失敗する。
+tasks.register<Test>("liveReservationDiagnostic") {
+    group = "verification"
+    description = "明示同意済みの場合だけ本番サイトへ予約診断を一度実行する（外部副作用あり）"
+    val debugUnitTest = tasks.named<Test>("testDebugUnitTest")
+    testClassesDirs = debugUnitTest.get().testClassesDirs
+    classpath = debugUnitTest.get().classpath
+    include(liveReservationDiagnosticClass)
+    doFirst {
+        val required = mapOf(
+            "LICSXP_LIVE_RESERVATION" to "YES_I_UNDERSTAND",
+            "LICSXP_LIVE_RESERVATION_CONFIRM" to "RESERVE_ON_PRODUCTION",
+            "LICSXP_CARD_NUMBER" to null,
+            "LICSXP_PASSWORD" to null,
+            "LICSXP_TILCOD" to null,
+            "LICSXP_PICKUP_LIBRARY" to null,
+        )
+        val invalid = required.filter { (name, expected) ->
+            val value = System.getenv(name)
+            value.isNullOrBlank() || (expected != null && value != expected)
+        }.keys
+        check(invalid.isEmpty()) {
+            "ライブ予約診断を開始しません。不足または不正な明示環境変数: ${invalid.joinToString()}"
+        }
+    }
 }

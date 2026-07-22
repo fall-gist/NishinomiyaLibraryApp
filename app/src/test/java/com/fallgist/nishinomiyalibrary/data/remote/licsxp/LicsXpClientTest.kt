@@ -178,8 +178,17 @@ class LicsXpClientTest {
         assertEquals("/j_security_check", security.requestUrl!!.encodedPath)
         assertEquals("0", security.requestUrl!!.queryParameter("subSystemFlag"))
         assertTrue(security.getHeader("Cookie")!!.contains("JSESSIONID=fixture"))
-        assertEquals("0".repeat(16) + cardNumber, formValue(security, "j_username"))
-        assertEquals(password, formValue(security, "j_password"))
+        assertEquals(
+            listOf(
+                "hash" to "",
+                "gamenid" to "tiles.WMnuTop",
+                "username" to cardNumber,
+                "j_username" to "0".repeat(16) + cardNumber,
+                "h_username" to "",
+                "j_password" to password,
+            ),
+            formFields(security),
+        )
 
         val menu = takeRequest()
         assertEquals("GET", menu.method)
@@ -420,6 +429,11 @@ class LicsXpClientTest {
     private fun takeRequest() = requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
 
     private fun formValue(request: okhttp3.mockwebserver.RecordedRequest, name: String): String? =
+        formFields(request)
+            .firstOrNull { (key, _) -> key == name }
+            ?.second
+
+    private fun formFields(request: okhttp3.mockwebserver.RecordedRequest): List<Pair<String, String>> =
         request.body.clone().readUtf8()
             .split('&')
             .mapNotNull { pair ->
@@ -429,8 +443,6 @@ class LicsXpClientTest {
                 val value = URLDecoder.decode(pair.substring(separator + 1), StandardCharsets.UTF_8)
                 key to value
             }
-            .firstOrNull { (key, _) -> key == name }
-            ?.second
 
     private fun assertUserPageRequest(
         request: okhttp3.mockwebserver.RecordedRequest,
