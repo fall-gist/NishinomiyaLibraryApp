@@ -21,6 +21,9 @@ class DirectReservationConfirmationPage internal constructor(
     /** 診断で送信項目名だけを確認するための内部公開。値は含めない。 */
     internal val fieldNames: List<String> get() = fields.map { it.name }
 
+    /** 確認画面が発行した contactdirectweb の現在値。フィールドは必ず存在する（パース時に検証済み）。 */
+    internal val contactDirectWebValue: String get() = fields.single { it.name == "contactdirectweb" }.value
+
     /**
      * 受取館・連絡方法を元DOM位置で一度だけ上書きする。
      * 重複制御項目はパース時に拒否するため、ここで末尾追加することはない。

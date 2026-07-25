@@ -150,10 +150,37 @@ internal class LicsXpReservationSession(
             sequenceHooks.afterConfirmFetched()
             requireNotMaintenance(confirmHtml)
             if (isLoginForm(Jsoup.parse(confirmHtml))) return@withExclusiveRequestSequence DirectReservationAttempt.SessionExpiredBeforeSubmit
-            val confirmation = try {
+            var confirmation = try {
                 DirectReservationConfirmParser.parse(confirmHtml, tilcod)
             } catch (exception: ParseException) {
                 throw LibraryError.Parse(exception.screen, exception.reason)
+            }
+            var effectiveConfirmationPage = confirmationPage
+            if (confirmation.contactDirectWebValue != CONTACT_DIRECT_WEB_EMAIL) {
+                // ブラウザ実測: 確認画面の「予約確認メールを送信する」ボタンは selectyoyrak(returnValue) を呼び、
+                // contactdirectweb へ returnValue を設定して webrak=1 で確認画面自身へ再POSTする。
+                // dry-run診断で、contactdirectwebだけをDOM順のまま4へ上書きして再POSTすると
+                // 確認画面が正常に再表示されることを確認済み。
+                // 「4」はcontactのEmailコードとして実測済みだが、contactdirectwebが同じコード体系かは未検証で、
+                // 確認できているのは再表示POSTが受理されるという事実だけである。
+                val retryForm = confirmation.buildFormWithContactDirectWeb(CONTACT_DIRECT_WEB_EMAIL)
+                val retryPage = postReservationConfirmation(
+                    "WOpacTifDirectYoyDispAction.do",
+                    mapOf("webrak" to "1"),
+                    retryForm,
+                    confirmationPage,
+                )
+                val retryHtml = retryPage.html
+                requireNotMaintenance(retryHtml)
+                if (isLoginForm(Jsoup.parse(retryHtml))) {
+                    return@withExclusiveRequestSequence DirectReservationAttempt.SessionExpiredBeforeSubmit
+                }
+                confirmation = try {
+                    DirectReservationConfirmParser.parse(retryHtml, tilcod)
+                } catch (exception: ParseException) {
+                    throw LibraryError.Parse(exception.screen, exception.reason)
+                }
+                effectiveConfirmationPage = retryPage
             }
             if (pickupLibraryCode !in confirmation.pickupLibraryCodes) throw InvalidPickupLibraryException()
             val form = confirmation.buildForm(pickupLibraryCode)
@@ -162,7 +189,7 @@ internal class LicsXpReservationSession(
                     "WOpacTifDirectYoyExecAction.do",
                     mapOf("tilcod" to tilcod),
                     form,
-                    confirmationPage,
+                    effectiveConfirmationPage,
                 )
             } catch (_: LibraryError.Network) {
                 return@withExclusiveRequestSequence DirectReservationAttempt.IndeterminateAfterPost
@@ -316,3 +343,11 @@ private fun requireNotMaintenance(html: String) {
 private val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")
 /** 設定とライブ確認で確定している12館。 */
 internal val PICKUP_LIBRARY_CODES = setOf("001", "002", "003", "004", "101", "102", "103", "104", "105", "106", "107", "109")
+
+/**
+ * 連絡方法Emailのコード。アプリのEmail固定仕様に対応する。
+ * `contact` のEmailコードが `4` であることは実測済みだが、`contactdirectweb` が同じコード体系であることは
+ * 未検証で、確認できているのは `contactdirectweb=4` での再表示POSTが受理される（確認画面が正常に
+ * 再表示される）という事実だけである。
+ */
+internal const val CONTACT_DIRECT_WEB_EMAIL = "4"
