@@ -54,6 +54,8 @@ internal data class ContactSelectionRetry(
     val explicitPickupLibraryCode: String?,
     val explicitContactCode: String?,
     val failureReason: String?,
+    /** 再表示後の確認画面のhidden hashが空でないか。再表示自体に失敗した場合は false。 */
+    val hashPresent: Boolean,
 )
 
 internal sealed interface ConfirmationInspection {
@@ -68,6 +70,10 @@ internal sealed interface ConfirmationInspection {
         val explicitContactCode: String?,
         /** contactDirectWebValueが指定された場合だけの、再表示POST後の解析結果。 */
         val contactSelectionRetry: ContactSelectionRetry? = null,
+        /** 確認フォームのhidden hashが空でないか。値そのものは保持しない。 */
+        val confirmHashPresent: Boolean = false,
+        /** 書誌詳細ページ(LBForm)のhidden hashが空でないか。値そのものは保持しない。 */
+        val detailHashPresent: Boolean = false,
     ) : ConfirmationInspection
     data class ParseFailed(val screen: String, val reason: String) : ConfirmationInspection
     data object SessionExpiredBeforeConfirm : ConfirmationInspection
@@ -272,6 +278,8 @@ internal class LicsXpReservationSession(
                 explicitPickupLibraryCode = confirmation.explicitPickupLibraryCode,
                 explicitContactCode = confirmation.explicitContactCode,
                 contactSelectionRetry = contactSelectionRetry,
+                confirmHashPresent = confirmation.hasNonEmptyHash,
+                detailHashPresent = hasNonEmptyDetailHash(detailHtml),
             )
         }
     }
@@ -309,6 +317,7 @@ private suspend fun LicsXpSession.ExclusiveRequestSequence.performContactSelecti
                 explicitPickupLibraryCode = reparsed.explicitPickupLibraryCode,
                 explicitContactCode = reparsed.explicitContactCode,
                 failureReason = null,
+                hashPresent = reparsed.hasNonEmptyHash,
             )
         }
     } catch (exception: ParseException) {
@@ -326,7 +335,14 @@ private fun failedContactSelectionRetry(value: String, reason: String): ContactS
         explicitPickupLibraryCode = null,
         explicitContactCode = null,
         failureReason = reason,
+        hashPresent = false,
     )
+
+/** 書誌詳細ページ(LBForm)のhidden hashが空でないかどうかを判定する。値は保持しない。 */
+private fun hasNonEmptyDetailHash(html: String): Boolean {
+    val hash = Jsoup.parse(html).selectFirst("form#LBForm input[type=hidden][name=hash]")?.attr("value")
+    return !hash.isNullOrEmpty()
+}
 
 /** 競合試験で確認GET直後の状態を再現するための内部フック。 */
 internal data class ReservationSequenceHooks(

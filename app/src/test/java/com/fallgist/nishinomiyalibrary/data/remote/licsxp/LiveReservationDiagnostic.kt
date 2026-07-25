@@ -131,6 +131,9 @@ internal suspend fun runLiveReservationDiagnosticIfAuthorized(
     return runLiveReservationDiagnostic(gatewayFactory(), config, logger)
 }
 
+/** hash値そのものは出さず、有無だけを2値でログへ残す。 */
+private fun hashState(present: Boolean): String = if (present) "set" else "empty"
+
 /**
  * 確定POSTを一切行わず、確認画面までの遷移と解析結果だけを調べる。
  * directReserveは呼ばない。書き込み副作用はゼロ。
@@ -156,7 +159,9 @@ internal suspend fun runLiveReservationInspection(
                     "pickupLibraryCodes=[${inspection.pickupLibraryCodes.joinToString(",")}] " +
                     "requestedPickupAvailable=${inspection.requestedPickupAvailable} " +
                     "explicitPickup=${inspection.explicitPickupLibraryCode ?: "(none)"} " +
-                    "explicitContact=${inspection.explicitContactCode ?: "(none)"}"
+                    "explicitContact=${inspection.explicitContactCode ?: "(none)"} " +
+                    "detailHash=${hashState(inspection.detailHashPresent)} " +
+                    "confirmHash=${hashState(inspection.confirmHashPresent)}"
             is ConfirmationInspection.ParseFailed -> "screen=${inspection.screen} reason=${inspection.reason}"
             ConfirmationInspection.SessionExpiredBeforeConfirm -> "確認画面到達前にセッションが失効しました"
         }
@@ -169,6 +174,7 @@ internal suspend fun runLiveReservationInspection(
                     "fields=[${retry.fieldNames.joinToString(",")}] " +
                     "explicitPickup=${retry.explicitPickupLibraryCode ?: "(none)"} " +
                     "explicitContact=${retry.explicitContactCode ?: "(none)"} " +
+                    "hash=${hashState(retry.hashPresent)} " +
                     "failure=${retry.failureReason ?: "(none)"}",
             )
         }

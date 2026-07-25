@@ -12,6 +12,8 @@ class DirectReservationConfirmationPage internal constructor(
     internal val explicitPickupLibraryCode: String?,
     /** 確認画面がselected属性で明示している連絡方法コード。明示が無ければ null。 */
     internal val explicitContactCode: String?,
+    /** 確認フォームのhidden hashが空でないか。値そのものは保持しない。 */
+    internal val hasNonEmptyHash: Boolean,
 ) {
     /** 既存の画面発行hiddenの検証・テスト用。順序は元フォームと同じ。 */
     val hiddenFields: List<Pair<String, String>> = fields
@@ -83,8 +85,10 @@ object DirectReservationConfirmParser {
         val form = forms.single()
         validateHiddenValue(form, "gamenid", "tiles.WYoyConfirm", "gamenidが予約確認画面ではありません")
         validateHiddenValue(form, "tilcod", expectedTilcod, "tilcodが要求値と一致しません")
-        if (form.select("input[type=hidden][name=hash]:not([disabled])").isNotEmpty()) {
+        val hashValue = if (form.select("input[type=hidden][name=hash]:not([disabled])").isNotEmpty()) {
             uniqueHiddenValue(form, "hash")
+        } else {
+            null
         }
 
         val pickupSelect = requireSingleSelect(form, "receivename")
@@ -104,6 +108,7 @@ object DirectReservationConfirmParser {
             pickupLibraryCodes = pickup,
             explicitPickupLibraryCode = explicitSelectedValue(pickupSelect),
             explicitContactCode = explicitSelectedValue(contactSelect),
+            hasNonEmptyHash = !hashValue.isNullOrEmpty(),
         )
     }
 

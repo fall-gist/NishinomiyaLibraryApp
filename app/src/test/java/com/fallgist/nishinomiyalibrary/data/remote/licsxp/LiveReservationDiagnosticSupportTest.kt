@@ -197,6 +197,42 @@ class LiveReservationDiagnosticSupportTest {
     }
 
     @Test
+    fun `formFingerprintはhash hiddenの有無と空欄有無を3状態で出し値そのものは出さない`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                <form><input name="a" /></form>
+                <form><input type="hidden" name="hash" value="" /></form>
+                <form><input type="hidden" name="hash" value="site-secret-value" /></form>
+                """.trimIndent(),
+            ),
+        )
+        val fingerprints = mutableListOf<String>()
+        val observer = object : LicsXpDiagnosticObserver {
+            override fun onRequest(request: LicsXpDiagnosticRequest) = Unit
+
+            override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) = Unit
+
+            override fun onPage(path: String, classification: String, formFingerprint: String) {
+                fingerprints += formFingerprint
+            }
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
+
+            override fun onSiteMessages(path: String, messages: List<String>) = Unit
+        }
+        val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
+
+        session.get("page")
+
+        val fingerprint = fingerprints.single()
+        assertTrue(fingerprint.contains("hash=none"))
+        assertTrue(fingerprint.contains("hash=empty"))
+        assertTrue(fingerprint.contains("hash=set"))
+        assertFalse(fingerprint.contains("site-secret-value"))
+    }
+
+    @Test
     fun `予約前後照合は確認取得と確定送信を一度ずつ行う`() = runBlocking {
         val gateway = FakeGateway()
         val config = authorizedConfig()

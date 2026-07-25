@@ -521,8 +521,14 @@ private fun formFingerprint(document: org.jsoup.nodes.Document): String {
             .distinct()
             .sorted()
             .joinToString(",")
-        "$method:$action:[$fields]"
+        "$method:$action:[$fields]:${formHashState(form)}"
     }.ifBlank { "no-form" }.take(1_000)
+}
+
+/** hidden hash の有無・値の空欄有無だけを返す。値そのものも長さも出さない。 */
+private fun formHashState(form: org.jsoup.nodes.Element): String {
+    val hashInput = form.selectFirst("input[type=hidden][name=hash]") ?: return "hash=none"
+    return if (hashInput.attr("value").isEmpty()) "hash=empty" else "hash=set"
 }
 
 private val SCREEN_SCRIPT_ACTION_REGEX = Regex("""document\.\w+\.action\s*=\s*([^;]+);""")

@@ -160,6 +160,17 @@ class ParsersTest {
     }
 
     @Test
+    fun `確認フォームのhasNonEmptyHashはhash値の有無で判定する`() {
+        val withHash = DirectReservationConfirmParser.parse(fixture("reservation_confirm.html"), "1000000000001")
+        assertTrue(withHash.hasNonEmptyHash)
+
+        val emptyHash = fixture("reservation_confirm.html")
+            .replace("<input type=\"hidden\" name=\"hash\" value=\"confirm-hash\" />", "<input type=\"hidden\" name=\"hash\" value=\"\" />")
+        val withoutHashValue = DirectReservationConfirmParser.parse(emptyHash, "1000000000001")
+        assertFalse(withoutHashValue.hasNonEmptyHash)
+    }
+
+    @Test
     fun `確認画面の明示選択はselected属性の有無で判定する`() {
         val parsed = DirectReservationConfirmParser.parse(fixture("reservation_confirm.html"), "1000000000001")
 
