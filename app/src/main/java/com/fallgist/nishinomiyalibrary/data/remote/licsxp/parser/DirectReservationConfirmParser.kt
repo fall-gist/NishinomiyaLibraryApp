@@ -38,6 +38,18 @@ class DirectReservationConfirmationPage internal constructor(
             }
         }.build()
     }
+
+    /**
+     * メール選択の再表示POST（WOpacTifDirectYoyDispAction.do?webrak=1）診断専用。
+     * contactdirectwebだけを元DOM位置で上書きし、receivenameとcontactはサイト発行値のまま送る。
+     * このPOSTの目的はcontactdirectwebの効果だけを見ることであり、受取館・連絡方法の効果を混ぜない。
+     */
+    internal fun buildFormWithContactDirectWeb(value: String): FormBody =
+        FormBody.Builder().apply {
+            fields.forEach { field ->
+                add(field.name, if (field.name == "contactdirectweb") value else field.value)
+            }
+        }.build()
 }
 
 internal data class ConfirmationFormField(

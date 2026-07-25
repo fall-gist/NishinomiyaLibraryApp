@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.DirectReservationConfirmParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.DirectReservationConfirmationPage
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.DirectReservationResponseParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookDetailReservationFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoginFormParser
@@ -40,8 +41,20 @@ internal interface ReservationConfirmationInspector {
     suspend fun inspectDirectReservationConfirmation(
         tilcod: String,
         pickupLibraryCode: String,
+        /** nullなら従来どおり確認画面の解析だけを行う。非nullならメール選択の再表示POSTも1回だけ行う。 */
+        contactDirectWebValue: String? = null,
     ): ConfirmationInspection
 }
+
+/** メール選択の再表示POST後に、確認画面がどう変わったか。 */
+internal data class ContactSelectionRetry(
+    val requestedValue: String,
+    val parsed: Boolean,
+    val fieldNames: List<String>,
+    val explicitPickupLibraryCode: String?,
+    val explicitContactCode: String?,
+    val failureReason: String?,
+)
 
 internal sealed interface ConfirmationInspection {
     /** fieldNames は確定POSTで送る successful controls の名前をDOM順で並べたもの。値は含めない。 */
@@ -53,6 +66,8 @@ internal sealed interface ConfirmationInspection {
         val explicitPickupLibraryCode: String?,
         /** 確認画面がselected属性で明示している連絡方法コード。明示が無ければ null。 */
         val explicitContactCode: String?,
+        /** contactDirectWebValueが指定された場合だけの、再表示POST後の解析結果。 */
+        val contactSelectionRetry: ContactSelectionRetry? = null,
     ) : ConfirmationInspection
     data class ParseFailed(val screen: String, val reason: String) : ConfirmationInspection
     data object SessionExpiredBeforeConfirm : ConfirmationInspection
@@ -185,6 +200,7 @@ internal class LicsXpReservationSession(
     override suspend fun inspectDirectReservationConfirmation(
         tilcod: String,
         pickupLibraryCode: String,
+        contactDirectWebValue: String?,
     ): ConfirmationInspection {
         require(tilcod.isNotBlank()) { "tilcodが空です" }
         require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
@@ -219,16 +235,71 @@ internal class LicsXpReservationSession(
             } catch (exception: ParseException) {
                 return@withExclusiveRequestSequence ConfirmationInspection.ParseFailed(exception.screen, exception.reason)
             }
+            val contactSelectionRetry = contactDirectWebValue?.let { value ->
+                performContactSelectionRetry(value, confirmation, confirmationPage, tilcod)
+            }
             ConfirmationInspection.Parsed(
                 fieldNames = confirmation.fieldNames,
                 pickupLibraryCodes = confirmation.pickupLibraryCodes,
                 requestedPickupAvailable = pickupLibraryCode in confirmation.pickupLibraryCodes,
                 explicitPickupLibraryCode = confirmation.explicitPickupLibraryCode,
                 explicitContactCode = confirmation.explicitContactCode,
+                contactSelectionRetry = contactSelectionRetry,
             )
         }
     }
 }
+
+/**
+ * メール選択の再表示POST（WOpacTifDirectYoyDispAction.do?webrak=1）を排他区間の中で1回だけ行い、
+ * 確認画面としての再解析を試みる。receivenameとcontactはサイト発行値のまま送り、
+ * contactdirectwebだけを上書きする。再解析に失敗しても例外を投げず、失敗理由を結果へ残す。
+ */
+private suspend fun LicsXpSession.ExclusiveRequestSequence.performContactSelectionRetry(
+    value: String,
+    confirmation: DirectReservationConfirmationPage,
+    confirmationPage: LicsXpReservationConfirmationPage,
+    tilcod: String,
+): ContactSelectionRetry {
+    val retryForm = confirmation.buildFormWithContactDirectWeb(value)
+    return try {
+        val retryPage = postReservationConfirmation(
+            "WOpacTifDirectYoyDispAction.do",
+            mapOf("webrak" to "1"),
+            retryForm,
+            confirmationPage,
+        )
+        val retryHtml = retryPage.html
+        requireNotMaintenance(retryHtml)
+        if (isLoginForm(Jsoup.parse(retryHtml))) {
+            failedContactSelectionRetry(value, "再表示POST後にログインフォームへ遷移しました")
+        } else {
+            val reparsed = DirectReservationConfirmParser.parse(retryHtml, tilcod)
+            ContactSelectionRetry(
+                requestedValue = value,
+                parsed = true,
+                fieldNames = reparsed.fieldNames,
+                explicitPickupLibraryCode = reparsed.explicitPickupLibraryCode,
+                explicitContactCode = reparsed.explicitContactCode,
+                failureReason = null,
+            )
+        }
+    } catch (exception: ParseException) {
+        failedContactSelectionRetry(value, "${exception.screen}: ${exception.reason}")
+    } catch (exception: LibraryError) {
+        failedContactSelectionRetry(value, exception.message ?: "再表示POSTに失敗しました")
+    }
+}
+
+private fun failedContactSelectionRetry(value: String, reason: String): ContactSelectionRetry =
+    ContactSelectionRetry(
+        requestedValue = value,
+        parsed = false,
+        fieldNames = emptyList(),
+        explicitPickupLibraryCode = null,
+        explicitContactCode = null,
+        failureReason = reason,
+    )
 
 /** 競合試験で確認GET直後の状態を再現するための内部フック。 */
 internal data class ReservationSequenceHooks(

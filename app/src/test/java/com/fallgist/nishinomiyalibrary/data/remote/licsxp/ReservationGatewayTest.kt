@@ -16,6 +16,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -309,6 +310,111 @@ class ReservationGatewayTest {
         sequence.cancelAndJoin()
         assertEquals("after-cancel", background.await())
         assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun `contactDirectWebValueがnullなら再表示POSTを送らず確認画面解析だけを行う`() = runBlocking {
+        server.enqueue(page("<html>温め</html>"))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(reservationDetailFixture()))
+        server.enqueue(page(fixture("reservation_confirm.html")))
+        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+        val inspector = session as ReservationConfirmationInspector
+
+        val inspection = inspector.inspectDirectReservationConfirmation("1000000000001", "106", contactDirectWebValue = null)
+
+        assertTrue(inspection is ConfirmationInspection.Parsed)
+        assertEquals(null, (inspection as ConfirmationInspection.Parsed).contactSelectionRetry)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals("/WOpacTifDirectYoyDispAction.do?tilcod=1000000000001", requests[5].path)
+        assertTrue(requests.none { it.path?.contains("webrak") == true })
+        assertTrue(requests.none { it.path?.startsWith("/WOpacTifDirectYoyExecAction.do") == true })
+    }
+
+    @Test
+    fun `contactDirectWebValue指定時は再表示POSTを1回だけ送りcontactdirectwebだけ上書きする`() = runBlocking {
+        server.enqueue(page("<html>温め</html>"))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(reservationDetailFixture()))
+        server.enqueue(page(fixture("reservation_confirm.html")))
+        server.enqueue(page(fixture("reservation_confirm.html")))
+        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+        val inspector = session as ReservationConfirmationInspector
+
+        val inspection = inspector.inspectDirectReservationConfirmation("1000000000001", "106", contactDirectWebValue = "4")
+
+        assertTrue(inspection is ConfirmationInspection.Parsed)
+        val retry = (inspection as ConfirmationInspection.Parsed).contactSelectionRetry
+        assertNotNull(retry)
+        assertEquals("4", retry!!.requestedValue)
+        assertTrue(retry.parsed)
+        assertEquals(null, retry.failureReason)
+
+        assertEquals(7, server.requestCount)
+        val requests = List(7) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(1, requests.count { it.path == "/WOpacTifDirectYoyDispAction.do?webrak=1" })
+        assertTrue(requests.none { it.path?.startsWith("/WOpacTifDirectYoyExecAction.do") == true })
+        val retryRequest = requests[6]
+        assertEquals("/WOpacTifDirectYoyDispAction.do?webrak=1", retryRequest.path)
+        assertEquals("POST", retryRequest.method)
+        assertEquals(
+            server.url("/WOpacTifDirectYoyDispAction.do?tilcod=1000000000001").toString(),
+            retryRequest.getHeader("Referer"),
+        )
+        assertEquals(
+            listOf(
+                "gamenFlag" to "",
+                "hash" to "confirm-hash",
+                "returnid" to "",
+                "gamenid" to "tiles.WYoyConfirm",
+                "tilcod" to "1000000000001",
+                "loginshuflag" to "",
+                "contactdirectweb" to "4",
+                "receivenameFocus" to "0",
+                "watsptcodFocus" to "0",
+                "contactFocus" to "0",
+                "returnValue" to "",
+                "bmtime_hide" to "",
+                "siteIssued" to "keep-me",
+                "receivename" to "001",
+                "contact" to "4",
+            ),
+            decodeFormFields(retryRequest.body.readUtf8()),
+        )
+    }
+
+    @Test
+    fun `再表示POST応答が確認画面として解析できなければ例外を投げずparsed falseにする`() = runBlocking {
+        server.enqueue(page("<html>温め</html>"))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(reservationDetailFixture()))
+        server.enqueue(page(fixture("reservation_confirm.html")))
+        server.enqueue(page("<html>想定外の画面</html>"))
+        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+        val inspector = session as ReservationConfirmationInspector
+
+        val inspection = inspector.inspectDirectReservationConfirmation("1000000000001", "106", contactDirectWebValue = "4")
+
+        assertTrue(inspection is ConfirmationInspection.Parsed)
+        val retry = (inspection as ConfirmationInspection.Parsed).contactSelectionRetry
+        assertNotNull(retry)
+        assertFalse(retry!!.parsed)
+        assertNotNull(retry.failureReason)
+        assertEquals(7, server.requestCount)
+        assertTrue(
+            List(7) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+                .none { it.path?.startsWith("/WOpacTifDirectYoyExecAction.do") == true },
+        )
     }
 
     private fun page(body: String, cookie: Boolean = false): MockResponse = MockResponse().setBody(body).apply {

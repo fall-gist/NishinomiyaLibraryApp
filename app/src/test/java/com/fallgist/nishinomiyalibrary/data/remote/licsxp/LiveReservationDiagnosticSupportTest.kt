@@ -554,6 +554,7 @@ class LiveReservationDiagnosticSupportTest {
         override suspend fun inspectDirectReservationConfirmation(
             tilcod: String,
             pickupLibraryCode: String,
+            contactDirectWebValue: String?,
         ): ConfirmationInspection {
             calls += "inspect"
             inspectCalls += 1

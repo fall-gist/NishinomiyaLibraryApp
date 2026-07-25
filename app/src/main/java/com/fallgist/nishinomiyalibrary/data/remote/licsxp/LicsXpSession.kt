@@ -188,6 +188,32 @@ class LicsXpSession private constructor(
             return LicsXpReservationConfirmationPage(html, url)
         }
 
+        /**
+         * 確認画面のLBFormを、確認画面自身のRefererで再表示側へ送るPOST。
+         * メール選択の再表示（WOpacTifDirectYoyDispAction.do?webrak=1）診断専用に、
+         * 直前の確認画面をReferer元として使えるようにするための最小限のオーバーロード。
+         */
+        suspend fun postReservationConfirmation(
+            path: String,
+            query: Map<String, String> = emptyMap(),
+            form: FormBody,
+            refererPage: LicsXpReservationConfirmationPage,
+        ): LicsXpReservationConfirmationPage {
+            require(refererPage.url.hasSameOriginAs(baseUrl)) { "確認ページのoriginが不正です" }
+            val url = endpointUrl(path, query)
+            val html = executeInExclusiveSequence(
+                Request.Builder()
+                    .url(url)
+                    .header("Referer", refererPage.url.toString())
+                    .header("Origin", baseUrl.origin())
+                    .post(form)
+                    .build(),
+                client,
+                retryOnIOException = true,
+            )
+            return LicsXpReservationConfirmationPage(html, url)
+        }
+
         suspend fun postExactlyOnce(
             path: String,
             query: Map<String, String> = emptyMap(),

@@ -13,6 +13,8 @@ internal data class LiveReservationDiagnosticConfig(
     val tilcod: String,
     val pickupLibraryCode: String,
     val dryRun: Boolean,
+    /** メール選択の再表示POST診断用の値。未設定ならnullで、従来どおり確認画面の解析だけを行う。 */
+    val contactDirectWebValue: String?,
 ) {
     companion object {
         const val ENABLE_FLAG = "LICSXP_LIVE_RESERVATION"
@@ -22,6 +24,7 @@ internal data class LiveReservationDiagnosticConfig(
         const val PASSWORD = "LICSXP_PASSWORD"
         const val TILCOD = "LICSXP_TILCOD"
         const val PICKUP_LIBRARY = "LICSXP_PICKUP_LIBRARY"
+        const val CONTACT_DIRECT_WEB = "LICSXP_CONTACT_DIRECT_WEB"
 
         private const val ENABLE_VALUE = "YES_I_UNDERSTAND"
         private const val CONFIRM_VALUE = "RESERVE_ON_PRODUCTION"
@@ -37,7 +40,9 @@ internal data class LiveReservationDiagnosticConfig(
             val tilcod = environment[TILCOD].orEmpty()
             val pickup = environment[PICKUP_LIBRARY].orEmpty()
             if (cardNumber.isBlank() || password.isBlank() || tilcod.isBlank() || pickup.isBlank()) return null
-            return LiveReservationDiagnosticConfig(cardNumber, password, tilcod, pickup, dryRun)
+            // 任意項目。未設定ならnullのままにし、再表示POST診断ステップを行わない。
+            val contactDirectWebValue = environment[CONTACT_DIRECT_WEB]
+            return LiveReservationDiagnosticConfig(cardNumber, password, tilcod, pickup, dryRun, contactDirectWebValue)
         }
     }
 }
@@ -140,7 +145,11 @@ internal suspend fun runLiveReservationInspection(
     try {
         val inspector = session as? ReservationConfirmationInspector
             ?: error("検査に対応していないセッション実装です")
-        val inspection = inspector.inspectDirectReservationConfirmation(config.tilcod, config.pickupLibraryCode)
+        val inspection = inspector.inspectDirectReservationConfirmation(
+            config.tilcod,
+            config.pickupLibraryCode,
+            config.contactDirectWebValue,
+        )
         val detail = when (inspection) {
             is ConfirmationInspection.Parsed ->
                 "fieldNames=[${inspection.fieldNames.joinToString(",")}] " +
@@ -152,6 +161,17 @@ internal suspend fun runLiveReservationInspection(
             ConfirmationInspection.SessionExpiredBeforeConfirm -> "確認画面到達前にセッションが失効しました"
         }
         logger.stage("confirm-inspection", detail)
+        val retry = (inspection as? ConfirmationInspection.Parsed)?.contactSelectionRetry
+        if (retry != null) {
+            logger.stage(
+                "contact-retry",
+                "requested=${retry.requestedValue} parsed=${retry.parsed} " +
+                    "fields=[${retry.fieldNames.joinToString(",")}] " +
+                    "explicitPickup=${retry.explicitPickupLibraryCode ?: "(none)"} " +
+                    "explicitContact=${retry.explicitContactCode ?: "(none)"} " +
+                    "failure=${retry.failureReason ?: "(none)"}",
+            )
+        }
         return inspection
     } finally {
         session.close()
