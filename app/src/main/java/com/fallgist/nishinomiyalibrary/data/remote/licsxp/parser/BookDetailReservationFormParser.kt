@@ -8,10 +8,13 @@ import okhttp3.FormBody
 object BookDetailReservationFormParser {
     private const val SCREEN = "reservation-detail"
 
+    // ブラウザ実測: WOpacMsgNewListToTifTilDetailAction.do経由の書誌詳細だけがtiles.WTifTilDetail2で
+    // hash非空に描画され、確定POSTが予約成立に至る。WOpacTifTilListToTifTilDetailAction.do経由の
+    // tiles.WTifTilDetail（hash空）はfail-closedで受け付けない。
     fun parse(html: String, expectedTilcod: String): BookDetailReservationForm {
         val forms = Jsoup.parse(html).select("form").filter { form ->
             form.id() == "LBForm" &&
-                hasExactlyOneHiddenValue(form, "gamenid", "tiles.WTifTilDetail") &&
+                hasExactlyOneHiddenValue(form, "gamenid", "tiles.WTifTilDetail2") &&
                 hasExactlyOneHiddenValue(form, "tilcod", expectedTilcod) &&
                 hasExactlyOneHidden(form, "kensakuFlg") &&
                 hasExactlyOneHidden(form, "kensaku")
@@ -66,19 +69,9 @@ object BookDetailReservationFormParser {
 class BookDetailReservationForm internal constructor(
     private val fields: List<DetailFormField>,
 ) {
-    /**
-     * hashOverride が非nullで、かつこのページの hash が空のときだけ、元DOM位置のまま
-     * hash をhashOverrideへ上書きする。サイトが非空のhashを発行している場合は絶対に上書きしない。
-     */
-    fun buildForm(hashOverride: String? = null): FormBody = FormBody.Builder().apply {
-        fields.forEach { field ->
-            val value = if (field.name == "hash" && field.value.isEmpty() && hashOverride != null) {
-                hashOverride
-            } else {
-                field.value
-            }
-            add(field.name, value)
-        }
+    /** サイト発行のsuccessful controlsをそのまま送る。hashもページ発行値の素通し。 */
+    fun buildForm(): FormBody = FormBody.Builder().apply {
+        fields.forEach { field -> add(field.name, field.value) }
     }.build()
 }
 

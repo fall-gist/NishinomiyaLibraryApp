@@ -132,8 +132,12 @@ internal class LicsXpReservationSession(
         require(tilcod.isNotBlank()) { "tilcodが空です" }
         require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
         return session.withExclusiveRequestSequence {
+            // ブラウザ実測: 入口アクションによって描画されるgamenidとhashの有無が変わる。
+            // WOpacTifTilListToTifTilDetailAction.do は tiles.WTifTilDetail をhash空で描画し、
+            // 確定POSTが詳細検索画面へ差し戻される。WOpacMsgNewListToTifTilDetailAction.do は
+            // tiles.WTifTilDetail2 をhash非空で描画し、ブラウザの予約成立と同じ経路になる。
             val detailPage = getReservationDetail(
-                "WOpacTifTilListToTifTilDetailAction.do",
+                "WOpacMsgNewListToTifTilDetailAction.do",
                 mapOf("urlNotFlag" to "1", "tilcod" to tilcod),
             )
             val detailHtml = detailPage.html
@@ -146,13 +150,10 @@ internal class LicsXpReservationSession(
             } catch (exception: ParseException) {
                 throw LibraryError.Parse(exception.screen, exception.reason)
             }
-            // ブラウザ実測: アプリはURL直接GETで書誌詳細を開くためhashが空で描画されるが、
-            // ログイン後メニューで取得済みのセッショントークンのhashで補う。
-            val hashOverride = requireSessionHash()
             val confirmationPage = postReservationConfirmation(
                 "WOpacTifDirectYoyDispAction.do",
                 mapOf("tilcod" to tilcod),
-                detailForm.buildForm(hashOverride),
+                detailForm.buildForm(),
                 detailPage,
             )
             val confirmHtml = confirmationPage.html
@@ -165,7 +166,7 @@ internal class LicsXpReservationSession(
                 throw LibraryError.Parse(exception.screen, exception.reason)
             }
             if (pickupLibraryCode !in confirmation.pickupLibraryCodes) throw InvalidPickupLibraryException()
-            val form = confirmation.buildForm(pickupLibraryCode, hashOverride)
+            val form = confirmation.buildForm(pickupLibraryCode)
             val response = try {
                 postReservationExactlyOnce(
                     "WOpacTifDirectYoyExecAction.do",
@@ -205,16 +206,6 @@ internal class LicsXpReservationSession(
 
     override fun close() = Unit
 
-    /**
-     * ログイン後メニューで取得済みのセッショントークンのhashを返す。
-     * トークン未取得（ParseException）は既存の流儀に合わせLibraryError.Parseへ変換する。
-     */
-    private fun requireSessionHash(): String = try {
-        session.requireTokens().hash
-    } catch (exception: ParseException) {
-        throw LibraryError.Parse(exception.screen, exception.reason)
-    }
-
     /** 確定POSTを行わず、確認画面までの遷移と解析結果だけを調べる。directReserveは呼ばない。 */
     override suspend fun inspectDirectReservationConfirmation(
         tilcod: String,
@@ -224,8 +215,9 @@ internal class LicsXpReservationSession(
         require(tilcod.isNotBlank()) { "tilcodが空です" }
         require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
         return session.withExclusiveRequestSequence {
+            // 本番のdirectReserveと同じ入口アクション（詳細はdirectReserve側のコメント参照）。
             val detailPage = getReservationDetail(
-                "WOpacTifTilListToTifTilDetailAction.do",
+                "WOpacMsgNewListToTifTilDetailAction.do",
                 mapOf("urlNotFlag" to "1", "tilcod" to tilcod),
             )
             val detailHtml = detailPage.html
@@ -238,12 +230,10 @@ internal class LicsXpReservationSession(
             } catch (exception: ParseException) {
                 throw LibraryError.Parse(exception.screen, exception.reason)
             }
-            // 本番のdirectReserveと同じく、hashが空なページはセッショントークンのhashで補って送る。
-            val hashOverride = requireSessionHash()
             val confirmationPage = postReservationConfirmation(
                 "WOpacTifDirectYoyDispAction.do",
                 mapOf("tilcod" to tilcod),
-                detailForm.buildForm(hashOverride),
+                detailForm.buildForm(),
                 detailPage,
             )
             val confirmHtml = confirmationPage.html

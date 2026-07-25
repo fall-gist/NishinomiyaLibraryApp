@@ -311,6 +311,36 @@
   `Sec-Fetch-Dest`/`Mode`/`Site`/`User`, `sec-ch-ua*`, `DNT`。Referer と Origin はアプリも
   ブラウザと一致した値を送っている。これらのヘッダ差の予約成否への影響は**未検証事項**である。
 
+### 6.8 予約導線の書誌詳細入口アクションを実測で特定(2026-07-26匿名アクセス・ブラウザDevTools実測、確認済み)
+
+- 6.7で「未検証事項」として残した`returnid`差(ブラウザ`tiles.WTifTilDetail2` / アプリ従来
+  `tiles.WTifTilDetail`)の原因を特定した。**書誌詳細への入口アクションの違い**である。
+  同一`tilcod`に対して匿名アクセスで実測した結果:
+
+  | 入口アクション | 描画される`gamenid` | LBFormの`hash` |
+  |---|---|---|
+  | `WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=…`(アプリが従来使用) | `tiles.WTifTilDetail` | **空** |
+  | `WOpacMsgNewListToTifTilDetailAction.do?urlNotFlag=1&tilcod=…` | **`tiles.WTifTilDetail2`** | **非空** |
+  | `WOpacEsTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=…` | `tiles.WTifSchCmpd`(詳細ではない) | — |
+
+- `WOpacMsgNewListToTifTilDetailAction.do`は複数の`tilcod`(1000000961766 / 1000002035136 /
+  1000001898886 / 1000000060578)で`tiles.WTifTilDetail2`と非空`hash`を返すことを確認した。
+  事前に一覧画面を開いていなくても200で詳細が返る。この画面の`imasuguyoyk`(即予約リンク)は
+  従来どおり`WOpacTifDirectYoyDispAction.do?tilcod=`へ送信し、`kensakuFlg`/`kensaku`は空。
+  LBFormの項目構成は従来の詳細画面と同一(29項目、`id=LBForm`)。
+- **結論**: 予約導線の書誌詳細取得は`WOpacTifTilListToTifTilDetailAction.do`ではなく
+  `WOpacMsgNewListToTifTilDetailAction.do`を使う。`WOpacTifTilListToTifTilDetailAction.do`は
+  `hash`が空で描画され、確定POSTが詳細検索画面へ差し戻される（ブラウザの確定POST本文との
+  差異の実体はこれだった）。読み取り専用の書誌詳細取得(`LicsXpClient`)は対象外で、
+  予約導線(`ReservationGateway`)だけを切り替えた。
+- **hash補完の撤去**: 6.7で導入した「ページの`hash`が空ならログイン後メニューの
+  セッショントークンの`hash`で補う」処理は、入口アクションを直せばページ自身が非空の
+  `hash`を発行するため不要になった。ブラウザとの完全一致を優先し、`hash`はサイト発行値の
+  素通しへ戻した(`BookDetailReservationForm.buildForm()` / `DirectReservationConfirmationPage.buildForm()`
+  から`hashOverride`引数と`ReservationGateway.requireSessionHash()`を削除)。
+- `BookDetailReservationFormParser`が要求する`gamenid`も`tiles.WTifTilDetail2`へ変更した
+  (両方を許すのではなく、ブラウザで予約成立が確認されている画面だけを受け入れるfail-closed)。
+
 ## 7. 設計への示唆
 
 1. **パースは現実的**: 主要データはclass付きdivか素直なtableで、Jsoupで安定してパースできる

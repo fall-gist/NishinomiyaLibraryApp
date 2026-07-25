@@ -10,21 +10,21 @@ import org.junit.Test
 class ParsersTest {
     @Test
     fun `通常書誌詳細LBFormのsuccessful controlsをDOM順で予約表示へ送る`() {
-        val form = BookDetailReservationFormParser.parse(fixture("book_detail.html"), "1000000961766").buildForm()
+        val form = BookDetailReservationFormParser.parse(reservationDetailFixture(), "1000000961766").buildForm()
         val fields = (0 until form.size).map { index -> form.name(index) to form.value(index) }
 
         assertEquals(
             listOf("islogin", "gamentilcod", "prevORnext", "preNextTilcod", "hash"),
             fields.take(5).map { it.first },
         )
-        assertTrue(fields.contains("gamenid" to "tiles.WTifTilDetail"))
+        assertTrue(fields.contains("gamenid" to "tiles.WTifTilDetail2"))
         assertTrue(fields.contains("tilcod" to "1000000961766"))
         assertFalse(fields.any { it.first == "yoyb" || it.first == "addlistbnt" })
     }
 
     @Test
     fun `通常書誌詳細LBFormの期待hiddenは型重複disabledでfail-closedにする`() {
-        val valid = fixture("book_detail.html")
+        val valid = reservationDetailFixture()
         assertParseError("reservation-detail") {
             BookDetailReservationFormParser.parse(
                 valid.replace("type=\"hidden\" name=\"gamenid\"", "type=\"text\" name=\"gamenid\""),
@@ -42,6 +42,15 @@ class ParsersTest {
                 valid.replace("name=\"kensakuFlg\"", "name=\"kensakuFlg\" disabled"),
                 "1000000961766",
             )
+        }
+    }
+
+    @Test
+    fun `gamenidがtiles WTifTilDetailの通常書誌詳細LBFormはParseExceptionになる`() {
+        // WOpacTifTilListToTifTilDetailAction.do経由の実HTML(gamenid=tiles.WTifTilDetail)は
+        // ブラウザ実測で確定POSTが差し戻されるため、fail-closedで受け付けない。
+        assertParseError("reservation-detail") {
+            BookDetailReservationFormParser.parse(fixture("book_detail.html"), "1000000961766")
         }
     }
 
@@ -679,6 +688,23 @@ class ParsersTest {
 
     private fun fixture(name: String): String =
         requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
+
+    // ブラウザ実測: 予約導線はWOpacMsgNewListToTifTilDetailAction.do経由でtiles.WTifTilDetail2・
+    // hash非空で描画される。実HTMLフィクスチャ(gamenid=tiles.WTifTilDetail・hash空)をテスト内で
+    // その形へ書き換えて使う。実HTMLファイル自体は書き換えない。
+    private fun reservationDetailFixture(): String = fixture("book_detail.html")
+        .replace("name=\"gamenid\" value=\"tiles.WTifTilDetail\"", "name=\"gamenid\" value=\"tiles.WTifTilDetail2\"")
+        .let(::withNonEmptyDetailHash)
+
+    // book_detail.html にはhidden hashが2つ存在する（LBFormMFの1つ目、予約対象のLBFormの2つ目）。
+    // 実測ではLBFormのhashが非空で発行されるため、2つ目だけを書き換える。改行コードには依存しない。
+    private fun withNonEmptyDetailHash(html: String): String {
+        var occurrence = 0
+        return Regex("name=\"hash\" value=\"\"").replace(html) { match ->
+            occurrence += 1
+            if (occurrence == 2) "name=\"hash\" value=\"detail-hash\"" else match.value
+        }
+    }
 
     private fun loginFormWith(
         usernameType: String = "text",

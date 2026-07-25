@@ -416,3 +416,33 @@ fail-closedで停止する。
     Referer/Originはアプリも一致した値を送っている。
   - これで予約が成立するかどうかは、この時点でもなお**未検証**である。次にライブdry-run/実予約で
     確認すべきは、hash補完後に確定POSTがサイト側で受理されるかどうかである。
+
+### 予約導線の書誌詳細入口アクション修正・hash補完撤去（2026-07-26追記、事実）
+
+- 前節で「未検証事項」とした`returnid`差(ブラウザ`tiles.WTifTilDetail2`／アプリ従来
+  `tiles.WTifTilDetail`)の原因を、匿名アクセスとブラウザDevToolsの実測で特定した。
+  **書誌詳細への入口アクションの違い**である。詳細な実測表はsite-research.md §6.8参照。
+  - `WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=…`(アプリが従来使用)は
+    `tiles.WTifTilDetail`をhash**空**で描画し、確定POSTが詳細検索画面へ差し戻される。
+  - `WOpacMsgNewListToTifTilDetailAction.do?urlNotFlag=1&tilcod=…`は`tiles.WTifTilDetail2`を
+    hash**非空**で描画し、ブラウザの予約成立と同じ経路になる。複数`tilcod`で確認済み。
+- **対応**: `ReservationGateway.kt`の`directReserve`・`inspectDirectReservationConfirmation`両方の
+  書誌詳細GETを`WOpacMsgNewListToTifTilDetailAction.do`へ差し替えた(クエリは`urlNotFlag=1`と
+  `tilcod`のまま)。読み取り専用の書誌詳細取得(`LicsXpClient`)は対象外で、予約導線だけを変更した。
+- `BookDetailReservationFormParser`が要求する`gamenid`を`tiles.WTifTilDetail`から
+  `tiles.WTifTilDetail2`へ変更した。両方を許すのではなく、ブラウザで予約成立が確認されている
+  画面だけを受け入れるfail-closedとした。`WOpacTifTilListToTifTilDetailAction.do`経由の実HTML
+  (gamenid=`tiles.WTifTilDetail`)を渡すと`ParseException`になることをテストで固定した。
+- **hash補完の撤去**: 前節で入れた「ページの`hash`が空ならログイン後メニューのセッション
+  トークンで補う」処理(`BookDetailReservationForm.buildForm(hashOverride)` /
+  `DirectReservationConfirmationPage.buildForm(pickupLibraryCode, hashOverride)`の
+  `hashOverride`引数、`ReservationGateway.requireSessionHash()`)を削除した。入口アクションを
+  直したことで、ページ自身が非空の`hash`を発行するため不要になったため。ブラウザとの完全一致を
+  優先し、`hash`はサイト発行値の素通しに戻した(実値は記載しない)。
+- テストは`ReservationGatewayTest.kt`・`ParsersTest.kt`の両方で、実HTMLフィクスチャ
+  `book_detail.html`自体は書き換えず、テスト内で`gamenid`を`tiles.WTifTilDetail2`・`hash`を
+  非空値へ置換した文字列を生成して使うよう更新した。確定POSTが1回だけであること・
+  Referer/Originが従来どおりであることも既存テストのまま維持されている。
+- 確認済み(2026-07-26、ローカル): `./gradlew :app:testDebugUnitTest :app:assembleDebug`が
+  両方成功。これで予約が成立するかどうかは、この時点でもなお**未検証**であり、次はライブ
+  dry-run/実予約での確認が必要である。

@@ -68,12 +68,12 @@ class ReservationGatewayTest {
             ),
             decodeFormFields(requests[2].body.readUtf8()),
         )
-        assertEquals("/WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001", requests[4].path)
+        assertEquals("/WOpacMsgNewListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001", requests[4].path)
         assertEquals("GET", requests[4].method)
         assertEquals("/WOpacTifDirectYoyDispAction.do?tilcod=1000000000001", requests[5].path)
         assertEquals("POST", requests[5].method)
-        assertEquals("tiles.WTifTilDetail", decodeForm(requests[5].body.readUtf8())["gamenid"]?.single())
-        assertEquals(server.url("/WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001").toString(), requests[5].getHeader("Referer"))
+        assertEquals("tiles.WTifTilDetail2", decodeForm(requests[5].body.readUtf8())["gamenid"]?.single())
+        assertEquals(server.url("/WOpacMsgNewListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001").toString(), requests[5].getHeader("Referer"))
         assertEquals("${server.url("/").scheme}://${server.url("/").host}:${server.url("/").port}", requests[5].getHeader("Origin"))
         assertEquals("/WOpacTifDirectYoyExecAction.do?tilcod=1000000000001", requests[6].path)
         assertEquals(1, requests.count { it.path?.startsWith("/WOpacTifDirectYoyExecAction.do") == true })
@@ -142,7 +142,7 @@ class ReservationGatewayTest {
         assertEquals(DirectReservationAttempt.SessionExpiredBeforeSubmit, session.directReserve("1000000000001", "106"))
 
         val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
-        assertEquals("/WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001", requests.last().path)
+        assertEquals("/WOpacMsgNewListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001", requests.last().path)
         assertTrue(requests.none { it.path?.contains("WOpacTifDirectYoy") == true })
         assertEquals(5, server.requestCount)
     }
@@ -201,7 +201,7 @@ class ReservationGatewayTest {
                 "/OpacInitLoginAction.do" -> page(fixture("login_form.html"))
                 "/j_security_check" -> page("<html>login relay</html>")
                 "/WOpacMnuTopInitAction.do" -> page(fixture("menu.html"))
-                "/WOpacTifTilListToTifTilDetailAction.do" -> page(reservationDetailFixture())
+                "/WOpacMsgNewListToTifTilDetailAction.do" -> page(reservationDetailFixture())
                 "/WOpacTifDirectYoyDispAction.do" -> page(fixture("reservation_confirm_js_action.html"))
                 "/WOpacTifDirectYoyExecAction.do" -> page("<html><div id='stat-login'></div></html>")
                 "/background" -> page("background")
@@ -250,7 +250,7 @@ class ReservationGatewayTest {
         assertEquals("background", background.await())
 
         val requests = List(8) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
-        assertEquals("/WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001", requests[4].path)
+        assertEquals("/WOpacMsgNewListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001", requests[4].path)
         assertEquals("/WOpacTifDirectYoyDispAction.do?tilcod=1000000000001", requests[5].path)
         assertEquals("/WOpacTifDirectYoyExecAction.do?tilcod=1000000000001", requests[6].path)
         assertEquals("/background", requests[7].path)
@@ -469,38 +469,9 @@ class ReservationGatewayTest {
     }
 
     @Test
-    fun `hashが空な書誌詳細と確認画面の両方でセッショントークンのhashを元DOM位置へ補う`() = runBlocking {
-        // book_detail.html のLBFormはhash空、確認画面もhash空版を使い、
-        // ログイン直後メニュー(menu.html)のhash "1249c619e529de0b66c5fb9d64dfb98392615089" が
-        // 両方のPOSTへ補われることを確認する。
-        server.enqueue(page("<html>温め</html>"))
-        server.enqueue(page(fixture("login_form.html")))
-        server.enqueue(page("<html>中継</html>"))
-        server.enqueue(page(fixture("menu.html")))
-        server.enqueue(page(reservationDetailFixture()))
-        server.enqueue(page(emptyHashConfirmFixture()))
-        server.enqueue(page("<html><div id='stat-login'></div></html>"))
-        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
-            .openAuthenticatedSession("1234", "secret")
-
-        assertEquals(DirectReservationAttempt.IndeterminateAfterPost, session.directReserve("1000000000001", "106"))
-
-        assertEquals(7, server.requestCount)
-        val requests = List(7) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
-        assertEquals(
-            "1249c619e529de0b66c5fb9d64dfb98392615089",
-            decodeForm(requests[5].body.readUtf8())["hash"]?.single(),
-        )
-        assertEquals(
-            "1249c619e529de0b66c5fb9d64dfb98392615089",
-            decodeForm(requests[6].body.readUtf8())["hash"]?.single(),
-        )
-    }
-
-    @Test
-    fun `ページのhashに既存値があるときはセッショントークンで上書きしない`() = runBlocking {
-        // reservation_confirm.html は元々hash="confirm-hash"を発行しているため、
-        // menu.htmlのセッショントークンのhashへ置き換わらないことを確認する。
+    fun `詳細と確認のhashはページ発行値のまま送られセッショントークンで上書きしない`() = runBlocking {
+        // reservationDetailFixture()はhash="detail-hash"、reservation_confirm.htmlはhash="confirm-hash"を
+        // 発行している。menu.htmlのセッショントークンのhashへ置き換わらないことを確認する。
         server.enqueue(page("<html>温め</html>"))
         server.enqueue(page(fixture("login_form.html")))
         server.enqueue(page("<html>中継</html>"))
@@ -516,9 +487,56 @@ class ReservationGatewayTest {
         assertEquals(7, server.requestCount)
         val requests = List(7) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals(
+            "detail-hash",
+            decodeForm(requests[5].body.readUtf8())["hash"]?.single(),
+        )
+        assertEquals(
             "confirm-hash",
             decodeForm(requests[6].body.readUtf8())["hash"]?.single(),
         )
+    }
+
+    @Test
+    fun `hashが空な確認画面でもセッショントークンで補わず空のまま送る`() = runBlocking {
+        // hash補完は撤去済み。emptyHashConfirmFixture()のhash空値がそのまま送られることを確認する。
+        server.enqueue(page("<html>温め</html>"))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(reservationDetailFixture()))
+        server.enqueue(page(emptyHashConfirmFixture()))
+        server.enqueue(page("<html><div id='stat-login'></div></html>"))
+        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+
+        assertEquals(DirectReservationAttempt.IndeterminateAfterPost, session.directReserve("1000000000001", "106"))
+
+        assertEquals(7, server.requestCount)
+        val requests = List(7) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals("", decodeForm(requests[6].body.readUtf8())["hash"]?.single())
+    }
+
+    @Test
+    fun `gamenidがtiles WTifTilDetailの詳細HTMLはParseExceptionになる`() = runBlocking {
+        // WOpacTifTilListToTifTilDetailAction.do経由の実HTML(gamenid=tiles.WTifTilDetail)は
+        // hashが空で描画され確定POSTが差し戻されるため、fail-closedで受け付けない。
+        server.enqueue(page("<html>温め</html>"))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("book_detail.html").replace("1000000961766", "1000000000001")))
+        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+
+        val error = try {
+            session.directReserve("1000000000001", "106")
+            null
+        } catch (exception: LibraryError.Parse) {
+            exception
+        }
+
+        assertNotNull(error)
+        assertEquals(5, server.requestCount)
     }
 
     private fun emptyContactDirectWebFixture(): String =
@@ -540,7 +558,23 @@ class ReservationGatewayTest {
     private fun fixture(name: String): String =
         requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
 
-    private fun reservationDetailFixture(): String = fixture("book_detail.html").replace("1000000961766", "1000000000001")
+    // ブラウザ実測: 予約導線はWOpacMsgNewListToTifTilDetailAction.do経由でtiles.WTifTilDetail2・
+    // hash非空で描画される。実HTMLフィクスチャ(gamenid=tiles.WTifTilDetail・hash空)をテスト内で
+    // その形へ書き換えて使う。実HTMLファイル自体は書き換えない。
+    private fun reservationDetailFixture(): String = fixture("book_detail.html")
+        .replace("1000000961766", "1000000000001")
+        .replace("name=\"gamenid\" value=\"tiles.WTifTilDetail\"", "name=\"gamenid\" value=\"tiles.WTifTilDetail2\"")
+        .let(::withNonEmptyDetailHash)
+
+    // book_detail.html にはhidden hashが2つ存在する（LBFormMFの1つ目、予約対象のLBFormの2つ目）。
+    // 実測ではLBFormのhashが非空で発行されるため、2つ目だけを書き換える。改行コードには依存しない。
+    private fun withNonEmptyDetailHash(html: String): String {
+        var occurrence = 0
+        return Regex("name=\"hash\" value=\"\"").replace(html) { match ->
+            occurrence += 1
+            if (occurrence == 2) "name=\"hash\" value=\"detail-hash\"" else match.value
+        }
+    }
 
     private fun decodeForm(body: String): Map<String, List<String>> = decodeFormFields(body)
         .groupBy({ it.first }, { it.second })

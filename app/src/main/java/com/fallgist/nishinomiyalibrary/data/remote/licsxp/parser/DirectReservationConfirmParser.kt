@@ -27,11 +27,9 @@ class DirectReservationConfirmationPage internal constructor(
      * 受取館・連絡方法を元DOM位置で一度だけ上書きする。
      * 重複制御項目はパース時に拒否するため、ここで末尾追加することはない。
      * contactdirectweb はサイト発行値をそのまま送る（値は未取得のため上書きしない）。
-     *
-     * hashOverride が非nullで、かつこのページの hash が空のときだけ、元DOM位置のまま
-     * hash をhashOverrideへ上書きする。サイトが非空のhashを発行している場合は絶対に上書きしない。
+     * hashもページ発行値の素通し。
      */
-    fun buildForm(pickupLibraryCode: String, hashOverride: String? = null): FormBody {
+    fun buildForm(pickupLibraryCode: String): FormBody {
         require(pickupLibraryCode in pickupLibraryCodes) { "受取館コードが確認画面にありません" }
         val controlledValues = mapOf(
             "receivename" to pickupLibraryCode,
@@ -39,11 +37,7 @@ class DirectReservationConfirmationPage internal constructor(
         )
         return FormBody.Builder().apply {
             fields.forEach { field ->
-                val value = when {
-                    controlledValues.containsKey(field.name) -> controlledValues.getValue(field.name)
-                    field.name == "hash" && field.value.isEmpty() && hashOverride != null -> hashOverride
-                    else -> field.value
-                }
+                val value = controlledValues[field.name] ?: field.value
                 add(field.name, value)
             }
         }.build()
