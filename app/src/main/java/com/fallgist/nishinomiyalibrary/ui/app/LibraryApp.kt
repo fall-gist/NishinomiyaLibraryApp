@@ -30,6 +30,8 @@ import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreen
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailView
+import com.fallgist.nishinomiyalibrary.ui.diagnostics.DiagnosticLogScreen
+import com.fallgist.nishinomiyalibrary.ui.diagnostics.DiagnosticLogScreenController
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreen
 import com.fallgist.nishinomiyalibrary.ui.home.HomeUiState
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreen
@@ -87,12 +89,15 @@ fun LibraryApp(
     settingsController: SettingsScreenController,
     bookDetailController: BookDetailController,
     reservationUiController: ReservationUiController,
+    diagnosticLogScreenController: DiagnosticLogScreenController,
 ) {
     val colors = LocalAppColors.current
     val reservationState by reservationUiController.state.collectAsState()
     val primaryTabs = Destination.entries.filter { it.primary }
     var currentName by rememberSaveable { mutableStateOf(Destination.HOME.name) }
     val current = Destination.valueOf(currentName)
+    // 診断ログ閲覧は設定画面からだけ開ける、書誌詳細と同様の全画面オーバーレイとして扱う(ドロワー/下部ナビには出さない)。
+    var diagnosticLogOpen by rememberSaveable { mutableStateOf(false) }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -261,8 +266,7 @@ fun LibraryApp(
                             onSetReturnReminderDaysBefore = settingsController::setReturnReminderDaysBefore,
                             onSetDefaultCalendarLibrary = settingsController::setDefaultCalendarLibrary,
                             onSetDiagnosticLogEnabled = settingsController::setDiagnosticLogEnabled,
-                            onCopyDiagnosticLog = settingsController::formattedDiagnosticLog,
-                            onClearDiagnosticLog = settingsController::clearDiagnosticLog,
+                            onOpenDiagnosticLog = { diagnosticLogOpen = true },
                             onOpenMenu = openMenu,
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -296,6 +300,19 @@ fun LibraryApp(
                         onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
                         onAddToCart = reservationUiController::addToCart,
                         onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
+                        modifier = Modifier.fillMaxSize().background(colors.paper),
+                    )
+                }
+                if (diagnosticLogOpen) {
+                    val diagnosticLogState by diagnosticLogScreenController.state.collectAsState()
+                    DiagnosticLogScreen(
+                        state = diagnosticLogState,
+                        onQueryChange = diagnosticLogScreenController::updateQuery,
+                        onToggleCategory = diagnosticLogScreenController::toggleCategory,
+                        onCopyVisible = diagnosticLogScreenController::formattedVisibleLog,
+                        onClear = diagnosticLogScreenController::clear,
+                        onExportFile = diagnosticLogScreenController::exportFile,
+                        onBack = { diagnosticLogOpen = false },
                         modifier = Modifier.fillMaxSize().background(colors.paper),
                     )
                 }

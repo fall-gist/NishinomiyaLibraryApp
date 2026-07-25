@@ -23,17 +23,59 @@ class DiagnosticLogTest {
     }
 
     @Test
-    fun `画面スクリプトは予約導線の画面だけ記録し他画面では記録しない`() {
+    fun `画面スクリプトはYoy限定なしにどの画面でも記録される`() {
         val log = DiagnosticLog(fixedClock(0L))
         log.recording = true
         val observer = DiagnosticLogObserver(log)
 
         observer.onScreenScript("/licsxp-opac/WOpacMsgNewMenuDispAction.do", listOf("a:b"), listOf("c:d"))
-        assertTrue(log.entries.value.isEmpty())
+        val categories = log.entries.value.map { it.category }
+        assertEquals(listOf("script", "script-actions", "script-assign"), categories)
+    }
+
+    @Test
+    fun `同一内容の画面スクリプトを2回記録すると2回目は既出参照の1行だけになる`() {
+        val log = DiagnosticLog(fixedClock(0L))
+        log.recording = true
+        val observer = DiagnosticLogObserver(log)
 
         observer.onScreenScript("/licsxp-opac/WOpacTifDirectYoyDispAction.do", listOf("exec:X.do"), listOf("exec:body=submit();"))
-        val categories = log.entries.value.map { it.category }
-        assertEquals(listOf("script-actions", "script-assign"), categories)
+        val firstRoundCount = log.entries.value.size
+
+        observer.onScreenScript("/licsxp-opac/WOpacMsgNewMenuDispAction.do", listOf("exec:X.do"), listOf("exec:body=submit();"))
+        val secondRoundEntries = log.entries.value.drop(firstRoundCount)
+
+        assertEquals(listOf("script"), secondRoundEntries.map { it.category })
+        assertTrue(secondRoundEntries.single().message.contains("既出のスクリプトと同一"))
+    }
+
+    @Test
+    fun `内容が異なる画面スクリプトは重複除去されず通常どおり記録される`() {
+        val log = DiagnosticLog(fixedClock(0L))
+        log.recording = true
+        val observer = DiagnosticLogObserver(log)
+
+        observer.onScreenScript("/a.do", listOf("exec:X.do"), listOf("exec:body=submit();"))
+        observer.onScreenScript("/b.do", listOf("exec:Y.do"), listOf("exec:body=submit2();"))
+
+        val scriptCategoryMessages = log.entries.value.filter { it.category == "script" }.map { it.message }
+        assertEquals(2, scriptCategoryMessages.size)
+        assertFalse(scriptCategoryMessages.any { it.contains("既出のスクリプトと同一") })
+    }
+
+    @Test
+    fun `clearで既出ハッシュがリセットされ同一内容も再度通常記録される`() {
+        val log = DiagnosticLog(fixedClock(0L))
+        log.recording = true
+        val observer = DiagnosticLogObserver(log)
+
+        observer.onScreenScript("/a.do", listOf("exec:X.do"), listOf("exec:body=submit();"))
+        log.clear()
+        log.recording = true
+        observer.onScreenScript("/a.do", listOf("exec:X.do"), listOf("exec:body=submit();"))
+
+        val scriptCategoryMessages = log.entries.value.filter { it.category == "script" }.map { it.message }
+        assertFalse(scriptCategoryMessages.any { it.contains("既出のスクリプトと同一") })
     }
 
     @Test

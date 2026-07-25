@@ -8,6 +8,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.fallgist.nishinomiyalibrary.ui.app.LibraryApp
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
+import com.fallgist.nishinomiyalibrary.ui.diagnostics.DiagnosticLogScreenController
 import com.fallgist.nishinomiyalibrary.ui.di.MainActivityEntryPoint
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
@@ -42,6 +43,7 @@ open class MainActivity : ComponentActivity() {
     private lateinit var settingsController: SettingsScreenController
     private lateinit var bookDetailController: BookDetailController
     private lateinit var reservationUiController: ReservationUiController
+    private lateinit var diagnosticLogScreenController: DiagnosticLogScreenController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         window.setFlags(
@@ -64,6 +66,7 @@ open class MainActivity : ComponentActivity() {
         settingsController = entryPoint.settingsScreenController()
         bookDetailController = entryPoint.bookDetailController()
         reservationUiController = entryPoint.reservationUiController()
+        diagnosticLogScreenController = entryPoint.diagnosticLogScreenController()
 
         setContent {
             val state by controller.state.collectAsState()
@@ -83,6 +86,7 @@ open class MainActivity : ComponentActivity() {
                     settingsController = settingsController,
                     bookDetailController = bookDetailController,
                     reservationUiController = reservationUiController,
+                    diagnosticLogScreenController = diagnosticLogScreenController,
                 )
             }
         }

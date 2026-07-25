@@ -27,7 +27,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,14 +35,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import com.fallgist.nishinomiyalibrary.data.local.RETURN_REMINDER_DAYS_RANGE
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
@@ -75,8 +71,7 @@ fun SettingsScreen(
     onSetReturnReminderDaysBefore: (Int) -> Unit,
     onSetDefaultCalendarLibrary: (String) -> Unit,
     onSetDiagnosticLogEnabled: (Boolean) -> Unit,
-    onCopyDiagnosticLog: () -> String,
-    onClearDiagnosticLog: () -> Unit,
+    onOpenDiagnosticLog: () -> Unit,
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -258,8 +253,7 @@ fun SettingsScreen(
                 enabled = state.diagnosticLogEnabled,
                 lineCount = state.diagnosticLogLineCount,
                 onSetEnabled = onSetDiagnosticLogEnabled,
-                onCopyLog = onCopyDiagnosticLog,
-                onClearLog = onClearDiagnosticLog,
+                onOpenLog = onOpenDiagnosticLog,
             )
         }
 
@@ -329,20 +323,18 @@ private fun DividerLine() {
 }
 
 /**
- * 通信診断ログのトグル・件数表示・コピー/消去。
+ * 通信診断ログのトグルと件数表示、閲覧画面への導線。
  * ログには通信先の画面名・項目名だけが残り、本文やパスワード等は記録されない(秘匿ポリシーは既存observer側で担保)。
+ * 実体は端末内のファイル(アプリ専用領域)にも保存され、コピー・絞り込み・共有・消去は閲覧画面側で行う。
  */
 @Composable
 private fun DiagnosticSection(
     enabled: Boolean,
     lineCount: Int,
     onSetEnabled: (Boolean) -> Unit,
-    onCopyLog: () -> String,
-    onClearLog: () -> Unit,
+    onOpenLog: () -> Unit,
 ) {
     val colors = LocalAppColors.current
-    val clipboardManager = LocalClipboardManager.current
-    var copiedFeedback by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -352,7 +344,8 @@ private fun DiagnosticSection(
         Column(modifier = Modifier.weight(1f)) {
             Text("通信ログを記録する", color = colors.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Text(
-                text = "不具合調査用です。通常はオフのままにしてください。ログには通信先の画面名・項目名だけが残り、パスワードやカード番号、本文は含まれません。",
+                text = "不具合調査用です。通常はオフのままにしてください。ログは端末内のファイルに保存され、" +
+                    "通信先の画面名・項目名だけが残ります。パスワードやカード番号、通信本文は含まれません。",
                 color = colors.ink2,
                 fontSize = 11.sp,
             )
@@ -365,28 +358,11 @@ private fun DiagnosticSection(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("記録件数", color = colors.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Text("${lineCount}件", color = colors.ink2, fontSize = 12.sp)
-    }
-    Spacer(Modifier.height(8.dp))
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Button(
-            onClick = {
-                clipboardManager.setText(AnnotatedString(onCopyLog()))
-                copiedFeedback = true
-            },
-        ) { Text("ログをコピー") }
-        TextButton(onClick = onClearLog) { Text("ログを消去") }
-    }
-    if (copiedFeedback) {
-        LaunchedEffect(Unit) {
-            delay(2000)
-            copiedFeedback = false
+        Column(modifier = Modifier.weight(1f)) {
+            Text("記録件数", color = colors.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text("${lineCount}件", color = colors.ink2, fontSize = 12.sp)
         }
-        Text("コピーしました", color = colors.green, fontSize = 11.sp)
+        Button(onClick = onOpenLog) { Text("ログを見る") }
     }
 }
 

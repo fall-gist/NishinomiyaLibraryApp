@@ -14,6 +14,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
 import com.fallgist.nishinomiyalibrary.ui.debug.DebugScreenController
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
+import com.fallgist.nishinomiyalibrary.ui.diagnostics.DiagnosticLogScreenController
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
@@ -181,6 +182,14 @@ object DebugUiProvisionModule {
         scheduleStarter = scheduleStarter,
         diagnosticLog = diagnosticLog,
     )
+
+    @Provides
+    @Singleton
+    fun provideDiagnosticLogScreenController(
+        diagnosticLog: DiagnosticLog,
+    ): DiagnosticLogScreenController = DiagnosticLogScreenController(
+        diagnosticLog = diagnosticLog,
+    )
 }
 
 /** ActivityはこのApplication EntryPointから画面用Controllerだけを取得する。 */
@@ -210,4 +219,6 @@ interface MainActivityEntryPoint {
     fun settingsScreenController(): SettingsScreenController
 
     fun debugScreenController(): DebugScreenController
+
+    fun diagnosticLogScreenController(): DiagnosticLogScreenController
 }
