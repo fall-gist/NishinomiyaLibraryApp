@@ -116,8 +116,12 @@ internal class DiagnosticLogObserver(private val log: DiagnosticLog) : LicsXpDia
     /**
      * actionと代入は1行に収まらないため、1行あたりの上限で切り捨てられないよう分割して記録する。
      * 特に関数本体（`関数名:body=...`）は末尾に来るため、まとめて1行にすると必ず失われる。
+     *
+     * 画面スクリプトは全画面で数十行になり、他の記録をリングバッファから押し出してしまう。
+     * 調査対象は予約導線に限られるため、予約関連の画面だけを記録する。
      */
     override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) {
+        if (!path.contains("Yoy")) return
         if (actionTargets.isEmpty() && fieldAssignments.isEmpty()) return
         actionTargets.chunkedByLength(SCRIPT_CHUNK_LENGTH).forEach { chunk ->
             log.record("script-actions", "$path $chunk")

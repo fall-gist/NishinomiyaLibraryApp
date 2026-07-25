@@ -23,6 +23,34 @@ class DiagnosticLogTest {
     }
 
     @Test
+    fun `画面スクリプトは予約導線の画面だけ記録し他画面では記録しない`() {
+        val log = DiagnosticLog(fixedClock(0L))
+        log.recording = true
+        val observer = DiagnosticLogObserver(log)
+
+        observer.onScreenScript("/licsxp-opac/WOpacMsgNewMenuDispAction.do", listOf("a:b"), listOf("c:d"))
+        assertTrue(log.entries.value.isEmpty())
+
+        observer.onScreenScript("/licsxp-opac/WOpacTifDirectYoyDispAction.do", listOf("exec:X.do"), listOf("exec:body=submit();"))
+        val categories = log.entries.value.map { it.category }
+        assertEquals(listOf("script-actions", "script-assign"), categories)
+    }
+
+    @Test
+    fun `分割記録により関数本体が1行上限で切り捨てられない`() {
+        val log = DiagnosticLog(fixedClock(0L))
+        log.recording = true
+        val observer = DiagnosticLogObserver(log)
+        // actionが大量にある画面でも、末尾の関数本体は独立した行として残る。
+        val actions = List(200) { index -> "func$index:VeryLongActionTarget$index.do?parameter=value" }
+
+        observer.onScreenScript("/licsxp-opac/WOpacTifDirectYoyDispAction.do", actions, listOf("exec:body=見失ってはいけない"))
+
+        assertTrue(log.entries.value.count { it.category == "script-actions" } > 1)
+        assertTrue(log.formatted().contains("exec:body=見失ってはいけない"))
+    }
+
+    @Test
     fun `記録ONにすると入りOFFに戻すとそれ以降は入らない`() {
         val log = DiagnosticLog(fixedClock(0L))
         log.recording = true
