@@ -65,6 +65,9 @@ fun DiagnosticLogScreen(
     val clipboardManager = LocalClipboardManager.current
     var copiedFeedback by remember { mutableStateOf(false) }
     var shareFailedFeedback by remember { mutableStateOf(false) }
+    // TextFieldの値をController経由の非同期StateFlow往復にするとIMEの変換合成が崩れるため、
+    // 入力値は画面ローカルに保持し、Controllerへは通知のみ行う
+    var queryText by remember { mutableStateOf(state.query) }
 
     BackHandler(enabled = true, onBack = onBack)
 
@@ -90,8 +93,11 @@ fun DiagnosticLogScreen(
         }
 
         OutlinedTextField(
-            value = state.query,
-            onValueChange = onQueryChange,
+            value = queryText,
+            onValueChange = {
+                queryText = it
+                onQueryChange(it)
+            },
             label = { Text("検索(メッセージ・カテゴリ)") },
             singleLine = true,
             modifier = Modifier
