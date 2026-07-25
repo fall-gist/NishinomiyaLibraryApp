@@ -69,6 +69,10 @@ class LiveReservationDiagnosticSupportTest {
             override fun onPage(path: String, classification: String, formFingerprint: String) {
                 pages += "$path $classification $formFingerprint"
             }
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
+
+            override fun onSiteMessages(path: String, messages: List<String>) = Unit
         }
         val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
         session.post(
@@ -88,13 +92,13 @@ class LiveReservationDiagnosticSupportTest {
         assertEquals("[REDACTED]", record.form["j_username"])
         assertEquals("[REDACTED]", record.form["j_password"])
         assertEquals("[REDACTED]", record.form["hash"])
-        assertEquals("[REDACTED]", record.form["tilcod"])
-        assertEquals("[REDACTED]", record.form["receivename"])
-        assertEquals("[REDACTED]", record.form["contact"])
+        // tilcod/receivename/contact は個人情報を含まない画面制御フィールドとして診断秘匿ポリシーの対象外になった。
+        assertEquals("1000000000001", record.form["tilcod"])
+        assertEquals("106", record.form["receivename"])
+        assertEquals("4", record.form["contact"])
         assertEquals("tiles.WYoyConfirm", record.form["gamenid"])
         assertFalse(record.toString().contains("secret-password"))
         assertFalse(record.toString().contains("00000000000000001234"))
-        assertFalse(record.toString().contains("1000000000001"))
         assertTrue(responses.contains("POST /j_security_check 302 /next"))
         assertTrue(responses.contains("GET /next 200 -"))
         assertTrue(pages.single().startsWith("/next login-form"))
@@ -115,6 +119,12 @@ class LiveReservationDiagnosticSupportTest {
 
             override fun onPage(path: String, classification: String, formFingerprint: String): Nothing =
                 error("通常経路でHTML監査を呼んではいけない")
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>): Nothing =
+                error("通常経路でスクリプト監査を呼んではいけない")
+
+            override fun onSiteMessages(path: String, messages: List<String>): Nothing =
+                error("通常経路でメッセージ監査を呼んではいけない")
         }
 
         val session = LicsXpSession(server.url("/"), OkHttpClient(), disabledObserver, waitForRequestSlot = {})
@@ -140,6 +150,10 @@ class LiveReservationDiagnosticSupportTest {
             override fun onPage(path: String, classification: String, formFingerprint: String) {
                 classifications += classification
             }
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
+
+            override fun onSiteMessages(path: String, messages: List<String>) = Unit
         }
         val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
 
@@ -170,6 +184,10 @@ class LiveReservationDiagnosticSupportTest {
             override fun onPage(path: String, classification: String, formFingerprint: String) {
                 classifications += classification
             }
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
+
+            override fun onSiteMessages(path: String, messages: List<String>) = Unit
         }
         val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
 
@@ -251,6 +269,251 @@ class LiveReservationDiagnosticSupportTest {
         assertTrue(inspection is ConfirmationInspection.Parsed)
     }
 
+    @Test
+    fun `action代入からリテラルと連結識別子を抽出しトップレベル接頭辞を付ける`() {
+        val html = """document.LBForm.action="WOpacTifDirectYoyExecAction.do?tilcod="+tilcod;"""
+
+        val targets = extractScreenScriptActionTargets(html)
+
+        assertTrue(targets.contains("(top-level):WOpacTifDirectYoyExecAction.do?tilcod="))
+        assertTrue(targets.contains("(top-level):+tilcod"))
+    }
+
+    @Test
+    fun `window_openとshowModalDialogの第1引数リテラルはpopup接頭辞付きで抽出される`() {
+        val html = """
+            <script>
+            function imasuguyoyk() {
+                window.open('WOpacYoyConfirmPopupRecWebDispAction.do?a=1', 'popup', 'width=400');
+            }
+            function showDialog() {
+                showModalDialog("Foo.do");
+            }
+            </script>
+        """.trimIndent()
+
+        val targets = extractScreenScriptActionTargets(html)
+
+        assertTrue(targets.contains("imasuguyoyk:popup=WOpacYoyConfirmPopupRecWebDispAction.do?a=1"))
+        assertTrue(targets.contains("showDialog:popup=Foo.do"))
+    }
+
+    @Test
+    fun `ポップアップ抽出は通常のaction抽出を壊さない`() {
+        val html = """
+            <script>
+            function imasuguyoyk(tilcod) {
+                document.LBForm.action="WOpacTifDirectYoyDispAction.do?tilcod="+tilcod;
+                window.open('WOpacYoyConfirmPopupRecWebDispAction.do?a=1');
+            }
+            </script>
+        """.trimIndent()
+
+        val targets = extractScreenScriptActionTargets(html)
+
+        assertTrue(targets.contains("imasuguyoyk:WOpacTifDirectYoyDispAction.do?tilcod="))
+        assertTrue(targets.contains("imasuguyoyk:+tilcod"))
+        assertTrue(targets.contains("imasuguyoyk:popup=WOpacYoyConfirmPopupRecWebDispAction.do?a=1"))
+    }
+
+    @Test
+    fun `無効な監査先ではポップアップ抽出も含めスクリプト解析を一切呼ばない`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """<script>window.open('WOpacYoyConfirmPopupRecWebDispAction.do?a=1');</script>""",
+            ),
+        )
+        val disabledObserver = object : LicsXpDiagnosticObserver {
+            override val enabled: Boolean = false
+
+            override fun onRequest(request: LicsXpDiagnosticRequest): Nothing = error("通常経路でrequest監査を呼んではいけない")
+
+            override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?): Nothing =
+                error("通常経路でresponse監査を呼んではいけない")
+
+            override fun onPage(path: String, classification: String, formFingerprint: String): Nothing =
+                error("通常経路でHTML監査を呼んではいけない")
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>): Nothing =
+                error("通常経路でスクリプト監査を呼んではいけない")
+
+            override fun onSiteMessages(path: String, messages: List<String>): Nothing =
+                error("通常経路でメッセージ監査を呼んではいけない")
+        }
+
+        val session = LicsXpSession(server.url("/"), OkHttpClient(), disabledObserver, waitForRequestSlot = {})
+        assertTrue(session.get("normal").contains("window.open"))
+    }
+
+    @Test
+    fun `フィールド代入はリテラルのみ残し式はexprに置換しトップレベル接頭辞を付ける`() {
+        val html = """
+            document.LBForm.bmtime_hide.value = "20260725";
+            document.LBForm.receivenameFocus.value = getFocus();
+        """.trimIndent()
+
+        val assignments = extractScreenScriptFieldAssignments(html)
+
+        assertTrue(assignments.contains("(top-level):bmtime_hide.value=20260725"))
+        assertTrue(assignments.contains("(top-level):receivenameFocus.value=(expr)"))
+    }
+
+    @Test
+    fun `2つの関数を持つ場合は代入がそれぞれの関数名に紐づく`() {
+        val html = """
+            <script>
+            function imasuguyoyk(tilcod) {
+                document.LBForm.action="WOpacTifDirectYoyDispAction.do?tilcod="+tilcod;
+                document.LBForm.tilcod.value = tilcod;
+            }
+            function exec() {
+                document.LBForm.bmtime_hide.value = "20260725";
+                document.LBForm.returnid.disabled = true;
+            }
+            </script>
+        """.trimIndent()
+
+        val targets = extractScreenScriptActionTargets(html)
+        val assignments = extractScreenScriptFieldAssignments(html)
+
+        assertTrue(targets.contains("imasuguyoyk:WOpacTifDirectYoyDispAction.do?tilcod="))
+        assertTrue(targets.contains("imasuguyoyk:+tilcod"))
+        assertTrue(assignments.contains("imasuguyoyk:tilcod.value=(expr)"))
+        assertTrue(assignments.contains("exec:bmtime_hide.value=20260725"))
+        // "true" は QUOTED_LITERAL / NUMERIC_LITERAL のどちらにも一致しないため(expr)に置換される。
+        assertTrue(assignments.contains("exec:returnid.disabled=(expr)"))
+    }
+
+    @Test
+    fun `Execを含むaction設定を持つ関数は本体がbodyエントリとして出力され数字がマスクされ1200文字で切られる`() {
+        val longNumber = "9999996"
+        val filler = "a".repeat(2000)
+        val html = """
+            <script>
+            function exec() {
+                document.LBForm.action="WOpacTifDirectYoyExecAction.do?tilcod="+tilcod;
+                document.LBForm.returnValue.value=("$longNumber");
+                // filler:$filler
+            }
+            </script>
+        """.trimIndent()
+
+        val assignments = extractScreenScriptFieldAssignments(html)
+
+        val bodyEntry = assignments.single { it.startsWith("exec:body=") }
+        assertEquals("exec:body=".length + 1200, bodyEntry.length)
+        assertFalse(bodyEntry.contains(longNumber))
+        assertTrue(bodyEntry.contains("[NUM]"))
+    }
+
+    @Test
+    fun `action設定もフィールド代入も持たない関数の本体はbodyエントリとして出力されない`() {
+        val html = """
+            <script>
+            function noop(tilcod) {
+                var x = tilcod;
+            }
+            </script>
+        """.trimIndent()
+
+        val assignments = extractScreenScriptFieldAssignments(html)
+
+        assertFalse(assignments.any { it.contains(":body=") })
+    }
+
+    @Test
+    fun `Execを含まずvalue代入を持つ関数の本体はbodyエントリとして出力される`() {
+        val html = """
+            <script>
+            function selectwatspt() {
+                document.LBForm.returnValue.value = "1";
+            }
+            </script>
+        """.trimIndent()
+
+        val assignments = extractScreenScriptFieldAssignments(html)
+
+        assertTrue(assignments.any { it.startsWith("selectwatspt:body=") })
+    }
+
+    @Test
+    fun `本体出力の対象は最大8関数で打ち切られる`() {
+        val functions = (1..10).joinToString("\n") { index ->
+            """
+            function func$index() {
+                document.LBForm.field$index.value = "1";
+            }
+            """.trimIndent()
+        }
+        val html = "<script>\n$functions\n</script>"
+
+        val assignments = extractScreenScriptFieldAssignments(html)
+
+        val bodyEntries = assignments.filter { it.contains(":body=") }
+        assertEquals(8, bodyEntries.size)
+    }
+
+    @Test
+    fun `条件1の関数は条件2のみの関数より先に出力される`() {
+        val html = """
+            <script>
+            function fieldOnly() {
+                document.LBForm.returnValue.value = "1";
+            }
+            function execFn() {
+                document.LBForm.action="WOpacTifDirectYoyExecAction.do";
+            }
+            </script>
+        """.trimIndent()
+
+        val assignments = extractScreenScriptFieldAssignments(html)
+
+        val bodyLabels = assignments.filter { it.contains(":body=") }.map { it.substringBefore(":body=") }
+        assertEquals(listOf("execFn", "fieldOnly"), bodyLabels)
+    }
+
+    @Test
+    fun `サイトメッセージは長い数字列をマスクする`() {
+        val document = org.jsoup.Jsoup.parse(
+            """<div id="messages"><li>会員番号1234567890123は既に予約済みです</li><li></li></div>""",
+        )
+
+        val messages = extractSiteMessages(document)
+
+        assertEquals(1, messages.size)
+        assertTrue(messages[0].contains("[NUM]"))
+        assertFalse(messages[0].contains("1234567890123"))
+    }
+
+    @Test
+    fun `無効な監査先ではスクリプトとメッセージの解析を一切呼ばない`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """<script>document.LBForm.action="X.do?tilcod="+tilcod;</script><div id="messages"><li>1234567890123</li></div>""",
+            ),
+        )
+        val disabledObserver = object : LicsXpDiagnosticObserver {
+            override val enabled: Boolean = false
+
+            override fun onRequest(request: LicsXpDiagnosticRequest): Nothing = error("通常経路でrequest監査を呼んではいけない")
+
+            override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?): Nothing =
+                error("通常経路でresponse監査を呼んではいけない")
+
+            override fun onPage(path: String, classification: String, formFingerprint: String): Nothing =
+                error("通常経路でHTML監査を呼んではいけない")
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>): Nothing =
+                error("通常経路でスクリプト監査を呼んではいけない")
+
+            override fun onSiteMessages(path: String, messages: List<String>): Nothing =
+                error("通常経路でメッセージ監査を呼んではいけない")
+        }
+
+        val session = LicsXpSession(server.url("/"), OkHttpClient(), disabledObserver, waitForRequestSlot = {})
+        assertTrue(session.get("normal").contains("messages"))
+    }
+
     private fun authorizedConfig(): LiveReservationDiagnosticConfig = requireNotNull(
         LiveReservationDiagnosticConfig.from(
             mapOf(
@@ -298,6 +561,8 @@ class LiveReservationDiagnosticSupportTest {
                 fieldNames = listOf("gamenid", "tilcod", "receivename", "contact", "contactdirectweb"),
                 pickupLibraryCodes = setOf(pickupLibraryCode),
                 requestedPickupAvailable = true,
+                explicitPickupLibraryCode = null,
+                explicitContactCode = "4",
             )
         }
 

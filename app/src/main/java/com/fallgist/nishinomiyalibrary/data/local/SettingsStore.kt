@@ -17,6 +17,8 @@ data class AppSettings(
     val defaultCalendarLibrary: String = DEFAULT_CALENDAR_LIBRARY,
     /** 返却期限リマインダーを期限の何日前から通知するか(1=前日)。 */
     val returnReminderDaysBefore: Int = DEFAULT_RETURN_REMINDER_DAYS_BEFORE,
+    /** 不具合調査用の通信診断ログを記録するかどうか。既定はオフ。 */
+    val diagnosticLogEnabled: Boolean = DEFAULT_DIAGNOSTIC_LOG_ENABLED,
 )
 
 class SettingsStore(private val dataStore: DataStore<Preferences>) {
@@ -29,6 +31,7 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
             defaultCalendarLibrary = preferences[DEFAULT_CALENDAR_LIBRARY_KEY] ?: DEFAULT_CALENDAR_LIBRARY,
             returnReminderDaysBefore = preferences[RETURN_REMINDER_DAYS_BEFORE]
                 ?: DEFAULT_RETURN_REMINDER_DAYS_BEFORE,
+            diagnosticLogEnabled = preferences[DIAGNOSTIC_LOG_ENABLED] ?: DEFAULT_DIAGNOSTIC_LOG_ENABLED,
         )
     }
 
@@ -42,6 +45,7 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
             preferences[NOTIFY_PICKUP_READY] = value.notifyPickupReady
             preferences[DEFAULT_CALENDAR_LIBRARY_KEY] = value.defaultCalendarLibrary
             preferences[RETURN_REMINDER_DAYS_BEFORE] = value.returnReminderDaysBefore
+            preferences[DIAGNOSTIC_LOG_ENABLED] = value.diagnosticLogEnabled
         }
     }
 
@@ -70,6 +74,10 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[RETURN_REMINDER_DAYS_BEFORE] = days }
     }
 
+    suspend fun updateDiagnosticLogEnabled(enabled: Boolean) {
+        dataStore.edit { it[DIAGNOSTIC_LOG_ENABLED] = enabled }
+    }
+
     private fun requireValidSyncTime(hour: Int, minute: Int) {
         require(hour in 0..23) { "同期時刻の時は0から23で指定してください" }
         require(minute in 0..59) { "同期時刻の分は0から59で指定してください" }
@@ -86,6 +94,7 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
         val NOTIFY_PICKUP_READY = booleanPreferencesKey("notify_pickup_ready")
         val DEFAULT_CALENDAR_LIBRARY_KEY = stringPreferencesKey("default_calendar_library")
         val RETURN_REMINDER_DAYS_BEFORE = intPreferencesKey("return_reminder_days_before")
+        val DIAGNOSTIC_LOG_ENABLED = booleanPreferencesKey("diagnostic_log_enabled")
     }
 }
 
@@ -96,3 +105,4 @@ const val DEFAULT_NOTIFY_PICKUP_READY = true
 const val DEFAULT_CALENDAR_LIBRARY = "106"
 const val DEFAULT_RETURN_REMINDER_DAYS_BEFORE = 1
 val RETURN_REMINDER_DAYS_RANGE = 1..7
+const val DEFAULT_DIAGNOSTIC_LOG_ENABLED = false

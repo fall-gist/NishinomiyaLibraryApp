@@ -68,6 +68,16 @@ internal class LiveReservationDiagnosticLogger {
         override fun onPage(path: String, classification: String, formFingerprint: String) {
             stage("page", "$path classification=$classification forms=$formFingerprint")
         }
+
+        override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) {
+            if (actionTargets.isEmpty() && fieldAssignments.isEmpty()) return
+            stage("screen-script", "$path actions=$actionTargets assignments=$fieldAssignments")
+        }
+
+        override fun onSiteMessages(path: String, messages: List<String>) {
+            if (messages.isEmpty()) return
+            stage("site-messages", "$path $messages")
+        }
     }
 }
 
@@ -135,7 +145,9 @@ internal suspend fun runLiveReservationInspection(
             is ConfirmationInspection.Parsed ->
                 "fieldNames=[${inspection.fieldNames.joinToString(",")}] " +
                     "pickupLibraryCodes=[${inspection.pickupLibraryCodes.joinToString(",")}] " +
-                    "requestedPickupAvailable=${inspection.requestedPickupAvailable}"
+                    "requestedPickupAvailable=${inspection.requestedPickupAvailable} " +
+                    "explicitPickup=${inspection.explicitPickupLibraryCode ?: "(none)"} " +
+                    "explicitContact=${inspection.explicitContactCode ?: "(none)"}"
             is ConfirmationInspection.ParseFailed -> "screen=${inspection.screen} reason=${inspection.reason}"
             ConfirmationInspection.SessionExpiredBeforeConfirm -> "確認画面到達前にセッションが失効しました"
         }

@@ -8,6 +8,10 @@ import okhttp3.FormBody
 class DirectReservationConfirmationPage internal constructor(
     private val fields: List<ConfirmationFormField>,
     val pickupLibraryCodes: Set<String>,
+    /** 確認画面がselected属性で明示している受取館コード。明示が無ければ null。 */
+    internal val explicitPickupLibraryCode: String?,
+    /** 確認画面がselected属性で明示している連絡方法コード。明示が無ければ null。 */
+    internal val explicitContactCode: String?,
 ) {
     /** 既存の画面発行hiddenの検証・テスト用。順序は元フォームと同じ。 */
     val hiddenFields: List<Pair<String, String>> = fields
@@ -83,6 +87,8 @@ object DirectReservationConfirmParser {
             fields = form.select("input[name]:not([disabled]), select[name]:not([disabled]), textarea[name]:not([disabled])")
                 .mapNotNull(::toSuccessfulField),
             pickupLibraryCodes = pickup,
+            explicitPickupLibraryCode = explicitSelectedValue(pickupSelect),
+            explicitContactCode = explicitSelectedValue(contactSelect),
         )
     }
 
@@ -140,6 +146,10 @@ object DirectReservationConfirmParser {
         val kind = if (type == "hidden") ConfirmationFieldKind.HIDDEN else ConfirmationFieldKind.OTHER
         return ConfirmationFormField(name, input.attr("value"), kind)
     }
+
+    /** selected属性を持つoptionが一意に存在する場合だけその値を返す。診断専用で、selectedOptionValueと違い例外は投げない。 */
+    private fun explicitSelectedValue(select: Element): String? =
+        select.select("option[selected]").singleOrNull()?.attr("value")
 
     private fun selectedOptionValue(select: Element): String {
         val selected = select.select("option[selected]")

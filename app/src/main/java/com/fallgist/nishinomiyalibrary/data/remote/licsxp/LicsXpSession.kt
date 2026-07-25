@@ -328,10 +328,20 @@ class LicsXpSession private constructor(
         val body = body?.string().orEmpty()
         safelyObserve {
             val document = org.jsoup.Jsoup.parse(body)
+            val path = sanitizeDiagnosticPath(request.url.encodedPath)
             diagnosticObserver.onPage(
-                path = sanitizeDiagnosticPath(request.url.encodedPath),
+                path = path,
                 classification = classifyDiagnosticPage(document),
                 formFingerprint = formFingerprint(document),
+            )
+            diagnosticObserver.onScreenScript(
+                path = path,
+                actionTargets = extractScreenScriptActionTargets(body),
+                fieldAssignments = extractScreenScriptFieldAssignments(body),
+            )
+            diagnosticObserver.onSiteMessages(
+                path = path,
+                messages = extractSiteMessages(document),
             )
         }
         return body
@@ -382,6 +392,12 @@ internal interface LicsXpDiagnosticObserver {
 
     fun onPage(path: String, classification: String, formFingerprint: String)
 
+    /** 画面のインラインJSが送信直前に行うaction設定とフィールド代入。値はページ由来の定数だけを残す。 */
+    fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>)
+
+    /** サイトが表示するメッセージ（alert用のdiv#messages）。数字列はマスクする。 */
+    fun onSiteMessages(path: String, messages: List<String>)
+
     data object None : LicsXpDiagnosticObserver {
         override val enabled: Boolean = false
 
@@ -390,6 +406,10 @@ internal interface LicsXpDiagnosticObserver {
         override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) = Unit
 
         override fun onPage(path: String, classification: String, formFingerprint: String) = Unit
+
+        override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
+
+        override fun onSiteMessages(path: String, messages: List<String>) = Unit
     }
 }
 
@@ -421,6 +441,10 @@ private fun diagnosticValue(name: String, value: String): String = when (name) {
 private val DIAGNOSTIC_SAFE_CONTROL_FIELDS = setOf(
     "gamenFlag", "gamenid", "returnid", "loginshuflag", "receivenameFocus", "watsptcodFocus",
     "contactFocus", "btnflg", "sortKey", "isAsc", "startIndex", "subSystemFlag", "WebLinkFlag",
+    "bmtime_hide", "returnValue", "contactdirectweb", "contact", "receivename", "tilcod",
+    "islogin", "execflg", "gamentilcod", "preNextTilcod", "prevORnext", "kensaku", "kensakuFlg",
+    "refCode", "diccod", "syurui", "syuruivalue", "syuruiName", "amazonIsbn", "amazonDispFlag",
+    "storeId", "booklist", "otherbook",
 )
 
 private val SESSION_PATH_PARAMETER = Regex("(?i);(?:jsessionid|sessionid)(?:=[^/;?]*)?")
@@ -473,6 +497,189 @@ private fun formFingerprint(document: org.jsoup.nodes.Document): String {
             .joinToString(",")
         "$method:$action:[$fields]"
     }.ifBlank { "no-form" }.take(1_000)
+}
+
+private val SCREEN_SCRIPT_ACTION_REGEX = Regex("""document\.\w+\.action\s*=\s*([^;]+);""")
+/** window.open(...) / showModalDialog(...) / window.showModalDialog(...) の第1引数を捉える。 */
+private val POPUP_CALL_REGEX = Regex("""(?:window\.)?(?:open|showModalDialog)\s*\(\s*([^,)]+)""")
+private val SCREEN_SCRIPT_FIELD_ASSIGNMENT_REGEX =
+    Regex("""document\.\w+\.(\w+)\.(value|disabled)\s*=\s*([^;]+);""")
+private val QUOTED_LITERAL_REGEX = Regex("""^(['"])(.*)\1$""")
+private val NUMERIC_LITERAL_REGEX = Regex("""^-?\d+(\.\d+)?$""")
+private val LONG_DIGIT_RUN_REGEX = Regex("""\d{6,}""")
+private val FUNCTION_DEF_REGEX = Regex("""function\s+(\w+)\s*\([^)]*\)\s*\{""")
+private const val TOP_LEVEL_LABEL = "(top-level)"
+private const val SCREEN_SCRIPT_ENTRY_LIMIT = 200
+private const val SCREEN_SCRIPT_ENTRY_MAX_CHARS = 160
+private const val FUNCTION_BODY_LIMIT = 8
+private const val FUNCTION_BODY_MAX_CHARS = 1200
+
+/**
+ * 画面インラインJSの `document.<フォーム名>.action = ...` 代入から、
+ * リテラル部分と連結識別子（`+<identifier>`）だけを抜き出す。式全体は残さない。
+ * 先頭には、代入がどの関数本体で行われたかを示す `関数名:`（トップレベルなら `(top-level):`）を付ける。
+ * `window.open(...)` / `showModalDialog(...)` / `window.showModalDialog(...)` によるポップアップ呼び出しの
+ * 第1引数も同様にリテラル部分・連結識別子へ分解し、ポップアップ由来と分かるよう `関数名:popup=<リテラル>` の形式で加える。
+ */
+internal fun extractScreenScriptActionTargets(html: String): List<String> {
+    val targets = mutableListOf<String>()
+    forEachScriptFunctionRegion(html) { label, body ->
+        for (match in SCREEN_SCRIPT_ACTION_REGEX.findAll(body)) {
+            val expression = match.groupValues[1]
+            for (part in splitConcatenationExpression(expression)) {
+                targets += "$label:$part"
+            }
+        }
+        for (match in POPUP_CALL_REGEX.findAll(body)) {
+            val expression = match.groupValues[1]
+            for (part in splitConcatenationExpression(expression)) {
+                targets += "$label:popup=$part"
+            }
+        }
+    }
+    return targets.distinct().take(SCREEN_SCRIPT_ENTRY_LIMIT).map { it.take(SCREEN_SCRIPT_ENTRY_MAX_CHARS) }
+}
+
+/**
+ * 画面インラインJSの `document.<フォーム名>.<フィールド名>.value/.disabled = ...` 代入を抜き出す。
+ * 右辺はリテラル（文字列・数値）のときだけ値を残し、それ以外は `(expr)` に置き換える。
+ * 先頭には代入元の関数名（トップレベルなら `(top-level)`）を付ける。
+ * さらに、次のいずれかを満たす関数については、本体ソースを `関数名:body=<本体>` の形で追加する
+ * （数値マスク・1200文字切り詰め済み、最大8関数まで）。
+ * 1. action設定の文字列リテラルに `Exec` を含む
+ * 2. フォームフィールドへの代入（`.value=` または `.disabled=`）を1つ以上持つ
+ * 出力順は、条件1に該当する関数を先に、その後に条件2のみの関数を、いずれもソース中の出現順とする。
+ */
+internal fun extractScreenScriptFieldAssignments(html: String): List<String> {
+    val assignments = mutableListOf<String>()
+    val execFunctionBodies = mutableListOf<Pair<String, String>>()
+    val fieldAssignmentFunctionBodies = mutableListOf<Pair<String, String>>()
+    forEachScriptFunctionRegion(html) { label, body ->
+        var hasFieldAssignment = false
+        for (match in SCREEN_SCRIPT_FIELD_ASSIGNMENT_REGEX.findAll(body)) {
+            hasFieldAssignment = true
+            val fieldName = match.groupValues[1]
+            val propertyName = match.groupValues[2]
+            val rhs = match.groupValues[3].trim()
+            val value = literalValueOrExpr(rhs)
+            assignments += "$label:$fieldName.$propertyName=$value"
+        }
+        if (label != TOP_LEVEL_LABEL) {
+            if (containsExecActionLiteral(body)) {
+                execFunctionBodies += label to body
+            } else if (hasFieldAssignment) {
+                fieldAssignmentFunctionBodies += label to body
+            }
+        }
+    }
+    val normalizedAssignments = assignments.distinct().map { it.take(SCREEN_SCRIPT_ENTRY_MAX_CHARS) }
+    val bodyEntries = (execFunctionBodies.distinctBy { it.first } + fieldAssignmentFunctionBodies.distinctBy { it.first })
+        .distinctBy { it.first }
+        .take(FUNCTION_BODY_LIMIT)
+        .map { (name, body) -> "$name:body=${maskAndTruncateFunctionBody(body)}" }
+    return (normalizedAssignments + bodyEntries).distinct().take(SCREEN_SCRIPT_ENTRY_LIMIT)
+}
+
+/** action設定の連結式のうち、文字列リテラル部分（識別子ではない部分）に `Exec` を含むかどうか。 */
+private fun containsExecActionLiteral(body: String): Boolean =
+    SCREEN_SCRIPT_ACTION_REGEX.findAll(body).any { match ->
+        splitConcatenationExpression(match.groupValues[1]).any { part -> !part.startsWith("+") && part.contains("Exec") }
+    }
+
+/** 関数本体ソースを、連続空白を1個へ潰し・6桁以上の数字を伏せ・1200文字までに切って返す。 */
+private fun maskAndTruncateFunctionBody(body: String): String {
+    val collapsed = body.replace(Regex("""\s+"""), " ").trim()
+    val masked = LONG_DIGIT_RUN_REGEX.replace(collapsed, "[NUM]")
+    return masked.take(FUNCTION_BODY_MAX_CHARS)
+}
+
+/**
+ * HTML（の中の `<script>` ブロック相当部分）を、関数本体（名前付き）とトップレベル部分に分けて順に処理する。
+ * 抽出対象の正規表現自体が `document.xxx.action=...` 等のJS構文にしか反応しないため、
+ * HTMLタグを含む文字列全体に対して適用しても実害はない。
+ */
+private fun forEachScriptFunctionRegion(html: String, action: (label: String, body: String) -> Unit) {
+    for ((name, body) in splitScriptByFunction(html)) {
+        action(name ?: TOP_LEVEL_LABEL, body)
+    }
+}
+
+/**
+ * スクリプト本文から `function 名(...) { ... }` を波括弧の対応で切り出す。
+ * ネストした関数は外側の本体の一部として扱う（個別の名前付きエントリにはしない）。
+ * 関数の外側に残ったソースは、名前 `null`（トップレベル扱い）としてまとめて返す。
+ */
+private fun splitScriptByFunction(script: String): List<Pair<String?, String>> {
+    val regions = mutableListOf<Pair<String?, String>>()
+    val topLevel = StringBuilder()
+    var cursor = 0
+    for (match in FUNCTION_DEF_REGEX.findAll(script)) {
+        if (match.range.first < cursor) continue // 既に外側関数の本体として消費済み
+        topLevel.append(script, cursor, match.range.first)
+        val name = match.groupValues[1]
+        val openBraceIndex = match.range.last
+        val closeBraceIndex = findMatchingBrace(script, openBraceIndex)
+        if (closeBraceIndex == -1) {
+            cursor = match.range.first
+            break
+        }
+        regions += name to script.substring(openBraceIndex + 1, closeBraceIndex)
+        cursor = closeBraceIndex + 1
+    }
+    topLevel.append(script, cursor, script.length)
+    regions += null to topLevel.toString()
+    return regions
+}
+
+/** 開き波括弧の位置を受け取り、対応する閉じ波括弧の位置を返す。文字列リテラル内の波括弧は簡易的に無視する。 */
+private fun findMatchingBrace(script: String, openBraceIndex: Int): Int {
+    var depth = 0
+    var index = openBraceIndex
+    var inString: Char? = null
+    while (index < script.length) {
+        val current = script[index]
+        if (inString != null) {
+            if (current == '\\') {
+                index += 2
+                continue
+            }
+            if (current == inString) inString = null
+        } else {
+            when (current) {
+                '\'', '"' -> inString = current
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return index
+                }
+            }
+        }
+        index++
+    }
+    return -1
+}
+
+/** div#messages 配下の li テキストを抜き出し、6桁以上連続する数字を伏せる。 */
+internal fun extractSiteMessages(document: org.jsoup.nodes.Document): List<String> =
+    document.select("div#messages li")
+        .map { it.text().trim() }
+        .filter { it.isNotEmpty() }
+        .map { LONG_DIGIT_RUN_REGEX.replace(it, "[NUM]") }
+        .take(10)
+        .map { it.take(200) }
+
+/** `"literal"+identifier+"literal"` のような連結式を、リテラルは値そのまま・識別子は `+<identifier>` にして分解する。 */
+private fun splitConcatenationExpression(expression: String): List<String> =
+    expression.split('+').map { it.trim() }.filter { it.isNotEmpty() }.map { part ->
+        val quoted = QUOTED_LITERAL_REGEX.find(part)
+        if (quoted != null) quoted.groupValues[2] else "+$part"
+    }
+
+private fun literalValueOrExpr(rhs: String): String {
+    val quoted = QUOTED_LITERAL_REGEX.find(rhs)
+    if (quoted != null) return quoted.groupValues[2]
+    if (NUMERIC_LITERAL_REGEX.matches(rhs)) return rhs
+    return "(expr)"
 }
 
 /** Cookieや画面トークンとは独立して、同一クライアント内の開始間隔を直列化する。 */

@@ -260,6 +260,9 @@ fun LibraryApp(
                             onSetNotifyPickupReady = settingsController::setNotifyPickupReady,
                             onSetReturnReminderDaysBefore = settingsController::setReturnReminderDaysBefore,
                             onSetDefaultCalendarLibrary = settingsController::setDefaultCalendarLibrary,
+                            onSetDiagnosticLogEnabled = settingsController::setDiagnosticLogEnabled,
+                            onCopyDiagnosticLog = settingsController::formattedDiagnosticLog,
+                            onClearDiagnosticLog = settingsController::clearDiagnosticLog,
                             onOpenMenu = openMenu,
                             modifier = Modifier.fillMaxSize(),
                         )

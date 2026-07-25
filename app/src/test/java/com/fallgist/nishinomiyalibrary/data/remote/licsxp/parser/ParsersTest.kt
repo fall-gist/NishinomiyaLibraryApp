@@ -160,6 +160,15 @@ class ParsersTest {
     }
 
     @Test
+    fun `確認画面の明示選択はselected属性の有無で判定する`() {
+        val parsed = DirectReservationConfirmParser.parse(fixture("reservation_confirm.html"), "1000000000001")
+
+        // receivenameにはselectedが無いためnull、contactには<option value="4" selected>があるため"4"になる。
+        assertEquals(null, parsed.explicitPickupLibraryCode)
+        assertEquals("4", parsed.explicitContactCode)
+    }
+
+    @Test
     fun `JavaScript action無しLBFormを解析できる`() {
         val parsed = DirectReservationConfirmParser.parse(fixture("reservation_confirm_js_action.html"), "1000000000001")
 

@@ -2,6 +2,8 @@ package com.fallgist.nishinomiyalibrary.data.repository.di
 
 import android.content.Context
 import androidx.work.WorkManager
+import com.fallgist.nishinomiyalibrary.data.diagnostics.DiagnosticLog
+import com.fallgist.nishinomiyalibrary.data.diagnostics.DiagnosticLogObserver
 import com.fallgist.nishinomiyalibrary.data.remote.openbd.BookMetadataGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpClient
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpSession
@@ -37,6 +39,7 @@ import java.time.Clock
 import java.time.ZoneId
 import javax.inject.Singleton
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -87,7 +90,11 @@ object RepositoryProvisionModule {
 
     @Provides
     @Singleton
-    fun provideRootLicsXpSession(): LicsXpSession = LicsXpSession(LicsXpSession.DEFAULT_BASE_URL.toHttpUrl())
+    fun provideRootLicsXpSession(diagnosticLog: DiagnosticLog): LicsXpSession = LicsXpSession(
+        baseUrl = LicsXpSession.DEFAULT_BASE_URL.toHttpUrl(),
+        client = OkHttpClient(),
+        diagnosticObserver = DiagnosticLogObserver(diagnosticLog),
+    )
 
     @Provides
     @Singleton

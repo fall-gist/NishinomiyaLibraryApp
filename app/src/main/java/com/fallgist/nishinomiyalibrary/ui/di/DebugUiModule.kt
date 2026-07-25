@@ -1,5 +1,6 @@
 package com.fallgist.nishinomiyalibrary.ui.di
 
+import com.fallgist.nishinomiyalibrary.data.diagnostics.DiagnosticLog
 import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.data.sync.WorkManagerSyncScheduleStarter
@@ -171,12 +172,14 @@ object DebugUiProvisionModule {
         settingsStore: SettingsStore,
         calendarRepository: CalendarRepository,
         scheduleStarter: SyncScheduleStarter,
+        diagnosticLog: DiagnosticLog,
     ): SettingsScreenController = SettingsScreenController(
         familyRepository = familyRepository,
         statusRepository = statusRepository,
         settingsStore = settingsStore,
         calendarRepository = calendarRepository,
         scheduleStarter = scheduleStarter,
+        diagnosticLog = diagnosticLog,
     )
 }
 

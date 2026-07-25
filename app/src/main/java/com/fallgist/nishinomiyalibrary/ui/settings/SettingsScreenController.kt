@@ -1,5 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui.settings
 
+import com.fallgist.nishinomiyalibrary.data.diagnostics.DiagnosticLog
+import com.fallgist.nishinomiyalibrary.data.diagnostics.DiagnosticLogEntry
 import com.fallgist.nishinomiyalibrary.data.local.AppSettings
 import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
@@ -46,6 +48,8 @@ data class SettingsUiState(
     val lastSyncText: String = "まだ同期していません",
     val lastSyncFailed: Boolean = false,
     val libraries: List<Library> = emptyList(),
+    val diagnosticLogEnabled: Boolean = false,
+    val diagnosticLogLineCount: Int = 0,
 )
 
 /** 設定画面の表示整形の純関数。 */
@@ -82,6 +86,7 @@ class SettingsScreenController(
     private val settingsStore: SettingsStore,
     calendarRepository: CalendarRepository,
     private val scheduleStarter: SyncScheduleStarter,
+    private val diagnosticLog: DiagnosticLog,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -96,21 +101,33 @@ class SettingsScreenController(
                 familyRepository.members(),
                 settingsStore.settings,
                 statusRepository.lastSync(),
-            ) { memberList, settings, lastSync ->
-                Triple(memberList, settings, lastSync)
-            }.collect { (memberList, settings, lastSync) ->
-                members = memberList
+                diagnosticLog.entries,
+            ) { memberList, settings, lastSync, diagnosticEntries ->
+                SettingsCombinedState(memberList, settings, lastSync, diagnosticEntries)
+            }.collect { combined ->
+                members = combined.memberList
+                // 設定の diagnosticLogEnabled を記録可否の唯一の正とし、アプリ再起動時もここで反映する。
+                diagnosticLog.recording = combined.settings.diagnosticLogEnabled
                 _state.value = _state.value.copy(
                     initialized = true,
-                    memberRows = SettingsContentBuilder.memberRows(memberList),
-                    canAddMember = memberList.size < MAX_MEMBERS,
-                    settings = settings,
-                    lastSyncText = SettingsContentBuilder.lastSyncText(lastSync),
-                    lastSyncFailed = lastSync?.succeeded == false,
+                    memberRows = SettingsContentBuilder.memberRows(combined.memberList),
+                    canAddMember = combined.memberList.size < MAX_MEMBERS,
+                    settings = combined.settings,
+                    lastSyncText = SettingsContentBuilder.lastSyncText(combined.lastSync),
+                    lastSyncFailed = combined.lastSync?.succeeded == false,
+                    diagnosticLogEnabled = combined.settings.diagnosticLogEnabled,
+                    diagnosticLogLineCount = combined.diagnosticEntries.size,
                 )
             }
         }
     }
+
+    private data class SettingsCombinedState(
+        val memberList: List<Member>,
+        val settings: AppSettings,
+        val lastSync: SyncLog?,
+        val diagnosticEntries: List<DiagnosticLogEntry>,
+    )
 
     /**
      * メンバーを追加または編集する。[editingMemberId] が null なら追加。
@@ -188,6 +205,18 @@ class SettingsScreenController(
 
     fun setDefaultCalendarLibrary(code: String) {
         scope.launch { runCatching { settingsStore.updateDefaultCalendarLibrary(code) } }
+    }
+
+    /** 設定への保存を唯一の正とする。反映はinitのcombine購読を通して行う。 */
+    fun setDiagnosticLogEnabled(enabled: Boolean) {
+        scope.launch { runCatching { settingsStore.updateDiagnosticLogEnabled(enabled) } }
+    }
+
+    /** クリップボードへコピーする文字列を返す純粋な取得。副作用はない。 */
+    fun formattedDiagnosticLog(): String = diagnosticLog.formatted()
+
+    fun clearDiagnosticLog() {
+        diagnosticLog.clear()
     }
 
     fun close() {

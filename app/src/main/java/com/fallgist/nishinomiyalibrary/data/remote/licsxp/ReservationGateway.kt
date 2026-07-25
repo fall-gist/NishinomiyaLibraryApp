@@ -49,6 +49,10 @@ internal sealed interface ConfirmationInspection {
         val fieldNames: List<String>,
         val pickupLibraryCodes: Set<String>,
         val requestedPickupAvailable: Boolean,
+        /** 確認画面がselected属性で明示している受取館コード。明示が無ければ null。 */
+        val explicitPickupLibraryCode: String?,
+        /** 確認画面がselected属性で明示している連絡方法コード。明示が無ければ null。 */
+        val explicitContactCode: String?,
     ) : ConfirmationInspection
     data class ParseFailed(val screen: String, val reason: String) : ConfirmationInspection
     data object SessionExpiredBeforeConfirm : ConfirmationInspection
@@ -219,6 +223,8 @@ internal class LicsXpReservationSession(
                 fieldNames = confirmation.fieldNames,
                 pickupLibraryCodes = confirmation.pickupLibraryCodes,
                 requestedPickupAvailable = pickupLibraryCode in confirmation.pickupLibraryCodes,
+                explicitPickupLibraryCode = confirmation.explicitPickupLibraryCode,
+                explicitContactCode = confirmation.explicitContactCode,
             )
         }
     }
