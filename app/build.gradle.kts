@@ -83,11 +83,15 @@ dependencies {
 }
 
 val liveReservationDiagnosticClass = "**/LiveReservationDiagnosticTest.class"
+val liveReservationInspectionClass = "**/LiveReservationInspectionTest.class"
 
 // 通常の unit test / CI は本番通信を行う診断クラスを発見対象から除外する。
 tasks.withType<Test>().configureEach {
     if (name != "liveReservationDiagnostic") {
         exclude(liveReservationDiagnosticClass)
+    }
+    if (name != "liveReservationInspect") {
+        exclude(liveReservationInspectionClass)
     }
 }
 
@@ -114,6 +118,36 @@ tasks.register<Test>("liveReservationDiagnostic") {
         }.keys
         check(invalid.isEmpty()) {
             "ライブ予約診断を開始しません。不足または不正な明示環境変数: ${invalid.joinToString()}"
+        }
+    }
+}
+
+// 確定POSTを行わず予約確認画面の構造だけを調べる（書き込み副作用なし）。
+tasks.register<Test>("liveReservationInspect") {
+    group = "verification"
+    description = "確定POSTを行わず予約確認画面の構造だけを調べる（書き込み副作用なし）"
+    val debugUnitTest = tasks.named<Test>("testDebugUnitTest")
+    testClassesDirs = debugUnitTest.get().testClassesDirs
+    classpath = debugUnitTest.get().classpath
+    include(liveReservationInspectionClass)
+    testLogging {
+        showStandardStreams = true
+    }
+    doFirst {
+        val required = mapOf(
+            "LICSXP_LIVE_RESERVATION" to "YES_I_UNDERSTAND",
+            "LICSXP_LIVE_RESERVATION_DRY_RUN" to "INSPECT_ONLY",
+            "LICSXP_CARD_NUMBER" to null,
+            "LICSXP_PASSWORD" to null,
+            "LICSXP_TILCOD" to null,
+            "LICSXP_PICKUP_LIBRARY" to null,
+        )
+        val invalid = required.filter { (name, expected) ->
+            val value = System.getenv(name)
+            value.isNullOrBlank() || (expected != null && value != expected)
+        }.keys
+        check(invalid.isEmpty()) {
+            "予約確認dry-run診断を開始しません。不足または不正な明示環境変数: ${invalid.joinToString()}"
         }
     }
 }

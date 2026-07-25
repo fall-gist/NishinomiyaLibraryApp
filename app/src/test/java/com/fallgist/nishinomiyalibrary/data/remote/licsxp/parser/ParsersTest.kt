@@ -231,6 +231,112 @@ class ParsersTest {
     }
 
     @Test
+    fun `hidden contactdirectwebが無いフォームは特定できない`() = assertParseError("reservation-confirm") {
+        val html = fixture("reservation_confirm.html")
+            .replace("<input type=\"hidden\" name=\"contactdirectweb\" value=\"4\" />", "")
+        DirectReservationConfirmParser.parse(html, "1000000000001")
+    }
+
+    @Test
+    fun `contactdirectwebはサイト発行値のまま上書きされない`() {
+        val html = fixture("reservation_confirm.html")
+            .replace(
+                "<input type=\"hidden\" name=\"contactdirectweb\" value=\"4\" />",
+                "<input type=\"hidden\" name=\"contactdirectweb\" value=\"site-issued-value\" />",
+            )
+        val form = DirectReservationConfirmParser.parse(html, "1000000000001").buildForm("106")
+        val fields = (0 until form.size).associate { index -> form.name(index) to form.value(index) }
+
+        assertEquals("site-issued-value", fields["contactdirectweb"])
+        assertEquals("106", fields["receivename"])
+        assertEquals("4", fields["contact"])
+    }
+
+    @Test
+    fun `receivenameとcontactだけが元のDOM位置で上書きされる`() {
+        val form = DirectReservationConfirmParser.parse(fixture("reservation_confirm.html"), "1000000000001").buildForm("106")
+        val names = (0 until form.size).map { index -> form.name(index) }
+        val values = (0 until form.size).map { index -> form.value(index) }
+
+        assertEquals(names.indexOf("receivename"), names.lastIndexOf("receivename"))
+        assertEquals(names.indexOf("contact"), names.lastIndexOf("contact"))
+        assertEquals("106", values[names.indexOf("receivename")])
+        assertEquals("4", values[names.indexOf("contact")])
+    }
+
+    @Test
+    fun `予約確認フォームのhidden以外のコントロールもDOM順で全て送る`() {
+        val html = """
+            <html><body>
+            <form action="WOpacTifDirectYoyExecAction.do">
+              <input type="hidden" name="hash" value="confirm-hash" />
+              <input type="hidden" name="gamenid" value="tiles.WYoyConfirm" />
+              <input type="hidden" name="tilcod" value="1000000000001" />
+              <input type="hidden" name="contactdirectweb" value="4" />
+              <input type="text" name="memo" value="めも" />
+              <input type="radio" name="mailflg" value="1" checked />
+              <select name="receivename">
+                <option value="001">中央図書館</option><option value="106">高須分室</option>
+              </select>
+              <select name="contact"><option value="4" selected>Email</option></select>
+              <select name="other"><option value="a" selected>A</option></select>
+              <textarea name="note">備考</textarea>
+            </form>
+            </body></html>
+        """.trimIndent()
+
+        val form = DirectReservationConfirmParser.parse(html, "1000000000001").buildForm("106")
+        val fields = (0 until form.size).map { index -> form.name(index) to form.value(index) }
+
+        assertEquals(
+            listOf(
+                "hash" to "confirm-hash",
+                "gamenid" to "tiles.WYoyConfirm",
+                "tilcod" to "1000000000001",
+                "contactdirectweb" to "4",
+                "memo" to "めも",
+                "mailflg" to "1",
+                "receivename" to "106",
+                "contact" to "4",
+                "other" to "a",
+                "note" to "備考",
+            ),
+            fields,
+        )
+    }
+
+    @Test
+    fun `予約確認フォームの未チェックradioとbutton系inputは送らない`() {
+        val html = """
+            <html><body>
+            <form action="WOpacTifDirectYoyExecAction.do">
+              <input type="hidden" name="hash" value="confirm-hash" />
+              <input type="hidden" name="gamenid" value="tiles.WYoyConfirm" />
+              <input type="hidden" name="tilcod" value="1000000000001" />
+              <input type="hidden" name="contactdirectweb" value="4" />
+              <input type="radio" name="mailflg" value="1" />
+              <input type="checkbox" name="agree" value="on" />
+              <input type="button" name="cancelBtn" value="キャンセル" />
+              <input type="submit" name="submitBtn" value="送信" />
+              <select name="receivename">
+                <option value="001">中央図書館</option><option value="106">高須分室</option>
+              </select>
+              <select name="contact"><option value="4" selected>Email</option></select>
+            </form>
+            </body></html>
+        """.trimIndent()
+
+        val form = DirectReservationConfirmParser.parse(html, "1000000000001").buildForm("106")
+        val names = (0 until form.size).map { index -> form.name(index) }
+
+        assertFalse(names.contains("mailflg"))
+        assertFalse(names.contains("agree"))
+        assertFalse(names.contains("cancelBtn"))
+        assertFalse(names.contains("submitBtn"))
+        assertEquals(listOf("hash", "gamenid", "tilcod", "contactdirectweb", "receivename", "contact"), names)
+    }
+
+    @Test
     fun `検索結果フィクスチャをパースできる`() {
         val result = SearchResultParser.parse(fixture("search_result.html"))
         assertEquals(20, result.hits.size)

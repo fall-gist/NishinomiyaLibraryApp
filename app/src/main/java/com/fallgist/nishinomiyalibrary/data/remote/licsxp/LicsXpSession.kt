@@ -458,8 +458,16 @@ private fun formFingerprint(document: org.jsoup.nodes.Document): String {
     return document.select("form").joinToString(separator = ";") { form ->
         val method = form.attr("method").ifBlank { "GET" }.uppercase()
         val action = sanitizeDiagnosticPath(form.attr("action")).ifBlank { "(script)" }
+        // 値は出さず、inputはtypeも含めてfingerprintにする（確認画面のhidden以外の有無をログだけで判別するため）。
         val fields = form.select("input[name], select[name], textarea[name]")
-            .map { "${it.tagName()}:${it.attr("name")}" }
+            .map { element ->
+                if (element.tagName() == "input") {
+                    val type = element.attr("type").ifBlank { "text" }.lowercase()
+                    "input[$type]:${element.attr("name")}"
+                } else {
+                    "${element.tagName()}:${element.attr("name")}"
+                }
+            }
             .distinct()
             .sorted()
             .joinToString(",")

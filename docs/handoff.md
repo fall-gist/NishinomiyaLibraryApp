@@ -221,8 +221,9 @@
 - 受取館は確定時に1館選び、`SettingsStore.defaultCalendarLibrary`をアプリ共通の「既定館」として
   初期値にする。DataStore保存キー`default_calendar_library`は変更しない。メンバー別既定館は
   作らない
-- 連絡方法はEmail固定。確認POSTは`contact=4` / `contactweb=4`で送り、UI・ドメインに
-  選択肢を作らない
+- 連絡方法はEmail固定。確認POSTは`contact=4`で送り、UI・ドメインに選択肢を作らない。
+  `contactdirectweb`はサイト発行値のまま送り、値を上書きしない(誤って`contactweb=4`と
+  記載していたのは訂正済み。詳細は「確認フォームの実コントロール判明」節を参照)
 - 既存参照用`LibraryGateway`に書き込みAPIを追加せず、`ReservationGateway`と
   メンバーごとの一時`ReservationSession`を追加する。Cookieや認証情報をメンバー間・
   実行間で共有しない
@@ -255,7 +256,7 @@
   LBFormを`WOpacTifDirectYoyDispAction.do?tilcod=...`へ送信し、確定POSTは
   `WOpacTifDirectYoyExecAction.do?tilcod=...`
 - 確認フォームの`gamenid=tiles.WYoyConfirm`、`tilcod`、`receivename`、`contact`、
-  `contactweb=4`を扱う。確認画面を開いたまま待つとセッション切れでログインフォームが返り、
+  `contactdirectweb`を扱う。確認画面を開いたまま待つとセッション切れでログインフォームが返り、
   予約不成立になる
 - 重複時のalertは「予約済の書誌があります。予約できません。」であり、
   `AlreadyReserved`として解決済み扱いにする
@@ -284,6 +285,24 @@ $env:LICSXP_PICKUP_LIBRARY = '106' # 受取館コード
 
 診断はログイン、予約前一覧、確認 GET、確定 POST（既存のexactly-once処理）、予約後一覧を順に実行する。ログには HTTP メソッド・パス・ステータス・リダイレクト・フォームの名前と安全な制御値・画面分類だけを出す。`j_username`、`j_password`、`hash`、Cookie、レスポンス本文は出力・保存しない。認証情報をコード、fixture、Gradleプロパティ、コミットへ入れてはならない。
 
+### dry-run診断（予約確認画面の構造調査、書き込み副作用なし）（2026-07-25追加）
+
+予約確認画面(`tiles.WYoyConfirm`)の実HTML構造を、**確定POSTを一切行わずに**調べるための dry-run モードを追加した。`WOpacTifDirectYoyExecAction.do` へのPOSTは発行しない（`directReserve`を呼ばない）ため、本番サイトへの書き込み副作用はゼロである。通常の `:app:testDebugUnitTest` と CI はこの診断クラス（`LiveReservationInspectionTest`）も除外している。
+
+実行は次の環境変数が全て揃った場合に限る。**確定フラグ(`LICSXP_LIVE_RESERVATION_CONFIRM`)は不要であり、指定されていても dry-run が優先されるため書き込みは起きない。**
+
+```powershell
+$env:LICSXP_LIVE_RESERVATION = 'YES_I_UNDERSTAND'
+$env:LICSXP_LIVE_RESERVATION_DRY_RUN = 'INSPECT_ONLY'
+$env:LICSXP_CARD_NUMBER = 'カード番号'
+$env:LICSXP_PASSWORD = 'パスワード'
+$env:LICSXP_TILCOD = '対象資料コード'
+$env:LICSXP_PICKUP_LIBRARY = '106'
+.\gradlew.bat :app:liveReservationInspect
+```
+
+出力にはログイン、確認画面到達までの遷移、確認画面の画面分類・input type 付き form fingerprint、確定POSTで送るはずの送信項目名（DOM順、値は含まない）、受取館候補コード一覧、要求した受取館が候補に含まれるかを出す。**フォームの値・Cookie・認証情報は一切出力されない。** フィールド名・input type・画面分類・HTTPメソッド/パス/ステータスまでがログに出る範囲であり、既存の`diagnosticValue`による秘匿化方針を継続する。
+
 ### 予約確定の追加確認（2026-07-22）
 
 ライブ診断で、確認GETとフォーム項目がブラウザ実測に一致しているにもかかわらず、確定POSTの
@@ -301,9 +320,11 @@ hidden項目をDOM順で保持して3つの認証制御項目を上書きする�
 
 予約確定ボタンの`exec(tilcod)`は、送信抑止フラグと`LBForm.action`を設定して`submit()`するだけで、
 hidden値を変更しないことを確認済み。`DirectReservationConfirmationPage`もログインと同様に
-successful controlsをDOM順で保持し、`receivename`・`contact`・`contactweb`だけを元位置で一度だけ
-上書きする。旧実装の`contactweb`末尾追加はブラウザ送信順と異なるため廃止した。期待制御項目は
-`receivename`/`contact`がselect、`contactweb`がhiddenで一意に存在しなければfail-closedで停止する。
+successful controlsをDOM順で保持し、`receivename`・`contact`だけを元位置で一度だけ上書きする。
+`contactdirectweb`はサイト発行値のまま送る(2026-07-25の実測により`contactweb`という
+フィールドは実在しないと判明したため、対象から外した。詳細は後述)。期待制御項目は
+`receivename`/`contact`がselect、`contactdirectweb`がhiddenで一意に存在しなければ
+fail-closedで停止する。
 
 ### 通常書誌コンテキストへの予約導線変更（2026-07-22）
 
@@ -318,3 +339,53 @@ successful controlsをDOM順で保持し、`receivename`・`contact`・`contactw
 診断の予約確認分類は、HTMLに現れる共通JavaScriptの文字列ではなく、同一フォームの
 `gamenid=tiles.WYoyConfirm`、`tilcod`、`select[name=receivename]`で判定する。詳細検索フォームは
 `tiles.WEsSchCmpd`または`condition1Text`で明示的に`search-form`と扱う。
+
+### 確認画面ホワイトリスト実装の是正（2026-07-25、事実）
+
+- 予約確認画面(`tiles.WYoyConfirm`)の実HTMLは一度も取得されていない。
+  `app/src/test/resources/fixtures/reservation_confirm.html`は合成fixtureであり、確認画面の
+  コントロール構成(hidden以外のtext/radio/checkbox/textarea/他のselectの有無)は未確定である。
+- `DirectReservationConfirmParser`が「hidden以外の入力欄を送らない」ホワイトリスト実装に
+  なっていたため、ブラウザの`document.LBForm.submit()`と乖離しうる問題を是正した。
+  `BookDetailReservationFormParser`と同じ規則で、確認フォームのsuccessful controlsを
+  全てDOM順で送るよう修正した(hidden限定のホワイトリストは廃止)。fail-closedの検証
+  (フォーム一意特定、`gamenid=tiles.WYoyConfirm`、`tilcod`一致、`contactdirectweb`が
+  hiddenで一意存在、`receivename`/`contact`がselectで一意、受取館候補抽出)は
+  2026-07-25の是正まで維持した(是正内容は次節)。
+- 書誌詳細画面のフォーム構成・ログインフォームの項目は2026-07-25に実サイトの生HTML
+  (未ログイン状態)で照合済みで、現行実装と一致することを確認した(確認済み)。予約ボタンは
+  `type=button`であり`submit()`では送信されないため、「送信にボタン要素が無いことが原因」
+  という仮説は**書誌詳細画面については反証済み**である。ただし確認画面のボタン構成は未検証。
+- `LiveReservationDiagnostic`の事前重複チェックは使い捨ての別セッションで行うよう変更し、
+  予約実行本体はログイン直後に確定POSTまで連続実行する新しいセッションで行うよう変更した。
+  実測済みなのは「ログイン→確認→確定を同一セッションで連続実行する必要がある」ことまでで、
+  「予約前一覧の取得が確定を妨げる」ことは**未検証の推定**である。診断をブラウザで成功した
+  列と一致させるための設計判断として分離した。
+
+### 確認フォームの実コントロール判明と`contactweb`誤りの訂正（2026-07-25、事実）
+
+- 2026-07-25のライブdry-run診断で、予約確認画面(`tiles.WYoyConfirm`)フォームの実コントロールを
+  input type付きfingerprintで実測した。全コントロールは以下のみ(名前とDOM順は実測、
+  **各値は未取得**):
+  - 確定POSTのDOM順: `gamenFlag` → `hash` → `returnid` → `gamenid` → `tilcod` →
+    `loginshuflag` → `contactdirectweb` → `receivenameFocus` → `watsptcodFocus` →
+    `contactFocus` → `returnValue` → `bmtime_hide` → select `receivename` → select `contact`
+  - text/textarea/radio/checkbox/buttonは存在しない
+  - fixture 2件の並び順もこの実測順に一致させた(値のみ合成)。詳細は site-research.md §6.6
+- **`contactweb`というフィールドは実在しない。正しくは`contactdirectweb`である。** 従来の
+  `DirectReservationConfirmParser`は`contactweb`がhiddenで一意に存在し値が`4`であることを
+  フォーム特定条件にしていたため、確認フォームを一意に特定できず`ParseException`で停止していた。
+  これにより確定POSTは一度も送信されていなかった。
+- `contactdirectweb`の値は未取得である。値を推測して埋め込まず、確定POSTでは
+  `contactdirectweb`をサイト発行値のまま送る。上書きするのは`receivename`と`contact`の
+  2項目のみに変更した。フォーム特定条件は`gamenid`/`tilcod`/`contactdirectweb`(hidden、
+  一意存在のみを確認、値は問わない)、`receivename`/`contact`(select、一意存在)とした。
+  値の検証は`gamenid == tiles.WYoyConfirm`と`tilcod`一致のみ残し、`contactweb`の値検証は
+  実在しないフィールドの検証だったため削除した。
+- 「hidden以外のコントロールを送っていないことが原因」という仮説は、実フォームにhidden以外の
+  入力欄が存在しなかったため**反証された**。ただし2026-07-25(前節)で導入したDOM順successful
+  controls全送信の実装はブラウザ等価性として維持する。
+- **未検証事項**: `receivenameFocus` / `watsptcodFocus` / `contactFocus` / `bmtime_hide` /
+  `returnValue` / `gamenFlag` / `loginshuflag`の各値の意味、および受取館selectを変更した際に
+  ブラウザがこれらの値を書き換えるかどうかは不明である。`contactdirectweb`修正後も確定POSTが
+  なお失敗する場合、次の調査対象はこれらの値の挙動である。

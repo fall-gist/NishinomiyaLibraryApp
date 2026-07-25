@@ -142,8 +142,12 @@
 
 > 2026-07-22追記: 確認画面の`LBForm`は`action`を持たず、ボタンのJavaScriptが
 > `WOpacTifDirectYoyExecAction.do`を設定する。確認フォームは固定`action`ではなく、
-> `gamenid=tiles.WYoyConfirm`・`tilcod`・`contactweb=4`のhidden値と`receivename`のselectで
+> `gamenid=tiles.WYoyConfirm`・`tilcod`のhidden値と`receivename`のselectで
 > 一意に特定する。実機での再予約成立は未検証。
+>
+> 2026-07-25追記: フォーム特定条件は、`contactdirectweb`(hidden、値は問わない)・
+> `receivename`・`contact`(select)の一意存在も加えた。旧記述の`contactweb=4`は
+> 誤りだった(詳細は6.6)。
 >
 > 2026-07-22の追加ライブ検証では、同じ確認フォームでも時間を空けて確定するとログイン画面へ戻り
 > 予約は成立しなかった。一方、再ログイン直後に確認から確定まで連続して送信した場合は予約件数が
@@ -167,10 +171,10 @@
 | 予約確定 | `POST WOpacTifDirectYoyExecAction.do?tilcod=...` |
 | 確認フォームhidden | `gamenid=tiles.WYoyConfirm`、`tilcod` |
 | 受取館 | select名=`receivename` |
-| 連絡方法 | select名=`contact`。Email値=`4`、連絡不要値=`9`。hidden `contactweb=4` |
+| 連絡方法 | select名=`contact`。Email値=`4`、連絡不要値=`9`。hidden `contactdirectweb`(値は未取得) |
 
 - アプリでは連絡方法を**Email固定**とし、連絡方法を選ばせるUIは置かない。確定POSTでは
-  `contact=4`と`contactweb=4`を送る
+  `contact=4`に上書きする。`contactdirectweb`はサイト発行値をそのまま送る(6.6参照)
 - `gamenid`、`tilcod`、確認画面に存在するその他のhidden値は確認画面から抽出して同送する。
   検証していないhidden値を実装側で推測・生成してはならない
 - 受取館コードは次のとおり。予約確認画面の`receivename`選択肢に選択コードがない場合は、
@@ -215,8 +219,8 @@
   `username`・`j_username`・`j_password`を制御上書きした全項目を送る
 - 予約確定ボタンの`onclick=exec(tilcod)`は、送信抑止フラグをfalseにして`LBForm.action`を設定し
   `submit()`するだけで、hiddenやselectの値を変更しないことを確認した。確定POSTは確認フォームの
-  successful controlsをDOM順で送る必要がある。特に`contactweb`はフォーム中間位置にあるため、
-  末尾追加ではなく元位置でEmail値`4`に上書きする
+  successful controlsをDOM順で送る必要がある。受取館・連絡方法はフォーム中間位置にあるため、
+  末尾追加ではなく元位置で上書きする(6.6参照)
 - 実サイト確認で、検索結果用の`EsTif`直接予約導線は検索セッション状態を前提とし、アプリ独自
   カートの通常書誌コンテキストからは予約確認へ遷移できないことが分かった。通常書誌詳細を開き、
   `imasuguyoyk`と同様に詳細LBFormのsuccessful controlsをDOM順で
@@ -233,6 +237,53 @@
 予約上限、利用制限、予約不可資料、無効受取館コード時のサイト応答、メンテナンス中の
 予約画面・確定POSTの挙動は未検証である。これらを既知のalert文言や成功条件として
 実装に埋め込まない。
+
+### 6.5 確認画面の実HTML未取得と対応(2026-07-25追記、事実)
+
+- 予約確認画面(`tiles.WYoyConfirm`)の実HTMLは一度も取得できていない。
+  `app/src/test/resources/fixtures/reservation_confirm.html`は合成fixtureであり、
+  実サイトのDOM構造を反映したものではない。確認画面にhidden以外のコントロール
+  (text/radio/checkbox/textarea/他のselect)が存在するかどうかは未確定である。
+- ブラウザは`document.LBForm.submit()`でDOM順のsuccessful controlsを全て送るため、
+  確定POSTの実装も同じ規則(hidden限定のホワイトリストではなく、確認フォームの
+  successful controlsを全てDOM順で送る)に修正した。
+- 書誌詳細画面のフォーム構成・ログインフォームの項目は2026-07-25に実サイトの生HTML
+  (未ログイン状態)で照合済みで、現行実装と一致することを確認した(確認済み)。
+  予約ボタンは`type=button`であり`submit()`では送信されないため、「送信にボタン要素が
+  無いことが原因」という仮説は**書誌詳細画面については反証済み**である。ただし確認画面の
+  ボタン構成は未検証。
+- ライブ診断(`LiveReservationDiagnostic`)は、予約前の重複チェックを使い捨ての別セッションで
+  行うよう変更した。予約実行本体は、ログイン直後に確定POSTまで連続実行する新しいセッションで
+  行う。6.3で実測済みなのは「ログイン→確認→確定を同一セッションで連続実行する必要がある」
+  ことまでであり、「予約前一覧の取得が確定を妨げる」ことは**未検証の推定**である。診断が
+  ブラウザで成功した列と同じ列になるようにするための設計判断として分離した。
+
+### 6.6 確認フォームの実コントロール判明と`contactweb`誤りの訂正(2026-07-25ライブdry-run診断、確認済み)
+
+- 2026-07-25のライブdry-run診断で、予約確認画面(`tiles.WYoyConfirm`)フォームの実コントロールを
+  fingerprint取得により確認した。全コントロールは次のとおり(名前とDOM順は実測、**各値は未取得**):
+  - hidden 12個とselect 2個の計14個。確定POSTで送るDOM順は
+    `gamenFlag` → `hash` → `returnid` → `gamenid` → `tilcod` → `loginshuflag` →
+    `contactdirectweb` → `receivenameFocus` → `watsptcodFocus` → `contactFocus` →
+    `returnValue` → `bmtime_hide` → select `receivename` → select `contact`
+  - text/textarea/radio/checkbox/buttonは存在しない
+  - `receivename`の選択肢は12館すべてが揃っており、指定館(`106`)が候補に含まれることを確認した
+  - 上記DOM順は2026-07-25の再診断で確定し、fixture `reservation_confirm.html` /
+    `reservation_confirm_js_action.html` の並び順も実測に一致させた(値のみ合成)
+- **`contactweb`というフィールドは実在しない。正しくは`contactdirectweb`である。** 6.2表の
+  「hidden `contactweb=4`」という記述は誤りだった。この誤った前提により、旧実装は確認フォームを
+  一意に特定できず`ParseException`で停止し、確定POSTは一度も送信されていなかった。
+- `contactdirectweb`の値は未取得である。ブラウザは利用者が「予約確認メールを送信する/しない」
+  ボタンを押さない限りこの値を変更しないため、確定POSTでは`contactdirectweb`をサイト発行値の
+  まま送り、値の推測・上書きは行わない。確定POSTで上書きするのは`receivename`と`contact`の
+  2項目のみとした。
+- 「hidden以外のコントロールを送っていないことが原因」という仮説は、実フォームにhidden以外の
+  入力欄が存在しなかったため**反証された**。ただし、6.5で導入したDOM順successful controls全送信
+  の実装自体はブラウザ等価性として維持する。
+- 未検証事項: `receivenameFocus` / `watsptcodFocus` / `contactFocus` / `bmtime_hide` /
+  `returnValue` / `gamenFlag` / `loginshuflag`の各値が何を意味するか、また受取館selectを
+  変更した際にブラウザがこれらの値を書き換えるかどうかは不明である。`contactdirectweb`修正後も
+  確定POSTが失敗する場合、次の調査対象はこれらの値の挙動である。
 
 ## 7. 設計への示唆
 

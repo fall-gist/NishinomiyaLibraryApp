@@ -1,9 +1,14 @@
+<!--
+  フィールド名とDOM順は2026-07-25のライブdry-run診断で実測した確認画面に一致させている。
+  各フィールドの値は取得していないため合成である。
+  action属性を持たずJavaScriptで送信先を設定する既存テスト意図は維持する。
+-->
 <!doctype html>
 <html><body>
 <form name="searchForm" action="WOpacTifDirectYoyExecAction.do">
   <input type="hidden" name="gamenid" value="tiles.WYoyConfirm" />
   <input type="hidden" name="tilcod" value="9999999999999" />
-  <input type="hidden" name="contactweb" value="4" />
+  <input type="hidden" name="contactdirectweb" value="4" />
   <select name="receivename"><option value="001">おとり館</option></select>
 </form>
 <form name="LBForm" method="post">
@@ -13,11 +18,12 @@
   <input type="hidden" name="gamenid" value="tiles.WYoyConfirm" />
   <input type="hidden" name="tilcod" value="1000000000001" />
   <input type="hidden" name="loginshuflag" value="" />
-  <input type="hidden" name="returnValue" value="" />
-  <input type="hidden" name="contactweb" value="4" />
+  <input type="hidden" name="contactdirectweb" value="4" />
   <input type="hidden" name="receivenameFocus" value="0" />
   <input type="hidden" name="watsptcodFocus" value="0" />
   <input type="hidden" name="contactFocus" value="0" />
+  <input type="hidden" name="returnValue" value="" />
+  <input type="hidden" name="bmtime_hide" value="" />
   <select name="receivename">
     <option value="106">高須分室</option>
     <option value="001">中央図書館</option>

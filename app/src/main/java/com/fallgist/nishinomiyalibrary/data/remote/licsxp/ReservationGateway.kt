@@ -35,6 +35,25 @@ sealed interface DirectReservationAttempt {
 internal class InvalidPickupLibraryException : Exception()
 /** 確定POST後のHTMLが既知構造ではない。再送せず照合に委ねる。 */
 
+/** 確定POSTを行わず、確認画面までの遷移と解析結果だけを調べる診断専用の口。 */
+internal interface ReservationConfirmationInspector {
+    suspend fun inspectDirectReservationConfirmation(
+        tilcod: String,
+        pickupLibraryCode: String,
+    ): ConfirmationInspection
+}
+
+internal sealed interface ConfirmationInspection {
+    /** fieldNames は確定POSTで送る successful controls の名前をDOM順で並べたもの。値は含めない。 */
+    data class Parsed(
+        val fieldNames: List<String>,
+        val pickupLibraryCodes: Set<String>,
+        val requestedPickupAvailable: Boolean,
+    ) : ConfirmationInspection
+    data class ParseFailed(val screen: String, val reason: String) : ConfirmationInspection
+    data object SessionExpiredBeforeConfirm : ConfirmationInspection
+}
+
 /** root session のスロットリングだけを共有し、Cookieはメンバーごとに隔離する。 */
 class LicsXpReservationGateway private constructor(
     private val rootSession: LicsXpSession,
@@ -80,10 +99,10 @@ class LicsXpReservationGateway private constructor(
     }
 }
 
-private class LicsXpReservationSession(
+internal class LicsXpReservationSession(
     private val session: LicsXpSession,
     private val sequenceHooks: ReservationSequenceHooks,
-) : ReservationSession {
+) : ReservationSession, ReservationConfirmationInspector {
     override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
         require(tilcod.isNotBlank()) { "tilcodが空です" }
         require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
@@ -157,6 +176,52 @@ private class LicsXpReservationSession(
     }
 
     override fun close() = Unit
+
+    /** 確定POSTを行わず、確認画面までの遷移と解析結果だけを調べる。directReserveは呼ばない。 */
+    override suspend fun inspectDirectReservationConfirmation(
+        tilcod: String,
+        pickupLibraryCode: String,
+    ): ConfirmationInspection {
+        require(tilcod.isNotBlank()) { "tilcodが空です" }
+        require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
+        return session.withExclusiveRequestSequence {
+            val detailPage = getReservationDetail(
+                "WOpacTifTilListToTifTilDetailAction.do",
+                mapOf("urlNotFlag" to "1", "tilcod" to tilcod),
+            )
+            val detailHtml = detailPage.html
+            requireNotMaintenance(detailHtml)
+            if (isLoginForm(Jsoup.parse(detailHtml))) {
+                return@withExclusiveRequestSequence ConfirmationInspection.SessionExpiredBeforeConfirm
+            }
+            val detailForm = try {
+                BookDetailReservationFormParser.parse(detailHtml, tilcod)
+            } catch (exception: ParseException) {
+                throw LibraryError.Parse(exception.screen, exception.reason)
+            }
+            val confirmationPage = postReservationConfirmation(
+                "WOpacTifDirectYoyDispAction.do",
+                mapOf("tilcod" to tilcod),
+                detailForm.buildForm(),
+                detailPage,
+            )
+            val confirmHtml = confirmationPage.html
+            requireNotMaintenance(confirmHtml)
+            if (isLoginForm(Jsoup.parse(confirmHtml))) {
+                return@withExclusiveRequestSequence ConfirmationInspection.SessionExpiredBeforeConfirm
+            }
+            val confirmation = try {
+                DirectReservationConfirmParser.parse(confirmHtml, tilcod)
+            } catch (exception: ParseException) {
+                return@withExclusiveRequestSequence ConfirmationInspection.ParseFailed(exception.screen, exception.reason)
+            }
+            ConfirmationInspection.Parsed(
+                fieldNames = confirmation.fieldNames,
+                pickupLibraryCodes = confirmation.pickupLibraryCodes,
+                requestedPickupAvailable = pickupLibraryCode in confirmation.pickupLibraryCodes,
+            )
+        }
+    }
 }
 
 /** 競合試験で確認GET直後の状態を再現するための内部フック。 */

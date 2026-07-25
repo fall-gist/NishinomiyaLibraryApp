@@ -560,12 +560,15 @@ Cookieを共有・永続化しない。`close()`は例外時も`finally`で必�
    直接予約導線のログイン画面である。ログイン済みセッションでは
    通常書誌詳細を開き、LBFormを`POST WOpacTifDirectYoyDispAction.do?tilcod={tilcod}`して確認画面を開く
 2. `DirectReservationConfirmParser`は確認フォームから`gamenid=tiles.WYoyConfirm`、`tilcod`、
-   `receivename`の選択肢、`contactweb=4`を抽出する。フォームに存在する`hash`等のhidden値は
-   そのまま同送し、実装側で任意のhidden値を作らない
+   `receivename`の選択肢、hidden `contactdirectweb`(存在確認のみ。値は未取得のため検証しない)を
+   抽出する。フォームに存在する`hash`等のhidden値はそのまま同送し、実装側で任意のhidden値を作らない
+   (2026-07-25訂正: 旧記述の`contactweb=4`は実在しないフィールドで、これが確定POST不送信の原因だった。
+   site-research.md §6.6 を参照)
 3. 選択した受取館コードが`receivename`の選択肢に存在しなければ、POSTせず
    `Failure(INVALID_PICKUP_LIBRARY)`にする。設定の既定館であっても暗黙に別コードへ置換しない
 4. `POST WOpacTifDirectYoyExecAction.do?tilcod={tilcod}`へ、確認画面から得た必須hidden値、
-   `receivename={選択コード}`、`contact=4`、`contactweb=4`を同一セッションで送る。連絡方法は
+   `receivename={選択コード}`、`contact=4`を同一セッションで送る。`contactdirectweb`を含む
+   その他のhiddenはサイト発行値のまま送り、上書きしない。連絡方法は
    Email固定であり、UI・ドメインモデルに選択肢を増やさない。このPOSTは自動ネットワーク
    リトライを無効化した予約専用primitiveで厳密に1回だけ送信し、現行`LicsXpSession.post()`の
    `IOException`時再送を利用しない
@@ -644,7 +647,7 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
 - **Room**: v5→v6マイグレーション、メンバー削除時のCASCADE、同一`memberId+tilcod`重複追加、
   成功/重複だけの削除、失敗/不明の残存、確定中にRoomトランザクションを保持しないこと
 - **Gateway/パーサ**: ログアウト導線、ログイン済み直接確認、hidden値抽出、12館コード、
-  `receivename`不一致、`contact=4` / `contactweb=4`、既知の重複alert、ログインフォーム返却を
+  `receivename`不一致、`contact=4`、`contactdirectweb`の素通し、既知の重複alert、ログインフォーム返却を
   MockWebServerと匿名化フィクスチャで検証する
 - **バッチ**: 2メンバー以上でメンバーごとにログイン1回、同一セッション内の逐次処理、
   500msスロットリング、認証失敗時の他メンバー続行、部分成功、不明項目ごとの即時照合と未照合項目だけの

@@ -14,16 +14,19 @@ class DirectReservationConfirmationPage internal constructor(
         .filter { it.kind == ConfirmationFieldKind.HIDDEN }
         .map { it.name to it.value }
 
+    /** 診断で送信項目名だけを確認するための内部公開。値は含めない。 */
+    internal val fieldNames: List<String> get() = fields.map { it.name }
+
     /**
-     * 受取館・連絡方法・Web連絡を元DOM位置で一度だけ上書きする。
+     * 受取館・連絡方法を元DOM位置で一度だけ上書きする。
      * 重複制御項目はパース時に拒否するため、ここで末尾追加することはない。
+     * contactdirectweb はサイト発行値をそのまま送る（値は未取得のため上書きしない）。
      */
     fun buildForm(pickupLibraryCode: String): FormBody {
         require(pickupLibraryCode in pickupLibraryCodes) { "受取館コードが確認画面にありません" }
         val controlledValues = mapOf(
             "receivename" to pickupLibraryCode,
             "contact" to "4",
-            "contactweb" to "4",
         )
         return FormBody.Builder().apply {
             fields.forEach { field ->
@@ -39,12 +42,21 @@ internal data class ConfirmationFormField(
     val kind: ConfirmationFieldKind,
 )
 
-internal enum class ConfirmationFieldKind { HIDDEN, CONTROLLED_SELECT, CONTROLLED_HIDDEN }
+internal enum class ConfirmationFieldKind { HIDDEN, CONTROLLED_SELECT, OTHER }
 
-/** 予約確認画面が発行したsuccessful controlsを改変せず、確定POSTに渡す。 */
+/**
+ * 予約確認画面が発行したsuccessful controlsを改変せず、確定POSTに渡す。
+ * ブラウザの submit() と同じsuccessful controlsをDOM順で送る。hidden以外を捨てると確定POSTがサイト側で拒否される。
+ *
+ * 2026-07-25のライブdry-run診断で実測したフィールド構成:
+ * hidden 12個（bmtime_hide, contactFocus, contactdirectweb, gamenFlag, gamenid, hash,
+ * loginshuflag, receivenameFocus, returnValue, returnid, tilcod, watsptcodFocus）と
+ * select 2個（contact, receivename）のみ。text/textarea/radio/checkbox/buttonは存在しない。
+ * `contactweb` というフィールドは実在せず、正しくは `contactdirectweb` である。
+ * `contactdirectweb` の値は未取得のため、値の検証・上書きは行わずサイト発行値をそのまま送る。
+ */
 object DirectReservationConfirmParser {
     private const val SCREEN = "reservation-confirm"
-    private val CONTROLLED_FIELDS = setOf("receivename", "contact", "contactweb")
 
     fun parse(html: String, expectedTilcod: String): DirectReservationConfirmationPage {
         val forms = Jsoup.parse(html).select("form").filter(::hasExpectedControls)
@@ -52,7 +64,6 @@ object DirectReservationConfirmParser {
         val form = forms.single()
         validateHiddenValue(form, "gamenid", "tiles.WYoyConfirm", "gamenidが予約確認画面ではありません")
         validateHiddenValue(form, "tilcod", expectedTilcod, "tilcodが要求値と一致しません")
-        validateHiddenValue(form, "contactweb", "4", "contactwebがEmail固定値ではありません")
         if (form.select("input[type=hidden][name=hash]:not([disabled])").isNotEmpty()) {
             uniqueHiddenValue(form, "hash")
         }
@@ -78,7 +89,7 @@ object DirectReservationConfirmParser {
     private fun hasExpectedControls(form: Element): Boolean =
         hasExactlyOneHidden(form, "gamenid") &&
             hasExactlyOneHidden(form, "tilcod") &&
-            hasExactlyOneHidden(form, "contactweb") &&
+            hasExactlyOneHidden(form, "contactdirectweb") &&
             hasExactlyOneSelect(form, "receivename") &&
             hasExactlyOneSelect(form, "contact")
 
@@ -106,26 +117,28 @@ object DirectReservationConfirmParser {
 
     private fun toSuccessfulField(element: Element): ConfirmationFormField? {
         return when (element.tagName()) {
-            "input" -> {
-                if (!element.attr("type").equals("hidden", ignoreCase = true)) return null
+            "input" -> inputField(element)
+            "select" -> {
                 val name = element.attr("name")
-                when (name) {
-                    "contactweb" -> ConfirmationFormField(name, element.attr("value"), ConfirmationFieldKind.CONTROLLED_HIDDEN)
-                    in CONTROLLED_FIELDS -> null
-                    else -> ConfirmationFormField(name, element.attr("value"), ConfirmationFieldKind.HIDDEN)
+                val kind = if (name == "receivename" || name == "contact") {
+                    ConfirmationFieldKind.CONTROLLED_SELECT
+                } else {
+                    ConfirmationFieldKind.OTHER
                 }
+                ConfirmationFormField(name, selectedOptionValue(element), kind)
             }
-            "select" -> when (element.attr("name")) {
-                "receivename", "contact" -> ConfirmationFormField(
-                    name = element.attr("name"),
-                    value = selectedOptionValue(element),
-                    kind = ConfirmationFieldKind.CONTROLLED_SELECT,
-                )
-                else -> null
-            }
-            // 予約確認で未知のtextareaを送ることは許可しない。
+            "textarea" -> ConfirmationFormField(element.attr("name"), element.`val`(), ConfirmationFieldKind.OTHER)
             else -> null
         }
+    }
+
+    private fun inputField(input: Element): ConfirmationFormField? {
+        val type = input.attr("type").ifBlank { "text" }.lowercase()
+        if (type in setOf("button", "submit", "reset", "image", "file")) return null
+        if (type in setOf("checkbox", "radio") && !input.hasAttr("checked")) return null
+        val name = input.attr("name")
+        val kind = if (type == "hidden") ConfirmationFieldKind.HIDDEN else ConfirmationFieldKind.OTHER
+        return ConfirmationFormField(name, input.attr("value"), kind)
     }
 
     private fun selectedOptionValue(select: Element): String {

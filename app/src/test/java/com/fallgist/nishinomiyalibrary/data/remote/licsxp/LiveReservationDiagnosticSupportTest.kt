@@ -187,7 +187,68 @@ class LiveReservationDiagnosticSupportTest {
         assertFalse(report.wasReservedBefore)
         assertTrue(report.isReservedAfter)
         assertEquals(1, gateway.session.directReserveCalls)
-        assertEquals(listOf("open", "fetch-before", "direct", "fetch-after", "close"), gateway.session.calls)
+        // 事前照合は使い捨ての別セッションで行い、確定は開き直したセッションで連続実行する。
+        assertEquals(2, gateway.openCalls)
+        assertEquals(listOf("open", "fetch-before", "close", "open", "direct", "fetch-after", "close"), gateway.session.calls)
+    }
+
+    @Test
+    fun `dry-runフラグ単独でも確定フラグなしでconfigが成立しdryRunがtrueになる`() {
+        val config = requireNotNull(
+            LiveReservationDiagnosticConfig.from(
+                mapOf(
+                    LiveReservationDiagnosticConfig.ENABLE_FLAG to "YES_I_UNDERSTAND",
+                    LiveReservationDiagnosticConfig.DRY_RUN_FLAG to "INSPECT_ONLY",
+                    LiveReservationDiagnosticConfig.CARD_NUMBER to "1234",
+                    LiveReservationDiagnosticConfig.PASSWORD to "secret",
+                    LiveReservationDiagnosticConfig.TILCOD to "1000000000001",
+                    LiveReservationDiagnosticConfig.PICKUP_LIBRARY to "106",
+                ),
+            ),
+        )
+        assertTrue(config.dryRun)
+    }
+
+    @Test
+    fun `dry-run指定は確定フラグが同時にあってもdryRunを優先する`() {
+        val config = requireNotNull(
+            LiveReservationDiagnosticConfig.from(
+                mapOf(
+                    LiveReservationDiagnosticConfig.ENABLE_FLAG to "YES_I_UNDERSTAND",
+                    LiveReservationDiagnosticConfig.DRY_RUN_FLAG to "INSPECT_ONLY",
+                    LiveReservationDiagnosticConfig.CONFIRM_FLAG to "RESERVE_ON_PRODUCTION",
+                    LiveReservationDiagnosticConfig.CARD_NUMBER to "1234",
+                    LiveReservationDiagnosticConfig.PASSWORD to "secret",
+                    LiveReservationDiagnosticConfig.TILCOD to "1000000000001",
+                    LiveReservationDiagnosticConfig.PICKUP_LIBRARY to "106",
+                ),
+            ),
+        )
+        assertTrue(config.dryRun)
+    }
+
+    @Test
+    fun `dry-run診断はdirectReserveを一度も呼ばずopen inspect closeの順で呼ぶ`() = runBlocking {
+        val gateway = FakeGateway()
+        val config = requireNotNull(
+            LiveReservationDiagnosticConfig.from(
+                mapOf(
+                    LiveReservationDiagnosticConfig.ENABLE_FLAG to "YES_I_UNDERSTAND",
+                    LiveReservationDiagnosticConfig.DRY_RUN_FLAG to "INSPECT_ONLY",
+                    LiveReservationDiagnosticConfig.CARD_NUMBER to "1234",
+                    LiveReservationDiagnosticConfig.PASSWORD to "secret",
+                    LiveReservationDiagnosticConfig.TILCOD to "1000000000001",
+                    LiveReservationDiagnosticConfig.PICKUP_LIBRARY to "106",
+                ),
+            ),
+        )
+
+        val inspection = runLiveReservationInspection(gateway, config, LiveReservationDiagnosticLogger())
+
+        assertEquals(0, gateway.session.directReserveCalls)
+        assertEquals(1, gateway.session.inspectCalls)
+        assertEquals(listOf("open", "inspect", "close"), gateway.session.calls)
+        assertTrue(inspection is ConfirmationInspection.Parsed)
     }
 
     private fun authorizedConfig(): LiveReservationDiagnosticConfig = requireNotNull(
@@ -205,16 +266,19 @@ class LiveReservationDiagnosticSupportTest {
 
     private class FakeGateway : ReservationGateway {
         val session = FakeSession()
+        var openCalls = 0
 
         override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession {
+            openCalls += 1
             session.calls += "open"
             return session
         }
     }
 
-    private class FakeSession : ReservationSession {
+    private class FakeSession : ReservationSession, ReservationConfirmationInspector {
         val calls = mutableListOf<String>()
         var directReserveCalls = 0
+        var inspectCalls = 0
         private var reserved = false
 
         override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
@@ -222,6 +286,19 @@ class LiveReservationDiagnosticSupportTest {
             directReserveCalls += 1
             reserved = true
             return DirectReservationAttempt.IndeterminateAfterPost
+        }
+
+        override suspend fun inspectDirectReservationConfirmation(
+            tilcod: String,
+            pickupLibraryCode: String,
+        ): ConfirmationInspection {
+            calls += "inspect"
+            inspectCalls += 1
+            return ConfirmationInspection.Parsed(
+                fieldNames = listOf("gamenid", "tilcod", "receivename", "contact", "contactdirectweb"),
+                pickupLibraryCodes = setOf(pickupLibraryCode),
+                requestedPickupAvailable = true,
+            )
         }
 
         override suspend fun fetchReservations(): List<Reservation> {

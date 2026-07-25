@@ -1,9 +1,22 @@
+<!--
+  フィールド名とDOM順は2026-07-25のライブdry-run診断で実測した確認画面に一致させている。
+  各フィールドの値は取得していないため合成である。
+  siteIssued は実サイトには存在しない追加hiddenで、未知hiddenの素通し確認にだけ使う。
+-->
 <html><body>
 <form action="WOpacTifDirectYoyExecAction.do">
+  <input type="hidden" name="gamenFlag" value="" />
   <input type="hidden" name="hash" value="confirm-hash" />
+  <input type="hidden" name="returnid" value="" />
   <input type="hidden" name="gamenid" value="tiles.WYoyConfirm" />
   <input type="hidden" name="tilcod" value="1000000000001" />
-  <input type="hidden" name="contactweb" value="4" />
+  <input type="hidden" name="loginshuflag" value="" />
+  <input type="hidden" name="contactdirectweb" value="4" />
+  <input type="hidden" name="receivenameFocus" value="0" />
+  <input type="hidden" name="watsptcodFocus" value="0" />
+  <input type="hidden" name="contactFocus" value="0" />
+  <input type="hidden" name="returnValue" value="" />
+  <input type="hidden" name="bmtime_hide" value="" />
   <input type="hidden" name="siteIssued" value="keep-me" />
   <select name="receivename">
     <option value="001">中央図書館</option><option value="002">北口図書館</option>
