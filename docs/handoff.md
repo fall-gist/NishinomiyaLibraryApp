@@ -389,3 +389,30 @@ fail-closedで停止する。
   `returnValue` / `gamenFlag` / `loginshuflag`の各値の意味、および受取館selectを変更した際に
   ブラウザがこれらの値を書き換えるかどうかは不明である。`contactdirectweb`修正後も確定POSTが
   なお失敗する場合、次の調査対象はこれらの値の挙動である。
+
+### ブラウザでの確定POST実測とhash補完・再表示POST撤去（2026-07-26、事実）
+
+- 2026-07-26、ブラウザで確定POSTを実際に送って本文を実測した(`hash`の実値は秘匿ポリシーにより
+  記載しない)。DOM順・各値は site-research.md §6.7 参照。要点:
+  - `contactdirectweb`はブラウザでも**空**のまま確定している。前節の直前のコミット`0ce645a`で
+    入れた「確認画面の`contactdirectweb`を`4`へ上書きして`WOpacTifDirectYoyDispAction.do?webrak=1`
+    へ再表示POSTしてから確定する」処理は**誤りだったため撤去した**。確定POSTは、確認画面の
+    successful controlsをDOM順のまま(`receivename`と`contact`だけ上書き、`contactdirectweb`は
+    サイト発行値のまま)送る形へ戻した。dry-run診断側の`contactDirectWebValue`引数・
+    `ContactSelectionRetry`・環境変数`LICSXP_CONTACT_DIRECT_WEB`・`buildFormWithContactDirectWeb`は、
+    確定POSTを送らない調査専用の経路として残してある。
+  - `hash`はブラウザでは**非空**、アプリは書誌詳細をURL直接GETで開くため書誌詳細・確認画面とも
+    hash**空**で描画される(dry-run診断で実測済み)。ログイン直後メニュー画面には有効な`hash`が
+    あり、`LicsXpSession.updateTokens(menu)`で保持している。これを`session.requireTokens().hash`
+    として、`BookDetailReservationForm.buildForm(hashOverride)` / 
+    `DirectReservationConfirmationPage.buildForm(pickupLibraryCode, hashOverride)`の両方へ渡し、
+    **ページの`hash`が空のときだけ**元DOM位置のままhashOverrideへ上書きするようにした。
+    ページが非空の`hash`を発行していれば絶対に上書きしない。
+  - `returnid`の値の差(ブラウザ`tiles.WTifTilDetail2`／アプリ従来`tiles.WTifTilDetail`)は
+    アプリの到達経路の違いによるもので、実装側で値を作ってはならない。**今回は変更しておらず、
+    未検証事項として残る。**
+  - ブラウザが送るヘッダのうちアプリが送っていないもの(`Accept`系、`Cache-Control`、`Pragma`、
+    `Upgrade-Insecure-Requests`、`Sec-Fetch-*`、`sec-ch-ua*`、`DNT`)は**未検証事項**として残す。
+    Referer/Originはアプリも一致した値を送っている。
+  - これで予約が成立するかどうかは、この時点でもなお**未検証**である。次にライブdry-run/実予約で
+    確認すべきは、hash補完後に確定POSTがサイト側で受理されるかどうかである。

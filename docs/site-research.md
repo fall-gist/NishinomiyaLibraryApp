@@ -285,6 +285,32 @@
   変更した際にブラウザがこれらの値を書き換えるかどうかは不明である。`contactdirectweb`修正後も
   確定POSTが失敗する場合、次の調査対象はこれらの値の挙動である。
 
+### 6.7 ブラウザでの確定POST実測と`contactdirectweb`再表示POST仮説の反証(2026-07-26ブラウザ実測、確認済み)
+
+- 2026-07-26、ブラウザで実際に確定POSTを送って本文を実測した。DOM順の項目は次のとおり
+  (`hash`の実値は秘匿ポリシーにより記載しない):
+  `gamenFlag`(空) → `hash`(**非空**) → `returnid`(`tiles.WTifTilDetail2`) → `gamenid`
+  (`tiles.WYoyConfirm`) → `tilcod` → `loginshuflag`(空) → `contactdirectweb`(**空**) →
+  `receivenameFocus`(`0`) → `watsptcodFocus`(`0`) → `contactFocus`(`0`) → `returnValue`(空) →
+  `bmtime_hide`(空) → `receivename` → `contact`。
+- **`contactdirectweb`はブラウザでも空のまま確定している。** 6.6での「予約確認メール選択の
+  再表示POST(`WOpacTifDirectYoyDispAction.do?webrak=1`)が確定前に必要」という仮説は
+  **反証された**。実装(コミット`0ce645a`)にあったこの再表示POST分岐は誤りであり撤去した。
+- **アプリはURL直接GETで書誌詳細を開くため`hash`が空になる**ことをdry-run診断で実測済み
+  (書誌詳細LBForm・確認画面フォームの両方)。一方ブラウザは非空の`hash`を送っている。
+  ログイン直後メニュー画面(`WOpacMnuTopInitAction.do`)には有効な`hash`があり、アプリはこれを
+  `LicsXpSession.updateTokens(menu)`で保持している。利用者ページのPOST(`fetchReservations`)は
+  実際にこの値で成功しているため、書誌詳細・確認画面の両POSTでも、ページ自身の`hash`が空の
+  ときだけこのセッショントークンの`hash`を元DOM位置へ補うよう実装した。ページが非空の`hash`を
+  発行している場合は上書きしない。
+- `returnid`の値の差(ブラウザ`tiles.WTifTilDetail2` / アプリ従来`tiles.WTifTilDetail`)は
+  各画面の到達経路の違いによるものであり、実装側で値を作ってはならない。**今回は変更しておらず、
+  未検証事項として残す。**
+- ブラウザが送るリクエストヘッダのうちアプリが送っていないもの: `Accept`, `Accept-Language`,
+  `Accept-Encoding`, `Cache-Control`, `Pragma`, `Upgrade-Insecure-Requests`,
+  `Sec-Fetch-Dest`/`Mode`/`Site`/`User`, `sec-ch-ua*`, `DNT`。Referer と Origin はアプリも
+  ブラウザと一致した値を送っている。これらのヘッダ差の予約成否への影響は**未検証事項**である。
+
 ## 7. 設計への示唆
 
 1. **パースは現実的**: 主要データはclass付きdivか素直なtableで、Jsoupで安定してパースできる

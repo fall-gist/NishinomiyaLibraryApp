@@ -418,85 +418,15 @@ class ReservationGatewayTest {
     }
 
     @Test
-    fun `確認画面のcontactdirectwebが空なら再表示POSTを1回送り再表示後の内容で確定POSTする`() = runBlocking {
+    fun `確認画面のcontactdirectwebが空でも再表示POSTを送らず確定POSTは1回だけ送る`() = runBlocking {
+        // 0ce645a で入れた「webrak=1への再表示POST」は誤りだったため撤去した回帰防止。
+        // ブラウザ実測ではcontactdirectwebが空のまま確定POSTしている。
         server.enqueue(page("<html>温め</html>"))
         server.enqueue(page(fixture("login_form.html")))
         server.enqueue(page("<html>中継</html>"))
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(reservationDetailFixture()))
         server.enqueue(page(emptyContactDirectWebFixture()))
-        server.enqueue(page(fixture("reservation_confirm.html")))
-        server.enqueue(page("<html><div id='stat-login'></div></html>"))
-        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
-            .openAuthenticatedSession("1234", "secret")
-
-        assertEquals(DirectReservationAttempt.IndeterminateAfterPost, session.directReserve("1000000000001", "106"))
-
-        assertEquals(8, server.requestCount)
-        val requests = List(8) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
-        assertEquals("/WOpacTifDirectYoyDispAction.do?tilcod=1000000000001", requests[5].path)
-        assertEquals("/WOpacTifDirectYoyDispAction.do?webrak=1", requests[6].path)
-        assertEquals(1, requests.count { it.path == "/WOpacTifDirectYoyDispAction.do?webrak=1" })
-        assertEquals(
-            server.url("/WOpacTifDirectYoyDispAction.do?tilcod=1000000000001").toString(),
-            requests[6].getHeader("Referer"),
-        )
-        assertEquals(
-            listOf(
-                "gamenFlag" to "",
-                "hash" to "confirm-hash",
-                "returnid" to "",
-                "gamenid" to "tiles.WYoyConfirm",
-                "tilcod" to "1000000000001",
-                "loginshuflag" to "",
-                "contactdirectweb" to "4",
-                "receivenameFocus" to "0",
-                "watsptcodFocus" to "0",
-                "contactFocus" to "0",
-                "returnValue" to "",
-                "bmtime_hide" to "",
-                "siteIssued" to "keep-me",
-                "receivename" to "001",
-                "contact" to "4",
-            ),
-            decodeFormFields(requests[6].body.readUtf8()),
-        )
-        assertEquals("/WOpacTifDirectYoyExecAction.do?tilcod=1000000000001", requests[7].path)
-        assertEquals(1, requests.count { it.path?.startsWith("/WOpacTifDirectYoyExecAction.do") == true })
-        assertEquals(
-            server.url("/WOpacTifDirectYoyDispAction.do?webrak=1").toString(),
-            requests[7].getHeader("Referer"),
-        )
-        assertEquals(
-            listOf(
-                "gamenFlag" to "",
-                "hash" to "confirm-hash",
-                "returnid" to "",
-                "gamenid" to "tiles.WYoyConfirm",
-                "tilcod" to "1000000000001",
-                "loginshuflag" to "",
-                "contactdirectweb" to "4",
-                "receivenameFocus" to "0",
-                "watsptcodFocus" to "0",
-                "contactFocus" to "0",
-                "returnValue" to "",
-                "bmtime_hide" to "",
-                "siteIssued" to "keep-me",
-                "receivename" to "106",
-                "contact" to "4",
-            ),
-            decodeFormFields(requests[7].body.readUtf8()),
-        )
-    }
-
-    @Test
-    fun `確認画面のcontactdirectwebが最初から4なら再表示POSTを送らない`() = runBlocking {
-        server.enqueue(page("<html>温め</html>"))
-        server.enqueue(page(fixture("login_form.html")))
-        server.enqueue(page("<html>中継</html>"))
-        server.enqueue(page(fixture("menu.html")))
-        server.enqueue(page(reservationDetailFixture()))
-        server.enqueue(page(fixture("reservation_confirm.html")))
         server.enqueue(page("<html><div id='stat-login'></div></html>"))
         val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
             .openAuthenticatedSession("1234", "secret")
@@ -506,57 +436,101 @@ class ReservationGatewayTest {
         assertEquals(7, server.requestCount)
         val requests = List(7) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertTrue(requests.none { it.path?.contains("webrak") == true })
+        assertEquals("/WOpacTifDirectYoyExecAction.do?tilcod=1000000000001", requests[6].path)
         assertEquals(1, requests.count { it.path?.startsWith("/WOpacTifDirectYoyExecAction.do") == true })
+        assertEquals(
+            server.url("/WOpacTifDirectYoyDispAction.do?tilcod=1000000000001").toString(),
+            requests[6].getHeader("Referer"),
+        )
+        assertEquals(
+            "${server.url("/").scheme}://${server.url("/").host}:${server.url("/").port}",
+            requests[6].getHeader("Origin"),
+        )
+        assertEquals(
+            listOf(
+                "gamenFlag" to "",
+                "hash" to "confirm-hash",
+                "returnid" to "",
+                "gamenid" to "tiles.WYoyConfirm",
+                "tilcod" to "1000000000001",
+                "loginshuflag" to "",
+                "contactdirectweb" to "",
+                "receivenameFocus" to "0",
+                "watsptcodFocus" to "0",
+                "contactFocus" to "0",
+                "returnValue" to "",
+                "bmtime_hide" to "",
+                "siteIssued" to "keep-me",
+                "receivename" to "106",
+                "contact" to "4",
+            ),
+            decodeFormFields(requests[6].body.readUtf8()),
+        )
     }
 
     @Test
-    fun `再表示応答がログインフォームなら確定POSTを送らずセッション切れにする`() = runBlocking {
+    fun `hashが空な書誌詳細と確認画面の両方でセッショントークンのhashを元DOM位置へ補う`() = runBlocking {
+        // book_detail.html のLBFormはhash空、確認画面もhash空版を使い、
+        // ログイン直後メニュー(menu.html)のhash "1249c619e529de0b66c5fb9d64dfb98392615089" が
+        // 両方のPOSTへ補われることを確認する。
         server.enqueue(page("<html>温め</html>"))
         server.enqueue(page(fixture("login_form.html")))
         server.enqueue(page("<html>中継</html>"))
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(reservationDetailFixture()))
-        server.enqueue(page(emptyContactDirectWebFixture()))
-        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page(emptyHashConfirmFixture()))
+        server.enqueue(page("<html><div id='stat-login'></div></html>"))
         val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
             .openAuthenticatedSession("1234", "secret")
 
-        assertEquals(DirectReservationAttempt.SessionExpiredBeforeSubmit, session.directReserve("1000000000001", "106"))
+        assertEquals(DirectReservationAttempt.IndeterminateAfterPost, session.directReserve("1000000000001", "106"))
 
         assertEquals(7, server.requestCount)
         val requests = List(7) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
-        assertTrue(requests.none { it.path?.startsWith("/WOpacTifDirectYoyExecAction.do") == true })
+        assertEquals(
+            "1249c619e529de0b66c5fb9d64dfb98392615089",
+            decodeForm(requests[5].body.readUtf8())["hash"]?.single(),
+        )
+        assertEquals(
+            "1249c619e529de0b66c5fb9d64dfb98392615089",
+            decodeForm(requests[6].body.readUtf8())["hash"]?.single(),
+        )
     }
 
     @Test
-    fun `再表示応答が確認画面として解析できないときはParse例外になり確定POSTを送らない`() = runBlocking {
+    fun `ページのhashに既存値があるときはセッショントークンで上書きしない`() = runBlocking {
+        // reservation_confirm.html は元々hash="confirm-hash"を発行しているため、
+        // menu.htmlのセッショントークンのhashへ置き換わらないことを確認する。
         server.enqueue(page("<html>温め</html>"))
         server.enqueue(page(fixture("login_form.html")))
         server.enqueue(page("<html>中継</html>"))
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(reservationDetailFixture()))
-        server.enqueue(page(emptyContactDirectWebFixture()))
-        server.enqueue(page("<html>想定外の画面</html>"))
+        server.enqueue(page(fixture("reservation_confirm.html")))
+        server.enqueue(page("<html><div id='stat-login'></div></html>"))
         val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
             .openAuthenticatedSession("1234", "secret")
 
-        val error = try {
-            session.directReserve("1000000000001", "106")
-            null
-        } catch (exception: LibraryError.Parse) {
-            exception
-        }
+        assertEquals(DirectReservationAttempt.IndeterminateAfterPost, session.directReserve("1000000000001", "106"))
 
-        assertNotNull(error)
         assertEquals(7, server.requestCount)
         val requests = List(7) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
-        assertTrue(requests.none { it.path?.startsWith("/WOpacTifDirectYoyExecAction.do") == true })
+        assertEquals(
+            "confirm-hash",
+            decodeForm(requests[6].body.readUtf8())["hash"]?.single(),
+        )
     }
 
     private fun emptyContactDirectWebFixture(): String =
         fixture("reservation_confirm.html").replace(
             "<input type=\"hidden\" name=\"contactdirectweb\" value=\"4\" />",
             "<input type=\"hidden\" name=\"contactdirectweb\" value=\"\" />",
+        )
+
+    private fun emptyHashConfirmFixture(): String =
+        fixture("reservation_confirm.html").replace(
+            "<input type=\"hidden\" name=\"hash\" value=\"confirm-hash\" />",
+            "<input type=\"hidden\" name=\"hash\" value=\"\" />",
         )
 
     private fun page(body: String, cookie: Boolean = false): MockResponse = MockResponse().setBody(body).apply {

@@ -66,8 +66,19 @@ object BookDetailReservationFormParser {
 class BookDetailReservationForm internal constructor(
     private val fields: List<DetailFormField>,
 ) {
-    fun buildForm(): FormBody = FormBody.Builder().apply {
-        fields.forEach { field -> add(field.name, field.value) }
+    /**
+     * hashOverride が非nullで、かつこのページの hash が空のときだけ、元DOM位置のまま
+     * hash をhashOverrideへ上書きする。サイトが非空のhashを発行している場合は絶対に上書きしない。
+     */
+    fun buildForm(hashOverride: String? = null): FormBody = FormBody.Builder().apply {
+        fields.forEach { field ->
+            val value = if (field.name == "hash" && field.value.isEmpty() && hashOverride != null) {
+                hashOverride
+            } else {
+                field.value
+            }
+            add(field.name, value)
+        }
     }.build()
 }
 
