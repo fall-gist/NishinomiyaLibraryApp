@@ -33,6 +33,26 @@ class LicsXpSession private constructor(
         const val DEFAULT_BASE_URL = "https://tosho.nishi.or.jp/licsxp-opac/"
         const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; NishinomiyaLibraryApp) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36"
         private const val MAX_NETWORK_ATTEMPTS = 2
+
+        /**
+         * 2026-07-26にブラウザ(Chrome)実測したヘッダに合わせたものである。
+         * `sec-ch-ua*` と `Sec-Fetch-*` は自アプリのUser-Agent表明（Android/Chrome 124 Mobile）と
+         * 整合させた値であり、これらが予約成立に必要かどうかは未検証。
+         * Accept-Encoding はここに含めない（下記インターセプタの注記を参照）。
+         */
+        private const val BROWSER_ACCEPT =
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+        private const val BROWSER_ACCEPT_LANGUAGE = "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7"
+        private const val BROWSER_UPGRADE_INSECURE_REQUESTS = "1"
+        private const val BROWSER_SEC_FETCH_DEST = "document"
+        private const val BROWSER_SEC_FETCH_MODE = "navigate"
+        private const val BROWSER_SEC_FETCH_SITE = "same-origin"
+        private const val BROWSER_SEC_FETCH_USER = "?1"
+        // USER_AGENT がAndroid Mobileを名乗っているため、?0ではなく?1が整合する。
+        private const val BROWSER_SEC_CH_UA_MOBILE = "?1"
+        private const val BROWSER_SEC_CH_UA_PLATFORM = "\"Android\""
+        // USER_AGENT のChromeメジャーバージョン(124)と整合させた値。
+        private const val BROWSER_SEC_CH_UA = "\"Chromium\";v=\"124\", \"Not:A-Brand\";v=\"24\", \"Google Chrome\";v=\"124\""
     }
 
     private val cookieJar = InMemoryCookieJar()
@@ -40,9 +60,28 @@ class LicsXpSession private constructor(
     private val client: OkHttpClient = sourceClient.newBuilder()
         .cookieJar(cookieJar)
         .addInterceptor { chain ->
-            val request = chain.request().newBuilder()
+            val original = chain.request()
+            val builder = original.newBuilder()
                 .header("User-Agent", USER_AGENT)
-                .build()
+            // 呼出し側が既に付けたヘッダ（Referer / Origin 等）を壊さないよう、
+            // 未設定のときだけブラウザ実測値を補う。
+            fun addIfAbsent(name: String, value: String) {
+                if (original.header(name) == null) builder.header(name, value)
+            }
+            addIfAbsent("Accept", BROWSER_ACCEPT)
+            addIfAbsent("Accept-Language", BROWSER_ACCEPT_LANGUAGE)
+            addIfAbsent("Upgrade-Insecure-Requests", BROWSER_UPGRADE_INSECURE_REQUESTS)
+            addIfAbsent("Sec-Fetch-Dest", BROWSER_SEC_FETCH_DEST)
+            addIfAbsent("Sec-Fetch-Mode", BROWSER_SEC_FETCH_MODE)
+            addIfAbsent("Sec-Fetch-Site", BROWSER_SEC_FETCH_SITE)
+            addIfAbsent("Sec-Fetch-User", BROWSER_SEC_FETCH_USER)
+            addIfAbsent("sec-ch-ua-mobile", BROWSER_SEC_CH_UA_MOBILE)
+            addIfAbsent("sec-ch-ua-platform", BROWSER_SEC_CH_UA_PLATFORM)
+            addIfAbsent("sec-ch-ua", BROWSER_SEC_CH_UA)
+            // Accept-Encoding は意図的に設定しない。OkHttpは自身が付けた場合にのみ
+            // レスポンスを透過的に展開する（transparent gzip）。手動で設定すると
+            // 展開が行われずHTML解析が壊れるため、ブラウザ実測値であっても付けない。
+            val request = builder.build()
             chain.proceed(request)
         }
         .build()

@@ -64,6 +64,42 @@ class LicsXpClientTest {
     }
 
     @Test
+    fun `ブラウザ相当ヘッダを付与しAccept-Encodingは手動設定しない`() = runBlocking {
+        server.enqueue(html(fixture("search_form.html")))
+        server.enqueue(html(fixture("search_result.html")))
+
+        client().search("愛の哲学")
+
+        val getRequest = takeRequest()
+        assertEquals(LicsXpSession.USER_AGENT, getRequest.getHeader("User-Agent"))
+        assertEquals(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            getRequest.getHeader("Accept"),
+        )
+        assertEquals("ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7", getRequest.getHeader("Accept-Language"))
+        assertEquals("1", getRequest.getHeader("Upgrade-Insecure-Requests"))
+        assertEquals("document", getRequest.getHeader("Sec-Fetch-Dest"))
+        assertEquals("navigate", getRequest.getHeader("Sec-Fetch-Mode"))
+        assertEquals("same-origin", getRequest.getHeader("Sec-Fetch-Site"))
+        assertEquals("?1", getRequest.getHeader("Sec-Fetch-User"))
+        assertEquals("?1", getRequest.getHeader("sec-ch-ua-mobile"))
+        assertEquals("\"Android\"", getRequest.getHeader("sec-ch-ua-platform"))
+        assertEquals(
+            "\"Chromium\";v=\"124\", \"Not:A-Brand\";v=\"24\", \"Google Chrome\";v=\"124\"",
+            getRequest.getHeader("sec-ch-ua"),
+        )
+        // OkHttpが自動で付けたgzipのままであること（ブラウザ実測値 "gzip, deflate, br, zstd" を手で設定していない証跡）。
+        assertEquals("gzip", getRequest.getHeader("Accept-Encoding"))
+
+        val postRequest = takeRequest()
+        assertEquals(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            postRequest.getHeader("Accept"),
+        )
+        assertEquals("gzip", postRequest.getHeader("Accept-Encoding"))
+    }
+
+    @Test
     fun `検索2ページ目は直近トークンをフォームとクエリに送る`() = runBlocking {
         server.enqueue(html(fixture("search_form.html")))
         server.enqueue(html(fixture("search_result.html")))
