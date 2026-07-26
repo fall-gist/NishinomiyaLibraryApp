@@ -446,3 +446,39 @@ fail-closedで停止する。
 - 確認済み(2026-07-26、ローカル): `./gradlew :app:testDebugUnitTest :app:assembleDebug`が
   両方成功。これで予約が成立するかどうかは、この時点でもなお**未検証**であり、次はライブ
   dry-run/実予約での確認が必要である。
+
+### 予約導線のログイン手順修正(2026-07-26追記、事実)
+
+- ブラウザDevToolsで予約成立時の遷移列を実測した(詳細はsite-research.md §6.9参照):
+
+  ```
+  WOpacInitLoginActiontemp.do
+  OpacLoginAction.do
+  WPwdLoginCheckAction.do
+  WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgnewmenu
+  WOpacMsgNewMenuToMsgNewListAction.do
+  WOpacMsgNewListToTifTilDetailAction.do?urlNotFlag=1
+  WOpacTifDirectYoyDispAction.do?tilcod=...
+  ```
+
+  アプリの予約導線(`LicsXpReservationGateway.openAuthenticatedSession`)は従来
+  `OpacInitLoginAction.do?subSystemFlag=0`からログインフォームを取得しており、
+  `WPwdLoginCheckAction.do`に到達していなかった。認証後の戻り先はログインフォームの
+  入口によって決まるため、これがアプリが認証後にポータルのトップへ戻されていた原因である。
+- **対応**: `ReservationGateway.kt`の`openAuthenticatedSession`のみ、ログインフォーム取得を
+  `WOpacInitLoginActiontemp.do`(クエリなし)へ変更し、ログインPOST直後に
+  `WPwdLoginCheckAction.do`(クエリなし)を1回GETするようにした。未認証時は200・空ボディを
+  返すため、内容は解析せずメンテナンス判定のみ行う。`j_security_check?subSystemFlag=0`への
+  送信内容・`WOpacMnuTopInitAction.do?WebLinkFlag=1`取得・`classifyLoginMenu`・
+  `updateTokens`は変更していない。読み取り用(`LicsXpClient.fetchUserData`)の
+  `OpacInitLoginAction.do`は意図的に変更していない。
+- テストは`ReservationGatewayTest.kt`の全ケースで、j_security_checkへのPOST直後に
+  `WPwdLoginCheckAction.do`へのGETが1回入るよう、enqueue順序とリクエストインデックスの
+  アサーションを更新した。空ボディでも例外にならないことも確認している。
+  `LicsXpClientTest`の読み取り経路のテストは変更していない。
+- 確認済み(2026-07-26、ローカル): `./gradlew :app:testDebugUnitTest :app:assembleDebug`が
+  両方成功。
+- **未検証事項**:
+  - この修正で予約が成立するかは未検証である。
+  - ブラウザは書誌詳細の前に新着ジャンル一覧(`WOpacMsgNewMenuToMsgNewListAction.do`)を
+    経ているが、アプリは書誌詳細へ直接入っている。この差の予約成否への影響は未検証である。

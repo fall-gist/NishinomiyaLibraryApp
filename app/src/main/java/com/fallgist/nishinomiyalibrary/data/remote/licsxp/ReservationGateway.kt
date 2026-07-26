@@ -99,13 +99,22 @@ class LicsXpReservationGateway private constructor(
         val session = rootSession.newIsolatedSession()
         try {
             session.get("WOpacEsSchCmpdDispAction.do")
-            val loginForm = session.get("OpacInitLoginAction.do", mapOf("subSystemFlag" to "0"))
+            // ブラウザ実測(2026-07-26)の予約成立時の遷移列では、ログインフォームの入口が
+            // WOpacInitLoginActiontemp.do であり、j_security_check?subSystemFlag=0 への送信先は
+            // 従来と同一。認証後の戻り先はこの入口によって決まるため、読み取り用(LicsXpClient)の
+            // OpacInitLoginAction.do とは意図的に分けている。
+            val loginForm = session.get("WOpacInitLoginActiontemp.do")
             requireNotMaintenance(loginForm)
             session.post(
                 path = "j_security_check",
                 query = mapOf("subSystemFlag" to "0"),
                 form = LoginFormParser.parse(loginForm).buildForm(cardNumber, password),
             )
+            // ブラウザは認証直後にWPwdLoginCheckAction.doへ遷移してからメニューに入る。
+            // 未認証時は200・空ボディを返すため、内容は解析せずメンテナンス判定のみ行う。
+            // この1回のGETが予約成立に必要かは未検証。
+            val loginCheck = session.get("WPwdLoginCheckAction.do")
+            requireNotMaintenance(loginCheck)
             val menu = session.get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
             classifyLoginMenu(menu)
             session.updateTokens(menu)

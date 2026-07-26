@@ -341,6 +341,47 @@
 - `BookDetailReservationFormParser`が要求する`gamenid`も`tiles.WTifTilDetail2`へ変更した
   (両方を許すのではなく、ブラウザで予約成立が確認されている画面だけを受け入れるfail-closed)。
 
+### 6.9 予約導線のログイン手順を実測で特定(2026-07-26ブラウザDevTools実測、予約成立時の遷移列)
+
+- ブラウザで予約が成立した際の`.do`リクエスト列を実測した:
+
+  ```
+  WOpacInitLoginActiontemp.do
+  OpacLoginAction.do
+  WPwdLoginCheckAction.do
+  WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=msgnewmenu
+  WOpacMsgNewMenuToMsgNewListAction.do
+  WOpacMsgNewListToTifTilDetailAction.do?urlNotFlag=1
+  WOpacTifDirectYoyDispAction.do?tilcod=...
+  ```
+
+  (`j_security_check`は拡張子が`.do`でないため上記一覧には現れないが、ログインフォームの
+  送信先として存在する。)
+- アプリ(`LicsXpReservationGateway.openAuthenticatedSession`)の従来の経路は次のとおりで、
+  `WPwdLoginCheckAction.do`に到達していなかった:
+
+  ```
+  WOpacEsSchCmpdDispAction.do
+  OpacInitLoginAction.do?subSystemFlag=0
+  j_security_check?subSystemFlag=0   → 302 → OpacLoginAction.do → 302 → /（ポータルのトップ）
+  WOpacMnuTopInitAction.do?WebLinkFlag=1
+  ```
+
+  認証後の戻り先はログインフォームをどの画面から出したかで決まるため、入口の違い
+  (`OpacInitLoginAction.do` vs `WOpacInitLoginActiontemp.do`)がそのまま戻り先の差として現れる。
+- 匿名アクセスで確認済み: `WOpacInitLoginActiontemp.do`はログインフォームを返し、送信先は
+  `j_security_check?subSystemFlag=0`で既存と同一。`WPwdLoginCheckAction.do`は未認証だと
+  200・空ボディを返す。
+- **対応**: 予約導線(`ReservationGateway`)だけ、ログインフォーム取得を
+  `OpacInitLoginAction.do?subSystemFlag=0`から`WOpacInitLoginActiontemp.do`へ変更し、
+  ログインPOST直後に`WPwdLoginCheckAction.do`を1回GETするようにした(内容は解析せず、
+  メンテナンス判定のみ)。読み取り用(`LicsXpClient.fetchUserData`)の`OpacInitLoginAction.do`は
+  意図的に変更していない。
+- **未検証事項**:
+  - この修正で予約が成立するかは未検証である。
+  - ブラウザは書誌詳細の前に新着ジャンル一覧(`WOpacMsgNewMenuToMsgNewListAction.do`)を
+    経ているが、アプリは書誌詳細へ直接入っている。この差の予約成否への影響は未検証である。
+
 ## 7. 設計への示唆
 
 1. **パースは現実的**: 主要データはclass付きdivか素直なtableで、Jsoupで安定してパースできる
