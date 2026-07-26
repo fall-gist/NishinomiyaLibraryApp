@@ -66,11 +66,12 @@ private enum class Destination(val label: String, val emoji: String, val primary
     LOANS("貸出中", "📖", true),
     RESERVATIONS("予約中", "🔖", true),
     READING("読書記録", "📗", true),
+    // ドロワーの並びはこの宣言順に従う。予約カートは利用頻度が高いので先頭に置く。
+    RESERVATION_CART("予約カート", "🛒", false),
     SEARCH("蔵書検索", "🔍", false),
     NEW_ARRIVALS("新着資料", "🆕", false),
     CALENDAR("カレンダー", "📅", false),
     SETTINGS("設定", "⚙️", false),
-    RESERVATION_CART("予約カート", "🛒", false),
 }
 
 @Composable
@@ -129,6 +130,7 @@ fun LibraryApp(
                         onClick = {
                             currentName = dest.name
                             bookDetailController.close()
+                            diagnosticLogOpen = false
                             scope.launch { drawerState.close() }
                         },
                         modifier = Modifier.padding(horizontal = 12.dp),
@@ -147,6 +149,8 @@ fun LibraryApp(
                             onClick = {
                                 currentName = dest.name
                                 bookDetailController.close()
+                                // 重ねて表示しているオーバーレイを閉じないと、下部ナビをタップしても画面が変わらない。
+                                diagnosticLogOpen = false
                             },
                             icon = { Text(dest.emoji, fontSize = 16.sp) },
                             label = { Text(dest.label, fontSize = 10.sp) },
