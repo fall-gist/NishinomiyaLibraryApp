@@ -1,5 +1,8 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.gradle.api.tasks.testing.Test
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 plugins {
     alias(libs.plugins.android.application)
@@ -9,6 +12,29 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
 }
+
+// git情報の取得は configuration cache と相性の良い providers.exec を使う。
+// git が使えない・リポジトリでない等で失敗してもビルドを壊さないよう例外を握りつぶし "unknown" とする。
+fun runGitCommand(vararg args: String): String? = try {
+    providers.exec {
+        commandLine(listOf("git") + args)
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim()
+} catch (_: Exception) {
+    null
+}
+
+// 実行中のAPKがどのコミットからビルドされたか診断ログ・設定画面で確認できるよう、
+// 短縮コミットハッシュ(未コミット変更があれば "+dirty" を付与)とビルド時刻を BuildConfig に埋め込む。
+val gitShortSha = runGitCommand("rev-parse", "--short", "HEAD")
+val gitDirty = runGitCommand("status", "--porcelain")
+val buildGitSha = when {
+    gitShortSha.isNullOrBlank() -> "unknown"
+    !gitDirty.isNullOrBlank() -> "$gitShortSha+dirty"
+    else -> gitShortSha
+}
+val buildTimeStamp: String = ZonedDateTime.now(ZoneId.of("Asia/Tokyo"))
+    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
 
 android {
     namespace = "com.fallgist.nishinomiyalibrary"
@@ -20,6 +46,9 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+
+        buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
+        buildConfigField("String", "BUILD_TIME", "\"$buildTimeStamp\"")
     }
 
     signingConfigs {

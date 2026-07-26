@@ -50,6 +50,8 @@ data class SettingsUiState(
     val libraries: List<Library> = emptyList(),
     val diagnosticLogEnabled: Boolean = false,
     val diagnosticLogLineCount: Int = 0,
+    val buildGitSha: String = "unknown",
+    val buildTime: String = "unknown",
 )
 
 /** 設定画面の表示整形の純関数。 */
@@ -90,7 +92,14 @@ class SettingsScreenController(
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
-    private val _state = MutableStateFlow(SettingsUiState(libraries = calendarRepository.libraries))
+    // ビルド識別子はプロセス起動時に固定されるため、combine購読とは別に初期値としてここで設定する。
+    private val _state = MutableStateFlow(
+        SettingsUiState(
+            libraries = calendarRepository.libraries,
+            buildGitSha = diagnosticLog.buildIdentityGitSha,
+            buildTime = diagnosticLog.buildIdentityBuildTime,
+        ),
+    )
     val state: StateFlow<SettingsUiState> = _state
 
     private var members: List<Member> = emptyList()

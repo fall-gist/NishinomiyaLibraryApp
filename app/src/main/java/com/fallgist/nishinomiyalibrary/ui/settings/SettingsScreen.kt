@@ -252,6 +252,8 @@ fun SettingsScreen(
             DiagnosticSection(
                 enabled = state.diagnosticLogEnabled,
                 lineCount = state.diagnosticLogLineCount,
+                buildGitSha = state.buildGitSha,
+                buildTime = state.buildTime,
                 onSetEnabled = onSetDiagnosticLogEnabled,
                 onOpenLog = onOpenDiagnosticLog,
             )
@@ -331,11 +333,21 @@ private fun DividerLine() {
 private fun DiagnosticSection(
     enabled: Boolean,
     lineCount: Int,
+    buildGitSha: String,
+    buildTime: String,
     onSetEnabled: (Boolean) -> Unit,
     onOpenLog: () -> Unit,
 ) {
     val colors = LocalAppColors.current
 
+    // 実行中のAPKがどのコミットからビルドされたかを常に確認できるよう、記録のON/OFFに関わらず表示する。
+    Text(
+        text = "commit=$buildGitSha built=$buildTime",
+        color = colors.ink2,
+        fontSize = 10.5.sp,
+        modifier = Modifier.padding(bottom = 6.dp),
+    )
+    DividerLine()
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,

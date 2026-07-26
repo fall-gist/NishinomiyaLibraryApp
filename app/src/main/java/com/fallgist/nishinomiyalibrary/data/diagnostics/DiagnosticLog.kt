@@ -29,6 +29,13 @@ data class DiagnosticLogEntry(
     val message: String,
 )
 
+/** 実行中のビルドを一意に識別するための値。 [DiagnosticLog.setBuildIdentity] で外部注入される。 */
+private data class BuildIdentity(
+    val gitSha: String,
+    val buildTime: String,
+    val versionName: String,
+)
+
 /**
  * 通信診断ログをメモリ内のリングバッファ（最大1000件）に保持しつつ、[fileStore] があれば
  * ファイルへも永続化する通信診断ログ。[recording] が false の間は [record] が即座に何もしないため、
@@ -49,13 +56,23 @@ class DiagnosticLog @Inject constructor(
     /** 画面スクリプトの重複除去用の既出ハッシュ集合。[clear] でリセットされる。 */
     private val scriptHashSeen = LinkedHashSet<Int>()
 
+    /** [setBuildIdentity] で外部から注入されたビルド識別子。未設定ならnull。 */
+    private var buildIdentity: BuildIdentity? = null
+
     private val _recordingState = MutableStateFlow(false)
 
-    /** 記録のオン/オフ。既定はオフ。 */
+    /**
+     * 記録のオン/オフ。既定はオフ。false→trueに変わった瞬間、[buildIdentity] が設定済みなら
+     * 実行中のビルド識別子を先頭行として自動記録する(「消去してから試す」運用でも必ず残るように)。
+     */
     var recording: Boolean
         get() = _recordingState.value
         set(value) {
+            val turnedOn = value && !_recordingState.value
             _recordingState.value = value
+            if (turnedOn) {
+                buildIdentity?.let { recordBuildIdentity(it.gitSha, it.buildTime, it.versionName) }
+            }
         }
 
     /** [recording] を観測するためのFlow。 */
@@ -95,7 +112,32 @@ class DiagnosticLog @Inject constructor(
             _entries.value = emptyList()
         }
         fileStore?.clear()
+        // 消去直後も先頭に必ずビルド識別子が残るようにする(recordingがtrueの間のみ実際に記録される)。
+        buildIdentity?.let { recordBuildIdentity(it.gitSha, it.buildTime, it.versionName) }
     }
+
+    /**
+     * 実行中のビルド識別子(commit/built/version)を保持する。BuildConfigへの直接参照はdata層に
+     * 置かず、アプリ初期化時にこの関数経由で外部から注入する。[recording] のfalse→true遷移時と
+     * [clear] 直後に、ここで保持した値を使って自動的に1行記録される。
+     */
+    fun setBuildIdentity(gitSha: String, buildTime: String, versionName: String) {
+        buildIdentity = BuildIdentity(gitSha, buildTime, versionName)
+    }
+
+    /**
+     * カテゴリ `build` で `commit=$gitSha built=$buildTime version=$versionName` を1行記録する。
+     * 通常の[record]と同様、[recording] がfalseの間は何も記録されない。
+     */
+    fun recordBuildIdentity(gitSha: String, buildTime: String, versionName: String) {
+        record("build", "commit=$gitSha built=$buildTime version=$versionName")
+    }
+
+    /** 設定画面での常時表示用。[setBuildIdentity] が未呼び出しなら"unknown"。 */
+    val buildIdentityGitSha: String get() = buildIdentity?.gitSha ?: "unknown"
+
+    /** 設定画面での常時表示用。[setBuildIdentity] が未呼び出しなら"unknown"。 */
+    val buildIdentityBuildTime: String get() = buildIdentity?.buildTime ?: "unknown"
 
     /** 保存済みログの合計バイト数。[fileStore] が無ければ0。 */
     fun totalPersistedBytes(): Long = fileStore?.totalPersistedBytes() ?: 0L

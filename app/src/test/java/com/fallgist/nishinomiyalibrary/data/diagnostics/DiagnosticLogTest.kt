@@ -149,6 +149,62 @@ class DiagnosticLogTest {
     }
 
     @Test
+    fun `ビルド識別子が未設定なら記録をONにしてもbuild行は出ない`() {
+        val log = DiagnosticLog(fixedClock(0L))
+        log.recording = true
+
+        assertTrue(log.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `setBuildIdentity後に記録をONにすると先頭にbuild行が入る`() {
+        val log = DiagnosticLog(fixedClock(0L))
+        log.setBuildIdentity(gitSha = "b66c006", buildTime = "2026-07-25 12:00", versionName = "1.0")
+
+        log.recording = true
+
+        val first = log.entries.value.first()
+        assertEquals("build", first.category)
+        assertEquals("commit=b66c006 built=2026-07-25 12:00 version=1.0", first.message)
+    }
+
+    @Test
+    fun `recordingが既にtrueのままtrueを再代入してもbuild行は増えない`() {
+        val log = DiagnosticLog(fixedClock(0L))
+        log.setBuildIdentity(gitSha = "b66c006", buildTime = "2026-07-25 12:00", versionName = "1.0")
+        log.recording = true
+        val countAfterFirstOn = log.entries.value.size
+
+        log.recording = true
+
+        assertEquals(countAfterFirstOn, log.entries.value.size)
+    }
+
+    @Test
+    fun `clear直後にも先頭にbuild行が入る`() {
+        val log = DiagnosticLog(fixedClock(0L))
+        log.setBuildIdentity(gitSha = "b66c006", buildTime = "2026-07-25 12:00", versionName = "1.0")
+        log.recording = true
+        log.record("request", "GET /foo")
+
+        log.clear()
+
+        val entries = log.entries.value
+        assertEquals(1, entries.size)
+        assertEquals("build", entries.first().category)
+    }
+
+    @Test
+    fun `recordingがOFFのままclearしてもbuild行は記録されない`() {
+        val log = DiagnosticLog(fixedClock(0L))
+        log.setBuildIdentity(gitSha = "b66c006", buildTime = "2026-07-25 12:00", versionName = "1.0")
+
+        log.clear()
+
+        assertTrue(log.entries.value.isEmpty())
+    }
+
+    @Test
     fun `DiagnosticLogObserverのenabledはrecordingに連動する`() {
         val log = DiagnosticLog(fixedClock(0L))
         val observer = DiagnosticLogObserver(log)
