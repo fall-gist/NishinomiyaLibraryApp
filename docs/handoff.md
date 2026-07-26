@@ -483,36 +483,31 @@ fail-closedで停止する。
   - ブラウザは書誌詳細の前に新着ジャンル一覧(`WOpacMsgNewMenuToMsgNewListAction.do`)を
     経ているが、アプリは書誌詳細へ直接入っている。この差の予約成否への影響は未検証である。
 
-### 予約導線に新着ジャンル一覧の経由を追加(2026-07-26追記、事実)
+### 観測点をネットワーク層へ移し、推測実装を撤去(2026-07-26追記)
 
-- 直前の項目で残した「新着ジャンル一覧を経由していない」差分に対応した(詳細はsite-research.md
-  §6.10参照)。`ReservationGateway.kt`の`directReserve`と
-  `inspectDirectReservationConfirmation`の両方で、書誌詳細GETの直前・同じ排他区間の中で
-  次の2つのGETを順に送るようにした:
-
-  ```
-  WOpacMsgNewMenuDispAction.do?moveToGamenId=msgnewmenu
-  WOpacMsgNewMenuToMsgNewListAction.do?newMenuCode=01
-  ```
-
-  既存の新着資料機能(`LicsXpClient.newArrivals()`)がこの2つのGETで一覧を取得できることを
-  実証済みであるため、同じアクションを流用した。追加した内部関数は
-  `requestNewArrivalsListContext`で、ジャンルコードは`NEW_ARRIVALS_GENRE_CODE_FOR_LIST_CONTEXT`
-  (値`"01"`)として定数化している。
-- どちらも表示遷移のため、メンテナンス判定とログインフォーム判定だけを行い、内容は解析しない。
-  ログインフォームが返った場合は書誌詳細GET以降を送らず、既存と同じセッション切れ扱い
-  (`SessionExpiredBeforeSubmit`/`SessionExpiredBeforeConfirm`)にする。
-- テストは`ReservationGatewayTest.kt`の`directReserve`・`inspectDirectReservationConfirmation`を
-  経由する全ケースで、書誌詳細GETの直前にこの2つのGETが入るようenqueue順序と
-  リクエストインデックスのアサーションを更新した。新着一覧がログインフォームを返した場合に
-  書誌詳細GET・確認表示POST・確定POSTを送らないことを検証する新規テストケース
-  (`新着一覧の応答がログインフォームなら書誌詳細以降を送らない`)を追加した。確定POSTが
-  全体で1回だけであることの検証は既存テストのまま維持されている。
+- **観測点の移動**: 予約確定POSTが200を返しつつ詳細検索画面へ差し戻される問題を追うため、
+  `LicsXpSession`の`observeRequest(request)`が`client.newCall(request).execute()`の**前**に
+  呼ばれていた点を洗い出した。ここではアプリが組み立てた`Request`オブジェクトしか見えず、
+  `addInterceptor`が足すヘッダや`CookieJar`が積む`Cookie`は記録に現れない。実際に送信された
+  内容と、アプリが送ったつもりの内容を比較できるよう、`addNetworkInterceptor`を追加し、
+  `LicsXpDiagnosticObserver.onWireRequest`でネットワークへ実際に出た時点のヘッダ・protocol・
+  Cookie名・Set-Cookie名(+属性名)を記録できるようにした。`observeRequest`によるアプリ組立て
+  時点の記録は変更せず両方を残している。値を持つのはヘッダのみで、`Cookie`ヘッダは名前だけ
+  `cookieNames`へ分離し、`Set-Cookie`は値を持たず名前と属性名だけを記録する。`enabled`が
+  falseの間は文字列生成・解析を一切行わない。
+- **推測実装の撤去**: `ad17e2c`(新着ジャンル一覧経由)と`89c9854`(ブラウザ実測ヘッダの
+  一律付与)は、いずれも「これが予約成立に必要かどうかは未検証」と明記していたとおり効果が
+  確認できておらず、`git revert`でベースラインへ戻した。`directReserve`/
+  `inspectDirectReservationConfirmation`は書誌詳細GETから始まる元の流れに戻り、
+  `requestNewArrivalsListContext`と`NEW_ARRIVALS_GENRE_CODE_FOR_LIST_CONTEXT`は削除した。
+  `LicsXpSession`のヘッダは`Accept`、`Upgrade-Insecure-Requests`、`Sec-Fetch-*`、
+  `sec-ch-ua*`を撤去し、`Accept-Language`(ブラウザでは遷移種別によらず一定の値)と
+  `User-Agent`だけを残した。`contactdirectweb`の扱い、書誌詳細の入口
+  `WOpacMsgNewListToTifTilDetailAction.do`、`gamenid=tiles.WTifTilDetail2`の要求、
+  ログイン入口`WOpacInitLoginActiontemp.do`、`WPwdLoginCheckAction.do`のGETは実測に基づく
+  変更のため維持している。
 - 確認済み(2026-07-26、ローカル): `./gradlew :app:testDebugUnitTest :app:assembleDebug`が
   両方成功。
-- **未検証事項**:
-  - 一覧コンテキストを経由することが予約成立に実際に必要かどうかは未検証である。
-  - ジャンルコードを`01`固定にしているが、対象資料(`tilcod`)がこのジャンルの新着一覧に
-    実際に含まれている必要があるかどうかは未検証である。
-  - これらを含め、この修正で予約が成立するかどうかは未検証であり、次はライブdry-run/
-    実予約での確認が必要である。
+- **未検証事項**: ネットワーク層の観測で実際の送信内容を比較できるようになったが、それに
+  よって予約成立の原因がヘッダかCookieか他の要因かはまだ特定できていない。次はライブ
+  dry-run診断で`onWireRequest`のログを取得し、ブラウザ実測との差分を突き合わせる必要がある。

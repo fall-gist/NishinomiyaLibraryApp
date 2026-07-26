@@ -62,6 +62,15 @@ class LiveReservationDiagnosticSupportTest {
                 requests += request
             }
 
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ) = Unit
+
             override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) {
                 responses += "$method $path $statusCode ${redirectPath ?: "-"}"
             }
@@ -107,12 +116,102 @@ class LiveReservationDiagnosticSupportTest {
     }
 
     @Test
+    fun `onWireRequestは実送信ヘッダを記録しCookieとSet-Cookieの値は出さない`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setBody("<form action='/next'><input name=\"j_password\" /></form>")
+                .addHeader("Set-Cookie", "JSESSIONID=super-secret-session; Path=/; HttpOnly"),
+        )
+        server.enqueue(MockResponse().setBody("ok"))
+        val wireRequests = mutableListOf<String>()
+        val observer = object : LicsXpDiagnosticObserver {
+            override fun onRequest(request: LicsXpDiagnosticRequest) = Unit
+
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ) {
+                val headerText = headers.joinToString(", ") { (name, value) -> "$name: $value" }
+                wireRequests += "$method $path proto=$protocol headers=[$headerText] cookies=$cookieNames set-cookie=$setCookieNames"
+            }
+
+            override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) = Unit
+
+            override fun onPage(path: String, classification: String, formFingerprint: String) = Unit
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
+
+            override fun onSiteMessages(path: String, messages: List<String>) = Unit
+        }
+        val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
+        // 1回目のGETでSet-Cookieを受け取り、2回目のGETでそのCookieが実際にヘッダとして送られることを確認する。
+        session.get("first")
+        session.get("second")
+
+        assertEquals(2, wireRequests.size)
+        val firstRequest = wireRequests[0]
+        val secondRequest = wireRequests[1]
+        assertTrue(firstRequest.startsWith("GET /first proto="))
+        assertTrue(firstRequest.contains("set-cookie=[JSESSIONID;Path;HttpOnly]"))
+        assertFalse(firstRequest.contains("super-secret-session"))
+        // 2回目の送信でCookieJarが積んだCookieが名前だけで記録され、値は出ない。
+        assertTrue(secondRequest.contains("cookies=[JSESSIONID]"))
+        assertFalse(secondRequest.contains("super-secret-session"))
+        // Cookieヘッダはheaders一覧には含めない（名前だけをcookiesへ分離する）。
+        assertFalse(secondRequest.contains("Cookie:"))
+        assertTrue(secondRequest.contains("User-Agent: ${LicsXpSession.USER_AGENT}"))
+    }
+
+    @Test
+    fun `enabledがfalseの監査先ではonWireRequestを呼ばない`() = runBlocking {
+        server.enqueue(MockResponse().setBody("ok"))
+        val disabledObserver = object : LicsXpDiagnosticObserver {
+            override val enabled: Boolean = false
+
+            override fun onRequest(request: LicsXpDiagnosticRequest) = Unit
+
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ): Nothing = error("無効な監査先でwire監査を呼んではいけない")
+
+            override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) = Unit
+
+            override fun onPage(path: String, classification: String, formFingerprint: String) = Unit
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
+
+            override fun onSiteMessages(path: String, messages: List<String>) = Unit
+        }
+        val session = LicsXpSession(server.url("/"), OkHttpClient(), disabledObserver, waitForRequestSlot = {})
+        session.get("path")
+        Unit
+    }
+
+    @Test
     fun `無効な監査先では診断用の観測処理を呼ばない`() = runBlocking {
         server.enqueue(MockResponse().setBody("<form><input name='j_password'></form>"))
         val disabledObserver = object : LicsXpDiagnosticObserver {
             override val enabled: Boolean = false
 
             override fun onRequest(request: LicsXpDiagnosticRequest): Nothing = error("通常経路でrequest監査を呼んではいけない")
+
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ): Nothing = error("通常経路でwire監査を呼んではいけない")
 
             override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?): Nothing =
                 error("通常経路でresponse監査を呼んではいけない")
@@ -144,6 +243,15 @@ class LiveReservationDiagnosticSupportTest {
         val classifications = mutableListOf<String>()
         val observer = object : LicsXpDiagnosticObserver {
             override fun onRequest(request: LicsXpDiagnosticRequest) = Unit
+
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ) = Unit
 
             override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) = Unit
 
@@ -179,6 +287,15 @@ class LiveReservationDiagnosticSupportTest {
         val observer = object : LicsXpDiagnosticObserver {
             override fun onRequest(request: LicsXpDiagnosticRequest) = Unit
 
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ) = Unit
+
             override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) = Unit
 
             override fun onPage(path: String, classification: String, formFingerprint: String) {
@@ -210,6 +327,15 @@ class LiveReservationDiagnosticSupportTest {
         val fingerprints = mutableListOf<String>()
         val observer = object : LicsXpDiagnosticObserver {
             override fun onRequest(request: LicsXpDiagnosticRequest) = Unit
+
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ) = Unit
 
             override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) = Unit
 
@@ -363,6 +489,15 @@ class LiveReservationDiagnosticSupportTest {
             override val enabled: Boolean = false
 
             override fun onRequest(request: LicsXpDiagnosticRequest): Nothing = error("通常経路でrequest監査を呼んではいけない")
+
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ): Nothing = error("通常経路でwire監査を呼んではいけない")
 
             override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?): Nothing =
                 error("通常経路でresponse監査を呼んではいけない")
@@ -532,6 +667,15 @@ class LiveReservationDiagnosticSupportTest {
             override val enabled: Boolean = false
 
             override fun onRequest(request: LicsXpDiagnosticRequest): Nothing = error("通常経路でrequest監査を呼んではいけない")
+
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ): Nothing = error("通常経路でwire監査を呼んではいけない")
 
             override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?): Nothing =
                 error("通常経路でresponse監査を呼んではいけない")

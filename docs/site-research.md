@@ -382,24 +382,6 @@
   - ブラウザは書誌詳細の前に新着ジャンル一覧(`WOpacMsgNewMenuToMsgNewListAction.do`)を
     経ているが、アプリは書誌詳細へ直接入っている。この差の予約成否への影響は未検証である。
 
-### 6.10 予約導線に新着ジャンル一覧の経由を追加(2026-07-26)
-
-- 6.9で残した「新着ジャンル一覧を経由していない」差分に対応した。`ReservationGateway`の
-  `directReserve`と`inspectDirectReservationConfirmation`の両方で、書誌詳細GETの直前・
-  同じ排他区間の中で次の2つのGETを順に送るようにした:
-  1. `WOpacMsgNewMenuDispAction.do?moveToGamenId=msgnewmenu`(ジャンル一覧)
-  2. `WOpacMsgNewMenuToMsgNewListAction.do?newMenuCode=01`(新着一覧。ジャンルコード`01`固定)
-- 既存の新着資料機能(`LicsXpClient.newArrivals()`)がこの2つのGETで一覧を取得できることを
-  実証済みであるため、同じアクションを流用した。
-- どちらも表示遷移のため、メンテナンス判定とログインフォーム判定だけを行い、内容は解析しない。
-  ログインフォームが返った場合は書誌詳細GET以降を送らず、既存と同じセッション切れ扱いにする。
-- **未検証事項**:
-  - 一覧コンテキストを経由することが予約成立に実際に必要かどうかは未検証である
-    (`WOpacMsgNewListToTifTilDetailAction.do`がサーバ側で一覧コンテキストを要求している
-    可能性を仮定して追加したが、確認はできていない)。
-  - ジャンルコードを`01`固定にしているが、対象資料(`tilcod`)がこのジャンルの新着一覧に
-    実際に含まれている必要があるかどうかは未検証である。
-
 ## 7. 設計への示唆
 
 1. **パースは現実的**: 主要データはclass付きdivか素直なtableで、Jsoupで安定してパースできる

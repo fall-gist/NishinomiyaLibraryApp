@@ -66,6 +66,21 @@ internal class LiveReservationDiagnosticLogger {
             stage("http-request", "${request.method} ${request.path} query=[$query] form=[$form]")
         }
 
+        override fun onWireRequest(
+            method: String,
+            path: String,
+            protocol: String,
+            headers: List<Pair<String, String>>,
+            cookieNames: List<String>,
+            setCookieNames: List<String>,
+        ) {
+            val headerEntries = headers.map { (name, value) -> "$name: $value" }
+            stage(
+                "wire",
+                "$method $path proto=$protocol cookies=$cookieNames set-cookie=$setCookieNames headers=$headerEntries",
+            )
+        }
+
         override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) {
             stage("http-response", "$method $path status=$statusCode redirect=${redirectPath ?: "-"}")
         }

@@ -34,25 +34,12 @@ class LicsXpSession private constructor(
         const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; NishinomiyaLibraryApp) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36"
         private const val MAX_NETWORK_ATTEMPTS = 2
 
-        /**
-         * 2026-07-26にブラウザ(Chrome)実測したヘッダに合わせたものである。
-         * `sec-ch-ua*` と `Sec-Fetch-*` は自アプリのUser-Agent表明（Android/Chrome 124 Mobile）と
-         * 整合させた値であり、これらが予約成立に必要かどうかは未検証。
-         * Accept-Encoding はここに含めない（下記インターセプタの注記を参照）。
-         */
-        private const val BROWSER_ACCEPT =
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+        // Accept-Language はブラウザでも遷移種別（ナビゲーション / XHR）やリダイレクトの有無で
+        // 値が変わらないため付与する。一方 Accept、Upgrade-Insecure-Requests、Sec-Fetch-*、
+        // sec-ch-ua* はブラウザ実測に合わせて一度付与を試みたが、これらはブラウザ側でも
+        // 遷移種別やリダイレクトの有無で値が変わるものであり、JSON APIの呼び出しにまで一律
+        // 付与するのは誤りであり、効果も未確認だったため比較のベースラインから外した。
         private const val BROWSER_ACCEPT_LANGUAGE = "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7"
-        private const val BROWSER_UPGRADE_INSECURE_REQUESTS = "1"
-        private const val BROWSER_SEC_FETCH_DEST = "document"
-        private const val BROWSER_SEC_FETCH_MODE = "navigate"
-        private const val BROWSER_SEC_FETCH_SITE = "same-origin"
-        private const val BROWSER_SEC_FETCH_USER = "?1"
-        // USER_AGENT がAndroid Mobileを名乗っているため、?0ではなく?1が整合する。
-        private const val BROWSER_SEC_CH_UA_MOBILE = "?1"
-        private const val BROWSER_SEC_CH_UA_PLATFORM = "\"Android\""
-        // USER_AGENT のChromeメジャーバージョン(124)と整合させた値。
-        private const val BROWSER_SEC_CH_UA = "\"Chromium\";v=\"124\", \"Not:A-Brand\";v=\"24\", \"Google Chrome\";v=\"124\""
     }
 
     private val cookieJar = InMemoryCookieJar()
@@ -63,26 +50,26 @@ class LicsXpSession private constructor(
             val original = chain.request()
             val builder = original.newBuilder()
                 .header("User-Agent", USER_AGENT)
-            // 呼出し側が既に付けたヘッダ（Referer / Origin 等）を壊さないよう、
-            // 未設定のときだけブラウザ実測値を補う。
-            fun addIfAbsent(name: String, value: String) {
-                if (original.header(name) == null) builder.header(name, value)
+            if (original.header("Accept-Language") == null) {
+                builder.header("Accept-Language", BROWSER_ACCEPT_LANGUAGE)
             }
-            addIfAbsent("Accept", BROWSER_ACCEPT)
-            addIfAbsent("Accept-Language", BROWSER_ACCEPT_LANGUAGE)
-            addIfAbsent("Upgrade-Insecure-Requests", BROWSER_UPGRADE_INSECURE_REQUESTS)
-            addIfAbsent("Sec-Fetch-Dest", BROWSER_SEC_FETCH_DEST)
-            addIfAbsent("Sec-Fetch-Mode", BROWSER_SEC_FETCH_MODE)
-            addIfAbsent("Sec-Fetch-Site", BROWSER_SEC_FETCH_SITE)
-            addIfAbsent("Sec-Fetch-User", BROWSER_SEC_FETCH_USER)
-            addIfAbsent("sec-ch-ua-mobile", BROWSER_SEC_CH_UA_MOBILE)
-            addIfAbsent("sec-ch-ua-platform", BROWSER_SEC_CH_UA_PLATFORM)
-            addIfAbsent("sec-ch-ua", BROWSER_SEC_CH_UA)
-            // Accept-Encoding は意図的に設定しない。OkHttpは自身が付けた場合にのみ
-            // レスポンスを透過的に展開する（transparent gzip）。手動で設定すると
-            // 展開が行われずHTML解析が壊れるため、ブラウザ実測値であっても付けない。
-            val request = builder.build()
-            chain.proceed(request)
+            chain.proceed(builder.build())
+        }
+        .addNetworkInterceptor { chain ->
+            if (!diagnosticObserver.enabled) return@addNetworkInterceptor chain.proceed(chain.request())
+            val request = chain.request()
+            val response = chain.proceed(request)
+            safelyObserve {
+                diagnosticObserver.onWireRequest(
+                    method = request.method,
+                    path = sanitizeDiagnosticPath(request.url.encodedPath),
+                    protocol = response.protocol.toString(),
+                    headers = wireRequestHeaders(request),
+                    cookieNames = wireCookieNames(request),
+                    setCookieNames = wireSetCookieNames(response),
+                )
+            }
+            response
         }
         .build()
     /** OkHttp自身の接続失敗再試行も、予約確定だけは明示的に無効化する。 */
@@ -453,6 +440,20 @@ internal interface LicsXpDiagnosticObserver {
 
     fun onRequest(request: LicsXpDiagnosticRequest)
 
+    /**
+     * 実際にネットワークへ出た時点のリクエスト。値を持つのはヘッダのみで、Cookieは名前だけ。
+     * [observeRequest] によるアプリ組立て時点の記録とは異なり、インターセプタが足したヘッダや
+     * CookieJarが足すCookieも含めて記録できる。
+     */
+    fun onWireRequest(
+        method: String,
+        path: String,
+        protocol: String,
+        headers: List<Pair<String, String>>,
+        cookieNames: List<String>,
+        setCookieNames: List<String>,
+    )
+
     fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?)
 
     fun onPage(path: String, classification: String, formFingerprint: String)
@@ -467,6 +468,15 @@ internal interface LicsXpDiagnosticObserver {
         override val enabled: Boolean = false
 
         override fun onRequest(request: LicsXpDiagnosticRequest) = Unit
+
+        override fun onWireRequest(
+            method: String,
+            path: String,
+            protocol: String,
+            headers: List<Pair<String, String>>,
+            cookieNames: List<String>,
+            setCookieNames: List<String>,
+        ) = Unit
 
         override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) = Unit
 
@@ -511,6 +521,42 @@ private val DIAGNOSTIC_SAFE_CONTROL_FIELDS = setOf(
     "refCode", "diccod", "syurui", "syuruivalue", "syuruiName", "amazonIsbn", "amazonDispFlag",
     "storeId", "booklist", "otherbook",
 )
+
+/**
+ * ネットワークへ実際に出たリクエストのヘッダを、値を持つ形で列挙する。
+ * `Cookie` はここに含めない（名前だけを [wireCookieNames] へ渡す）。
+ * `Referer` は経路だけに、`Authorization` は保険として `[REDACTED]` にする。
+ */
+private fun wireRequestHeaders(request: Request): List<Pair<String, String>> =
+    request.headers.names().filterNot { it.equals("Cookie", ignoreCase = true) }.map { name ->
+        val value = request.header(name).orEmpty()
+        val sanitizedValue = when {
+            name.equals("Referer", ignoreCase = true) -> sanitizeDiagnosticPath(value)
+            name.equals("Authorization", ignoreCase = true) -> "[REDACTED]"
+            else -> value
+        }
+        name to sanitizedValue
+    }
+
+/** `Cookie` ヘッダを `;` で分割し、`=` の左側（Cookie名）だけを返す。値は返さない。 */
+private fun wireCookieNames(request: Request): List<String> =
+    request.header("Cookie").orEmpty()
+        .split(';')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .map { it.substringBefore('=').trim() }
+
+/**
+ * レスポンスの `Set-Cookie` を、Cookie名と `;` 以降の属性名（`Path` / `HttpOnly` 等）だけに
+ * 分解して `name;attr1;attr2` の形にする。Cookie値・属性値は出さない。
+ */
+private fun wireSetCookieNames(response: Response): List<String> =
+    response.headers("Set-Cookie").map { setCookie ->
+        val parts = setCookie.split(';').map { it.trim() }
+        val name = parts.firstOrNull().orEmpty().substringBefore('=').trim()
+        val attributeNames = parts.drop(1).map { it.substringBefore('=').trim() }
+        (listOf(name) + attributeNames).joinToString(";")
+    }
 
 private val SESSION_PATH_PARAMETER = Regex("(?i);(?:jsessionid|sessionid)(?:=[^/;?]*)?")
 

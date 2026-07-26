@@ -139,6 +139,29 @@ internal class DiagnosticLogObserver(private val log: DiagnosticLog) : LicsXpDia
         log.record("request", "${request.method} ${request.path} query=[$query] form=[$form]")
     }
 
+    /**
+     * ヘッダ部分は長くなり得るため[chunkedByLength]で1500文字ごとに分割して複数行に出す。
+     * cookies/set-cookieは名前（と属性名）だけなので短く、そのまま1行に含める。
+     */
+    override fun onWireRequest(
+        method: String,
+        path: String,
+        protocol: String,
+        headers: List<Pair<String, String>>,
+        cookieNames: List<String>,
+        setCookieNames: List<String>,
+    ) {
+        val prefix = "$method $path proto=$protocol cookies=$cookieNames set-cookie=$setCookieNames headers="
+        val headerEntries = headers.map { (name, value) -> "$name: $value" }
+        if (headerEntries.isEmpty()) {
+            log.record("wire", "$prefix[]")
+            return
+        }
+        headerEntries.chunkedByLength(SCRIPT_CHUNK_LENGTH).forEachIndexed { index, chunk ->
+            log.record("wire", if (index == 0) "$prefix[$chunk]" else "$path headers(続き)=[$chunk]")
+        }
+    }
+
     override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) {
         log.record("response", "$method $path status=$statusCode redirect=${redirectPath ?: "-"}")
     }
