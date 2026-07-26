@@ -141,6 +141,13 @@ internal class LicsXpReservationSession(
         require(tilcod.isNotBlank()) { "tilcodが空です" }
         require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
         return session.withExclusiveRequestSequence {
+            // ブラウザ実測(2026-07-26): 予約成立時は書誌詳細の直前に新着ジャンル一覧を
+            // 経由している（WOpacMsgNewMenuToMsgNewListAction.do）。サーバがセッション内の
+            // 一覧コンテキストを前提にしている可能性があるため、同じ排他区間で先に踏む。
+            // どちらも表示遷移のため、メンテナンス判定とログインフォーム判定だけ行う。
+            if (!requestNewArrivalsListContext(this)) {
+                return@withExclusiveRequestSequence DirectReservationAttempt.SessionExpiredBeforeSubmit
+            }
             // ブラウザ実測: 入口アクションによって描画されるgamenidとhashの有無が変わる。
             // WOpacTifTilListToTifTilDetailAction.do は tiles.WTifTilDetail をhash空で描画し、
             // 確定POSTが詳細検索画面へ差し戻される。WOpacMsgNewListToTifTilDetailAction.do は
@@ -224,6 +231,10 @@ internal class LicsXpReservationSession(
         require(tilcod.isNotBlank()) { "tilcodが空です" }
         require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
         return session.withExclusiveRequestSequence {
+            // directReserveと同じ新着ジャンル一覧の経由（詳細はdirectReserve側のコメント参照）。
+            if (!requestNewArrivalsListContext(this)) {
+                return@withExclusiveRequestSequence ConfirmationInspection.SessionExpiredBeforeConfirm
+            }
             // 本番のdirectReserveと同じ入口アクション（詳細はdirectReserve側のコメント参照）。
             val detailPage = getReservationDetail(
                 "WOpacMsgNewListToTifTilDetailAction.do",
@@ -324,6 +335,37 @@ private fun failedContactSelectionRetry(value: String, reason: String): ContactS
         failureReason = reason,
         hashPresent = false,
     )
+
+/**
+ * 書誌詳細GETの直前に、新着ジャンル一覧のコンテキストを作るためだけに2つのGETを順に送る。
+ * WOpacMsgNewListToTifTilDetailAction.do が「新着一覧から書誌詳細へ」のアクションである以上、
+ * サーバがセッション内の一覧コンテキストを前提にしている可能性があるためブラウザ実測の遷移列に
+ * 合わせて追加した。ただし一覧コンテキストが実際に必要かどうか、対象資料が
+ * [NEW_ARRIVALS_GENRE_CODE_FOR_LIST_CONTEXT] のジャンル一覧に含まれている必要があるかどうかは
+ * いずれも未検証であり、単に「一覧を経由した」という状態をサーバに作るためだけの呼び出しである。
+ * どちらも表示遷移のため、メンテナンス判定とログインフォーム判定だけを行い、内容の解析はしない。
+ * 戻り値 false はログインフォームへ遷移したことを示し、呼出し側はセッション切れとして扱う。
+ */
+private suspend fun requestNewArrivalsListContext(
+    sequence: LicsXpSession.ExclusiveRequestSequence,
+): Boolean {
+    val genreListHtml = sequence.get("WOpacMsgNewMenuDispAction.do", mapOf("moveToGamenId" to "msgnewmenu"))
+    requireNotMaintenance(genreListHtml)
+    if (isLoginForm(Jsoup.parse(genreListHtml))) return false
+    val newArrivalsListHtml = sequence.get(
+        "WOpacMsgNewMenuToMsgNewListAction.do",
+        mapOf("newMenuCode" to NEW_ARRIVALS_GENRE_CODE_FOR_LIST_CONTEXT),
+    )
+    requireNotMaintenance(newArrivalsListHtml)
+    if (isLoginForm(Jsoup.parse(newArrivalsListHtml))) return false
+    return true
+}
+
+/**
+ * 一覧コンテキストを作るためだけに開く新着ジャンルコード。「01」を固定で使うが、対象資料が
+ * このジャンルに含まれている必要があるかどうかは未検証（docs/site-research.md参照）。
+ */
+private const val NEW_ARRIVALS_GENRE_CODE_FOR_LIST_CONTEXT = "01"
 
 /** 書誌詳細ページ(LBForm)のhidden hashが空でないかどうかを判定する。値は保持しない。 */
 private fun hasNonEmptyDetailHash(html: String): Boolean {
