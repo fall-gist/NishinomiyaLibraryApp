@@ -461,3 +461,35 @@
 - サイト改修でパーサが壊れる前提で、HTML変化の検知(パース失敗時の通知)を組み込む
 - 新たに許可する書き込みは、ユーザーの明示操作・最終確認に基づく予約確定だけである。
   自動予約、延長、予約取消、登録変更、公式サイトカート操作は引き続き禁止する
+
+## 9. 予約状況一覧の画面内アクション（2026-07-27。スクリプト観測のみ、未実行）
+
+診断ログの画面スクリプト抽出で、予約状況一覧（`gamen=usrrsv`）のページに次のアクションが
+定義されていることが分かった。**アプリからはいずれも呼んでいない。ページ内のJavaScriptを
+読み取っただけであり、実際の要求・応答・必要パラメータは未検証である。**
+
+| 用途 | アクション | JSが設定するフィールド |
+|---|---|---|
+| 予約取消 | `WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1` | `yoycod` |
+| 順番解除 | `WOpacUsrRsvJunbanKaijoAction.do?mngFlg2_handan=1&kbnchgflag=1` | `grpcod` |
+| 予約の非表示 | `WOpacUsrRsvHiddenAction.do?mngFlg2_handan=1` | `yoycod` |
+| 予約期限の延長 | `WOpacUsrRsvExtendAction.do?mngFlg2_handan=1` | `yoycod` |
+| 順番待ちへ | `WOpacUsrToJunbanAction.do` | `mngFlg2` |
+| 書誌詳細へ | `WOpacUsrRsvListToTifTilDetailAction.do` | `hTilcod` |
+| CSV出力 | `WOpacUsrRsvListCsvAction.do` | （未確認） |
+| 確認済みにする | `WOpacUsrRsvkakuninsumiAction.do` | （未確認） |
+| 受取場所の変更 | `WOpacUsrRsvPostAddrChangeAction.do` | （未確認） |
+
+構想2番の「予約の削除機能」を実装する際の出発点になる。予約取消は `yoycod`（予約コード）を
+指定する形であり、**アプリは現在この値を保持していない**（`Reservation` は `tilcod` は持つが
+`yoycod` は持たない）。実装時は予約一覧のパーサで `yoycod` を取り出す必要がある。
+
+`WOpacUsrRsvListCsvAction.do` によるCSV出力は、HTML解析より安定した予約一覧の取得手段に
+なり得る。予約成立の照合にも使える可能性があるが、内容・形式・必要パラメータはいずれも未確認。
+
+### 予約状況一覧のページング（未確認）
+
+同ページのフォームには `pageID`、`postSeq`、`rsvSortKey`、`scrollToTilcod` といったhiddenがあり、
+ページ送りの仕組みがある可能性を示唆する。**アプリの `ReservationListParser` は1ページ分しか
+読まない。** 予約が多い利用者で1ページに収まらない場合、予約成立の照合が偽陰性になり得る。
+確認方法は、アプリの「予約中」画面の件数と、サイト上の実際の予約件数を突き合わせること。
