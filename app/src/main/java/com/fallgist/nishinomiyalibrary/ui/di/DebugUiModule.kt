@@ -30,6 +30,7 @@ import dagger.Provides
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import java.time.Clock
 import javax.inject.Singleton
 
 @Module
@@ -135,8 +136,10 @@ object DebugUiProvisionModule {
     @Singleton
     fun provideNewArrivalsScreenController(
         newArrivalRepository: NewArrivalRepository,
+        clock: Clock,
     ): NewArrivalsScreenController = NewArrivalsScreenController(
         newArrivalRepository = newArrivalRepository,
+        clock = clock,
     )
 
     @Provides

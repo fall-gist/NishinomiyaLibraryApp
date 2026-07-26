@@ -170,6 +170,19 @@
   ジャンル22(日本の小説)= 364件・ジャンル27(絵本・紙芝居)= 203件・ジャンル01(総記)= 68件。
 - 確認済み(2026-07-20、CI run 29750452916・commit a660f39): `testDebugUnitTest` + `assembleDebug` グリーン。
 
+### 自動巡回の鮮度抑止(2026-07-27 追記)
+
+- 画面表示時の自動巡回(28ジャンル、500ms間隔で約15秒)はアプリ起動ごとに1回走るが、
+  実測で予約処理と並行して走っていたため、**最終取得から12時間以内なら画面表示時の
+  自動巡回をスキップ**するようにした(`NewArrivalsScreenController.shouldAutoRefresh`、
+  しきい値は`AUTO_REFRESH_FRESHNESS_THRESHOLD_MILLIS`)。
+- 最終取得時刻(epoch millis)は`SettingsStore`(DataStore)に専用キーで保存する
+  (`AppSettings`には含めない。利用者設定ではなく内部状態のため)。`NewArrivalRepository.refresh()`
+  が全置換に**成功したときだけ**更新し、失敗時は前回の時刻を維持する。
+- 新着資料が1件も保持されていない(初回起動など)場合は経過時間を問わず巡回する。
+- 「更新」ボタン等の**明示操作(`refresh()`)は鮮度に関わらず常に巡回**する(抑止しない)。
+- 新着資料画面に最終取得時刻を小さく表示する(`NewArrivalsLastFetchedTextBuilder`、未取得時は「未取得」)。
+
 ## 予約のタイトルコード追加(2026-07-20 追記)
 
 ### 背景

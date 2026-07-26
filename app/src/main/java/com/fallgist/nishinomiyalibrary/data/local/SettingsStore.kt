@@ -5,8 +5,10 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 data class AppSettings(
@@ -78,6 +80,17 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[DIAGNOSTIC_LOG_ENABLED] = enabled }
     }
 
+    /**
+     * 新着資料の最終全置換取得時刻(epoch millis)。利用者設定ではなく内部状態のため、
+     * [AppSettings]には含めず専用の読み書き関数として公開する。未取得ならnull。
+     */
+    suspend fun getLastNewArrivalFetchedAt(): Long? =
+        dataStore.data.map { it[LAST_NEW_ARRIVAL_FETCHED_AT] }.first()
+
+    suspend fun setLastNewArrivalFetchedAt(millis: Long) {
+        dataStore.edit { it[LAST_NEW_ARRIVAL_FETCHED_AT] = millis }
+    }
+
     private fun requireValidSyncTime(hour: Int, minute: Int) {
         require(hour in 0..23) { "同期時刻の時は0から23で指定してください" }
         require(minute in 0..59) { "同期時刻の分は0から59で指定してください" }
@@ -95,6 +108,7 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
         val DEFAULT_CALENDAR_LIBRARY_KEY = stringPreferencesKey("default_calendar_library")
         val RETURN_REMINDER_DAYS_BEFORE = intPreferencesKey("return_reminder_days_before")
         val DIAGNOSTIC_LOG_ENABLED = booleanPreferencesKey("diagnostic_log_enabled")
+        val LAST_NEW_ARRIVAL_FETCHED_AT = longPreferencesKey("last_new_arrival_fetched_at")
     }
 }
 

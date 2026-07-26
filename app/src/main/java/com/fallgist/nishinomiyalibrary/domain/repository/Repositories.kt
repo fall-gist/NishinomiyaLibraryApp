@@ -80,6 +80,12 @@ interface NewArrivalRepository {
 
     /** 公式サイトから取得し直してローカルを全置換する。失敗時は例外を投げる。 */
     suspend fun refresh()
+
+    /** 直近の全置換取得時刻(epoch millis)。未取得ならnull。 */
+    suspend fun lastFetchedAtEpochMillis(): Long?
+
+    /** ローカルに新着資料が1件以上保持されているか。 */
+    suspend fun hasCachedItems(): Boolean
 }
 
 /** 明示的な最終確認を境界とする、ローカル予約カートの公開API。 */

@@ -77,6 +77,12 @@ fun NewArrivalsScreen(
                 }
             },
         )
+        Text(
+            text = NewArrivalsLastFetchedTextBuilder.build(state.lastFetchedAtEpochMillis),
+            color = colors.ink2,
+            fontSize = 10.sp,
+            modifier = Modifier.padding(horizontal = 18.dp),
+        )
         OutlinedTextField(
             value = queryText,
             onValueChange = {
