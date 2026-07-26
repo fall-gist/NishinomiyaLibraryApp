@@ -693,6 +693,95 @@ class LiveReservationDiagnosticSupportTest {
     }
 
     @Test
+    fun `liが無い場合はmessages直下のテキストを1件として抽出する`() {
+        val document = org.jsoup.Jsoup.parse(
+            """<div id="messages">予約冊数の上限を超えています</div>""",
+        )
+
+        val messages = extractSiteMessages(document)
+
+        assertEquals(listOf("予約冊数の上限を超えています"), messages)
+    }
+
+    @Test
+    fun `スクリプト内alert呼び出しの文字列リテラルをシングルクォートで抽出する`() {
+        val document = org.jsoup.Jsoup.parse(
+            """<script>alert('予約冊数の上限を超えています');</script>""",
+        )
+
+        val messages = extractSiteMessages(document)
+
+        assertEquals(listOf("予約冊数の上限を超えています"), messages)
+    }
+
+    @Test
+    fun `スクリプト内alert呼び出しの文字列リテラルをダブルクォートで抽出する`() {
+        val document = org.jsoup.Jsoup.parse(
+            """<script>lbAlert("予約が完了しました");</script>""",
+        )
+
+        val messages = extractSiteMessages(document)
+
+        assertEquals(listOf("予約が完了しました"), messages)
+    }
+
+    @Test
+    fun `alertの引数が変数など非リテラルの場合は抽出しない`() {
+        val document = org.jsoup.Jsoup.parse(
+            """<script>alert(messageText);</script>""",
+        )
+
+        val messages = extractSiteMessages(document)
+
+        assertTrue(messages.isEmpty())
+    }
+
+    @Test
+    fun `messageText変数へのリテラル代入を抽出する`() {
+        val document = org.jsoup.Jsoup.parse(
+            """<script>var messageText = "予約が完了しました";</script>""",
+        )
+
+        val messages = extractSiteMessages(document)
+
+        assertEquals(listOf("予約が完了しました"), messages)
+    }
+
+    @Test
+    fun `サイトメッセージのスクリプト由来分も長い数字列をマスクする`() {
+        val document = org.jsoup.Jsoup.parse(
+            """<script>alert('会員番号1234567890123は既に予約済みです');</script>""",
+        )
+
+        val messages = extractSiteMessages(document)
+
+        assertEquals(1, messages.size)
+        assertTrue(messages[0].contains("[NUM]"))
+        assertFalse(messages[0].contains("1234567890123"))
+    }
+
+    @Test
+    fun `サイトメッセージは最大20件までに切られる`() {
+        val listItems = (1..25).joinToString("") { index -> "<li>message$index</li>" }
+        val document = org.jsoup.Jsoup.parse("""<div id="messages">$listItems</div>""")
+
+        val messages = extractSiteMessages(document)
+
+        assertEquals(20, messages.size)
+    }
+
+    @Test
+    fun `サイトメッセージは各300文字までに切られる`() {
+        val longMessage = "あ".repeat(400)
+        val document = org.jsoup.Jsoup.parse("""<script>alert('$longMessage');</script>""")
+
+        val messages = extractSiteMessages(document)
+
+        assertEquals(1, messages.size)
+        assertEquals(300, messages[0].length)
+    }
+
+    @Test
     fun `無効な監査先ではスクリプトとメッセージの解析を一切呼ばない`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(

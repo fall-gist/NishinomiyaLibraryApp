@@ -802,14 +802,68 @@ private fun findMatchingBrace(script: String, openBraceIndex: Int): Int {
     return -1
 }
 
-/** div#messages 配下の li テキストを抜き出し、6桁以上連続する数字を伏せる。 */
-internal fun extractSiteMessages(document: org.jsoup.nodes.Document): List<String> =
-    document.select("div#messages li")
-        .map { it.text().trim() }
+private const val SITE_MESSAGE_ENTRY_LIMIT = 20
+private const val SITE_MESSAGE_ENTRY_MAX_CHARS = 300
+
+/**
+ * `alert(...)` / `lbAlert(...)` / `lbConfirm(...)` / `confirm(...)` / `lbWarning(...)`
+ * （関数名の大小文字は区別しない）の第1引数のうち、文字列リテラルのものだけを捉える。
+ * 引数が変数・関数呼び出し・連結式などリテラルでない場合は、開き括弧の直後が引用符にならないため
+ * そもそもマッチしない（＝抽出しない）。
+ */
+private val DIALOG_CALL_LITERAL_REGEX = Regex(
+    """(?i)\b(?:lbAlert|lbConfirm|lbWarning|alert|confirm)\s*\(\s*(['"])((?:\\.|(?!\1).)*)\1""",
+)
+
+/**
+ * `messageText` / `message` / `msg` という名前の変数への文字列リテラル代入を捉える。
+ * `var messageText = "...";` の形（`var` は省略されている場合も許容する）。
+ * `message.replace("{0}", usrcod)` のように後から値が埋め込まれる式であっても、
+ * ここで捉えるのは代入時点のリテラル（置換前のテンプレート文字列）そのものであり、
+ * 埋め込まれる利用者側の値（usrcod 等）はソースコード上に存在しないため抽出されない。
+ */
+private val DIALOG_MESSAGE_VARIABLE_LITERAL_REGEX = Regex(
+    """(?i)(?:\bvar\s+)?\b(?:messageText|message|msg)\s*=\s*(['"])((?:\\.|(?!\1).)*)\1""",
+)
+
+/**
+ * サイトが利用者へ見せるメッセージ文言を、次の経路から抜き出す:
+ * 1. `div#messages` 配下の `li` テキスト（従来どおり）
+ * 2. `li` が無い場合に備え、`#messages` 直下のテキストそのもの
+ * 3. `<script>` 内のダイアログ関数呼び出し（[DIALOG_CALL_LITERAL_REGEX]）の第1引数リテラル
+ * 4. `<script>` 内の `messageText`/`message`/`msg` 変数へのリテラル代入（[DIALOG_MESSAGE_VARIABLE_LITERAL_REGEX]）
+ *
+ * レスポンス本文そのものは記録せず、ここで抽出した文言だけを返す。
+ * 6桁以上連続する数字は `[NUM]` に伏せ、空文字・空白のみを除外し重複除去のうえ
+ * 最大20件・各300文字までに切る。
+ */
+internal fun extractSiteMessages(document: org.jsoup.nodes.Document): List<String> {
+    val raw = mutableListOf<String>()
+
+    val messagesContainer = document.selectFirst("#messages")
+    if (messagesContainer != null) {
+        val items = messagesContainer.select("li")
+        if (items.isNotEmpty()) {
+            items.forEach { raw += it.text().trim() }
+        } else {
+            raw += messagesContainer.text().trim()
+        }
+    }
+
+    document.select("script").forEach { script ->
+        val scriptBody = script.data()
+        DIALOG_CALL_LITERAL_REGEX.findAll(scriptBody).forEach { match -> raw += match.groupValues[2] }
+        DIALOG_MESSAGE_VARIABLE_LITERAL_REGEX.findAll(scriptBody).forEach { match -> raw += match.groupValues[2] }
+    }
+
+    return raw
+        .map { it.trim() }
         .filter { it.isNotEmpty() }
         .map { LONG_DIGIT_RUN_REGEX.replace(it, "[NUM]") }
-        .take(10)
-        .map { it.take(200) }
+        .distinct()
+        .take(SITE_MESSAGE_ENTRY_LIMIT)
+        .map { it.take(SITE_MESSAGE_ENTRY_MAX_CHARS) }
+}
 
 private const val PAGE_TEXT_ENTRY_LIMIT_HEADINGS = 5
 private const val PAGE_TEXT_ENTRY_MAX_CHARS_HEADINGS = 100
