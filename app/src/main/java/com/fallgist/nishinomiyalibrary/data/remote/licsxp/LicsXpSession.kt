@@ -23,7 +23,9 @@ private const val MINIMUM_REQUEST_INTERVAL_MILLIS = 500L
 /** LICS-XP の画面遷移に必要な、1利用者分の状態を保持する。 */
 class LicsXpSession private constructor(
     val baseUrl: HttpUrl,
-    client: OkHttpClient,
+    // プロパティ client と同名にするとプロパティ初期化子でこの引数が優先され、
+    // CookieJarもインターセプタも持たない素のクライアントが使われてしまう。
+    httpClient: OkHttpClient,
     private val waitForRequestSlot: suspend (Long) -> Unit,
     private val nowMillis: () -> Long,
     private val rateLimiter: RequestRateLimiter,
@@ -43,7 +45,7 @@ class LicsXpSession private constructor(
     }
 
     private val cookieJar = InMemoryCookieJar()
-    private val sourceClient = client
+    private val sourceClient = httpClient
     private val client: OkHttpClient = sourceClient.newBuilder()
         .cookieJar(cookieJar)
         .addInterceptor { chain ->
@@ -87,7 +89,7 @@ class LicsXpSession private constructor(
         nowMillis: () -> Long = System::currentTimeMillis,
     ) : this(
         baseUrl = baseUrl,
-        client = client,
+        httpClient = client,
         waitForRequestSlot = waitForRequestSlot,
         nowMillis = nowMillis,
         rateLimiter = RequestRateLimiter(waitForRequestSlot, nowMillis),
@@ -106,7 +108,7 @@ class LicsXpSession private constructor(
         nowMillis: () -> Long = System::currentTimeMillis,
     ) : this(
         baseUrl = baseUrl,
-        client = client,
+        httpClient = client,
         waitForRequestSlot = waitForRequestSlot,
         nowMillis = nowMillis,
         rateLimiter = RequestRateLimiter(waitForRequestSlot, nowMillis),
@@ -283,7 +285,7 @@ class LicsXpSession private constructor(
 
     internal fun newIsolatedSession(): LicsXpSession = LicsXpSession(
         baseUrl = baseUrl,
-        client = sourceClient,
+        httpClient = sourceClient,
         waitForRequestSlot = waitForRequestSlot,
         nowMillis = nowMillis,
         rateLimiter = rateLimiter,

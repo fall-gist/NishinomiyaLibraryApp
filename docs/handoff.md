@@ -511,3 +511,49 @@ fail-closedで停止する。
 - **未検証事項**: ネットワーク層の観測で実際の送信内容を比較できるようになったが、それに
   よって予約成立の原因がヘッダかCookieか他の要因かはまだ特定できていない。次はライブ
   dry-run診断で`onWireRequest`のログを取得し、ブラウザ実測との差分を突き合わせる必要がある。
+
+### 予約が成立しなかった真因（2026-07-26、確認済み）
+
+予約確定POSTだけがセッションCookieを送っていなかった。原因はKotlinの変数シャドーイングである。
+
+```kotlin
+class LicsXpSession private constructor(
+    client: OkHttpClient,                       // コンストラクタ引数
+) {
+    private val sourceClient = client
+    private val client: OkHttpClient = sourceClient.newBuilder()
+        .cookieJar(cookieJar)                   // Cookieとヘッダはここで付く
+        .addInterceptor { ... }
+        .build()
+    private val noRetryClient = client.newBuilder()  // この client はコンストラクタ引数
+        .retryOnConnectionFailure(false)
+        .build()
+}
+```
+
+プロパティ初期化子では同名のコンストラクタ引数がプロパティより優先される。そのため
+`noRetryClient` はCookieJarもインターセプタも持たない素のクライアントから作られていた。
+確定POSTだけがこのクライアントを使うため、サイトから見れば未知のセッションからのPOSTとなり、
+業務エラーではなく入口画面（詳細検索）へ差し戻されていた。観測された「200・拒否理由の
+メッセージなし・詳細検索画面」と完全に一致する。
+
+コンストラクタ引数を `httpClient` へ改名してシャドーイングを解消した。回帰試験は
+`ExactlyOncePostClientTest`（確定専用POSTが通常要求と同じCookieとUser-Agentを送ること）。
+
+発見の経緯: 送信時点の観測を `addNetworkInterceptor` へ移したところ、確定POSTだけ `wire` の
+記録が出なかった。他の全リクエストには記録があり、直前のDisp POSTにもあった。確定POSTだけが
+別のOkHttpClientを使っていることが手がかりになった。
+
+#### この真因の判明によって未検証に戻った事項
+
+次の変更はいずれもブラウザ実測との差分を埋める目的で入れたが、**予約成立に必要かどうかは
+未検証**である。真因が別にあった以上、必要性は再評価の余地がある。ただしいずれもブラウザ実測に
+基づく変更であり、害はない。
+
+- 予約導線のログイン入口を `WOpacInitLoginActiontemp.do` にしたこと
+- 認証直後の `WPwdLoginCheckAction.do` のGET
+- 書誌詳細の入口を `WOpacMsgNewListToTifTilDetailAction.do` にしたこと
+  （`gamenid=tiles.WTifTilDetail2` の要求も含む）
+
+一方、`contactweb` → `contactdirectweb` の修正は、これが無ければ確認フォームを特定できず
+確定POST自体が送られないため、真因とは独立した実バグである。
