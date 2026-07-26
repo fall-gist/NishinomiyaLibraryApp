@@ -556,6 +556,59 @@ class ReservationGatewayTest {
         assertEquals(6, server.requestCount)
     }
 
+    @Test
+    fun `予約一覧の解析に失敗すると診断ログへ注記を残すが例外とフローは変えない`() = runBlocking {
+        server.enqueue(page("<html>温め</html>"))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(""))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page("<html>解析できない一覧画面</html>"))
+        val notes = mutableListOf<Pair<String, String>>()
+        val observer = object : LicsXpDiagnosticObserver {
+            override fun onRequest(request: LicsXpDiagnosticRequest) = Unit
+
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ) = Unit
+
+            override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) = Unit
+
+            override fun onPage(path: String, classification: String, formFingerprint: String) = Unit
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
+
+            override fun onSiteMessages(path: String, messages: List<String>) = Unit
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>) = Unit
+
+            override fun onNote(stage: String, detail: String) {
+                notes += stage to detail
+            }
+        }
+        val root = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), observer, waitForRequestSlot = {})
+        val session = LicsXpReservationGateway(root).openAuthenticatedSession("1234", "secret")
+
+        val error = try {
+            session.fetchReservations()
+            null
+        } catch (exception: LibraryError.Parse) {
+            exception
+        }
+
+        assertNotNull(error)
+        assertEquals(7, server.requestCount)
+        val fetchNotes = notes.filter { it.first == "fetch-reservations" }
+        assertEquals(1, fetchNotes.size)
+        assertFalse(fetchNotes.single().second.contains("<html>"))
+    }
+
     private fun emptyContactDirectWebFixture(): String =
         fixture("reservation_confirm.html").replace(
             "<input type=\"hidden\" name=\"contactdirectweb\" value=\"4\" />",

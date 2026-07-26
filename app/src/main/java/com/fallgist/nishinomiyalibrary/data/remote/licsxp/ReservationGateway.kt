@@ -157,6 +157,7 @@ internal class LicsXpReservationSession(
             val detailForm = try {
                 BookDetailReservationFormParser.parse(detailHtml, tilcod)
             } catch (exception: ParseException) {
+                session.noteDiagnostic("direct-reserve", "${exception.screen}: ${exception.reason}")
                 throw LibraryError.Parse(exception.screen, exception.reason)
             }
             val confirmationPage = postReservationConfirmation(
@@ -172,6 +173,7 @@ internal class LicsXpReservationSession(
             val confirmation = try {
                 DirectReservationConfirmParser.parse(confirmHtml, tilcod)
             } catch (exception: ParseException) {
+                session.noteDiagnostic("direct-reserve", "${exception.screen}: ${exception.reason}")
                 throw LibraryError.Parse(exception.screen, exception.reason)
             }
             if (pickupLibraryCode !in confirmation.pickupLibraryCodes) throw InvalidPickupLibraryException()
@@ -196,8 +198,11 @@ internal class LicsXpReservationSession(
 
     override suspend fun fetchReservations(): List<Reservation> {
         val menu = session.get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
-        requireNotMaintenance(menu)
-        if (isLoginForm(Jsoup.parse(menu))) throw LibraryError.Auth(null)
+        requireNotMaintenance(menu) { session.noteDiagnostic("fetch-reservations", "メンテナンス") }
+        if (isLoginForm(Jsoup.parse(menu))) {
+            session.noteDiagnostic("fetch-reservations", "ログインフォームが返った")
+            throw LibraryError.Auth(null)
+        }
         session.updateTokens(menu)
         val tokens = session.requireTokens()
         val html = session.post(
@@ -205,10 +210,11 @@ internal class LicsXpReservationSession(
             mapOf("gamen" to "usrrsv"),
             FormBody.Builder().add("hash", tokens.hash).add("gamenid", tokens.gamenId).build(),
         )
-        requireNotMaintenance(html)
+        requireNotMaintenance(html) { session.noteDiagnostic("fetch-reservations", "メンテナンス") }
         try {
             return ReservationListParser.parse(html)
         } catch (exception: ParseException) {
+            session.noteDiagnostic("fetch-reservations", "${exception.screen}: ${exception.reason}")
             throw LibraryError.Parse(exception.screen, exception.reason)
         }
     }
@@ -339,8 +345,12 @@ internal data class ReservationSequenceHooks(
 private fun isLoginForm(document: org.jsoup.nodes.Document): Boolean =
     document.selectFirst("input[name=j_password], input[name=j_username], form[action*=j_security_check]") != null
 
-private fun requireNotMaintenance(html: String) {
-    if (MAINTENANCE_MARKERS.any(html::contains)) throw LibraryError.Maintenance()
+/** [onMaintenance] は診断ログへの注記だけに使う。呼出し側の判定・例外送出は一切変えない。 */
+private fun requireNotMaintenance(html: String, onMaintenance: (() -> Unit)? = null) {
+    if (MAINTENANCE_MARKERS.any(html::contains)) {
+        onMaintenance?.invoke()
+        throw LibraryError.Maintenance()
+    }
 }
 
 private val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")

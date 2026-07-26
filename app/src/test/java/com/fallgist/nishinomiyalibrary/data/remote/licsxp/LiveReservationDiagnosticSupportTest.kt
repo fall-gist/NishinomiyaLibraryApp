@@ -82,6 +82,10 @@ class LiveReservationDiagnosticSupportTest {
             override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
 
             override fun onSiteMessages(path: String, messages: List<String>) = Unit
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>) = Unit
+
+            override fun onNote(stage: String, detail: String) = Unit
         }
         val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
         session.post(
@@ -146,6 +150,10 @@ class LiveReservationDiagnosticSupportTest {
             override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
 
             override fun onSiteMessages(path: String, messages: List<String>) = Unit
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>) = Unit
+
+            override fun onNote(stage: String, detail: String) = Unit
         }
         val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
         // 1回目のGETでSet-Cookieを受け取り、2回目のGETでそのCookieが実際にヘッダとして送られることを確認する。
@@ -190,6 +198,10 @@ class LiveReservationDiagnosticSupportTest {
             override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
 
             override fun onSiteMessages(path: String, messages: List<String>) = Unit
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>) = Unit
+
+            override fun onNote(stage: String, detail: String) = Unit
         }
         val session = LicsXpSession(server.url("/"), OkHttpClient(), disabledObserver, waitForRequestSlot = {})
         session.get("path")
@@ -224,6 +236,12 @@ class LiveReservationDiagnosticSupportTest {
 
             override fun onSiteMessages(path: String, messages: List<String>): Nothing =
                 error("通常経路でメッセージ監査を呼んではいけない")
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>): Nothing =
+                error("通常経路でページテキスト監査を呼んではいけない")
+
+            override fun onNote(stage: String, detail: String): Nothing =
+                error("通常経路で注記を呼んではいけない")
         }
 
         val session = LicsXpSession(server.url("/"), OkHttpClient(), disabledObserver, waitForRequestSlot = {})
@@ -262,6 +280,10 @@ class LiveReservationDiagnosticSupportTest {
             override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
 
             override fun onSiteMessages(path: String, messages: List<String>) = Unit
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>) = Unit
+
+            override fun onNote(stage: String, detail: String) = Unit
         }
         val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
 
@@ -305,6 +327,10 @@ class LiveReservationDiagnosticSupportTest {
             override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
 
             override fun onSiteMessages(path: String, messages: List<String>) = Unit
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>) = Unit
+
+            override fun onNote(stage: String, detail: String) = Unit
         }
         val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
 
@@ -346,6 +372,10 @@ class LiveReservationDiagnosticSupportTest {
             override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
 
             override fun onSiteMessages(path: String, messages: List<String>) = Unit
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>) = Unit
+
+            override fun onNote(stage: String, detail: String) = Unit
         }
         val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
 
@@ -510,6 +540,12 @@ class LiveReservationDiagnosticSupportTest {
 
             override fun onSiteMessages(path: String, messages: List<String>): Nothing =
                 error("通常経路でメッセージ監査を呼んではいけない")
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>): Nothing =
+                error("通常経路でページテキスト監査を呼んではいけない")
+
+            override fun onNote(stage: String, detail: String): Nothing =
+                error("通常経路で注記を呼んではいけない")
         }
 
         val session = LicsXpSession(server.url("/"), OkHttpClient(), disabledObserver, waitForRequestSlot = {})
@@ -688,10 +724,179 @@ class LiveReservationDiagnosticSupportTest {
 
             override fun onSiteMessages(path: String, messages: List<String>): Nothing =
                 error("通常経路でメッセージ監査を呼んではいけない")
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>): Nothing =
+                error("通常経路でページテキスト監査を呼んではいけない")
+
+            override fun onNote(stage: String, detail: String): Nothing =
+                error("通常経路で注記を呼んではいけない")
         }
 
         val session = LicsXpSession(server.url("/"), OkHttpClient(), disabledObserver, waitForRequestSlot = {})
         assertTrue(session.get("normal").contains("messages"))
+    }
+
+    @Test
+    fun `見出しはh1とh2から前後空白を詰めて空文字を除外して抜き出す`() {
+        val document = org.jsoup.Jsoup.parse(
+            """<h1>  予約状況一覧  </h1><h2></h2><h2>会員メニュー</h2>""",
+        )
+
+        val headings = extractPageHeadings(document)
+
+        assertEquals(listOf("予約状況一覧", "会員メニュー"), headings)
+    }
+
+    @Test
+    fun `見出しは最大5件各100文字までに切られる`() {
+        val longHeading = "見".repeat(150)
+        val document = org.jsoup.Jsoup.parse(
+            (1..6).joinToString("") { "<h1>$longHeading$it</h1>" },
+        )
+
+        val headings = extractPageHeadings(document)
+
+        assertEquals(5, headings.size)
+        assertTrue(headings.all { it.length <= 100 })
+    }
+
+    @Test
+    fun `notice用要素はidまたはclassにerror等のキーワードを含めば大小文字を区別せず拾う`() {
+        val document = org.jsoup.Jsoup.parse(
+            """
+            <div id="Error1">入力内容に誤りがあります</div>
+            <div class="msg-box">処理を続行できません</div>
+            <span class="ALERT">注意してください</span>
+            """.trimIndent(),
+        )
+
+        val notices = extractPageNotices(document)
+
+        assertTrue(notices.contains("入力内容に誤りがあります"))
+        assertTrue(notices.contains("処理を続行できません"))
+        assertTrue(notices.contains("注意してください"))
+    }
+
+    @Test
+    fun `notice用要素はfont color=red と red クラスと strong も対象にする`() {
+        val document = org.jsoup.Jsoup.parse(
+            """
+            <font color="red">赤字の注意書き</font>
+            <p class="red">赤クラスの注意書き</p>
+            <strong>強調された注意書き</strong>
+            """.trimIndent(),
+        )
+
+        val notices = extractPageNotices(document)
+
+        assertTrue(notices.contains("赤字の注意書き"))
+        assertTrue(notices.contains("赤クラスの注意書き"))
+        assertTrue(notices.contains("強調された注意書き"))
+    }
+
+    @Test
+    fun `noticeは200文字超と空文字を除外する`() {
+        val tooLong = "あ".repeat(201)
+        val document = org.jsoup.Jsoup.parse(
+            """<div class="error">$tooLong</div><div class="error"></div><strong>短い注意</strong>""",
+        )
+
+        val notices = extractPageNotices(document)
+
+        assertFalse(notices.any { it.length > 200 })
+        assertFalse(notices.contains(tooLong))
+        assertTrue(notices.contains("短い注意"))
+    }
+
+    @Test
+    fun `noticeは6桁以上連続する数字をマスクする`() {
+        val document = org.jsoup.Jsoup.parse(
+            """<div class="error">会員番号1234567890123は既に予約済みです</div>""",
+        )
+
+        val notices = extractPageNotices(document)
+
+        val notice = notices.single()
+        assertTrue(notice.contains("[NUM]"))
+        assertFalse(notice.contains("1234567890123"))
+    }
+
+    @Test
+    fun `無効な監査先ではonPageTextを呼ばない`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """<h1>予約状況一覧</h1><div class="error">エラーです</div>""",
+            ),
+        )
+        val disabledObserver = object : LicsXpDiagnosticObserver {
+            override val enabled: Boolean = false
+
+            override fun onRequest(request: LicsXpDiagnosticRequest): Nothing = error("通常経路でrequest監査を呼んではいけない")
+
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ): Nothing = error("通常経路でwire監査を呼んではいけない")
+
+            override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?): Nothing =
+                error("通常経路でresponse監査を呼んではいけない")
+
+            override fun onPage(path: String, classification: String, formFingerprint: String): Nothing =
+                error("通常経路でHTML監査を呼んではいけない")
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>): Nothing =
+                error("通常経路でスクリプト監査を呼んではいけない")
+
+            override fun onSiteMessages(path: String, messages: List<String>): Nothing =
+                error("通常経路でメッセージ監査を呼んではいけない")
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>): Nothing =
+                error("通常経路でページテキスト監査を呼んではいけない")
+
+            override fun onNote(stage: String, detail: String): Nothing =
+                error("通常経路で注記を呼んではいけない")
+        }
+
+        val session = LicsXpSession(server.url("/"), OkHttpClient(), disabledObserver, waitForRequestSlot = {})
+        assertTrue(session.get("normal").contains("h1"))
+    }
+
+    @Test
+    fun `noteDiagnosticはenabledがfalseなら何もしない`() = runBlocking {
+        val disabledObserver = object : LicsXpDiagnosticObserver {
+            override val enabled: Boolean = false
+
+            override fun onRequest(request: LicsXpDiagnosticRequest) = Unit
+
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ) = Unit
+
+            override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) = Unit
+
+            override fun onPage(path: String, classification: String, formFingerprint: String) = Unit
+
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
+
+            override fun onSiteMessages(path: String, messages: List<String>) = Unit
+
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>) = Unit
+
+            override fun onNote(stage: String, detail: String): Nothing = error("無効な監査先でnoteを呼んではいけない")
+        }
+        val session = LicsXpSession(server.url("/"), OkHttpClient(), disabledObserver, waitForRequestSlot = {})
+
+        session.noteDiagnostic("stage", "detail")
+        Unit
     }
 
     private fun authorizedConfig(): LiveReservationDiagnosticConfig = requireNotNull(

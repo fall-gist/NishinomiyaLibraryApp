@@ -83,4 +83,51 @@ class DiagnosticLogObserverSessionTest {
         assertTrue(log.entries.value.isEmpty())
         assertEquals("", log.formatted())
     }
+
+    @Test
+    fun `見出しとnoticeがある画面はpage-textカテゴリで記録される`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """<h1>予約状況一覧</h1><div class="error">入力内容に誤りがあります</div>""",
+            ),
+        )
+
+        val log = DiagnosticLog(fixedClock())
+        log.recording = true
+        val observer = DiagnosticLogObserver(log)
+        val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
+
+        session.get("some-path")
+
+        val entry = log.entries.value.single { it.category == "page-text" }
+        assertTrue(entry.message.contains("予約状況一覧"))
+        assertTrue(entry.message.contains("入力内容に誤りがあります"))
+    }
+
+    @Test
+    fun `見出しもnoticeも無い画面はpage-textを記録しない`() = runBlocking {
+        server.enqueue(MockResponse().setBody("<p>本文だけの画面</p>"))
+
+        val log = DiagnosticLog(fixedClock())
+        log.recording = true
+        val observer = DiagnosticLogObserver(log)
+        val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
+
+        session.get("some-path")
+
+        assertTrue(log.entries.value.none { it.category == "page-text" })
+    }
+
+    @Test
+    fun `noteDiagnosticはnoteカテゴリでstageとdetailを記録する`() = runBlocking {
+        val log = DiagnosticLog(fixedClock())
+        log.recording = true
+        val observer = DiagnosticLogObserver(log)
+        val session = LicsXpSession(server.url("/"), OkHttpClient(), observer, waitForRequestSlot = {})
+
+        session.noteDiagnostic("fetch-reservations", "reservation_list: 予約日の日付形式が不正です")
+
+        val entry = log.entries.value.single { it.category == "note" }
+        assertEquals("fetch-reservations: reservation_list: 予約日の日付形式が不正です", entry.message)
+    }
 }

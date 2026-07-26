@@ -98,6 +98,15 @@ internal class LiveReservationDiagnosticLogger {
             if (messages.isEmpty()) return
             stage("site-messages", "$path $messages")
         }
+
+        override fun onPageText(path: String, headings: List<String>, notices: List<String>) {
+            if (headings.isEmpty() && notices.isEmpty()) return
+            stage("page-text", "$path headings=$headings notices=$notices")
+        }
+
+        override fun onNote(noteStage: String, detail: String) {
+            stage("note", "$noteStage: $detail")
+        }
     }
 }
 

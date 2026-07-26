@@ -397,6 +397,11 @@ class LicsXpSession private constructor(
                 path = path,
                 messages = extractSiteMessages(document),
             )
+            diagnosticObserver.onPageText(
+                path = path,
+                headings = extractPageHeadings(document),
+                notices = extractPageNotices(document),
+            )
         }
         return body
     }
@@ -409,6 +414,15 @@ class LicsXpSession private constructor(
         if (diagnosticObserver.enabled) {
             safelyObserve { diagnosticObserver.onRequest(request.diagnosticFormFields()) }
         }
+    }
+
+    /**
+     * 通信フロー自体は一切変えず、診断ログへ短い注記を残すためだけの内部口。
+     * HTML本文や個人情報は渡さないこと。無効時は何もしない。
+     */
+    internal fun noteDiagnostic(stage: String, detail: String) {
+        if (!diagnosticObserver.enabled) return
+        safelyObserve { diagnosticObserver.onNote(stage, detail) }
     }
 }
 
@@ -466,6 +480,12 @@ internal interface LicsXpDiagnosticObserver {
     /** サイトが表示するメッセージ（alert用のdiv#messages）。数字列はマスクする。 */
     fun onSiteMessages(path: String, messages: List<String>)
 
+    /** 画面の見出しと、エラー表示に使われていそうな要素のテキスト。値は数字をマスクして抜粋する。 */
+    fun onPageText(path: String, headings: List<String>, notices: List<String>)
+
+    /** 通信フロー内の失敗理由などの短い注記。HTML本文や個人情報を含めないこと。 */
+    fun onNote(stage: String, detail: String)
+
     data object None : LicsXpDiagnosticObserver {
         override val enabled: Boolean = false
 
@@ -487,6 +507,10 @@ internal interface LicsXpDiagnosticObserver {
         override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
 
         override fun onSiteMessages(path: String, messages: List<String>) = Unit
+
+        override fun onPageText(path: String, headings: List<String>, notices: List<String>) = Unit
+
+        override fun onNote(stage: String, detail: String) = Unit
     }
 }
 
@@ -786,6 +810,39 @@ internal fun extractSiteMessages(document: org.jsoup.nodes.Document): List<Strin
         .map { LONG_DIGIT_RUN_REGEX.replace(it, "[NUM]") }
         .take(10)
         .map { it.take(200) }
+
+private const val PAGE_TEXT_ENTRY_LIMIT_HEADINGS = 5
+private const val PAGE_TEXT_ENTRY_MAX_CHARS_HEADINGS = 100
+private const val PAGE_TEXT_ENTRY_LIMIT_NOTICES = 10
+private const val PAGE_TEXT_ENTRY_MAX_CHARS_NOTICES = 200
+private val NOTICE_KEYWORD_REGEX = Regex("error|msg|message|alert|caution|attention", RegexOption.IGNORE_CASE)
+
+/** h1/h2のテキストを、前後の空白を詰め・空文字を除外して抜き出す。数字は6桁以上を伏せる。 */
+internal fun extractPageHeadings(document: org.jsoup.nodes.Document): List<String> =
+    document.select("h1, h2")
+        .map { it.text().trim() }
+        .filter { it.isNotEmpty() }
+        .take(PAGE_TEXT_ENTRY_LIMIT_HEADINGS)
+        .map { LONG_DIGIT_RUN_REGEX.replace(it, "[NUM]").take(PAGE_TEXT_ENTRY_MAX_CHARS_HEADINGS) }
+
+/**
+ * エラー表示に使われていそうな要素のテキストを抜き出す。対象は次のいずれか:
+ * - idまたはclassに error/msg/message/alert/caution/attention のいずれかを含む要素(大小文字を区別しない)
+ * - font[color=red]、.red、strong のうち、テキストが1〜200文字のもの
+ * いずれも、テキストが空・200文字超のものは除外し、重複除去のうえ最大10件・数字は6桁以上を伏せて200文字までに切る。
+ */
+internal fun extractPageNotices(document: org.jsoup.nodes.Document): List<String> {
+    val keywordMatches = document.select("*").filter { element ->
+        NOTICE_KEYWORD_REGEX.containsMatchIn(element.id()) || NOTICE_KEYWORD_REGEX.containsMatchIn(element.className())
+    }
+    val markupMatches = document.select("font[color=red], .red, strong")
+    return (keywordMatches + markupMatches)
+        .map { it.text().trim() }
+        .filter { it.isNotEmpty() && it.length <= PAGE_TEXT_ENTRY_MAX_CHARS_NOTICES }
+        .distinct()
+        .take(PAGE_TEXT_ENTRY_LIMIT_NOTICES)
+        .map { LONG_DIGIT_RUN_REGEX.replace(it, "[NUM]").take(PAGE_TEXT_ENTRY_MAX_CHARS_NOTICES) }
+}
 
 /** `"literal"+identifier+"literal"` のような連結式を、リテラルは値そのまま・識別子は `+<identifier>` にして分解する。 */
 private fun splitConcatenationExpression(expression: String): List<String> =

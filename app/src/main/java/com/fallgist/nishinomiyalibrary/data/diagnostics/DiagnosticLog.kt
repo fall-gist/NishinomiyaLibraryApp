@@ -242,6 +242,15 @@ internal class DiagnosticLogObserver(private val log: DiagnosticLog) : LicsXpDia
         if (messages.isEmpty()) return
         log.record("messages", "$path $messages")
     }
+
+    override fun onPageText(path: String, headings: List<String>, notices: List<String>) {
+        if (headings.isEmpty() && notices.isEmpty()) return
+        log.record("page-text", "$path headings=$headings notices=$notices")
+    }
+
+    override fun onNote(stage: String, detail: String) {
+        log.record("note", "$stage: $detail")
+    }
 }
 
 private const val SCRIPT_CHUNK_LENGTH = 1500
