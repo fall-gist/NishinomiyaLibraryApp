@@ -1,9 +1,15 @@
 package com.fallgist.nishinomiyalibrary.ui.app
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalDrawerSheet
@@ -23,9 +29,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreen
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
@@ -55,6 +65,9 @@ import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreen
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import kotlinx.coroutines.launch
+
+/** ドロワー最下部の公式サイトリンク。アプリ内WebViewは使わず、端末の既定ブラウザで開く。 */
+private const val OFFICIAL_SITE_URL = "https://tosho.nishi.or.jp/"
 
 /**
  * アプリの遷移先。[primary] が true のものだけ下部ナビに出す。
@@ -93,6 +106,7 @@ fun LibraryApp(
     diagnosticLogScreenController: DiagnosticLogScreenController,
 ) {
     val colors = LocalAppColors.current
+    val context = LocalContext.current
     val reservationState by reservationUiController.state.collectAsState()
     val primaryTabs = Destination.entries.filter { it.primary }
     var currentName by rememberSaveable { mutableStateOf(Destination.HOME.name) }
@@ -136,6 +150,26 @@ fun LibraryApp(
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
                 }
+                HorizontalDivider(
+                    color = colors.line,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+                NavigationDrawerItem(
+                    label = { Text("🌐  公式サイト") },
+                    selected = false,
+                    onClick = {
+                        try {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(OFFICIAL_SITE_URL))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        } catch (_: ActivityNotFoundException) {
+                            // 対応するブラウザが端末に無い場合は何もしない(クラッシュさせない)
+                        }
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
             }
         },
     ) {
@@ -288,6 +322,7 @@ fun LibraryApp(
                             },
                             onClearResults = reservationUiController::clearCartFeedback,
                             onOpenMenu = openMenu,
+                            onOpenDetail = openDetail,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -296,16 +331,44 @@ fun LibraryApp(
                 // どの画面の上にも重ねられる共通の書誌詳細オーバーレイ
                 val detailState by bookDetailController.state.collectAsState()
                 if (detailState.open) {
-                    BookDetailView(
-                        detail = detailState,
-                        onBack = bookDetailController::close,
-                        reservation = reservationState,
-                        onSelectReservationMember = reservationUiController::selectMember,
-                        onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
-                        onAddToCart = reservationUiController::addToCart,
-                        onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
-                        modifier = Modifier.fillMaxSize().background(colors.paper),
-                    )
+                    if (current == Destination.RESERVATION_CART) {
+                        // 予約カートからの起動だけは全画面オーバーレイではなくダイアログで重ねる。
+                        // カート画面自体の状態(受取館選択・結果表示等)は下に隠れたまま保たれる。
+                        Dialog(
+                            onDismissRequest = bookDetailController::close,
+                            properties = DialogProperties(usePlatformDefaultWidth = false),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.94f)
+                                    .fillMaxHeight(0.86f)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(colors.paper),
+                            ) {
+                                BookDetailView(
+                                    detail = detailState,
+                                    onBack = bookDetailController::close,
+                                    reservation = reservationState,
+                                    onSelectReservationMember = reservationUiController::selectMember,
+                                    onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
+                                    onAddToCart = reservationUiController::addToCart,
+                                    onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                    } else {
+                        BookDetailView(
+                            detail = detailState,
+                            onBack = bookDetailController::close,
+                            reservation = reservationState,
+                            onSelectReservationMember = reservationUiController::selectMember,
+                            onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
+                            onAddToCart = reservationUiController::addToCart,
+                            onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
+                            modifier = Modifier.fillMaxSize().background(colors.paper),
+                        )
+                    }
                 }
                 if (diagnosticLogOpen) {
                     val diagnosticLogState by diagnosticLogScreenController.state.collectAsState()

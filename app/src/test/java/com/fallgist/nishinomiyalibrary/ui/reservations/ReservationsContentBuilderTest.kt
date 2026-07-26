@@ -58,4 +58,29 @@ class ReservationsContentBuilderTest {
 
         assertEquals("未定", rows.single().pickupLabel)
     }
+
+    @Test
+    fun countByMember_countsAllReservationsRegardlessOfSelection() {
+        val reservations = listOf(
+            Reservation(papa.id, "パパ本1", "本", "中央", today, 1, ReservationState.WAITING, null),
+            Reservation(papa.id, "パパ本2", "本", "中央", today, 2, ReservationState.WAITING, null),
+            Reservation(hana.id, "はな本", "本", "中央", today, null, ReservationState.READY, null),
+        )
+
+        val counts = ReservationsContentBuilder.countByMember(members, reservations)
+
+        assertEquals(mapOf(papa.id to 2, hana.id to 1), counts)
+    }
+
+    @Test
+    fun countByMember_omitsMembersWithZeroReservations() {
+        val reservations = listOf(
+            Reservation(papa.id, "パパ本", "本", "中央", today, 1, ReservationState.WAITING, null),
+        )
+
+        val counts = ReservationsContentBuilder.countByMember(members, reservations)
+
+        assertEquals(mapOf(papa.id to 1), counts)
+        assertFalse(counts.containsKey(hana.id))
+    }
 }

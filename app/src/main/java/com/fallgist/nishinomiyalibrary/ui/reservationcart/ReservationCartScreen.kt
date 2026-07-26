@@ -50,6 +50,7 @@ fun ReservationCartScreen(
     onOpenSearch: () -> Unit,
     onClearResults: () -> Unit,
     onOpenMenu: () -> Unit,
+    onOpenDetail: (tilcod: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -107,6 +108,7 @@ fun ReservationCartScreen(
                             writerLine = item.writerLine,
                             enabled = !state.processing,
                             onRemove = { onRemoveFromCart(item.id) },
+                            onClick = { onOpenDetail(item.tilcod, item.title) },
                         )
                     }
                 }
@@ -191,7 +193,7 @@ private fun EmptyCart(onOpenSearch: () -> Unit) {
 }
 
 @Composable
-private fun CartItemRow(title: String, writerLine: String?, enabled: Boolean, onRemove: () -> Unit) {
+private fun CartItemRow(title: String, writerLine: String?, enabled: Boolean, onRemove: () -> Unit, onClick: () -> Unit) {
     val colors = LocalAppColors.current
     Row(
         modifier = Modifier
@@ -200,6 +202,7 @@ private fun CartItemRow(title: String, writerLine: String?, enabled: Boolean, on
             .clip(RoundedCornerShape(12.dp))
             .background(colors.card)
             .border(1.dp, colors.line, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),

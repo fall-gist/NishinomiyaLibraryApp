@@ -37,6 +37,9 @@ data class LoansUiState(
     val members: List<Member> = emptyList(),
     val selectedMemberId: Long? = null,
     val rows: List<LoanRow> = emptyList(),
+    /** 絞り込み選択に関係なく、メンバーごとの貸出中冊数。 */
+    val countByMemberId: Map<Long, Int> = emptyMap(),
+    val totalCount: Int = 0,
 )
 
 /** 貸出中の表示行を返却期限昇順で組み立てる純関数。Android非依存でテストする。 */
@@ -75,6 +78,12 @@ object LoansContentBuilder {
             }
     }
 
+    /** 絞り込み前の全冊数を、メンバーごと・合計で集計する純関数。0件のメンバーはmapに含めない。 */
+    fun countByMember(members: List<Member>, loans: List<Loan>): Map<Long, Int> {
+        val activeIds = members.map { it.id }.toSet()
+        return loans.filter { it.memberId in activeIds }.groupingBy { it.memberId }.eachCount()
+    }
+
     private fun dueLabel(date: LocalDate, today: LocalDate): String {
         val formatted = dateFormatter.format(date)
         return when {
@@ -108,11 +117,14 @@ class LoansScreenController(
                 selectedMemberId,
             ) { members, loans, selectedId ->
                 val effectiveSelection = selectedId?.takeIf { id -> members.any { it.id == id } }
+                val countByMemberId = LoansContentBuilder.countByMember(members, loans)
                 LoansUiState(
                     initialized = true,
                     members = members,
                     selectedMemberId = effectiveSelection,
                     rows = LoansContentBuilder.build(members, loans, effectiveSelection, today()),
+                    countByMemberId = countByMemberId,
+                    totalCount = countByMemberId.values.sum(),
                 )
             }.collect { newState -> _state.value = newState }
         }

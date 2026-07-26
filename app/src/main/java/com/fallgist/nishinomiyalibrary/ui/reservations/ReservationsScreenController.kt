@@ -37,6 +37,9 @@ data class ReservationsUiState(
     val members: List<Member> = emptyList(),
     val selectedMemberId: Long? = null,
     val rows: List<ReservationRow> = emptyList(),
+    /** 絞り込み選択に関係なく、メンバーごとの予約中冊数。 */
+    val countByMemberId: Map<Long, Int> = emptyMap(),
+    val totalCount: Int = 0,
 )
 
 /** 予約中の表示行を組み立てる純関数。受取可能→順番待ちの順に並べる。 */
@@ -84,6 +87,12 @@ object ReservationsContentBuilder {
         }
     }
 
+    /** 絞り込み前の全冊数を、メンバーごと・合計で集計する純関数。0件のメンバーはmapに含めない。 */
+    fun countByMember(members: List<Member>, reservations: List<Reservation>): Map<Long, Int> {
+        val activeIds = members.map { it.id }.toSet()
+        return reservations.filter { it.memberId in activeIds }.groupingBy { it.memberId }.eachCount()
+    }
+
     private fun statusLabel(state: ReservationState): String = when (state) {
         ReservationState.READY -> "受取可能"
         ReservationState.WAITING -> "順番待ち"
@@ -112,11 +121,14 @@ class ReservationsScreenController(
                 selectedMemberId,
             ) { members, reservations, selectedId ->
                 val effectiveSelection = selectedId?.takeIf { id -> members.any { it.id == id } }
+                val countByMemberId = ReservationsContentBuilder.countByMember(members, reservations)
                 ReservationsUiState(
                     initialized = true,
                     members = members,
                     selectedMemberId = effectiveSelection,
                     rows = ReservationsContentBuilder.build(members, reservations, effectiveSelection),
+                    countByMemberId = countByMemberId,
+                    totalCount = countByMemberId.values.sum(),
                 )
             }.collect { newState -> _state.value = newState }
         }

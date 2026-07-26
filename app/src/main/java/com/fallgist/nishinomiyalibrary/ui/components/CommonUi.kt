@@ -125,6 +125,8 @@ fun MemberFilterRow(
     onSelect: (Long?) -> Unit,
     modifier: Modifier = Modifier,
     includeEveryone: Boolean = true,
+    countByMemberId: Map<Long, Int> = emptyMap(),
+    totalCount: Int? = null,
 ) {
     Row(
         modifier = modifier
@@ -135,7 +137,7 @@ fun MemberFilterRow(
     ) {
         if (includeEveryone) {
             MemberChip(
-                label = "みんな",
+                label = totalCount?.let { "みんな $it" } ?: "みんな",
                 colorHex = null,
                 selected = selectedMemberId == null,
                 onClick = { onSelect(null) },
@@ -143,7 +145,7 @@ fun MemberFilterRow(
         }
         members.forEach { member ->
             MemberChip(
-                label = member.name,
+                label = countByMemberId[member.id]?.let { "${member.name} $it" } ?: member.name,
                 colorHex = member.colorHex,
                 selected = selectedMemberId == member.id,
                 onClick = { onSelect(member.id) },

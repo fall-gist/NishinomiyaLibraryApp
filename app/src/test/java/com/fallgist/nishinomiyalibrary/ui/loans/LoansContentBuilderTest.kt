@@ -68,4 +68,27 @@ class LoansContentBuilderTest {
         assertEquals(1, rows.size)
         assertEquals("はな", rows.single().memberName)
     }
+
+    @Test
+    fun countByMember_countsAllLoansRegardlessOfSelection() {
+        val loans = listOf(
+            loan(papa.id, "パパ本1", today.plusDays(1)),
+            loan(papa.id, "パパ本2", today.plusDays(2)),
+            loan(hana.id, "はな本", today.plusDays(1)),
+        )
+
+        val counts = LoansContentBuilder.countByMember(members, loans)
+
+        assertEquals(mapOf(papa.id to 2, hana.id to 1), counts)
+    }
+
+    @Test
+    fun countByMember_omitsMembersWithZeroLoans() {
+        val loans = listOf(loan(papa.id, "パパ本", today.plusDays(1)))
+
+        val counts = LoansContentBuilder.countByMember(members, loans)
+
+        assertEquals(mapOf(papa.id to 1), counts)
+        assertFalse(counts.containsKey(hana.id))
+    }
 }

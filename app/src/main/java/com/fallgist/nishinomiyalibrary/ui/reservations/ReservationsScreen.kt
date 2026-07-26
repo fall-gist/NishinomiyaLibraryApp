@@ -44,6 +44,8 @@ fun ReservationsScreen(
             members = state.members,
             selectedMemberId = state.selectedMemberId,
             onSelect = onSelectMember,
+            countByMemberId = state.countByMemberId,
+            totalCount = state.totalCount,
         )
         if (state.rows.isEmpty()) {
             EmptyNote("予約中の本はありません")

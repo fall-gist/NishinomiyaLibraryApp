@@ -43,6 +43,8 @@ fun LoansScreen(
             members = state.members,
             selectedMemberId = state.selectedMemberId,
             onSelect = onSelectMember,
+            countByMemberId = state.countByMemberId,
+            totalCount = state.totalCount,
         )
         if (state.rows.isEmpty()) {
             EmptyNote("貸出中の本はありません")
