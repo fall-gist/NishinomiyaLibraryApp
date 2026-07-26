@@ -187,6 +187,25 @@ class ReservationGatewayTest {
     }
 
     @Test
+    fun `確定POSTの応答が確認画面のままならStayedOnConfirmationになる`() = runBlocking {
+        server.enqueue(page("<html>温め</html>"))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(""))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(reservationDetailFixture()))
+        server.enqueue(page(fixture("reservation_confirm.html")))
+        server.enqueue(page(fixture("reservation_confirm.html")))
+        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+
+        assertEquals(DirectReservationAttempt.StayedOnConfirmation, session.directReserve("1000000000001", "106"))
+        assertEquals(8, server.requestCount)
+        assertEquals(1, List(8) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+            .count { it.path?.startsWith("/WOpacTifDirectYoyExecAction.do") == true })
+    }
+
+    @Test
     fun `hash無し確認フォームでもサーバー発行hiddenを保持して確定できる`() = runBlocking {
         server.enqueue(page("<html>温め</html>")); server.enqueue(page(fixture("login_form.html")))
         server.enqueue(page("<html>中継</html>")); server.enqueue(page(""))

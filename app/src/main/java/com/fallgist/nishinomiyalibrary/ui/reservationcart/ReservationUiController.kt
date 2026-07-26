@@ -282,7 +282,8 @@ private fun ReservationItemResult.toResultRow(memberId: Long): ReservationResult
 private fun FailureReason.label(): String = when (this) {
     FailureReason.AUTH -> "メンバーの認証に失敗しました"
     FailureReason.INVALID_PICKUP_LIBRARY -> "受取館の指定が無効です"
-    FailureReason.REJECTED_BY_SITE -> "図書館サイトで予約を受け付けませんでした"
+    // サイトは業務的拒否（上限超過など）の理由を一切返さないため、断定的な理由を表示してはならない。
+    FailureReason.REJECTED_BY_SITE -> "図書館サイトが予約を受け付けませんでした（予約上限に達しているなどの理由が考えられます）"
     FailureReason.SESSION_EXPIRED_BEFORE_SUBMIT -> "ログイン状態が失効しました。再度お試しください"
     FailureReason.SITE_RESPONSE_CHANGED -> "図書館サイトの応答を確認できませんでした。時間をおいて再度お試しください"
     FailureReason.SITE_MAINTENANCE -> "図書館サイトがメンテナンス中です"

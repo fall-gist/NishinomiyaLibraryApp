@@ -243,6 +243,30 @@ class ParsersTest {
     }
 
     @Test
+    fun `予約応答が確認画面のままならStayedOnConfirmationになる`() {
+        assertEquals(
+            DirectReservationResponseParser.Result.StayedOnConfirmation,
+            DirectReservationResponseParser.parse(fixture("reservation_confirm.html")),
+        )
+        assertEquals(
+            DirectReservationResponseParser.Result.StayedOnConfirmation,
+            DirectReservationResponseParser.parse("<form action='WOpacTifDirectYoyExecAction.do'></form>"),
+        )
+    }
+
+    @Test
+    fun `予約応答の既知重複は確認画面のままより優先される`() {
+        val html = fixture("reservation_confirm.html") + "<script>alert('予約済の書誌があります。予約できません。')</script>"
+        assertEquals(DirectReservationResponseParser.Result.DuplicateDetected, DirectReservationResponseParser.parse(html))
+    }
+
+    @Test
+    fun `予約応答のログイン画面は確認画面のままより優先される`() {
+        val html = fixture("reservation_confirm.html") + "<form action='j_security_check'><input name='j_password'></form>"
+        assertEquals(DirectReservationResponseParser.Result.LoginAfterPost, DirectReservationResponseParser.parse(html))
+    }
+
+    @Test
     fun `予約確認フォームの制御項目は正しい型で一意に必要になる`() {
         val valid = fixture("reservation_confirm.html")
         assertParseError("reservation-confirm") {

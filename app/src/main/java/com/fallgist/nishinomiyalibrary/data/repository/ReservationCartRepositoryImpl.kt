@@ -154,6 +154,10 @@ class ReservationCartRepositoryImpl @Inject constructor(
                     DirectReservationAttempt.Submitted -> provisional[target] = Provisional.Submitted
                     DirectReservationAttempt.DuplicateDetected -> provisional[target] = Provisional.Duplicate
                     DirectReservationAttempt.RejectedBeforeSubmit -> provisional[target] = Provisional.Failure(FailureReason.REJECTED_BY_SITE)
+                    DirectReservationAttempt.StayedOnConfirmation -> {
+                        val canContinue = resolveStayedOnConfirmation(requireNotNull(session), target, targets, index, provisional)
+                        if (!canContinue) break
+                    }
                     DirectReservationAttempt.IndeterminateAfterPost -> {
                         // POSTは再送せず、同じセッションで一度だけ読み取り照合する。
                         val reservedTilcods = try {
@@ -215,6 +219,10 @@ class ReservationCartRepositoryImpl @Inject constructor(
                         when (retried) {
                             DirectReservationAttempt.Submitted -> provisional[target] = Provisional.Submitted
                             DirectReservationAttempt.DuplicateDetected -> provisional[target] = Provisional.Duplicate
+                            DirectReservationAttempt.StayedOnConfirmation -> {
+                                val canContinue = resolveStayedOnConfirmation(retrySession, target, targets, index, provisional)
+                                if (!canContinue) break
+                            }
                             DirectReservationAttempt.IndeterminateAfterPost -> {
                                 val reservedTilcods = try {
                                     retrySession.fetchReservations().map { it.tilcod }.filter(String::isNotBlank).toSet()
@@ -257,6 +265,41 @@ class ReservationCartRepositoryImpl @Inject constructor(
         } finally {
             session?.close()
         }
+    }
+
+    /**
+     * 確定POST後も確認画面のままだった場合の解決。サイトは業務的拒否（予約上限超過など）の理由を
+     * 表示せず確認画面を再表示するだけなので、予約一覧に対象が無いことをもって拒否と断定する
+     * （予約状況一覧は20件でもページングされないと実測済みのため、この照合に偽陰性は起きない）。
+     * 資料種別ごとの上限などで拒否された場合、同一メンバーの次の資料は成功し得るため、
+     * 一覧照合が完了した場合（成功・拒否のいずれでも）は残り項目の処理を継続する。
+     * 一覧取得自体に失敗した場合だけ成否を判断できないため、残り項目を中止する。
+     * @return true なら残り項目の処理を継続してよい、false なら中止する。
+     */
+    private suspend fun resolveStayedOnConfirmation(
+        session: ReservationSession,
+        target: ReservationTarget,
+        targets: List<ReservationTarget>,
+        index: Int,
+        provisional: MutableMap<ReservationTarget, Provisional>,
+    ): Boolean {
+        val reservedTilcods = try {
+            session.fetchReservations().map { it.tilcod }.filter(String::isNotBlank).toSet()
+        } catch (exception: Exception) {
+            exception.rethrowIfCancellation()
+            null
+        }
+        if (reservedTilcods == null) {
+            provisional[target] = Provisional.Indeterminate(UnknownReason.VERIFICATION_UNAVAILABLE)
+            targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
+            return false
+        }
+        provisional[target] = if (target.tilcod in reservedTilcods) {
+            Provisional.VerifiedSuccess
+        } else {
+            Provisional.Failure(FailureReason.REJECTED_BY_SITE)
+        }
+        return true
     }
 
     private fun resolve(provisional: Provisional?, tilcod: String, reservedTilcods: Set<String>?): ReservationOutcome = when (provisional) {

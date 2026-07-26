@@ -30,6 +30,8 @@ sealed interface DirectReservationAttempt {
     data object SessionExpiredBeforeSubmit : DirectReservationAttempt
     data object RejectedBeforeSubmit : DirectReservationAttempt
     data object IndeterminateAfterPost : DirectReservationAttempt
+    /** 確定POST後も確認画面のまま。業務的拒否（上限超過など）の可能性があるが、この時点では断定できない。 */
+    data object StayedOnConfirmation : DirectReservationAttempt
 }
 
 /** POST前に確定した館不一致。ネットワーク境界内だけで利用する。 */
@@ -192,6 +194,7 @@ internal class LicsXpReservationSession(
                 DirectReservationResponseParser.Result.LoginAfterPost -> DirectReservationAttempt.IndeterminateAfterPost
                 DirectReservationResponseParser.Result.DuplicateDetected -> DirectReservationAttempt.DuplicateDetected
                 DirectReservationResponseParser.Result.IndeterminateAfterPost -> DirectReservationAttempt.IndeterminateAfterPost
+                DirectReservationResponseParser.Result.StayedOnConfirmation -> DirectReservationAttempt.StayedOnConfirmation
             }
         }
     }
