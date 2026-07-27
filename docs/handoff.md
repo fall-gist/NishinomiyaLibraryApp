@@ -350,6 +350,30 @@ $env:LICSXP_PICKUP_LIBRARY = '106'
 
 出力にはログイン、確認画面到達までの遷移、確認画面の画面分類・input type 付き form fingerprint、確定POSTで送るはずの送信項目名（DOM順、値は含まない）、受取館候補コード一覧、要求した受取館が候補に含まれるかを出す。**フォームの値・Cookie・認証情報は一切出力されない。** フィールド名・input type・画面分類・HTTPメソッド/パス/ステータスまでがログに出る範囲であり、既存の`diagnosticValue`による秘匿化方針を継続する。
 
+### 取消診断（`liveReservationCancelDiagnostic`、2026-07-27追加）
+
+`ReservationSession.cancelReservation`（実サイト未検証）をライブ検証するための専用タスク。既存の予約診断・dry-run診断と同じ流儀で、通常の `:app:testDebugUnitTest` と CI は診断クラス（`LiveReservationCancelDiagnosticTest`）を除外している。
+
+**このコマンドは本番サイトで予約取消を1回実行する不可逆な副作用がある。** そのため通常の予約診断とは別の専用同意フラグ(`LICSXP_LIVE_CANCEL_CONFIRM`)を要求する。
+
+```powershell
+$env:LICSXP_LIVE_RESERVATION = 'YES_I_UNDERSTAND'
+$env:LICSXP_LIVE_CANCEL_CONFIRM = 'CANCEL_ON_PRODUCTION'
+$env:LICSXP_CARD_NUMBER = 'カード番号'
+$env:LICSXP_PASSWORD = 'パスワード'
+$env:LICSXP_CANCEL_TILCOD = '取り消したい予約の資料コード'
+.\gradlew.bat :app:liveReservationCancelDiagnostic
+```
+
+安全弁（すべて`check`による停止で、取消POSTを送らない）:
+
+- 対象tilcodが予約一覧に無ければ何もせず停止する（「対象の予約が一覧にありません」）。
+- 対象tilcodが複数件一致した場合も、どれを取り消すか決められないため停止する。
+- 一致した行の取消コード(`cancelCode`)が空（取消非対応行）なら停止する。
+- 一意に特定できた場合だけ`cancelReservation`を**1回だけ**呼ぶ。ループや複数件取消は実装していない。
+
+ログには一致件数・取消結果・取消後一覧に対象が残っているかを出す。資料名・取消コードそのものはログへ出さない（`tilcod`は既存診断でも出しているため出してよい）。
+
 ### 予約確定の追加確認（2026-07-22）
 
 ライブ診断で、確認GETとフォーム項目がブラウザ実測に一致しているにもかかわらず、確定POSTの

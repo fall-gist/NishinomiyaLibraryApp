@@ -113,6 +113,7 @@ dependencies {
 
 val liveReservationDiagnosticClass = "**/LiveReservationDiagnosticTest.class"
 val liveReservationInspectionClass = "**/LiveReservationInspectionTest.class"
+val liveReservationCancelDiagnosticClass = "**/LiveReservationCancelDiagnosticTest.class"
 
 // 通常の unit test / CI は本番通信を行う診断クラスを発見対象から除外する。
 tasks.withType<Test>().configureEach {
@@ -121,6 +122,9 @@ tasks.withType<Test>().configureEach {
     }
     if (name != "liveReservationInspect") {
         exclude(liveReservationInspectionClass)
+    }
+    if (name != "liveReservationCancelDiagnostic") {
+        exclude(liveReservationCancelDiagnosticClass)
     }
 }
 
@@ -180,6 +184,35 @@ tasks.register<Test>("liveReservationInspect") {
         }.keys
         check(invalid.isEmpty()) {
             "予約確認dry-run診断を開始しません。不足または不正な明示環境変数: ${invalid.joinToString()}"
+        }
+    }
+}
+
+// このタスクだけが本番サイトへ予約取消POSTを行い得る。取消は1件だけで、ループや複数件取消は行わない。
+tasks.register<Test>("liveReservationCancelDiagnostic") {
+    group = "verification"
+    description = "明示同意済みの場合だけ本番サイトで予約取消を一度だけ実行する（外部副作用あり）"
+    val debugUnitTest = tasks.named<Test>("testDebugUnitTest")
+    testClassesDirs = debugUnitTest.get().testClassesDirs
+    classpath = debugUnitTest.get().classpath
+    include(liveReservationCancelDiagnosticClass)
+    testLogging {
+        showStandardStreams = true
+    }
+    doFirst {
+        val required = mapOf(
+            "LICSXP_LIVE_RESERVATION" to "YES_I_UNDERSTAND",
+            "LICSXP_LIVE_CANCEL_CONFIRM" to "CANCEL_ON_PRODUCTION",
+            "LICSXP_CARD_NUMBER" to null,
+            "LICSXP_PASSWORD" to null,
+            "LICSXP_CANCEL_TILCOD" to null,
+        )
+        val invalid = required.filter { (name, expected) ->
+            val value = System.getenv(name)
+            value.isNullOrBlank() || (expected != null && value != expected)
+        }.keys
+        check(invalid.isEmpty()) {
+            "ライブ予約取消診断を開始しません。不足または不正な明示環境変数: ${invalid.joinToString()}"
         }
     }
 }
