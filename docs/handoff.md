@@ -872,3 +872,35 @@ class LicsXpSession private constructor(
 一覧取得自体に失敗した場合だけ`Unknown(VERIFICATION_UNAVAILABLE)`とし、残り項目は従来どおり中止する。
 セッション切れ後の再試行経路にも同じ分岐を入れてある。UI文言（`ReservationUiController`）も
 「予約上限に達しているなどの理由が考えられます」と、断定しない表現に改めた。
+
+**一覧の完全性ガード（2026-07-27追加）**: 上記の「拒否」断定は「予約上限20件・一覧が非ページング」
+という現時点の実測に依存していた。これはレビューで指摘されたとおり恒久的なサイト仕様として
+保証されたものではなく、将来サイトが変わり一覧がページングされると、成立しているのに1ページ目に
+対象が無いだけで誤って拒否と断定してしまう恐れがある。そこで、取得した一覧が完全だと確認できた
+ときだけ拒否と断定し、確認できない場合は成否不明へ倒すガードを追加した。
+
+ログイン後の共通ヘッダには利用状況サマリがあり、既存の`SummaryParser`が予約中件数
+（`UserSummary.reservationCount`）を解析できる。`LicsXpReservationSession.fetchReservations()`は
+その先頭で`WOpacMnuTopInitAction.do?WebLinkFlag=1`を取得しており、このHTMLに既にサマリが
+含まれているため、新たなリクエストを発生させずに件数を得られる。これを利用し、
+`fetchReservationSnapshot()`（`internal ReservationSnapshotSource`）がサマリの予約中件数と
+一覧の解析行数を突き合わせ、一致した場合だけ`ReservationListSnapshot.complete = true`を返す。
+サマリが解析できない場合や件数が一致しない場合は`complete = false`とし、件数だけを
+`noteDiagnostic`へ記録する（書名などは記録しない）。
+
+`ReservationSession`は公開インターフェースであり、新規メソッド追加は既存実装（テストのフェイクを
+含む）を破壊するため、この完全性判定機能だけを別の internal インターフェース
+（`ReservationSnapshotSource`）に切り出し、`ReservationCartRepositoryImpl.resolveStayedOnConfirmation`
+側で`as?`により任意に取得する形にした。実装していないセッションに対しては、完全性を確認できない
+ものとして安全側（成否不明）に倒す。
+
+`resolveStayedOnConfirmation`の判定は次のとおりになった。
+- 対象`tilcod`が一覧に**ある** → 完全性に関わらず`VerifiedSuccess`（従来どおり）
+- 対象が**無く**、かつ一覧が**完全** → `Failure(REJECTED_BY_SITE)`。残り項目は中止せず続行する（従来どおり）
+- 対象が**無く**、一覧の完全性を**確認できない** → `Indeterminate(VERIFICATION_UNAVAILABLE)`。残り項目は中止する
+- 一覧の取得自体が例外 → 従来どおり`Indeterminate(VERIFICATION_UNAVAILABLE)`、残り項目は中止
+
+`ReservationGatewayTest`にサマリ件数と解析行数が一致／不一致／サマリ解析不能の3ケースを追加し、
+`ReservationCartRepositoryTest`の既存拒否系テストは、フェイクセッションが`ReservationSnapshotSource`を
+実装して`complete = true`を返すよう更新した上で、完全性を確認できない場合に拒否と断定せず
+残件を中止する新規テストを追加した。

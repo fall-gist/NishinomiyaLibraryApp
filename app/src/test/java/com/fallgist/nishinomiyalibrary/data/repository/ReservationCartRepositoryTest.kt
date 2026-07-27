@@ -8,7 +8,9 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationCartItemEntity
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.DirectReservationAttempt
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationListSnapshot
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSession
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSnapshotSource
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
@@ -244,24 +246,54 @@ class ReservationCartRepositoryTest {
     }
 
     @Test
-    fun `確認画面のまま返り一覧に無ければ拒否とし同一メンバーの次の項目へ進む`() = runBlocking {
+    fun `確認画面のまま返り完全な一覧に無ければ拒否とし同一メンバーの次の項目へ進む`() = runBlocking {
         val member = addMember("拒否", "13")
         val sent = mutableListOf<String>()
         val repository = repository(object : ReservationGateway {
-            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = object : ReservationSession {
-                override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
-                    sent += tilcod
-                    return DirectReservationAttempt.StayedOnConfirmation
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) =
+                object : ReservationSession, ReservationSnapshotSource {
+                    override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
+                        sent += tilcod
+                        return DirectReservationAttempt.StayedOnConfirmation
+                    }
+                    override suspend fun fetchReservations(): List<Reservation> = emptyList()
+                    // サマリ件数と解析行数が一致し、一覧が完全だと確認できた状態を模す。
+                    override suspend fun fetchReservationSnapshot() = ReservationListSnapshot(emptyList(), complete = true)
+                    override fun close() = Unit
                 }
-                override suspend fun fetchReservations(): List<Reservation> = emptyList()
-                override fun close() = Unit
-            }
         })
         repository.addToCart(ReservationTarget(null, member, "first", "一")); repository.addToCart(ReservationTarget(null, member, "second", "二"))
         val result = repository.confirmCart(ReservationConfirmation("106", 1000))
         assertEquals(listOf("first", "second"), sent)
         assertEquals(ReservationOutcome.Failure(FailureReason.REJECTED_BY_SITE), result.members.single().itemResults[0].outcome)
         assertEquals(ReservationOutcome.Failure(FailureReason.REJECTED_BY_SITE), result.members.single().itemResults[1].outcome)
+    }
+
+    @Test
+    fun `確認画面のまま返り一覧の完全性を確認できなければ拒否と断定せず残件を中止する`() = runBlocking {
+        val member = addMember("照合不能拒否", "17")
+        val sent = mutableListOf<String>()
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) =
+                object : ReservationSession, ReservationSnapshotSource {
+                    override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
+                        sent += tilcod
+                        return DirectReservationAttempt.StayedOnConfirmation
+                    }
+                    override suspend fun fetchReservations(): List<Reservation> = emptyList()
+                    // サマリ件数と解析行数の不一致・サマリ解析失敗のいずれも complete=false で表現される。
+                    override suspend fun fetchReservationSnapshot() = ReservationListSnapshot(emptyList(), complete = false)
+                    override fun close() = Unit
+                }
+        })
+        repository.addToCart(ReservationTarget(null, member, "first", "一")); repository.addToCart(ReservationTarget(null, member, "second", "二"))
+        val result = repository.confirmCart(ReservationConfirmation("106", 1000))
+        assertEquals(listOf("first"), sent)
+        assertEquals(
+            ReservationOutcome.Unknown(com.fallgist.nishinomiyalibrary.domain.model.UnknownReason.VERIFICATION_UNAVAILABLE),
+            result.members.single().itemResults[0].outcome,
+        )
+        assertEquals(ReservationOutcome.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE), result.members.single().itemResults[1].outcome)
     }
 
     @Test
@@ -303,7 +335,7 @@ class ReservationCartRepositoryTest {
     }
 
     @Test
-    fun `再認証後に確認画面のまま返り一覧に無ければ拒否とし同一メンバーの次の項目へ進む`() = runBlocking {
+    fun `再認証後に確認画面のまま返り完全な一覧に無ければ拒否とし同一メンバーの次の項目へ進む`() = runBlocking {
         val member = addMember("再認証拒否", "16")
         var opens = 0
         val repository = repository(object : ReservationGateway {
@@ -314,9 +346,10 @@ class ReservationCartRepositoryTest {
                     override suspend fun fetchReservations(): List<Reservation> = emptyList()
                     override fun close() = Unit
                 }
-                return object : ReservationSession {
+                return object : ReservationSession, ReservationSnapshotSource {
                     override suspend fun directReserve(tilcod: String, pickupLibraryCode: String) = DirectReservationAttempt.StayedOnConfirmation
                     override suspend fun fetchReservations(): List<Reservation> = emptyList()
+                    override suspend fun fetchReservationSnapshot() = ReservationListSnapshot(emptyList(), complete = true)
                     override fun close() = Unit
                 }
             }

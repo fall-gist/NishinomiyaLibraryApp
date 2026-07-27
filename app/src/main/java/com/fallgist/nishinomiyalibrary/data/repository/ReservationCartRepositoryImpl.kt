@@ -10,7 +10,9 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.InvalidPickupLibraryEx
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.PICKUP_LIBRARY_CODES
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationListSnapshot
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSession
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSnapshotSource
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.MemberReservationResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult
@@ -269,11 +271,16 @@ class ReservationCartRepositoryImpl @Inject constructor(
 
     /**
      * 確定POST後も確認画面のままだった場合の解決。サイトは業務的拒否（予約上限超過など）の理由を
-     * 表示せず確認画面を再表示するだけなので、予約一覧に対象が無いことをもって拒否と断定する
-     * （予約状況一覧は20件でもページングされないと実測済みのため、この照合に偽陰性は起きない）。
+     * 表示せず確認画面を再表示するだけなので、予約一覧に対象があるかどうかで成否を判断する。
+     * ただし「一覧に対象が無い＝拒否」と断定できるのは、取得した一覧が完全だと確認できたときだけ。
+     * 予約上限20件・一覧が非ページングであることは現時点の実測に過ぎず、恒久的なサイト仕様として
+     * 保証されたものではない。将来サイトが変わり一覧がページングされた場合、成立しているのに
+     * 1ページ目に対象が無いだけで誤って「拒否」と断定してしまう恐れがあるため、完全性を確認できない
+     * ときは成否不明へ倒す（詳細は fetchReservationSnapshot と docs/handoff.md を参照）。
      * 資料種別ごとの上限などで拒否された場合、同一メンバーの次の資料は成功し得るため、
      * 一覧照合が完了した場合（成功・拒否のいずれでも）は残り項目の処理を継続する。
-     * 一覧取得自体に失敗した場合だけ成否を判断できないため、残り項目を中止する。
+     * 一覧取得自体に失敗した場合、および完全性を確認できない場合は成否を判断できないため、
+     * 残り項目を中止する。
      * @return true なら残り項目の処理を継続してよい、false なら中止する。
      */
     private suspend fun resolveStayedOnConfirmation(
@@ -283,23 +290,33 @@ class ReservationCartRepositoryImpl @Inject constructor(
         index: Int,
         provisional: MutableMap<ReservationTarget, Provisional>,
     ): Boolean {
-        val reservedTilcods = try {
-            session.fetchReservations().map { it.tilcod }.filter(String::isNotBlank).toSet()
+        val snapshot = try {
+            // ReservationSessionは公開APIのため、完全性判定は internal な ReservationSnapshotSource
+            // 側にだけ持たせている。実装していないセッション（テストのフェイクなど）に対しては、
+            // 完全性を確認できないものとして安全側（成否不明）に倒す。
+            (session as? ReservationSnapshotSource)?.fetchReservationSnapshot()
+                ?: ReservationListSnapshot(session.fetchReservations(), complete = false)
         } catch (exception: Exception) {
             exception.rethrowIfCancellation()
             null
         }
-        if (reservedTilcods == null) {
+        if (snapshot == null) {
             provisional[target] = Provisional.Indeterminate(UnknownReason.VERIFICATION_UNAVAILABLE)
             targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
             return false
         }
-        provisional[target] = if (target.tilcod in reservedTilcods) {
-            Provisional.VerifiedSuccess
-        } else {
-            Provisional.Failure(FailureReason.REJECTED_BY_SITE)
+        val reservedTilcods = snapshot.reservations.map { it.tilcod }.filter(String::isNotBlank).toSet()
+        if (target.tilcod in reservedTilcods) {
+            provisional[target] = Provisional.VerifiedSuccess
+            return true
         }
-        return true
+        if (snapshot.complete) {
+            provisional[target] = Provisional.Failure(FailureReason.REJECTED_BY_SITE)
+            return true
+        }
+        provisional[target] = Provisional.Indeterminate(UnknownReason.VERIFICATION_UNAVAILABLE)
+        targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
+        return false
     }
 
     private fun resolve(provisional: Provisional?, tilcod: String, reservedTilcods: Set<String>?): ReservationOutcome = when (provisional) {

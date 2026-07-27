@@ -7,6 +7,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookDetailReser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoginFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import org.jsoup.Jsoup
 import okhttp3.FormBody
@@ -22,6 +23,23 @@ interface ReservationSession {
     suspend fun fetchReservations(): List<Reservation>
 
     fun close()
+}
+
+/** 予約一覧と、その一覧が完全だと確認できたかどうか。照合の断定はcompleteのときだけ行う。 */
+internal data class ReservationListSnapshot(
+    val reservations: List<Reservation>,
+    val complete: Boolean,
+)
+
+/**
+ * 予約一覧の完全性判定を必要とする呼出し元向けの内部限定API。
+ * ReservationSessionは公開インターフェースであり、既存実装（テストのフェイクを含む）を壊さずに
+ * メソッドを追加することはできないため、この能力だけを別の internal インターフェースへ切り出す。
+ * 呼出し側は `as?` で任意に取得し、実装していないセッションに対しては「完全性は確認できない」
+ * ものとして安全側（成否不明）に倒す。
+ */
+internal interface ReservationSnapshotSource {
+    suspend fun fetchReservationSnapshot(): ReservationListSnapshot
 }
 
 sealed interface DirectReservationAttempt {
@@ -138,7 +156,7 @@ class LicsXpReservationGateway private constructor(
 internal class LicsXpReservationSession(
     private val session: LicsXpSession,
     private val sequenceHooks: ReservationSequenceHooks,
-) : ReservationSession, ReservationConfirmationInspector {
+) : ReservationSession, ReservationConfirmationInspector, ReservationSnapshotSource {
     override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
         require(tilcod.isNotBlank()) { "tilcodが空です" }
         require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
@@ -199,7 +217,16 @@ internal class LicsXpReservationSession(
         }
     }
 
-    override suspend fun fetchReservations(): List<Reservation> {
+    override suspend fun fetchReservations(): List<Reservation> = fetchReservationSnapshot().reservations
+
+    /**
+     * 予約一覧と、その一覧が完全だと確認できたかどうかを返す。
+     * メニューHTML（WOpacMnuTopInitAction.do）には既にログイン後の利用状況サマリが含まれているため、
+     * 新たなリクエストを発生させずにサマリの予約中件数を取り出せる。この件数と一覧の解析行数が
+     * 一致した場合だけ「一覧は完全」と判定する。サマリが解析できない、または件数が一致しない場合は
+     * ページングの有無などを確認できないため、完全とは断定しない。
+     */
+    override suspend fun fetchReservationSnapshot(): ReservationListSnapshot {
         val menu = session.get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
         requireNotMaintenance(menu) { session.noteDiagnostic("fetch-reservations", "メンテナンス") }
         if (isLoginForm(Jsoup.parse(menu))) {
@@ -207,6 +234,8 @@ internal class LicsXpReservationSession(
             throw LibraryError.Auth(null)
         }
         session.updateTokens(menu)
+        // サマリの解析失敗は致命的にせず、完全性を確認できないものとして扱う。
+        val summaryReservationCount = runCatching { SummaryParser.parse(menu).reservationCount }.getOrNull()
         val tokens = session.requireTokens()
         val html = session.post(
             "WOpacMnuTopToPwdLibraryAction.do",
@@ -214,12 +243,20 @@ internal class LicsXpReservationSession(
             FormBody.Builder().add("hash", tokens.hash).add("gamenid", tokens.gamenId).build(),
         )
         requireNotMaintenance(html) { session.noteDiagnostic("fetch-reservations", "メンテナンス") }
-        try {
-            return ReservationListParser.parse(html)
+        val reservations = try {
+            ReservationListParser.parse(html)
         } catch (exception: ParseException) {
             session.noteDiagnostic("fetch-reservations", "${exception.screen}: ${exception.reason}")
             throw LibraryError.Parse(exception.screen, exception.reason)
         }
+        val complete = summaryReservationCount != null && summaryReservationCount == reservations.size
+        if (!complete) {
+            session.noteDiagnostic(
+                "fetch-reservations",
+                "サマリ件数と解析行数が不一致 (summary=${summaryReservationCount?.toString() ?: "取得不可"}, parsed=${reservations.size})",
+            )
+        }
+        return ReservationListSnapshot(reservations, complete)
     }
 
     override fun close() = Unit

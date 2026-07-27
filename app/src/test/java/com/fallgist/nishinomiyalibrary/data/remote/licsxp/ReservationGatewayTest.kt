@@ -628,6 +628,123 @@ class ReservationGatewayTest {
         assertFalse(fetchNotes.single().second.contains("<html>"))
     }
 
+    @Test
+    fun `サマリ件数と解析行数が一致すれば一覧は完全と判定される`() = runBlocking {
+        server.enqueue(page("<html>温め</html>", cookie = true))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(""))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+
+        // menu.html のサマリ予約中件数(19件)と usrrsv.html の解析行数(19件)は一致するフィクスチャ。
+        val snapshot = (session as ReservationSnapshotSource).fetchReservationSnapshot()
+
+        assertTrue(snapshot.complete)
+        assertEquals(19, snapshot.reservations.size)
+    }
+
+    @Test
+    fun `サマリ件数と解析行数が不一致なら一覧は完全と判定されず件数だけ診断ログに残る`() = runBlocking {
+        server.enqueue(page("<html>温め</html>", cookie = true))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(""))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(syntheticReservationListHtml(3)))
+        val notes = mutableListOf<Pair<String, String>>()
+        val root = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), noteCapturingObserver(notes), waitForRequestSlot = {})
+        val session = LicsXpReservationGateway(root).openAuthenticatedSession("1234", "secret")
+
+        // menu.html のサマリ予約中件数(19件)と、3行しかない一覧の解析行数は一致しない。
+        val snapshot = (session as ReservationSnapshotSource).fetchReservationSnapshot()
+
+        assertFalse(snapshot.complete)
+        assertEquals(3, snapshot.reservations.size)
+        val fetchNotes = notes.filter { it.first == "fetch-reservations" }
+        assertEquals(1, fetchNotes.size)
+        assertTrue(fetchNotes.single().second.contains("summary=19"))
+        assertTrue(fetchNotes.single().second.contains("parsed=3"))
+        assertFalse(fetchNotes.single().second.contains("タイトル"))
+    }
+
+    @Test
+    fun `サマリが解析できない場合も完全と判定されない`() = runBlocking {
+        server.enqueue(page("<html>温め</html>", cookie = true))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(""))
+        server.enqueue(page(fixture("menu.html")))
+        // LBForm(hash/gamenid)はそのまま残し、#stat-login の id だけを潰してサマリ解析だけを失敗させる。
+        server.enqueue(page(fixture("menu.html").replace("id=\"stat-login\"", "id=\"stat-login-missing\"")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        val notes = mutableListOf<Pair<String, String>>()
+        val root = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), noteCapturingObserver(notes), waitForRequestSlot = {})
+        val session = LicsXpReservationGateway(root).openAuthenticatedSession("1234", "secret")
+
+        val snapshot = (session as ReservationSnapshotSource).fetchReservationSnapshot()
+
+        assertFalse(snapshot.complete)
+        assertEquals(19, snapshot.reservations.size)
+        val fetchNotes = notes.filter { it.first == "fetch-reservations" }
+        assertEquals(1, fetchNotes.size)
+        assertTrue(fetchNotes.single().second.contains("summary=取得不可"))
+        assertTrue(fetchNotes.single().second.contains("parsed=19"))
+    }
+
+    private fun noteCapturingObserver(notes: MutableList<Pair<String, String>>): LicsXpDiagnosticObserver =
+        object : LicsXpDiagnosticObserver {
+            override fun onRequest(request: LicsXpDiagnosticRequest) = Unit
+            override fun onWireRequest(
+                method: String,
+                path: String,
+                protocol: String,
+                headers: List<Pair<String, String>>,
+                cookieNames: List<String>,
+                setCookieNames: List<String>,
+            ) = Unit
+            override fun onResponse(method: String, path: String, statusCode: Int, redirectPath: String?) = Unit
+            override fun onPage(path: String, classification: String, formFingerprint: String) = Unit
+            override fun onScreenScript(path: String, actionTargets: List<String>, fieldAssignments: List<String>) = Unit
+            override fun onSiteMessages(path: String, messages: List<String>) = Unit
+            override fun onPageText(path: String, headings: List<String>, notices: List<String>) = Unit
+            override fun onNote(stage: String, detail: String) {
+                notes += stage to detail
+            }
+        }
+
+    /** ParserSupportが要求する最小構造だけを満たす、行数を自由に変えられる予約状況一覧HTML。 */
+    private fun syntheticReservationListHtml(rowCount: Int): String {
+        val rows = (1..rowCount).joinToString("\n") { index ->
+            """
+            <tr>
+                <td><a href="?hTilcod=100000000000$index">タイトル$index</a></td>
+                <td>図書</td>
+                <td>本館</td>
+                <td>26/07/0$index</td>
+                <td>$index</td>
+                <td>予約中</td>
+                <td></td>
+            </tr>
+            """.trimIndent()
+        }
+        return """
+        <html>
+        <h1>予約状況一覧</h1>
+        <table summary="予約状況一覧表">
+            <thead><tr><th>資料名</th><th>書誌種別</th><th>受取館</th><th>予約日</th><th>順位</th><th>予約状態</th><th>取置期限</th></tr></thead>
+            <tbody>
+            $rows
+            </tbody>
+        </table>
+        </html>
+        """.trimIndent()
+    }
+
     private fun emptyContactDirectWebFixture(): String =
         fixture("reservation_confirm.html").replace(
             "<input type=\"hidden\" name=\"contactdirectweb\" value=\"4\" />",
