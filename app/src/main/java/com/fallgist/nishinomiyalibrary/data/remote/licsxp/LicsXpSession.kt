@@ -702,7 +702,7 @@ private const val SCREEN_SCRIPT_ENTRY_MAX_CHARS = 160
 private const val FUNCTION_BODY_LIMIT = 8
 private const val FUNCTION_BODY_MAX_CHARS = 1200
 private const val TOP_LEVEL_CONFIRM_ENTRY_LIMIT = 3
-private const val TOP_LEVEL_CONFIRM_ENTRY_MAX_CHARS = 300
+private const val TOP_LEVEL_CONFIRM_ENTRY_MAX_CHARS = 1500
 /** 予約取消の確認ダイアログ（`confirm(` / `lbConfirm(`）が、関数の外(トップレベル)で呼ばれている場合に捉える。 */
 private val TOP_LEVEL_CONFIRM_CALL_REGEX = Regex("""\b(?:confirm|lbConfirm)\s*\(""")
 
@@ -808,8 +808,9 @@ private fun extractTopLevelConfirmStatements(topLevelBody: String): List<String>
     val statements = mutableListOf<String>()
     for (match in TOP_LEVEL_CONFIRM_CALL_REGEX.findAll(topLevelBody)) {
         val start = topLevelBody.lastIndexOf(';', match.range.first).let { if (it < 0) 0 else it + 1 }
-        val semicolonIndex = topLevelBody.indexOf(';', match.range.first)
-        val end = if (semicolonIndex < 0) topLevelBody.length else semicolonIndex + 1
+        // confirm の戻り値をどう使うか(`if (rest) { ... }`)が本題なので、呼び出しの後ろまで含める。
+        // 最初のセミコロンで切ると代入文だけになり、肝心の分岐が落ちる。
+        val end = minOf(topLevelBody.length, match.range.last + 1200)
         val statement = topLevelBody.substring(start, end).trim()
         if (statement.isNotEmpty()) statements += statement
     }
