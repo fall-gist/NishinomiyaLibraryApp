@@ -931,5 +931,30 @@ $env:LICSXP_PASSWORD=[Environment]::GetEnvironmentVariable('LICSXP_PASSWORD','Us
 - **書き込みなしのdry-run（`liveReservationInspect`）は担当AIが自走してよい。** 仮説検証の往復を
   所有者に依存しない
 - **書き込みを伴う診断（`liveReservationDiagnostic`）は都度、所有者の承認を得てから実行する。**
+
+### UI改修: FLAG_SECUREの撤去とテキスト選択の許可（2026-07-27）
+
+`MainActivity.onCreate`冒頭で設定していた`window.setFlags(FLAG_SECURE, FLAG_SECURE)`を削除した。
+理由は次のとおり。
+- 端末のスクリーンショットが真っ黒になり、不具合報告や調査で画面を共有できなかったため
+- パスワード・カード番号をUIへ表示する箇所は無く（暗号化ストレージに保持し、画面には出していない）、
+  表示されるのは家族の貸出・予約状況のみであること
+- 仕様書・設計書（`docs/spec.md`等）に`FLAG_SECURE`を要求する記述は無いこと
+
+再度スクリーンショット禁止に戻したい場合は、`MainActivity.onCreate`で上記の`window.setFlags`呼び出しを
+書き戻せばよい（`android.view.WindowManager`のimportも合わせて要復元）。
+
+あわせて`LibraryApp`の`Scaffold`内、`innerPadding`適用後の`Box`の内側全体を
+`androidx.compose.foundation.text.selection.SelectionContainer`で包み、画面上のテキストを
+長押しで選択・コピーできるようにした。書誌詳細・診断ログのオーバーレイやダイアログもこの`Box`の
+内側にあるため、まとめて対象になる。ドロワー（`ModalDrawerSheet`）と下部ナビ（`Scaffold`の
+`bottomBar`）はこの`Box`の外側にあるため対象外。
+
+`SelectionContainer`は長押し起点のテキスト選択ジェスチャーのみを追加するもので、
+`clickable`/`toggleable`によるタップ判定を妨げない。本リポジトリには`onLongClick`/
+`combinedClickable`を使う箇所が無いことを確認しており、ボタン・スイッチ・一覧行のタップや
+`OutlinedTextField`への入力は従来どおり機能する（`OutlinedTextField`は自身の選択状態を
+独立して管理するため、外側の`SelectionContainer`と競合しない）。そのため`DisableSelection`による
+個別除外は行っていない。
   担当AIが独断で予約を作ってはならない
 - **アプリのUI操作と、サイト上での最終確認は所有者が行う。** CLI診断はUIを通らない

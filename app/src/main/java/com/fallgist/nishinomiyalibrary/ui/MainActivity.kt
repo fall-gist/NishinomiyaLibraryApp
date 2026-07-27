@@ -1,7 +1,6 @@
 package com.fallgist.nishinomiyalibrary.ui
 
 import android.os.Bundle
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
@@ -28,7 +27,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
-/** Jetpack Composeでホーム画面を描画するランチャー。認証情報の露出防止にFLAG_SECUREを付与する。 */
+/** Jetpack Composeでホーム画面を描画するランチャー。 */
 open class MainActivity : ComponentActivity() {
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -46,10 +45,10 @@ open class MainActivity : ComponentActivity() {
     private lateinit var diagnosticLogScreenController: DiagnosticLogScreenController
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE,
-        )
+        // FLAG_SECUREは付与しない。
+        // 端末のスクリーンショットが真っ黒になり、不具合報告や調査で画面を共有できなくなるため。
+        // パスワード・カード番号をUIへ表示する箇所は無く(暗号化ストレージに保持し、画面には出していない)、
+        // 表示されるのは家族の貸出・予約状況のみであり、仕様書・設計書にもFLAG_SECUREを要求する記述は無い。
         super.onCreate(savedInstanceState)
         val entryPoint = EntryPointAccessors.fromApplication(
             applicationContext,

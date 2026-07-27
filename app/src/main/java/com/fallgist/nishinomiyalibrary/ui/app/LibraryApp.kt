@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalDrawerSheet
@@ -198,200 +199,204 @@ fun LibraryApp(
                     .fillMaxSize()
                     .padding(innerPadding),
             ) {
-                when (current) {
-                    Destination.HOME -> HomeScreen(
-                        state = state,
-                        onSelectMember = onSelectMember,
-                        onManualSync = onManualSync,
-                        onRegister = onRegister,
-                        onOpenMenu = openMenu,
-                        onOpenDetail = openDetail,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-
-                    Destination.LOANS -> {
-                        val loansState by loansController.state.collectAsState()
-                        LoansScreen(
-                            state = loansState,
-                            onSelectMember = loansController::selectMember,
+                // 画面本体をSelectionContainerで包み、長押しでのテキスト選択・コピーを可能にする。
+                // 書誌詳細・診断ログのオーバーレイやダイアログもこのBoxの内側にあるため、まとめて対象になる。
+                SelectionContainer {
+                    when (current) {
+                        Destination.HOME -> HomeScreen(
+                            state = state,
+                            onSelectMember = onSelectMember,
+                            onManualSync = onManualSync,
+                            onRegister = onRegister,
                             onOpenMenu = openMenu,
                             onOpenDetail = openDetail,
                             modifier = Modifier.fillMaxSize(),
                         )
-                    }
 
-                    Destination.RESERVATIONS -> {
-                        val reservationsState by reservationsController.state.collectAsState()
-                        ReservationsScreen(
-                            state = reservationsState,
-                            onSelectMember = reservationsController::selectMember,
-                            onOpenMenu = openMenu,
-                            onOpenDetail = openDetail,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-
-                    Destination.READING -> {
-                        val readingState by readingRecordsController.state.collectAsState()
-                        ReadingRecordsScreen(
-                            state = readingState,
-                            onSelectMember = readingRecordsController::selectMember,
-                            onQueryChange = readingRecordsController::updateQuery,
-                            onOpenMenu = openMenu,
-                            onOpenDetail = openDetail,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-
-                    Destination.SHELF -> {
-                        val shelfState by bookshelfController.state.collectAsState()
-                        BookshelfScreen(
-                            state = shelfState,
-                            onSelectMember = bookshelfController::selectMember,
-                            onOpenMenu = openMenu,
-                            onOpenDetail = openDetail,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-
-                    Destination.SEARCH -> {
-                        val searchState by searchController.state.collectAsState()
-                        SearchScreen(
-                            state = searchState,
-                            onQueryChange = searchController::updateQuery,
-                            onSearch = searchController::search,
-                            onLoadMore = searchController::loadMore,
-                            onOpenDetail = openDetail,
-                            onOpenMenu = openMenu,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-
-                    Destination.NEW_ARRIVALS -> {
-                        val newArrivalsState by newArrivalsController.state.collectAsState()
-                        LaunchedEffect(Unit) { newArrivalsController.onScreenLaunched() }
-                        NewArrivalsScreen(
-                            state = newArrivalsState,
-                            onQueryChange = newArrivalsController::updateQuery,
-                            onRefresh = newArrivalsController::refresh,
-                            onOpenMenu = openMenu,
-                            onOpenDetail = openDetail,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-
-                    Destination.CALENDAR -> {
-                        val calendarState by calendarController.state.collectAsState()
-                        CalendarScreen(
-                            state = calendarState,
-                            onSelectLibrary = calendarController::selectLibrary,
-                            onOpenMenu = openMenu,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-
-                    Destination.SETTINGS -> {
-                        val settingsState by settingsController.state.collectAsState()
-                        SettingsScreen(
-                            state = settingsState,
-                            onSaveMember = settingsController::saveMember,
-                            onMoveMemberUp = settingsController::moveMemberUp,
-                            onMoveMemberDown = settingsController::moveMemberDown,
-                            onRemoveMember = settingsController::removeMember,
-                            onUpdateSyncTime = settingsController::updateSyncTime,
-                            onSetNotifyReturnReminder = settingsController::setNotifyReturnReminder,
-                            onSetNotifyPickupReady = settingsController::setNotifyPickupReady,
-                            onSetReturnReminderDaysBefore = settingsController::setReturnReminderDaysBefore,
-                            onSetDefaultCalendarLibrary = settingsController::setDefaultCalendarLibrary,
-                            onSetDiagnosticLogEnabled = settingsController::setDiagnosticLogEnabled,
-                            onOpenDiagnosticLog = { diagnosticLogOpen = true },
-                            onOpenMenu = openMenu,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-
-                    Destination.RESERVATION_CART -> {
-                        ReservationCartScreen(
-                            state = reservationState,
-                            onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
-                            onRemoveFromCart = reservationUiController::removeFromCart,
-                            onRequestConfirmation = reservationUiController::requestCartConfirmation,
-                            onOpenSearch = {
-                                currentName = Destination.SEARCH.name
-                                bookDetailController.close()
-                            },
-                            onClearResults = reservationUiController::clearCartFeedback,
-                            onOpenMenu = openMenu,
-                            onOpenDetail = openDetail,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                }
-
-                // どの画面の上にも重ねられる共通の書誌詳細オーバーレイ
-                val detailState by bookDetailController.state.collectAsState()
-                if (detailState.open) {
-                    if (current == Destination.RESERVATION_CART) {
-                        // 予約カートからの起動だけは全画面オーバーレイではなくダイアログで重ねる。
-                        // カート画面自体の状態(受取館選択・結果表示等)は下に隠れたまま保たれる。
-                        Dialog(
-                            onDismissRequest = bookDetailController::close,
-                            properties = DialogProperties(usePlatformDefaultWidth = false),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(0.94f)
-                                    .fillMaxHeight(0.86f)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(colors.paper),
-                            ) {
-                                BookDetailView(
-                                    detail = detailState,
-                                    onBack = bookDetailController::close,
-                                    reservation = reservationState,
-                                    onSelectReservationMember = reservationUiController::selectMember,
-                                    onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
-                                    onAddToCart = reservationUiController::addToCart,
-                                    onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
+                        Destination.LOANS -> {
+                            val loansState by loansController.state.collectAsState()
+                            LoansScreen(
+                                state = loansState,
+                                onSelectMember = loansController::selectMember,
+                                onOpenMenu = openMenu,
+                                onOpenDetail = openDetail,
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
-                    } else {
-                        BookDetailView(
-                            detail = detailState,
-                            onBack = bookDetailController::close,
-                            reservation = reservationState,
-                            onSelectReservationMember = reservationUiController::selectMember,
-                            onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
-                            onAddToCart = reservationUiController::addToCart,
-                            onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
+
+                        Destination.RESERVATIONS -> {
+                            val reservationsState by reservationsController.state.collectAsState()
+                            ReservationsScreen(
+                                state = reservationsState,
+                                onSelectMember = reservationsController::selectMember,
+                                onOpenMenu = openMenu,
+                                onOpenDetail = openDetail,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        Destination.READING -> {
+                            val readingState by readingRecordsController.state.collectAsState()
+                            ReadingRecordsScreen(
+                                state = readingState,
+                                onSelectMember = readingRecordsController::selectMember,
+                                onQueryChange = readingRecordsController::updateQuery,
+                                onOpenMenu = openMenu,
+                                onOpenDetail = openDetail,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        Destination.SHELF -> {
+                            val shelfState by bookshelfController.state.collectAsState()
+                            BookshelfScreen(
+                                state = shelfState,
+                                onSelectMember = bookshelfController::selectMember,
+                                onOpenMenu = openMenu,
+                                onOpenDetail = openDetail,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        Destination.SEARCH -> {
+                            val searchState by searchController.state.collectAsState()
+                            SearchScreen(
+                                state = searchState,
+                                onQueryChange = searchController::updateQuery,
+                                onSearch = searchController::search,
+                                onLoadMore = searchController::loadMore,
+                                onOpenDetail = openDetail,
+                                onOpenMenu = openMenu,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        Destination.NEW_ARRIVALS -> {
+                            val newArrivalsState by newArrivalsController.state.collectAsState()
+                            LaunchedEffect(Unit) { newArrivalsController.onScreenLaunched() }
+                            NewArrivalsScreen(
+                                state = newArrivalsState,
+                                onQueryChange = newArrivalsController::updateQuery,
+                                onRefresh = newArrivalsController::refresh,
+                                onOpenMenu = openMenu,
+                                onOpenDetail = openDetail,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        Destination.CALENDAR -> {
+                            val calendarState by calendarController.state.collectAsState()
+                            CalendarScreen(
+                                state = calendarState,
+                                onSelectLibrary = calendarController::selectLibrary,
+                                onOpenMenu = openMenu,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        Destination.SETTINGS -> {
+                            val settingsState by settingsController.state.collectAsState()
+                            SettingsScreen(
+                                state = settingsState,
+                                onSaveMember = settingsController::saveMember,
+                                onMoveMemberUp = settingsController::moveMemberUp,
+                                onMoveMemberDown = settingsController::moveMemberDown,
+                                onRemoveMember = settingsController::removeMember,
+                                onUpdateSyncTime = settingsController::updateSyncTime,
+                                onSetNotifyReturnReminder = settingsController::setNotifyReturnReminder,
+                                onSetNotifyPickupReady = settingsController::setNotifyPickupReady,
+                                onSetReturnReminderDaysBefore = settingsController::setReturnReminderDaysBefore,
+                                onSetDefaultCalendarLibrary = settingsController::setDefaultCalendarLibrary,
+                                onSetDiagnosticLogEnabled = settingsController::setDiagnosticLogEnabled,
+                                onOpenDiagnosticLog = { diagnosticLogOpen = true },
+                                onOpenMenu = openMenu,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        Destination.RESERVATION_CART -> {
+                            ReservationCartScreen(
+                                state = reservationState,
+                                onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
+                                onRemoveFromCart = reservationUiController::removeFromCart,
+                                onRequestConfirmation = reservationUiController::requestCartConfirmation,
+                                onOpenSearch = {
+                                    currentName = Destination.SEARCH.name
+                                    bookDetailController.close()
+                                },
+                                onClearResults = reservationUiController::clearCartFeedback,
+                                onOpenMenu = openMenu,
+                                onOpenDetail = openDetail,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+
+                    // どの画面の上にも重ねられる共通の書誌詳細オーバーレイ
+                    val detailState by bookDetailController.state.collectAsState()
+                    if (detailState.open) {
+                        if (current == Destination.RESERVATION_CART) {
+                            // 予約カートからの起動だけは全画面オーバーレイではなくダイアログで重ねる。
+                            // カート画面自体の状態(受取館選択・結果表示等)は下に隠れたまま保たれる。
+                            Dialog(
+                                onDismissRequest = bookDetailController::close,
+                                properties = DialogProperties(usePlatformDefaultWidth = false),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.94f)
+                                        .fillMaxHeight(0.86f)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(colors.paper),
+                                ) {
+                                    BookDetailView(
+                                        detail = detailState,
+                                        onBack = bookDetailController::close,
+                                        reservation = reservationState,
+                                        onSelectReservationMember = reservationUiController::selectMember,
+                                        onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
+                                        onAddToCart = reservationUiController::addToCart,
+                                        onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                            }
+                        } else {
+                            BookDetailView(
+                                detail = detailState,
+                                onBack = bookDetailController::close,
+                                reservation = reservationState,
+                                onSelectReservationMember = reservationUiController::selectMember,
+                                onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
+                                onAddToCart = reservationUiController::addToCart,
+                                onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
+                                modifier = Modifier.fillMaxSize().background(colors.paper),
+                            )
+                        }
+                    }
+                    if (diagnosticLogOpen) {
+                        val diagnosticLogState by diagnosticLogScreenController.state.collectAsState()
+                        DiagnosticLogScreen(
+                            state = diagnosticLogState,
+                            onQueryChange = diagnosticLogScreenController::updateQuery,
+                            onToggleCategory = diagnosticLogScreenController::toggleCategory,
+                            onCopyVisible = diagnosticLogScreenController::formattedVisibleLog,
+                            onClear = diagnosticLogScreenController::clear,
+                            onExportFile = diagnosticLogScreenController::exportFile,
+                            onBack = { diagnosticLogOpen = false },
                             modifier = Modifier.fillMaxSize().background(colors.paper),
                         )
                     }
-                }
-                if (diagnosticLogOpen) {
-                    val diagnosticLogState by diagnosticLogScreenController.state.collectAsState()
-                    DiagnosticLogScreen(
-                        state = diagnosticLogState,
-                        onQueryChange = diagnosticLogScreenController::updateQuery,
-                        onToggleCategory = diagnosticLogScreenController::toggleCategory,
-                        onCopyVisible = diagnosticLogScreenController::formattedVisibleLog,
-                        onClear = diagnosticLogScreenController::clear,
-                        onExportFile = diagnosticLogScreenController::exportFile,
-                        onBack = { diagnosticLogOpen = false },
-                        modifier = Modifier.fillMaxSize().background(colors.paper),
-                    )
-                }
-                reservationState.pendingConfirmation?.let { request ->
-                    ReservationConfirmDialog(
-                        request = request,
-                        libraryName = reservationState.libraries.find { it.code == reservationState.pickupLibraryCode }?.name
-                            ?: reservationState.pickupLibraryCode,
-                        members = reservationState.members,
-                        onConfirm = reservationUiController::confirmPending,
-                        onDismiss = reservationUiController::dismissConfirmation,
-                    )
+                    reservationState.pendingConfirmation?.let { request ->
+                        ReservationConfirmDialog(
+                            request = request,
+                            libraryName = reservationState.libraries.find { it.code == reservationState.pickupLibraryCode }?.name
+                                ?: reservationState.pickupLibraryCode,
+                            members = reservationState.members,
+                            onConfirm = reservationUiController::confirmPending,
+                            onDismiss = reservationUiController::dismissConfirmation,
+                        )
+                    }
                 }
             }
         }
