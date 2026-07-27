@@ -15,6 +15,7 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import org.jsoup.Jsoup
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelFormParser
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -762,7 +763,7 @@ class ReservationGatewayTest {
     }
 
     @Test
-    fun `取消1段階目に確認ダイアログがあれば2段階目をクエリ無しで一回だけ送り本文とRefererOriginが1段階目由来になる`() = runBlocking {
+    fun `実測確認script抽出断片を含む取消1段階目なら2段階目をクエリ無しで一回だけ送り本文とRefererOriginが1段階目由来になる`() = runBlocking {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
         server.enqueue(page(cancelConfirmationStageHtml()))
@@ -793,6 +794,158 @@ class ReservationGatewayTest {
         )
         // 取消POSTはクエリ有無問わず1段階目・2段階目の2回だけ。
         assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    @Test
+    fun `無関係なfunction正規表現arrowを同居させた巨大script内の実測抽出断片でも2段階目を送る`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(cancelConfirmationStageHtml(scriptBody = cancelConfirmationScriptInLargeScript())))
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(ReservationCancelAttempt.Cancelled, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    @Test
+    fun `取消確認署名診断は通常の実測断片で集計のみを記録し2段階目を送る`() = runBlocking {
+        assertCancelSignatureDiagnostic(
+            stage1Html = cancelConfirmationStageHtml(),
+            expectStage2 = true,
+            expectedSummaryParts = listOf(
+                "matched=true",
+                "inlineScripts=1",
+                "exactMessageScripts=1",
+                "outerIfScripts=1",
+                "scan=completed:1",
+                "candidates=1",
+                "sanitizeSucceeded=1",
+                "fixedRegexMatches=1",
+            ),
+            expectedStageSummaryParts = listOf(
+                "targetStillPresent=true",
+                "signatureMatched=true",
+                "matched=true",
+            ),
+        )
+    }
+
+    @Test
+    fun `取消確認複合ガード診断は対象tilcod不一致を記録しPOST回数を変えない`() = runBlocking {
+        assertCancelSignatureDiagnostic(
+            stage1Html = cancelConfirmationStageHtml(
+                fixture("usrrsv.html").replace("1000001898886", "1000000000000"),
+            ),
+            expectStage2 = false,
+            expectedSummaryParts = listOf("matched=true"),
+            expectedStageSummaryParts = listOf(
+                "targetStillPresent=false",
+                "signatureMatched=true",
+                "matched=false",
+            ),
+        )
+    }
+
+    @Test
+    fun `実ライブ相当の元一覧formとprevRequestFormが併存しても2段階目を送る`() = runBlocking {
+        assertCancelSignatureDiagnostic(
+            stage1Html = cancelConfirmationStageHtml(),
+            expectStage2 = true,
+            expectedSummaryParts = listOf("matched=true"),
+            expectedStageSummaryParts = listOf(
+                "targetStillPresent=true",
+                "signatureMatched=true",
+                "matched=true",
+            ),
+        )
+    }
+
+    @Test
+    fun `外部originのprevRequestForm actionなら2段階目を送らない`() = runBlocking {
+        assertCancelSignatureDiagnostic(
+            stage1Html = cancelConfirmationStageHtml(previousRequestAction = "https://example.invalid/WOpacUsrRsvCancelAction.do"),
+            expectStage2 = false,
+            expectedSummaryParts = listOf("matched=true"),
+            expectedStageSummaryParts = listOf(
+                "targetStillPresent=true",
+                "signatureMatched=true",
+                "matched=true",
+            ),
+        )
+    }
+
+    @Test
+    fun `取消確認署名診断は巨大scriptでも集計のみを記録し2段階目を送る`() = runBlocking {
+        assertCancelSignatureDiagnostic(
+            stage1Html = cancelConfirmationStageHtml(scriptBody = cancelConfirmationScriptInLargeScript()),
+            expectStage2 = true,
+            expectedSummaryParts = listOf("matched=true", "scan=completed:1", "candidates=1", "fixedRegexMatches=1"),
+        )
+    }
+
+    @Test
+    fun `取消確認署名診断はtemplate拒否を集計して2段階目を送らない`() = runBlocking {
+        assertCancelSignatureDiagnostic(
+            stage1Html = cancelConfirmationStageHtml(
+                scriptBody = "${cancelConfirmationScript()} const ignored = `template`;",
+            ),
+            expectStage2 = false,
+            expectedSummaryParts = listOf("matched=false", "template:1", "candidates=0", "fixedRegexMatches=0"),
+            expectedStageSummaryParts = listOf(
+                "targetStillPresent=true",
+                "signatureMatched=false",
+                "matched=false",
+            ),
+        )
+    }
+
+    @Test
+    fun `実ライブを模す外側block内の候補でも2段階目を送る`() = runBlocking {
+        assertCancelSignatureDiagnostic(
+            stage1Html = cancelConfirmationStageHtml(scriptBody = "if (false) { ${cancelConfirmationScript()} }"),
+            expectStage2 = true,
+            expectedSummaryParts = listOf("matched=true", "scan=completed:1", "candidates=1", "fixedRegexMatches=1"),
+        )
+    }
+
+    @Test
+    fun `取消確認署名診断は同一blockの文頭以外を拒否して2段階目を送らない`() = runBlocking {
+        assertCancelSignatureDiagnostic(
+            stage1Html = cancelConfirmationStageHtml(scriptBody = "const invalidAssignment = ${cancelConfirmationScript()}"),
+            expectStage2 = false,
+            expectedSummaryParts = listOf("matched=false", "scan=completed:1", "candidates=0", "fixedRegexMatches=0"),
+        )
+    }
+
+    @Test
+    fun `取消確認署名診断は後続rest if欠落を拒否して2段階目を送らない`() = runBlocking {
+        assertCancelSignatureDiagnostic(
+            stage1Html = cancelConfirmationStageHtml(
+                scriptBody = cancelConfirmationScript().replace("if (rest)", "var restMissing = true;"),
+            ),
+            expectStage2 = false,
+            expectedSummaryParts = listOf("matched=false", "scan=completed:1", "candidates=0", "fixedRegexMatches=0"),
+        )
+    }
+
+    @Test
+    fun `取消確認署名診断は後続for欠落を拒否して2段階目を送らない`() = runBlocking {
+        assertCancelSignatureDiagnostic(
+            stage1Html = cancelConfirmationStageHtml(
+                scriptBody = cancelConfirmationScript().replace(
+                    "for (var i = 0; i < okArray.length; i++)",
+                    "while (true)",
+                ),
+            ),
+            expectStage2 = false,
+            expectedSummaryParts = listOf("matched=false", "scan=completed:1", "candidates=0", "fixedRegexMatches=0"),
+        )
     }
 
     @Test
@@ -868,6 +1021,45 @@ class ReservationGatewayTest {
     }
 
     @Test
+    fun `旧来の内側確認構造だけでは2段階目を送らない`() = runBlocking {
+        // 実サイトで採取したブラウザ判別を含む外側構造がなければ、状態変更POSTを許可しない。
+        assertOnlyStage1IsSent(cancelConfirmationStageHtml(scriptBody = legacyInnerCancelConfirmationScript()))
+    }
+
+    @Test
+    fun `確認scriptのtailだけがif false内なら2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(cancelConfirmationStageHtml(scriptBody = cancelConfirmationScriptWithTailInsideIfFalse()))
+    }
+
+    @Test
+    fun `候補内部に禁止構文があれば2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(
+            cancelConfirmationStageHtml(
+                scriptBody = cancelConfirmationScript().replace(
+                    "rest = lbConfirm(",
+                    "function unsupportedInsideCandidate() {}\nrest = lbConfirm(",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `確認文言に接頭文字があれば2段階目を送らない`() = runBlocking {
+        val message = "予約の取消を行います。よろしいですか？"
+        assertOnlyStage1IsSent(
+            cancelConfirmationStageHtml(scriptBody = cancelConfirmationScript().replace(message, "通知: $message")),
+        )
+    }
+
+    @Test
+    fun `確認文言に接尾文字があれば2段階目を送らない`() = runBlocking {
+        val message = "予約の取消を行います。よろしいですか？"
+        assertOnlyStage1IsSent(
+            cancelConfirmationStageHtml(scriptBody = cancelConfirmationScript().replace(message, "$message (確認)")),
+        )
+    }
+
+    @Test
     fun `取消確認署名があってもstage1一覧から対象行が消えていれば2段階目を送らない`() = runBlocking {
         assertOnlyStage1IsSent(cancelConfirmationStageHtml(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
     }
@@ -895,23 +1087,25 @@ class ReservationGatewayTest {
     }
 
     @Test
-    fun `トップレベルreturnの後にある取消確認署名では2段階目を送らない`() = runBlocking {
-        assertOnlyStage1IsSent(cancelConfirmationStageHtml(scriptPrefix = "return;"))
+    fun `top level returnの後でも固定署名なら2段階目を送る`() = runBlocking {
+        assertStage2IsSent(cancelConfirmationStageHtml(scriptPrefix = "return;"))
     }
 
     @Test
-    fun `未呼出し関数内の取消確認文言だけでは2段階目を送らない`() = runBlocking {
-        assertOnlyStage1IsSent(
-            "<html><script>function showCancelConfirmation() { " +
-                cancelConfirmationScript() + " }</script></html>",
+    fun `未呼出し関数内でも固定署名なら2段階目を送る`() = runBlocking {
+        assertStage2IsSent(
+            cancelConfirmationStageHtml(
+                scriptBody = "function showCancelConfirmation() { ${cancelConfirmationScript()} }",
+            ),
         )
     }
 
     @Test
-    fun `未呼出しarrow関数内の取消確認構造だけでは2段階目を送らない`() = runBlocking {
-        assertOnlyStage1IsSent(
-            "<html><script>const showCancelConfirmation = () => { " +
-                cancelConfirmationScript() + " };</script></html>",
+    fun `未呼出しarrow関数内でも固定署名なら2段階目を送る`() = runBlocking {
+        assertStage2IsSent(
+            cancelConfirmationStageHtml(
+                scriptBody = "const showCancelConfirmation = () => { ${cancelConfirmationScript()} };",
+            ),
         )
     }
 
@@ -931,17 +1125,52 @@ class ReservationGatewayTest {
     }
 
     @Test
-    fun `取消確認構造を持つ到達不能な関数内では2段階目を送らない`() = runBlocking {
-        assertOnlyStage1IsSent(
-            "<html><script>function unreachable() { " +
-                cancelConfirmationScript() + " } if (false) { unreachable(); }</script></html>",
+    fun `同一script内にtemplate literalがあれば実測構造があっても2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent("<html><script>${cancelConfirmationScript()} const ignored = `template`;</script></html>")
+    }
+
+    @Test
+    fun `if条件直後の正規表現内にある取消確認構造では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent("<html><script>${cancelConfirmationScriptInsideRegex("if (true)")}</script></html>")
+    }
+
+    @Test
+    fun `else直後の正規表現内にある取消確認構造では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent("<html><script>if (false) {} else ${cancelConfirmationScriptInsideRegex("")}</script></html>")
+    }
+
+    @Test
+    fun `arrow直後の正規表現内にある取消確認構造では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent("<html><script>const ignored = () => ${cancelConfirmationScriptInsideRegex("")}</script></html>")
+    }
+
+    @Test
+    fun `閉じ波括弧直後の正規表現内にある取消確認構造では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent("<html><script>if (false) {} ${cancelConfirmationScriptInsideRegex("")}</script></html>")
+    }
+
+    @Test
+    fun `固定署名で拒否した候補直後の正規表現内にある有効署名では2段階目を送らない`() = runBlocking {
+        val rejectedCandidate = cancelConfirmationScript().replace(
+            "rest = lbConfirm(",
+            "function unsupportedInsideCandidate() {}\nrest = lbConfirm(",
+        )
+        assertOnlyStage1IsSent("<html><script>$rejectedCandidate ${cancelConfirmationScriptInsideRegex("")}</script></html>")
+    }
+
+    @Test
+    fun `到達不能かは判定せず関数内の固定署名で2段階目を送る`() = runBlocking {
+        assertStage2IsSent(
+            cancelConfirmationStageHtml(
+                scriptBody = "function unreachable() { ${cancelConfirmationScript()} } if (false) { unreachable(); }",
+            ),
         )
     }
 
     @Test
-    fun `直接のif false分岐内にある取消確認構造では2段階目を送らない`() = runBlocking {
-        assertOnlyStage1IsSent(
-            "<html><script>if (false) { ${cancelConfirmationScript()} }</script></html>",
+    fun `if false分岐内でも固定署名なら2段階目を送る`() = runBlocking {
+        assertStage2IsSent(
+            cancelConfirmationStageHtml(scriptBody = "if (false) { ${cancelConfirmationScript()} }"),
         )
     }
 
@@ -953,9 +1182,11 @@ class ReservationGatewayTest {
     }
 
     @Test
-    fun `分割代入を使う関数内の取消確認構造では2段階目を送らない`() = runBlocking {
-        assertOnlyStage1IsSent(
-            "<html><script>function unreachable({value}) { ${cancelConfirmationScript()} }</script></html>",
+    fun `分割代入を使う関数内でも固定署名なら2段階目を送る`() = runBlocking {
+        assertStage2IsSent(
+            cancelConfirmationStageHtml(
+                scriptBody = "function unreachable({value}) { ${cancelConfirmationScript()} }",
+            ),
         )
     }
 
@@ -1219,21 +1450,129 @@ class ReservationGatewayTest {
         assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
     }
 
+    private suspend fun assertStage2IsSent(stage1Html: String) {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(stage1Html))
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        assertEquals(ReservationCancelAttempt.Cancelled, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    private suspend fun assertCancelSignatureDiagnostic(
+        stage1Html: String,
+        expectStage2: Boolean,
+        expectedSummaryParts: List<String>,
+        expectedStageSummaryParts: List<String> = emptyList(),
+    ) {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(stage1Html))
+        if (expectStage2) {
+            server.enqueue(page("<html>取消完了</html>"))
+            server.enqueue(page(menuWithReservationCount(18)))
+            server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+        } else {
+            server.enqueue(page(menuWithReservationCount(19)))
+            server.enqueue(page(fixture("usrrsv.html")))
+        }
+        val notes = mutableListOf<Pair<String, String>>()
+        val root = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), noteCapturingObserver(notes), waitForRequestSlot = {})
+        val session = LicsXpReservationSession(root, ReservationSequenceHooks())
+
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(
+            if (expectStage2) ReservationCancelAttempt.Cancelled else ReservationCancelAttempt.IndeterminateAfterPost,
+            result,
+        )
+        assertEquals(if (expectStage2) 6 else 5, server.requestCount)
+        val requests = List(server.requestCount) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(
+            if (expectStage2) 2 else 1,
+            requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true },
+        )
+        val signatureNotes = notes.filter { it.first == "cancel-reservation-signature" }
+        assertEquals(1, signatureNotes.size)
+        expectedSummaryParts.forEach { expected -> assertTrue(signatureNotes.single().second.contains(expected)) }
+        assertFalse(signatureNotes.single().second.contains("1013074729"))
+        assertFalse(signatureNotes.single().second.contains(CANCEL_TARGET_TILCOD))
+        val stageNotes = notes.filter { it.first == "cancel-reservation-stage" }
+        assertEquals(1, stageNotes.size)
+        expectedStageSummaryParts.forEach { expected -> assertTrue(stageNotes.single().second.contains(expected)) }
+        assertFalse(stageNotes.single().second.contains("1013074729"))
+        assertFalse(stageNotes.single().second.contains(CANCEL_TARGET_TILCOD))
+    }
+
     private fun cancelConfirmationStageHtml(
         listHtml: String = fixture("usrrsv.html"),
         scriptAttributes: String = "",
         scriptPrefix: String = "",
+        scriptBody: String = cancelConfirmationScript(),
+        previousRequestAction: String = "WOpacUsrRsvCancelAction.do",
+        okCodesFieldName: String = "okCodes",
+        previousRequestSourceHtml: String = fixture("usrrsv.html"),
     ): String {
-        val script = "<script$scriptAttributes>$scriptPrefix${cancelConfirmationScript()}</script>"
+        val script = "<script$scriptAttributes>$scriptPrefix var OK_CODES_NAME = \"$okCodesFieldName\"; $scriptBody</script>"
+        val previousRequestForm = previousRequestFormHtml(previousRequestSourceHtml, previousRequestAction)
         require(listHtml.contains("</body>", ignoreCase = true)) { "予約一覧fixtureにbody終端がありません" }
-        return listHtml.replace("</body>", "$script</body>", ignoreCase = true)
+        return listHtml.replace("</body>", "$previousRequestForm$script</body>", ignoreCase = true)
     }
 
+    /** 実ライブ同様、stage1送信内容を保持したprevRequestFormをDOM順で再現する。 */
+    private fun previousRequestFormHtml(listHtml: String, action: String): String {
+        val stage1 = ReservationCancelFormParser.parse(listHtml).buildForm("1013074729")
+        val controls = buildList {
+            add("mngFlg2_handan" to "1")
+            add("kbnchgflag" to "1")
+            for (index in 0 until stage1.size) add(stage1.name(index) to stage1.value(index))
+        }.joinToString("\n") { (name, value) ->
+            "<input type=\"hidden\" name=\"${htmlAttribute(name)}\" value=\"${htmlAttribute(value)}\">"
+        }
+        return "<form name=\"prevRequestForm\" action=\"${htmlAttribute(action)}\">$controls</form>"
+    }
+
+    private fun htmlAttribute(value: String): String =
+        value.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+
     /**
-     * DevToolsで採取した取消確認ページのlegacy scriptから、stage2判定に必要な実測構造を抜き出したもの。
-     * 単にconfirm文言を置くだけではstage2へ進ませないことを、負例テストと対にして検証する。
+     * 初回ライブ取消診断の`screen-script`ログから採取したtop-level confirm抽出断片。
+     * 実サイトHTML全文ではなく、認証情報・個人情報を含まない診断抽出結果をfixture化している。
      */
-    private fun cancelConfirmationScript(): String = """
+    private fun cancelConfirmationScript(): String = fixture("reservation_cancel_confirmation_live_fragment.js")
+
+    private fun cancelConfirmationScriptWithTailInsideIfFalse(): String {
+        val script = cancelConfirmationScript()
+        val tailIndex = script.indexOf("for (var i = 0; i < okArray.length; i++)")
+        require(tailIndex >= 0) { "実測確認script断片にOKコードhidden作成ループがありません" }
+        return script.substring(0, tailIndex) + "if (false) {\n" + script.substring(tailIndex) + "}\n"
+    }
+
+    private fun cancelConfirmationScriptInLargeScript(): String = """
+        function unrelatedBefore() {
+            return /[{}]/.test("outside");
+        }
+        const unrelatedPattern = /outside\\/pattern/;
+        const unrelatedArrow = () => ({ value: "outside" });
+        ${cancelConfirmationScript()}
+        class UnrelatedAfter {
+            matches(value) { return /after/.test(value); }
+        }
+    """.trimIndent()
+
+    private fun cancelConfirmationScriptInsideRegex(prefix: String): String {
+        val escaped = cancelConfirmationScript().replace("/", "\\/")
+        return "$prefix /noise; $escaped /;"
+    }
+
+    /** 外側のブラウザ判別分岐を含まない、旧来の最小合成構造。状態変更POSTの許可対象ではない。 */
+    private fun legacyInnerCancelConfirmationScript(): String = """
         if (0 != 1) {
             if (0 == 1) {
                 rest = confirm('予約の取消を行います。よろしいですか？');
@@ -1248,6 +1587,7 @@ class ReservationGatewayTest {
             submitFlg = false;
         } else { return cancelDialog(); }
         newHidden.name = OK_CODES_NAME;
+        newHidden.value = okArray[i];
         document.prevRequestForm.appendChild(newHidden);
     """.trimIndent()
 

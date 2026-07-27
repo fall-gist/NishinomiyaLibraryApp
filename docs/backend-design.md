@@ -669,6 +669,13 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
 バックグラウンド同期からの呼び出しは設計上禁止する（`ReservationSession.cancelReservation`・
 `ReservationCancelRepository`のコメント参照）。**
 
+> **ライブ検証の現状（2026-07-28）**: 固定値で第2段階を組み立てた旧版は、第1・第2段階の計2 POSTが
+> HTTP 200でも取消不成立で、対象`tilcod`は残存した（取消後サマリ19件、一覧パーサ20行）。その後の
+> `prevRequestForm`実DOM版のライブでは、開始時点で対象は1件あったが`cancelCode`が空のため、送信前安全弁で
+> 取消POST 0回のまま停止した。`cancelCode`が空になった原因は未確認であり、前回POSTの影響等を断定しない。
+> よって、現行版が本番で第2段階POSTを成功させ取消を成立させることは未検証である。次回は別の現在取消可能な
+> `tilcod`でのみ検証できる。
+
 - **ドメイン**: `Reservation.cancelCode`（取消ボタンの`yoykCancel('コード')`由来。取消ボタンが
   無い行は空文字列）。`ReservationCancelTarget`は`memberId`・`tilcod`・`cancelCode`の3値で対象を
   固定する。`ReservationCancelOutcome`
@@ -699,17 +706,44 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
      `cancelCode`は取消フォームを選ぶためだけに使い、DB由来の`tilcod`だけや`cancelCode`消失で成功を
      判定しない。特定不能・不一致・解析不能は取消POST前に
      `LibraryError.Parse`で停止する。
-  3. 実測済みの1段階目POSTは`WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1`、確認OK後の
-     2段階目POSTは同アクション（クエリ無し）へ、同じフォーム値に`okCodes=OPACUSR001`を加えて送る。
-     2段階目へ進むのは、1段階目の応答を再解析して同じ`cancelCode`→同じ一意の`tilcod`を持つ予約行と
-     取消フォームが残っていることを確認したうえで、2026-07-27に採取したインラインJavaScript
-     （`src`無し、type無しまたは標準JavaScript MIME）のトップレベルlegacy script構造
-     （`if (0 != 1)`→`rest = lbConfirm(...)`→`okArray`へ`OPACUSR001`追加→
+  3. 実測済みの1段階目POSTは`WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1`である。確認OK後の
+     2段階目POSTはstage1 HTMLの一意な`form[name=prevRequestForm]`からaction・successful controlsをDOM順で取得し、
+     scriptが単純代入した`OK_CODES_NAME`の実際のfield名へ`OPACUSR001`を末尾追加して送る。
+     2段階目へ進むのは、1段階目の応答を再解析して同じ`cancelCode`→同じ一意の`tilcod`を持つ予約行と、
+     2026-07-27に採取したインラインJavaScript
+     （`src`無し、type無しまたは標準JavaScript MIME）の固定legacy script構造
+     （外側の`if (document.all || IS_EXPLORER_11 || isEdge)`→`lbConfirm`/`lbConfirm1`/`window.confirm`→
+     `okArray`へ`OPACUSR001`追加→`for`ループ内で`newHidden.type/name/value`を設定→
      `document.prevRequestForm.appendChild(newHidden)`）全体に一致する場合だけとする。
-     JavaScriptの一般的な実行可能性は推定しない。これは「利用者が直前に指定した取消対象を残す応答が
-     既知の確認プロトコル署名を持つ」ことを確認する複合ガードである。コメント・文字列・template
-     literal・正規表現・非JavaScript script・関数/class/arrow関数・括弧不整合は根拠にせず、解析不能時も
-     送信しない。1段階目にこの複合条件が無い場合、または2段階目後は、いずれも照合へ進む。
+     `prevRequestForm`の既存controlsは、`mngFlg2_handan=1`・`kbnchgflag=1`と送信前に一意に解析済みの
+     `cancelForm`の全項目について名前・値・重複数が一致する場合だけ受け入れる（送信順はstage1 DOM順を維持）。
+     actionはbaseUrlと同一originかつ`WOpacUsrRsvCancelAction.do`のpathに限定し、解析・照合・URL検証のいずれかに
+     失敗した場合は第2段階を送らない。
+     `OK_CODES_NAME`抽出は既存の署名字句走査と同じ正規表現開始文脈（制御条件終端、`else`、arrow、block終端、
+     ASI後を含む）を用い、曖昧な`/`は正規表現として扱う。コメント・通常文字列・template literal・正規表現内の
+     偽代入は根拠にせず、同名の既存controlとの衝突も拒否する。
+     実サイトではこの構造がfunction・class・arrow関数・正規表現なども含む巨大な同一`script`内にあるため、
+     script全体を緩和して解釈しない。コメント・文字列・template literal・正規表現を飛ばす字句走査で、
+     丸括弧・角括弧の外かつ同一blockの文頭（script先頭または`{`/`;`/`}`の直後）にある当該外側ifを探し、
+     連続する「外側if/else」「if(rest)/else」「for(okArray)」の3文だけを括弧対応で切り出す。候補外の未知構文は
+     根拠にせず無関係として扱い、切り出した候補の内部だけを従来のサニタイズと固定署名で検証する。
+     ただし実測に不要なtemplate literal（backtick）が同一script内に1つでもあれば候補全体を拒否する。
+     `/`は字句トークン文脈で正規表現開始を判断し、曖昧な場合は正規表現として扱うことで偽陽性より
+     偽陰性を選ぶ。この保守性により、候補外の未知構文を一部許容する利点と、将来のサイトscript変化で
+     2段階目を送れなくなる可能性を交換している。
+     1段階目応答ごとに`cancel-reservation-signature`診断として、`matched`、inline script数、完全一致
+     確認文言数、外側if数、字句走査の完了/拒否理由別件数、candidate数、sanitize成功数、固定署名一致数だけを
+     記録する。HTML・script本文・資料コード・取消コード・hash・認証情報はこの診断へ含めない。
+     さらに`cancel-reservation-stage`診断として、値を出さず`targetStillPresent`、`signatureMatched`、
+     最終`matched`のBooleanだけを記録する。この診断は複合ガードの原因切分け専用であり、
+     第2段階POSTの可否を変えない。
+     2026-07-28第5回診断で外側ifが外側block内にあることを確認したため、候補を包むwrapperの種類・
+     block深度・`if (false)`・未呼出し関数などの一般到達可能性は安全条件に含めない。JavaScriptの
+     一般的な実行可能性は推定しない。ただし、固定署名の3文（外側if/else、`if(rest)/else`、`for(okArray)`）
+     の内部にfunction/class/arrow関数等の禁止構文が混入すれば拒否する。これは「利用者が直前に指定した
+     取消対象を残す応答が既知の確認プロトコル署名を持つ」ことを確認する複合ガードである。コメント・文字列・
+     template literal・正規表現・非JavaScript script・括弧不整合は根拠にせず、解析不能時も送信しない。
+     1段階目にこの複合条件が無い場合、または2段階目後は、いずれも照合へ進む。
   4. 状態変更POSTは**自動再試行しない1回限りの試行**である。これはネットワーク上の厳密な
      exactly-once保証ではない。各段階の通信断は再送せず`IndeterminateAfterPost`とする。
   5. 照合は取消後にメニューを再取得し、最新サマリの予約件数と再取得一覧の解析行数が一致する

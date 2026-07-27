@@ -7,6 +7,8 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookDetailReser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoginFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelConfirmationField
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelConfirmationFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
@@ -387,31 +389,40 @@ internal class LicsXpReservationSession(
             }
             val stage1Html = stage1Page.html
             requireNotMaintenance(stage1Html) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+            val signatureInspection = inspectKnownCancelConfirmationProtocolSignature(stage1Html)
+            session.noteDiagnostic("cancel-reservation-signature", signatureInspection.diagnosticSummary())
+            val stageInspection = inspectCancelConfirmationStage(
+                html = stage1Html,
+                cancelCode = cancelCode,
+                targetTilcod = targetTilcod,
+                signatureInspection = signatureInspection,
+            )
+            session.noteDiagnostic("cancel-reservation-stage", stageInspection.diagnosticSummary())
             // 2段階目は状態変更POSTである。JSの一般的な到達可能性は推定せず、直前に利用者が指定した
             // cancelCode/tilcodを含む一覧と、実測済みの取消確認プロトコル署名が両方そろう場合だけ送る。
-            if (!hasKnownCancelConfirmationStage(stage1Html, cancelCode, targetTilcod)) {
+            if (!stageInspection.matched) {
                 return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, ::listForm)
             }
-            session.noteDiagnostic("cancel-reservation", "対象一致の取消確認プロトコル署名を検出し2段階目を送信")
-            // 実測(2026-07-27): ページ側スクリプトは確認ダイアログのOK後、document.prevRequestForm
-            // （1段階目に送ったフォーム）へ okCodes のhiddenを追加してそのまま再送信するだけである。
-            // そのため2段階目の本文は「1段階目のクエリパラメータ→1段階目と同じ本文(同じ順序・
-            // 同名重複のまま)→okCodes」の順に組み立てる。
-            // 注意: okCodes=OPACUSR001 の値、および mngFlg2_handan/kbnchgflag を本文へ入れることは
-            // 予約取消の確認ダイアログに固有の実測値であり、他の操作では異なるメッセージコードになる。
-            val stage2Form = FormBody.Builder().apply {
-                add("mngFlg2_handan", "1")
-                add("kbnchgflag", "1")
-                for (index in 0 until cancelForm.size) {
-                    add(cancelForm.name(index), cancelForm.value(index))
-                }
-                add("okCodes", "OPACUSR001")
-            }.build()
+            val confirmationForm = try {
+                ReservationCancelConfirmationFormParser.parse(
+                    html = stage1Html,
+                    expectedStage1Fields = stage1ExpectedFields(cancelForm),
+                )
+            } catch (exception: ParseException) {
+                session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
+                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, ::listForm)
+            }
+            val actionUrl = try {
+                session.resolveReservationCancelAction(confirmationForm.action)
+            } catch (exception: ParseException) {
+                session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
+                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, ::listForm)
+            }
+            session.noteDiagnostic("cancel-reservation", "対象一致の取消確認プロトコル署名と再送フォームを検出し2段階目を送信")
             val stage2Response = try {
                 postReservationExactlyOnce(
-                    "WOpacUsrRsvCancelAction.do",
-                    emptyMap(),
-                    stage2Form,
+                    actionUrl,
+                    confirmationForm.buildForm(),
                     stage1Page,
                 )
             } catch (_: LibraryError.Network) {
@@ -610,53 +621,440 @@ private fun requireNotMaintenance(html: String, onMaintenance: (() -> Unit)? = n
 
 private val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")
 /**
- * 取消の1回目のPOST応答が返す確認ダイアログ文言の一部（実測(2026-07-27):
- * 「予約の取消を行います。よろしいですか？」）。この文言が含まれる場合は、まだ取り消されておらず
- * 確認画面が返っただけと判定する。
+ * 取消の1回目のPOST応答が返す確認ダイアログ文言（実測(2026-07-27):
+ * 「予約の取消を行います。よろしいですか？」）。プロトコル署名では全文一致だけを許す。
  */
-private const val CANCEL_CONFIRMATION_MARKER = "取消を行います"
+private const val CANCEL_CONFIRMATION_MESSAGE = "予約の取消を行います。よろしいですか？"
 
 /**
  * 2段階目POSTのための複合ガード。
  *
  * これはJavaScriptが実行されることを証明しない。直前の取消POSTの応答が、同じ`cancelCode`と`tilcod`を
- * 残した予約一覧であり、取消フォームと既知の確認プロトコル署名を同時に持つことを照合する。
- * 誤一致しても、送信対象は利用者が直前に明示した取消対象のフォームへ限定される。
+ * 残した予約一覧であり、既知の確認プロトコル署名を同時に持つことを照合する。2段階目の本文は
+ * 送信前に一意に解析済みの取消フォームを再利用するため、stage1の複数formを再解析しない。
  */
-private fun hasKnownCancelConfirmationStage(html: String, cancelCode: String, targetTilcod: String): Boolean {
+private data class CancelConfirmationStageInspection(
+    val targetStillPresent: Boolean,
+    val signatureMatched: Boolean,
+) {
+    val matched: Boolean = targetStillPresent && signatureMatched
+
+    /** 個人情報・HTML・フォーム値を含めない複合ガード診断。 */
+    fun diagnosticSummary(): String =
+        "targetStillPresent=$targetStillPresent signatureMatched=$signatureMatched matched=$matched"
+}
+
+private fun inspectCancelConfirmationStage(
+    html: String,
+    cancelCode: String,
+    targetTilcod: String,
+    signatureInspection: CancelConfirmationSignatureInspection = inspectKnownCancelConfirmationProtocolSignature(html),
+): CancelConfirmationStageInspection {
     val targetStillPresent = runCatching {
         val reservations = ReservationListParser.parse(html)
         reservations.filter { it.cancelCode == cancelCode }.singleOrNull()?.tilcod == targetTilcod &&
             reservations.count { it.tilcod == targetTilcod } == 1
     }.getOrDefault(false)
-    if (!targetStillPresent) return false
+    return CancelConfirmationStageInspection(
+        targetStillPresent = targetStillPresent,
+        signatureMatched = signatureInspection.matched,
+    )
+}
 
-    val hasMatchingCancelForm = runCatching {
-        ReservationCancelFormParser.parse(html).buildForm(cancelCode)
-        true
-    }.getOrDefault(false)
-    return hasMatchingCancelForm && hasKnownCancelConfirmationProtocolSignature(html)
+/** stage1 POSTのURLクエリを、ブラウザがprevRequestFormへ保持する先頭hiddenと同じ順で比較する。 */
+private fun stage1ExpectedFields(cancelForm: FormBody): List<ReservationCancelConfirmationField> = buildList {
+    add(ReservationCancelConfirmationField("mngFlg2_handan", "1"))
+    add(ReservationCancelConfirmationField("kbnchgflag", "1"))
+    for (index in 0 until cancelForm.size) {
+        add(ReservationCancelConfirmationField(cancelForm.name(index), cancelForm.value(index)))
+    }
 }
 
 /**
  * 取消確認を、2026-07-27に採取したlegacy scriptの確認済み構造だけに限定して検出する。
  *
- * これはJavaScriptの実行可能性を一般に推定するものではない。トップレベルの `if (0 != 1)` 分岐で
- * `lbConfirm`/`window.confirm` を呼び、`rest` が真のとき `OPACUSR001` を `okArray` へ追加し、
- * `document.prevRequestForm.appendChild(newHidden)` で再送フォームを組み立てる、実測済みの並びだけを許す。
+ * これはJavaScriptの実行可能性を一般に推定するものではない。ブラウザ判別分岐
+ * (`document.all || IS_EXPLORER_11 || isEdge`)の内側で `lbConfirm`/`lbConfirm1`/`window.confirm` を呼び、
+ * `rest` が真のとき `OPACUSR001` を `okArray` へ追加し、実測済みの`for`ループで`newHidden`へ
+ * 同値を設定して`document.prevRequestForm.appendChild(newHidden)`を呼ぶ並びだけを許す。
  * `src`付き、非JavaScript type、コメント・文字列・template literal・正規表現・関数/class/arrow関数・
  * 不整合構文はプロトコル署名として扱わない。
  */
-private fun hasKnownCancelConfirmationProtocolSignature(html: String): Boolean =
-    Jsoup.parse(html).select("script").any { script ->
-        if (!isInlineJavaScript(script)) return@any false
-        val source = sanitizeLegacyCancelScript(script.data()) ?: return@any false
-        if (hasTopLevelJavaScriptKeyword(source, "return")) return@any false
-        OBSERVED_LEGACY_CANCEL_CONFIRMATION.findAll(source).any { match ->
-            isTopLevelJavaScriptPosition(source, match.range.first) &&
-                isLegacyCancelStatementStart(source, match.range.first)
+private data class CancelConfirmationSignatureInspection(
+    val matched: Boolean,
+    val inlineScriptCount: Int,
+    val exactMessageScriptCount: Int,
+    val outerIfScriptCount: Int,
+    val scanOutcomeCounts: Map<CandidateExtractionOutcome, Int>,
+    val extractedCandidateCount: Int,
+    val sanitizeSucceededCount: Int,
+    val fixedRegexMatchCount: Int,
+) {
+    /** 個人情報・HTML・スクリプト本文を含めない集計診断。 */
+    fun diagnosticSummary(): String = buildString {
+        append("matched=").append(matched)
+        append(" inlineScripts=").append(inlineScriptCount)
+        append(" exactMessageScripts=").append(exactMessageScriptCount)
+        append(" outerIfScripts=").append(outerIfScriptCount)
+        append(" scan=")
+        append(CandidateExtractionOutcome.entries.joinToString(",") { outcome ->
+            "${outcome.diagnosticName}:${scanOutcomeCounts[outcome] ?: 0}"
+        })
+        append(" candidates=").append(extractedCandidateCount)
+        append(" sanitizeSucceeded=").append(sanitizeSucceededCount)
+        append(" fixedRegexMatches=").append(fixedRegexMatchCount)
+    }
+}
+
+private fun inspectKnownCancelConfirmationProtocolSignature(html: String): CancelConfirmationSignatureInspection {
+    var inlineScriptCount = 0
+    var exactMessageScriptCount = 0
+    var outerIfScriptCount = 0
+    var extractedCandidateCount = 0
+    var sanitizeSucceededCount = 0
+    var fixedRegexMatchCount = 0
+    val scanOutcomeCounts = mutableMapOf<CandidateExtractionOutcome, Int>()
+    Jsoup.parse(html).select("script").forEach { script ->
+        if (!script.hasAttr("src")) inlineScriptCount += 1
+        if (!isInlineJavaScript(script)) return@forEach
+        val scriptSource = script.data()
+        if (scriptSource.contains(CANCEL_CONFIRMATION_MESSAGE)) exactMessageScriptCount += 1
+        if (OBSERVED_LEGACY_CANCEL_OUTER_IF.find(scriptSource) != null) outerIfScriptCount += 1
+        val extraction = inspectObservedCancelConfirmationCandidates(scriptSource)
+        scanOutcomeCounts[extraction.outcome] = (scanOutcomeCounts[extraction.outcome] ?: 0) + 1
+        extractedCandidateCount += extraction.candidates.size
+        extraction.candidates.forEach candidateLoop@ { candidate ->
+            val source = sanitizeLegacyCancelScript(candidate) ?: return@candidateLoop
+            sanitizeSucceededCount += 1
+            if (OBSERVED_LEGACY_CANCEL_CONFIRMATION.matches(source)) fixedRegexMatchCount += 1
         }
     }
+    return CancelConfirmationSignatureInspection(
+        matched = fixedRegexMatchCount > 0,
+        inlineScriptCount = inlineScriptCount,
+        exactMessageScriptCount = exactMessageScriptCount,
+        outerIfScriptCount = outerIfScriptCount,
+        scanOutcomeCounts = scanOutcomeCounts,
+        extractedCandidateCount = extractedCandidateCount,
+        sanitizeSucceededCount = sanitizeSucceededCount,
+        fixedRegexMatchCount = fixedRegexMatchCount,
+    )
+}
+
+/**
+ * 巨大なlegacy script全体を緩和して解釈しない。
+ *
+ * コメント・文字列等を飛ばしながら、丸括弧・角括弧の外かつ同一blockの文頭にある実測済み外側ifを探す。見つけた位置から連続する
+ * 「外側if/else」「if(rest)/else」「for(okArray)」の3文だけを括弧対応で取り出す。候補外にある
+ * function/class/arrow関数/正規表現などは無関係として許容するが、候補内部は従来どおり
+ * [sanitizeLegacyCancelScript]と固定正規表現でフェイルクローズする。
+ */
+private enum class CandidateExtractionOutcome(val diagnosticName: String) {
+    COMPLETED("completed"),
+    TEMPLATE_LITERAL("template"),
+    UNTERMINATED_COMMENT("unterminated-comment"),
+    UNTERMINATED_STRING("unterminated-string"),
+    UNTERMINATED_REGEX("unterminated-regex"),
+    UNBALANCED_DELIMITER("unbalanced"),
+}
+
+private data class CandidateExtractionInspection(
+    val candidates: List<String>,
+    val outcome: CandidateExtractionOutcome,
+)
+
+private fun inspectObservedCancelConfirmationCandidates(script: String): CandidateExtractionInspection {
+    val candidates = mutableListOf<String>()
+    val parentheses = ArrayDeque<Boolean>()
+    var bracketsDepth = 0
+    var bracesDepth = 0
+    var previousCodeSignificant: Char? = null
+    var controlConditionAwaitingParenthesis = false
+    var canStartRegexLiteral = true
+    var index = 0
+    while (index < script.length) {
+        val char = script[index]
+        if (char.isWhitespace()) {
+            index += 1
+            continue
+        }
+        if (char == '/' && script.getOrNull(index + 1) == '/') {
+            index = script.indexOf('\n', index).let { if (it == -1) script.length else it + 1 }
+            continue
+        }
+        if (char == '/' && script.getOrNull(index + 1) == '*') {
+            val close = script.indexOf("*/", index + 2)
+            if (close == -1) return CandidateExtractionInspection(emptyList(), CandidateExtractionOutcome.UNTERMINATED_COMMENT)
+            index = close + 2
+            continue
+        }
+        if (char == '`') return CandidateExtractionInspection(emptyList(), CandidateExtractionOutcome.TEMPLATE_LITERAL)
+        if (char == '\'' || char == '"') {
+            val end = skipLegacyJavaScriptString(script, index)
+                ?: return CandidateExtractionInspection(emptyList(), CandidateExtractionOutcome.UNTERMINATED_STRING)
+            if (parentheses.isEmpty() && bracketsDepth == 0) previousCodeSignificant = char
+            canStartRegexLiteral = false
+            controlConditionAwaitingParenthesis = false
+            index = end
+            continue
+        }
+        if (char == '/') {
+            if (canStartRegexLiteral) {
+                val end = skipJavaScriptRegexLiteral(script, index)
+                    ?: return CandidateExtractionInspection(emptyList(), CandidateExtractionOutcome.UNTERMINATED_REGEX)
+                if (parentheses.isEmpty() && bracketsDepth == 0) previousCodeSignificant = '/'
+                canStartRegexLiteral = false
+                controlConditionAwaitingParenthesis = false
+                index = end
+                continue
+            }
+            canStartRegexLiteral = true
+            controlConditionAwaitingParenthesis = false
+            if (parentheses.isEmpty() && bracketsDepth == 0) previousCodeSignificant = '/'
+            index += 1
+            continue
+        }
+        if (script.startsWith("=>", index)) {
+            canStartRegexLiteral = true
+            controlConditionAwaitingParenthesis = false
+            if (parentheses.isEmpty() && bracketsDepth == 0) previousCodeSignificant = '>'
+            index += 2
+            continue
+        }
+        if (char.isLegacyJavaScriptIdentifierPart()) {
+            var end = index + 1
+            while (script.getOrNull(end)?.isLegacyJavaScriptIdentifierPart() == true) end += 1
+            val token = script.substring(index, end)
+            if (parentheses.isEmpty() && bracketsDepth == 0) {
+                if ((previousCodeSignificant == null || previousCodeSignificant == '{' || previousCodeSignificant == ';' || previousCodeSignificant == '}') &&
+                    token == "if" &&
+                    OBSERVED_LEGACY_CANCEL_OUTER_IF.matchAt(script, index) != null
+                ) {
+                    val candidateEnd = extractObservedCancelConfirmationCandidate(script, index)
+                    if (candidateEnd != null) {
+                        candidates += script.substring(index, candidateEnd)
+                        index = candidateEnd
+                        previousCodeSignificant = '}'
+                        canStartRegexLiteral = true
+                        controlConditionAwaitingParenthesis = false
+                        continue
+                    }
+                }
+            }
+            controlConditionAwaitingParenthesis = token in JAVASCRIPT_CONTROL_CONDITION_KEYWORDS
+            canStartRegexLiteral = token in JAVASCRIPT_EXPRESSION_PREFIX_KEYWORDS
+            if (parentheses.isEmpty() && bracketsDepth == 0) previousCodeSignificant = token.last()
+            index = end
+            continue
+        }
+        when (char) {
+            '(' -> {
+                parentheses.addLast(controlConditionAwaitingParenthesis)
+                controlConditionAwaitingParenthesis = false
+                canStartRegexLiteral = true
+            }
+            ')' -> {
+                val wasControlCondition = parentheses.removeLastOrNull()
+                    ?: return CandidateExtractionInspection(emptyList(), CandidateExtractionOutcome.UNBALANCED_DELIMITER)
+                canStartRegexLiteral = wasControlCondition
+            }
+            '[' -> {
+                bracketsDepth += 1
+                canStartRegexLiteral = true
+            }
+            ']' -> {
+                if (bracketsDepth-- <= 0) return CandidateExtractionInspection(emptyList(), CandidateExtractionOutcome.UNBALANCED_DELIMITER)
+                canStartRegexLiteral = false
+            }
+            '{' -> {
+                bracesDepth += 1
+                canStartRegexLiteral = true
+            }
+            '}' -> {
+                if (bracesDepth-- <= 0) return CandidateExtractionInspection(emptyList(), CandidateExtractionOutcome.UNBALANCED_DELIMITER)
+                // ブロック末尾かobject literal末尾かを一般には判別しない。偽陽性を避けるため正規表現側へ倒す。
+                canStartRegexLiteral = true
+            }
+            ';', ',', ':', '?', '=', '!', '&', '|', '+', '-', '*', '%', '~' -> {
+                canStartRegexLiteral = true
+                controlConditionAwaitingParenthesis = false
+            }
+            '.' -> {
+                canStartRegexLiteral = false
+                controlConditionAwaitingParenthesis = false
+            }
+            else -> {
+                canStartRegexLiteral = false
+                controlConditionAwaitingParenthesis = false
+            }
+        }
+        if (parentheses.isEmpty() && bracketsDepth == 0 && !char.isWhitespace()) {
+            previousCodeSignificant = char
+        }
+        index += 1
+    }
+    return if (parentheses.isEmpty() && bracketsDepth == 0 && bracesDepth == 0) {
+        CandidateExtractionInspection(candidates, CandidateExtractionOutcome.COMPLETED)
+    } else {
+        CandidateExtractionInspection(emptyList(), CandidateExtractionOutcome.UNBALANCED_DELIMITER)
+    }
+}
+
+private val JAVASCRIPT_CONTROL_CONDITION_KEYWORDS = setOf("if", "while", "for", "with", "switch", "catch")
+private val JAVASCRIPT_EXPRESSION_PREFIX_KEYWORDS = setOf(
+    "return", "throw", "case", "delete", "typeof", "void", "new", "in", "of", "yield", "await", "else", "do", "try", "finally",
+    "break", "continue", "debugger",
+)
+
+private fun extractObservedCancelConfirmationCandidate(source: String, start: Int): Int? {
+    val outerIfEnd = extractBracedIfElseStatement(source, start) ?: return null
+    val restIfStart = skipJavaScriptTrivia(source, outerIfEnd) ?: return null
+    if (!isLegacyKeywordAt(source, restIfStart, "if")) return null
+    val restIfEnd = extractBracedIfElseStatement(source, restIfStart) ?: return null
+    val forStart = skipJavaScriptTrivia(source, restIfEnd) ?: return null
+    if (!isLegacyKeywordAt(source, forStart, "for")) return null
+    return extractBracedForStatement(source, forStart)
+}
+
+private fun extractBracedIfElseStatement(source: String, start: Int): Int? {
+    if (!isLegacyKeywordAt(source, start, "if")) return null
+    val conditionStart = skipJavaScriptTrivia(source, start + "if".length) ?: return null
+    if (source.getOrNull(conditionStart) != '(') return null
+    val conditionEnd = findMatchingJavaScriptDelimiter(source, conditionStart) ?: return null
+    val consequentStart = skipJavaScriptTrivia(source, conditionEnd) ?: return null
+    if (source.getOrNull(consequentStart) != '{') return null
+    val consequentEnd = findMatchingJavaScriptDelimiter(source, consequentStart) ?: return null
+    val elseStart = skipJavaScriptTrivia(source, consequentEnd) ?: return null
+    if (!isLegacyKeywordAt(source, elseStart, "else")) return null
+    val alternateStart = skipJavaScriptTrivia(source, elseStart + "else".length) ?: return null
+    if (source.getOrNull(alternateStart) != '{') return null
+    return findMatchingJavaScriptDelimiter(source, alternateStart)
+}
+
+private fun extractBracedForStatement(source: String, start: Int): Int? {
+    val conditionStart = skipJavaScriptTrivia(source, start + "for".length) ?: return null
+    if (source.getOrNull(conditionStart) != '(') return null
+    val conditionEnd = findMatchingJavaScriptDelimiter(source, conditionStart) ?: return null
+    val bodyStart = skipJavaScriptTrivia(source, conditionEnd) ?: return null
+    if (source.getOrNull(bodyStart) != '{') return null
+    return findMatchingJavaScriptDelimiter(source, bodyStart)
+}
+
+/** 指定された開始括弧から対応する閉じ括弧の直後を返す。候補内で理解できない字句は拒否する。 */
+private fun findMatchingJavaScriptDelimiter(source: String, start: Int): Int? {
+    val delimiters = ArrayDeque<Char>()
+    delimiters.addLast(source[start])
+    var index = start + 1
+    while (index < source.length) {
+        val skipped = skipJavaScriptTriviaOrLiteral(source, index)
+        if (skipped != null) {
+            if (skipped <= index) return null
+            index = skipped
+            continue
+        }
+        when (val char = source[index]) {
+            '(', '[', '{' -> delimiters.addLast(char)
+            ')', ']', '}' -> {
+                val expected = when (char) {
+                    ')' -> '('
+                    ']' -> '['
+                    else -> '{'
+                }
+                if (delimiters.removeLastOrNull() != expected) return null
+                if (delimiters.isEmpty()) return index + 1
+            }
+        }
+        index += 1
+    }
+    return null
+}
+
+/** 空白・コメント・文字列・template literal・正規表現を飛ばす。通常コードならnullを返す。 */
+private fun skipJavaScriptTriviaOrLiteral(source: String, start: Int): Int? {
+    val char = source[start]
+    if (char.isWhitespace()) return start + 1
+    if (char == '/' && source.getOrNull(start + 1) == '/') {
+        return source.indexOf('\n', start).let { if (it == -1) source.length else it + 1 }
+    }
+    if (char == '/' && source.getOrNull(start + 1) == '*') {
+        val close = source.indexOf("*/", start + 2)
+        return if (close == -1) start else close + 2
+    }
+    if (char == '\'' || char == '"') return skipLegacyJavaScriptString(source, start) ?: start
+    if (char == '`') return skipJavaScriptTemplateLiteral(source, start) ?: start
+    if (char == '/' && isLikelyJavaScriptRegexLiteral(source, start)) return skipJavaScriptRegexLiteral(source, start) ?: start
+    return null
+}
+
+private fun skipJavaScriptTrivia(source: String, start: Int): Int? {
+    var index = start
+    while (index < source.length) {
+        when {
+            source[index].isWhitespace() -> index += 1
+            source[index] == '/' && source.getOrNull(index + 1) == '/' -> {
+                index = source.indexOf('\n', index).let { if (it == -1) source.length else it + 1 }
+            }
+            source[index] == '/' && source.getOrNull(index + 1) == '*' -> {
+                val close = source.indexOf("*/", index + 2)
+                if (close == -1) return null
+                index = close + 2
+            }
+            else -> return index
+        }
+    }
+    return null
+}
+
+private fun skipJavaScriptTemplateLiteral(source: String, start: Int): Int? {
+    var index = start + 1
+    while (index < source.length) {
+        when (source[index]) {
+            '\\' -> index += 2
+            '`' -> return index + 1
+            else -> index += 1
+        }
+    }
+    return null
+}
+
+private fun isLikelyJavaScriptRegexLiteral(source: String, slashIndex: Int): Boolean {
+    var index = slashIndex - 1
+    while (index >= 0 && source[index].isWhitespace()) index -= 1
+    if (index < 0) return true
+    if (source[index] in "=(:,[!&|?;{}") return true
+    if (!source[index].isLegacyJavaScriptIdentifierPart()) return false
+    val end = index + 1
+    while (index >= 0 && source[index].isLegacyJavaScriptIdentifierPart()) index -= 1
+    return source.substring(index + 1, end) in setOf("return", "throw", "case", "delete", "typeof", "void", "new", "in", "of", "yield", "await")
+}
+
+private fun skipJavaScriptRegexLiteral(source: String, start: Int): Int? {
+    var inCharacterClass = false
+    var index = start + 1
+    while (index < source.length) {
+        when (source[index]) {
+            '\\' -> index += 2
+            '[' -> {
+                inCharacterClass = true
+                index += 1
+            }
+            ']' -> {
+                inCharacterClass = false
+                index += 1
+            }
+            '/' -> if (!inCharacterClass) {
+                index += 1
+                while (source.getOrNull(index)?.isLetter() == true) index += 1
+                return index
+            } else {
+                index += 1
+            }
+            '\n', '\r' -> return null
+            else -> index += 1
+        }
+    }
+    return null
+}
 
 private fun isInlineJavaScript(script: Element): Boolean {
     if (script.hasAttr("src")) return false
@@ -731,13 +1129,15 @@ private fun skipLegacyJavaScriptString(source: String, start: Int): Int? {
 
 /**
  * 文字列の中身をそのまま正規表現へ渡さない。そうすると、文字列に埋め込まれた偽のスクリプトを
- * 実行可能コードと取り違えるためである。実測済みの4値だけを記号化し、その他の文字列は候補外にする。
+ * 実行可能コードと取り違えるためである。実測済みの6値だけを記号化し、その他の文字列は候補外にする。
  */
 private fun legacyCancelStringToken(value: String): String = when {
-    value.contains(CANCEL_CONFIRMATION_MARKER) -> "__CANCEL_MESSAGE__"
+    value == CANCEL_CONFIRMATION_MESSAGE -> "__CANCEL_MESSAGE__"
     value == "" -> "__EMPTY__"
     value == "#F1F1FF" -> "__CONFIRM_COLOR__"
     value == "OPACUSR001" -> "__CANCEL_OK_CODE__"
+    value == "input" -> "__INPUT_ELEMENT__"
+    value == "hidden" -> "__HIDDEN_INPUT_TYPE__"
     else -> "__OTHER_STRING__"
 }
 
@@ -748,71 +1148,47 @@ private fun isLegacyKeywordAt(source: String, start: Int, keyword: String): Bool
 
 private fun Char.isLegacyJavaScriptIdentifierPart(): Boolean = isLetterOrDigit() || this == '_' || this == '$'
 
-/** 文字列と括弧の整合性を検査済みのsourceで、指定位置がトップレベルかを調べる。 */
-private fun isTopLevelJavaScriptPosition(source: String, position: Int): Boolean {
-    var braceDepth = 0
-    var index = 0
-    while (index < position) {
-        val char = source[index]
-        if (char == '\'' || char == '"') {
-            index = skipLegacyJavaScriptString(source, index) ?: return false
-            continue
-        }
-        when (char) {
-            '{' -> braceDepth += 1
-            '}' -> braceDepth -= 1
-        }
-        if (braceDepth < 0) return false
-        index++
-    }
-    return braceDepth == 0
-}
-
-private fun hasTopLevelJavaScriptKeyword(source: String, keyword: String): Boolean {
-    var braceDepth = 0
-    var index = 0
-    while (index < source.length) {
-        when (source[index]) {
-            '{' -> braceDepth++
-            '}' -> braceDepth--
-        }
-        if (braceDepth == 0 && isLegacyKeywordAt(source, index, keyword)) return true
-        index++
-    }
-    return false
-}
-
-/**
- * `if (false) if (...)` のような単文分岐の内側を、トップレベルの候補として扱わない。
- * 実測構造は独立した文として始まるため、直前は先頭・セミコロン・閉じ波括弧だけを許す。
- */
-private fun isLegacyCancelStatementStart(source: String, position: Int): Boolean {
-    val previous = source.substring(0, position).lastOrNull { !it.isWhitespace() } ?: return true
-    return previous == ';' || previous == '}'
-}
-
 /**
  * DevToolsで採取した取消確認ページのlegacy script構造。
- * 文字列は引用符の種類だけを許容し、制御値・変数名・呼出し順は実測値へ固定する。
+ * ブラウザ判別を含む外側構造から、OKコードhiddenを作る`for`ループまで一致させる。文字列は引用符の種類
+ * だけを許容し、制御値・変数名・呼出し順は実測値へ固定する。内側の `if (0 != 1)` 断片だけでは許可しない。
  */
+private val OBSERVED_LEGACY_CANCEL_OUTER_IF = Regex(
+    """(?x)
+    if \s* \( \s* document \. all \s* \|\| \s* IS_EXPLORER_11 \s* \|\| \s* isEdge \s* \)
+    """.trimIndent(),
+)
+
 private val OBSERVED_LEGACY_CANCEL_CONFIRMATION = Regex(
     """(?xs)
-    if \s* \( \s* 0 \s* != \s* 1 \s* \) \s* \{
-      \s* if \s* \( \s* 0 \s* == \s* 1 \s* \) \s* \{
-        \s* rest \s*=\s* confirm \s* \( \s* __CANCEL_MESSAGE__ \s* \) \s* ;
+    if \s* \( \s* document \. all \s* \|\| \s* IS_EXPLORER_11 \s* \|\| \s* isEdge \s* \) \s* \{
+      \s* if \s* \( \s* 0 \s* != \s* 1 \s* \) \s* \{
+        \s* if \s* \( \s* 0 \s* == \s* 1 \s* \) \s* \{
+          \s* rest \s*=\s* confirm \s* \( \s* __CANCEL_MESSAGE__ \s* , \s* __EMPTY__ \s* \) \s* ;
+        \s* \} \s* else \s* \{
+          \s* rest \s*=\s* lbConfirm \s* \( \s* __CANCEL_MESSAGE__ \s* , \s* __EMPTY__ \s* , \s* __CONFIRM_COLOR__ \s* \) \s* ;
+        \s* \} \s* \}
+        \s* else \s* \{
+          \s* if \s* \( \s* 0 \s* == \s* 1 \s* \) \s* \{
+            \s* rest \s*=\s* confirm \s* \( \s* __CANCEL_MESSAGE__ \s* , \s* __EMPTY__ \s* \) \s* ;
+          \s* \} \s* else \s* \{
+            \s* rest \s*=\s* lbConfirm1 \s* \( \s* __CANCEL_MESSAGE__ \s* , \s* __EMPTY__ \s* , \s* __CONFIRM_COLOR__ \s* \) \s* ;
+          \s* \} \s* \}
       \s* \} \s* else \s* \{
-        \s* rest \s*=\s* lbConfirm \s* \( \s* __CANCEL_MESSAGE__ \s* , \s* __EMPTY__ \s* , \s* __CONFIRM_COLOR__ \s* \) \s* ;
-      \s* \} \s* \}
-      \s* else \s* \{
         \s* rest \s*=\s* window \. confirm \s* \( \s* __CANCEL_MESSAGE__ \s* \) \s* ;
       \s* \}
-      \s* if \s* \( \s* rest \s* \) \s* \{
-        \s* okArray \s* \[ \s* okArray \. length \s* \] \s*=\s* __CANCEL_OK_CODE__ \s* ;
-        \s* submitFlg \s*=\s* false \s* ;
-      \s* \}
-      \s* else \s* \{ \s* return \s+ cancelDialog \s* \( \s* \) \s* ; \s* \}
-      (?:(?!document\.prevRequestForm\.appendChild\s*\(\s*newHidden\s*\)).)*
-      document \. prevRequestForm \. appendChild \s* \( \s* newHidden \s* \)
+    \s* if \s* \( \s* rest \s* \) \s* \{
+      \s* okArray \s* \[ \s* okArray \. length \s* \] \s*=\s* __CANCEL_OK_CODE__ \s* ;
+      \s* submitFlg \s*=\s* false \s* ;
+    \s* \}
+    \s* else \s* \{ \s* return \s+ cancelDialog \s* \( \s* \) \s* ; \s* \}
+    \s* for \s* \( \s* var \s+ i \s*=\s* 0 \s* ; \s* i \s* < \s* okArray \. length \s* ; \s* i \s* \+\+ \s* \) \s* \{
+      \s* var \s+ newHidden \s*=\s* document \. createElement \s* \( \s* __INPUT_ELEMENT__ \s* \) \s* ;
+      \s* newHidden \s*\.\s* type \s*=\s* __HIDDEN_INPUT_TYPE__ \s* ;
+      \s* newHidden \s*\.\s* name \s*=\s* OK_CODES_NAME \s* ;
+      \s* newHidden \s*\.\s* value \s*=\s* okArray \s* \[ \s* i \s* \] \s* ;
+      \s* document \. prevRequestForm \. appendChild \s* \( \s* newHidden \s* \) \s* ;
+    \s* \}
     """.trimIndent(),
 )
 

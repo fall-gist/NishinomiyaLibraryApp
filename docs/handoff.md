@@ -1085,9 +1085,12 @@ UIも未実装である。
   固定した`tilcod`行の消失を`Cancelled`とする。取消ボタン（`cancelCode`）だけの消失、対象残存、
   サマリ/一覧の解析不能、件数不一致はすべて`IndeterminateAfterPost`である。
 - 1段階目から2段階目へは、静的な文言ではなく、stage1応答を再解析して同じ`cancelCode`→同じ一意の
-  `tilcod`を持つ予約行と取消フォームが残ること、さらに`src`無しかつ標準JavaScript MIMEの実測済み
-  legacy script構造（`if (0 != 1)`→`rest = lbConfirm(...)`→`okArray`へ`OPACUSR001`→
-  `document.prevRequestForm.appendChild(newHidden)`）全体に一致することを両方確認してから進む。
+  `tilcod`を持つ予約行が残ること、さらに`src`無しかつ標準JavaScript MIMEの実測済み
+  legacy script構造（外側の`if (document.all || IS_EXPLORER_11 || isEdge)`→
+  `lbConfirm`/`lbConfirm1`/`window.confirm`→`okArray`へ`OPACUSR001`→`for`ループ内の
+  `newHidden.type/name/value`→`document.prevRequestForm.appendChild(newHidden)`）全体に一致することを
+  両方確認してから進む。外側if候補は、丸括弧・角括弧の外かつ同一blockの文頭ならblock深度を問わず抽出する。
+  2段階目の本文は送信前に一意に解析済みの`cancelForm`を再利用するため、stage1応答のformは再解析しない。
   JavaScriptを一般解釈せず、これは「直前に利用者が指定した対象を残す応答が既知プロトコル署名を持つ」
   ことを確かめる複合ガードである。コメント・文字列・template literal・正規表現・非JavaScript script・
   関数/class/arrow関数・括弧不整合はすべて2段階目なしとして照合へ進む。2段階目後も文言だけでは判定せず、一覧照合する。
@@ -1098,6 +1101,113 @@ UIも未実装である。
 完全一覧での`tilcod`消失、stage1での対象消失/`tilcod`不一致、コメント・文字列・template literal・
 正規表現・`src`付き・template/json script・未呼出し関数・direct `if (false)`・分割代入関数・
 トップレベル`return`・括弧不整合に埋め込まれた取消構造を扱う。
+
+#### 初回アプリライブ取消診断と署名修正（2026-07-27）
+
+- **確認済み**: 専用CLI診断の初回実行は、1段階目POSTのみHTTP 200で完了し、
+  `IndeterminateAfterPost`を返した。取消後一覧には対象`tilcod`が残り、2段階目POSTは送信されていない。
+  このため当該試行による実サイトの取消は不成立である。
+- **確認済み**: 原因は、当時の`OBSERVED_LEGACY_CANCEL_CONFIRMATION`が内側の`if (0 != 1)`から始まる
+  合成構造だけを許可していたこと。実サイトでは外側に
+  `if (document.all || IS_EXPLORER_11 || isEdge)`があり、内側の非該当分岐には`lbConfirm1`も存在する。
+  不一致時は2段階目を送らないフェイルクローズであり、余分な取消POSTは発生しなかった。
+- **対応済み（再ライブ未実施）**: 署名を外側のブラウザ判別から、`rest`→`OPACUSR001`→
+  `for`ループ内の`newHidden.type/name/value`→`document.prevRequestForm.appendChild(newHidden)`までの実測順へ
+  限定した。旧来の内側断片だけ、tailだけが`if (false)`内、確認文言に前後の文字列がある場合は2段階目へ
+  進まない回帰試験も追加した。ユニットテストが通っても、実サイトでの
+  取消成立はまだ未確認である。次のライブ診断は所有者承認のある1件だけで実施し、POST段階数、結果、
+  取消後一覧の対象有無を記録すること。
+
+#### 2回目アプリライブ取消診断と巨大script対応（2026-07-28）
+
+- **確認済み**: 初回対応後の再実行も1段階目POSTだけがHTTP 200で完了し、
+  `IndeterminateAfterPost`、取消後一覧の対象`tilcod`残存、2段階目POST未送信となった。今回も取消は不成立である。
+- **確認済み**: 実測確認構造は巨大な同一`script`内にあり、候補外のfunction/class/arrow関数/正規表現まで
+  `sanitizeLegacyCancelScript`が拒否していた。これは安全側の停止であり、余分な取消POSTは発生していない。
+- **対応済み（再ライブ未実施）**: raw script全体を緩和して受理するのではなく、コメント・文字列等を飛ばす
+  字句走査でトップレベルの実測済み外側ifを探し、連続する「外側if/else」「if(rest)/else」「for(okArray)」の
+  3文だけを括弧対応で切り出す。切り出した候補内部には従来のサニタイズと固定署名を厳格に適用する。
+  template literal（backtick）が同一script内にあれば候補全体を拒否する。`/`はトークン文脈で正規表現開始を
+  判定し、曖昧な場合を正規表現として扱うことで偽陽性より偽陰性を選ぶ。巨大script内の正例、候補内部の
+  禁止構文、非トップレベル、`if (false)`内tail、template literal、`if`/`else`/arrow直後の正規表現内署名の
+  負例をユニットテストで扱う。
+  アプリによる取消成立は未検証のままであり、次のライブ診断は所有者承認の対象1件で実施する。
+
+#### 3回目アプリライブ取消診断と安全な原因集計（2026-07-28）
+
+- **確認済み**: 3回目も1段階目POSTだけがHTTP 200で完了し、`IndeterminateAfterPost`、取消後一覧の
+  対象`tilcod`残存、2段階目POST未送信となった。今回も取消は不成立であり、推測による署名緩和・再送は行っていない。
+- **対応済み（再ライブ未実施）**: 既存の`matched`判定と第2段階POST可否は変えず、
+  `cancel-reservation-signature`診断へ無害な集計だけを記録する。項目はinline script数、完全一致確認文言数、
+  外側if数、字句走査の完了/拒否理由別件数、candidate数、sanitize成功数、固定署名一致数、最終`matched`である。
+  HTML・script本文・資料コード・取消コード・hash・認証情報はログに含めない。MockWebServerで通常正例、巨大script正例、
+  template拒否例のsummaryと取消POST回数を検証した。次のライブ診断は、この集計を採取して停止原因を確認すること。
+
+#### 4回目アプリライブ取消診断と構造抽出観測（2026-07-28）
+
+- **確認済み**: 4回目も1段階目POSTだけがHTTP 200で完了し、`IndeterminateAfterPost`、取消後一覧の
+  対象`tilcod`残存、2段階目POST未送信となった。集計は`matched=false`、inline script 11件、完全一致確認文言1件、
+  外側if 1件、字句走査completed 11件、candidate 0件であり、停止点は構造抽出層まで絞られた。
+- **対応済み（再ライブ未実施）**: 判定・第2段階POST可否を変えず、外側ifごとの匿名構造観測を追加した。
+  集計項目はトップレベル/ネスト、statement-start条件、top-level `return`遮断、後続3文の切出し失敗段階
+  （外側if構造、rest-if開始/rest-if構造、for開始/for構造）である。MockWebServerでトップレベル成功、
+  外側block内、直前境界不一致、rest-if欠落、for欠落のsummaryと取消POST回数を検証した。次のライブ診断では
+  この構造集計を採取し、候補0の理由を確認すること。アプリによる取消成立は未検証である。
+
+#### 5回目アプリライブ取消診断と候補境界の確定（2026-07-28）
+
+- **確認済み**: 第5回の構造集計は`outerIfDepth=top:0,nested:1`、他の抽出段階は0件だった。第2段階へ進まない
+  原因は実測済み外側ifが外側block内にあり、従前のトップレベル制約が候補を除外していたことである。
+- **対応済み（再ライブ未実施）**: 暫定の重複構造観測器を削除し、恒久診断は同一候補走査による匿名基本集計
+  （`matched`、script数、確認文言数、外側if数、走査結果別数、candidate数、sanitize成功数、固定署名一致数）へ
+  縮小した。候補はコメント・通常文字列・template literal・正規表現外で、丸括弧・角括弧の外かつ同一blockの
+  文頭（先頭または`{`/`;`/`}`後）ならblock深度を問わず抽出する。候補内部は外側if→`if(rest)`→OK hiddenの
+  `for`ループ固定署名に完全一致させる。
+- **設計判断**: `if (false)`・未呼出し関数等の一般到達可能性は静的に証明しない。第2段階送信の安全境界は、
+  一意な`cancelCode`、期待`tilcod`、固定署名の複合ガードである。コメント・文字列・template・
+  正規表現内の偽署名、候補内部の禁止構文、文言改変、対象/form不一致は引き続き拒否する。外側block内の
+  実ライブ相当正例で第2段階POSTが2回となる回帰試験を追加した。アプリによる取消成立は未検証であり、ライブ実行はしていない。
+
+#### 6回目アプリライブ取消診断と複合ガード診断（2026-07-28）
+
+- **確認済み**: 第6回も1段階目だけで停止し対象`tilcod`は残存したが、署名診断は
+  `matched=true`、candidate 1件、sanitize成功1件、固定署名一致1件だった。従って第2段階を止めた条件は
+  署名以外の複合ガードであると切り分けた。
+
+#### 7回目アプリライブ取消診断とstage1 form再解析の除去（2026-07-28）
+
+- **確認済み**: 第7回のstage診断は`targetStillPresent=true`、`signatureMatched=true`だった。stage1には
+  元一覧formと`prevRequestForm`が併存し、使用しない取消form再解析が「対象form一意」の前提を満たさず停止していた。
+- **対応済み（再ライブ未実施）**: stage1の取消form再解析を送信条件・診断から完全に除去した。2段階目は
+  送信前に一意に解析済みの`cancelForm`を従前どおり再利用するため、payloadは不変である。複合ガードは
+  `targetStillPresent && signatureMatched`、匿名診断はこの2値と最終`matched`だけである。MockWebServerで
+  元一覧form+`prevRequestForm`併存でも第2段階へ進むこと、対象tilcod不一致・署名不一致では1段階目だけであること、
+  取消POST回数を検証する。次のライブ診断では第2段階POSTと取消後照合を確認すること。ライブ実行はしていない。
+
+#### 8回目アプリライブ取消診断とブラウザ再送フォーム化（2026-07-28）
+
+- **確認済み**: 固定値再構成（hardcode）版による第8回は、第1・第2段階の計2回のPOSTがいずれもHTTP 200で完了したが、
+  対象`tilcod`は取消後一覧に残り、取消は不成立だった。取消後のサマリは19件、一覧パーサは20行であり、
+  完全一覧の照合にもならなかった。旧実装はaction、`okCodes`、本文順を固定値で再構成しており、ブラウザの
+  `prevRequestForm`再送と一致する根拠が不足していた。
+- **対応済み（本番第2段階成功は未検証）**: `ReservationCancelConfirmationFormParser`を追加する。stage1 HTMLの一意な
+  `form[name=prevRequestForm]`からaction・successful controlsをDOM順/同名重複込みで取得し、字句安全に一意抽出した
+  `OK_CODES_NAME`の実field名へ`OPACUSR001`を末尾追加する。既存controlsは`mngFlg2_handan=1`・`kbnchgflag=1`と
+  送信前の`cancelForm`に対し名前・値・重複数で完全一致させるが、送信順はform DOM順を維持する。actionは同一originかつ
+  `WOpacUsrRsvCancelAction.do`に限定する。不一致・複数form・曖昧定数・外部actionでは第2段階を送らない。
+  `OK_CODES_NAME`は署名字句走査と同等の正規表現開始文脈で抽出し、コメント・文字列・template・正規表現内の偽代入、
+  および既存control名との衝突を拒否する。
+  次のライブ診断ではブラウザと第2段階のaction/本文を照合し、取消後一覧で結果を確認すること。ライブ実行はしていない。
+
+#### 9回目アプリライブ取消診断と現行版の安全停止（2026-07-28）
+
+- **確認済み**: `prevRequestForm`を実DOMから再送する現行版では、ライブ実行開始時点で対象`tilcod`は予約一覧に
+  1件あったが、対応する`cancelCode`は空だった。送信前の安全弁が停止したため取消POSTは0回であり、
+  本番の第2段階POSTは送信していない。
+- **未確認**: `cancelCode`が空になった原因は未確認である。予約状態の自然変化、前回POSTの影響などを含め、
+  この結果だけから原因を断定してはならない。
+- **次の条件**: 現行`prevRequestForm`版の本番第2段階POST成功・取消成立は未検証である。次のライブ診断には、
+  非空の`cancelCode`を持つ現在取消可能な別の`tilcod`を、所有者が明示承認して指定する必要がある。
 
 #### 監査範囲と結論
 

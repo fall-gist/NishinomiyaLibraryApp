@@ -339,6 +339,26 @@ class LicsXpSession private constructor(
                 retryOnIOException = false,
             )
         }
+
+        /** stage1 HTMLのprevRequestForm actionを検証済みURLとして使う、取消2段階目専用の一回限りPOST。 */
+        suspend fun postReservationExactlyOnce(
+            actionUrl: HttpUrl,
+            form: FormBody,
+            stage1Page: LicsXpReservationCancelStagePage,
+        ): String {
+            require(stage1Page.url.hasSameOriginAs(baseUrl)) { "1段階目応答ページのoriginが不正です" }
+            require(actionUrl.hasSameOriginAs(baseUrl)) { "取消確認フォームactionのoriginが不正です" }
+            return executeInExclusiveSequence(
+                Request.Builder()
+                    .url(actionUrl)
+                    .header("Referer", stage1Page.url.toString())
+                    .header("Origin", baseUrl.origin())
+                    .post(form)
+                    .build(),
+                noRetryClient,
+                retryOnIOException = false,
+            )
+        }
     }
 
     internal fun updateTokens(html: String): PageTokens = HashExtractor.extract(html).also { tokens ->
@@ -347,6 +367,17 @@ class LicsXpSession private constructor(
 
     internal fun requireTokens(): PageTokens = lastPageTokens
         ?: throw ParseException("session", "hash と gamenid がまだ取得されていません")
+
+    /** prevRequestForm actionをbaseUrl基準で解決し、取消2段階目として許可する同一origin・同一pathへ限定する。 */
+    internal fun resolveReservationCancelAction(action: String): HttpUrl {
+        val resolved = baseUrl.resolve(action)
+            ?: throw ParseException("reservation-cancel-confirmation", "取消確認フォームactionを解決できません")
+        val expected = requireNotNull(baseUrl.resolve("WOpacUsrRsvCancelAction.do"))
+        if (!resolved.hasSameOriginAs(baseUrl) || resolved.encodedPath != expected.encodedPath || resolved.querySize != 0) {
+            throw ParseException("reservation-cancel-confirmation", "取消確認フォームactionが許可された送信先ではありません")
+        }
+        return resolved
+    }
 
     internal fun newIsolatedSession(): LicsXpSession = LicsXpSession(
         baseUrl = baseUrl,
