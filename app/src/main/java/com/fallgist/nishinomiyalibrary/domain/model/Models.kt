@@ -67,6 +67,8 @@ data class Reservation(
     val holdExpiryDate: LocalDate?,
     /** 予約一覧の書誌詳細リンク(hTilcod)から取得するタイトルコード。旧データは空文字列。 */
     val tilcod: String = "",
+    /** 取消ボタン(yoykCancel)から取得する予約コード。取消ボタンが無い行(提供可能等)では空文字列。 */
+    val cancelCode: String = "",
 )
 
 enum class ReservationState { WAITING, READY, UNKNOWN }
@@ -211,4 +213,32 @@ data class MemberReservationResult(
 
 data class ReservationBatchResult(
     val members: List<MemberReservationResult>,
+)
+
+/** 予約取消の依頼単位。1件の予約(cancelCode)に対応する。 */
+data class ReservationCancelTarget(
+    val memberId: Long,
+    val cancelCode: String,
+)
+
+sealed interface ReservationCancelOutcome {
+    data object Cancelled : ReservationCancelOutcome
+    /** siteMessageはサイトが返した拒否文言。取消の拒否文言は未実測のため、既知の拒否語を含む場合だけこの分類にする。 */
+    data class Rejected(val siteMessage: String) : ReservationCancelOutcome
+    data class Failure(val reason: FailureReason) : ReservationCancelOutcome
+    data class Unknown(val reason: UnknownReason) : ReservationCancelOutcome
+}
+
+data class ReservationCancelItemResult(
+    val target: ReservationCancelTarget,
+    val outcome: ReservationCancelOutcome,
+)
+
+data class MemberReservationCancelResult(
+    val memberId: Long,
+    val itemResults: List<ReservationCancelItemResult>,
+)
+
+data class ReservationCancelBatchResult(
+    val members: List<MemberReservationCancelResult>,
 )

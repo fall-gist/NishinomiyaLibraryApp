@@ -6,9 +6,11 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.DirectReservati
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookDetailReservationFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoginFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import kotlinx.coroutines.CancellationException
 import org.jsoup.Jsoup
 import okhttp3.FormBody
 
@@ -21,6 +23,15 @@ interface ReservationSession {
     suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt
 
     suspend fun fetchReservations(): List<Reservation>
+
+    /**
+     * 指定コードの予約を取り消す。利用者の明示操作からのみ呼ぶこと。
+     * 自動処理・バックグラウンド同期からは絶対に呼んではならない（副作用があるサイト操作のため）。
+     * 既定実装は未対応として例外を投げる。予約取消に関わらない既存のテスト用フェイクを
+     * 壊さないための既定値であり、本番実装(LicsXpReservationSession)は必ずoverrideする。
+     */
+    suspend fun cancelReservation(cancelCode: String): ReservationCancelAttempt =
+        throw UnsupportedOperationException("このセッションは予約取消に対応していません")
 
     fun close()
 }
@@ -54,6 +65,19 @@ sealed interface DirectReservationAttempt {
     data class LimitExceeded(val message: String) : DirectReservationAttempt
     /** 実測(2026-07-27)の成功ダイアログ文言。ただし成否の最終判断は従来どおり予約一覧照合で行う。 */
     data object Registered : DirectReservationAttempt
+}
+
+/**
+ * 予約取消の1回の試みの結果。取消の成功・失敗時にサイトが返す文言は本実装時点(2026-07-27)で
+ * 未実測であり、[Rejected] は既知の拒否語を含む文言が確認できた場合だけに限定して使う。
+ */
+sealed interface ReservationCancelAttempt {
+    /** 取消POST後に一覧を再取得し、対象コードが消えていたことを確認できた。 */
+    data object Cancelled : ReservationCancelAttempt
+    data object SessionExpiredBeforeSubmit : ReservationCancelAttempt
+    data object IndeterminateAfterPost : ReservationCancelAttempt
+    /** message はサイトが返した文言そのもの（拒否語を含むと判定できたもの）。 */
+    data class Rejected(val message: String) : ReservationCancelAttempt
 }
 
 /** POST前に確定した館不一致。ネットワーク境界内だけで利用する。 */
@@ -265,6 +289,79 @@ internal class LicsXpReservationSession(
         return ReservationListSnapshot(reservations, complete)
     }
 
+    /**
+     * 予約を取り消す。予約確定(directReserve)と同じ安全策を守る:
+     * 排他区間の中で行い、確定POSTはexactly-once・自動リトライ無効で送る。
+     * 取消の成功・失敗時にサイトが返す文言は本実装時点で未実測のため、文言による断定は
+     * 既知の拒否語を含む場合だけに限定し、それ以外は取消後の一覧照合で成否を判定する。
+     */
+    override suspend fun cancelReservation(cancelCode: String): ReservationCancelAttempt {
+        require(cancelCode.isNotBlank()) { "cancelCodeが空です" }
+        return session.withExclusiveRequestSequence {
+            val menu = get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
+            requireNotMaintenance(menu) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+            if (isLoginForm(Jsoup.parse(menu))) {
+                session.noteDiagnostic("cancel-reservation", "ログインフォームが返った")
+                return@withExclusiveRequestSequence ReservationCancelAttempt.SessionExpiredBeforeSubmit
+            }
+            session.updateTokens(menu)
+            val tokens = session.requireTokens()
+            fun listForm() = FormBody.Builder().add("hash", tokens.hash).add("gamenid", tokens.gamenId).build()
+
+            val listPage = postReservationList("WOpacMnuTopToPwdLibraryAction.do", mapOf("gamen" to "usrrsv"), listForm())
+            val listHtml = listPage.html
+            requireNotMaintenance(listHtml) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+            if (isLoginForm(Jsoup.parse(listHtml))) {
+                session.noteDiagnostic("cancel-reservation", "一覧取得でログインフォームが返った")
+                return@withExclusiveRequestSequence ReservationCancelAttempt.SessionExpiredBeforeSubmit
+            }
+            val cancelForm = try {
+                ReservationCancelFormParser.parse(listHtml).buildForm(cancelCode)
+            } catch (exception: ParseException) {
+                session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
+                throw LibraryError.Parse(exception.screen, exception.reason)
+            }
+            val response = try {
+                postReservationExactlyOnce(
+                    "WOpacUsrRsvCancelAction.do",
+                    mapOf("mngFlg2_handan" to "1", "kbnchgflag" to "1"),
+                    cancelForm,
+                    listPage,
+                )
+            } catch (_: LibraryError.Network) {
+                return@withExclusiveRequestSequence ReservationCancelAttempt.IndeterminateAfterPost
+            }
+            requireNotMaintenance(response) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+            // 成功・失敗の文言は未実測のため、既知の拒否語を含む場合だけ断定する。それ以外は一覧照合に委ねる。
+            val rejectionMessage = extractSiteMessages(Jsoup.parse(response))
+                .firstOrNull { message -> CANCEL_REJECTION_MARKERS.any(message::contains) }
+            if (rejectionMessage != null) {
+                return@withExclusiveRequestSequence ReservationCancelAttempt.Rejected(rejectionMessage)
+            }
+            // 取消後の一覧を1回だけ再取得し、対象コードが消えたかどうかで成否を判定する。
+            // 再取得できない、または解析できない場合は成否不明として扱い、POSTは再送しない。
+            val stillPresent = try {
+                val refetched = postReservationList("WOpacMnuTopToPwdLibraryAction.do", mapOf("gamen" to "usrrsv"), listForm())
+                if (isLoginForm(Jsoup.parse(refetched.html))) {
+                    session.noteDiagnostic("cancel-reservation", "取消後の一覧取得でログインフォームが返った")
+                    null
+                } else {
+                    requireNotMaintenance(refetched.html) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+                    ReservationListParser.parse(refetched.html).any { it.cancelCode == cancelCode }
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                session.noteDiagnostic("cancel-reservation", "取消後の一覧を解析できなかった")
+                null
+            }
+            when (stillPresent) {
+                false -> ReservationCancelAttempt.Cancelled
+                else -> ReservationCancelAttempt.IndeterminateAfterPost
+            }
+        }
+    }
+
     override fun close() = Unit
 
     /** 確定POSTを行わず、確認画面までの遷移と解析結果だけを調べる。directReserveは呼ばない。 */
@@ -400,5 +497,10 @@ private fun requireNotMaintenance(html: String, onMaintenance: (() -> Unit)? = n
 }
 
 private val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")
+/**
+ * 取消拒否と断定してよい既知の拒否語。取消の拒否文言は本実装時点(2026-07-27)で未実測であり、
+ * 実測できるまでの暫定的な安全側の判定に留める。該当しない文言では断定せず一覧照合に委ねる。
+ */
+private val CANCEL_REJECTION_MARKERS = listOf("できません", "越えています")
 /** 設定とライブ確認で確定している12館。 */
 internal val PICKUP_LIBRARY_CODES = setOf("001", "002", "003", "004", "101", "102", "103", "104", "105", "106", "107", "109")

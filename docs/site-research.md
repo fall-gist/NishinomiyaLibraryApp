@@ -510,3 +510,30 @@
 による1ページ分の読み取りだけで、予約成立の照合に偽陰性は起きない**。この実測により、
 確定POST後に予約一覧へ対象`tilcod`が無ければ「サイトに受け付けられなかった」と断定してよい
 根拠が得られた（§6.4参照）。
+
+### 予約取消フォームの実HTML構造（fixture `usrrsv.html` で確認済み。実サイトへの通信は未実施）
+
+上記の「スクリプト観測のみ」段階から進み、実HTML fixture (`usrrsv.html`) を精査してフォーム構造を
+確定した。**ただし取消の確定POST自体は一度も実サイトへ送っていない。成功・失敗時にサイトが
+返す文言は未実測である。**
+
+- 予約状況一覧の各行には、行ごとに **`name="yoykcode"` という同名のhidden**が並ぶ
+  (`id="yoycod<コード>"`、値は常に空文字列)。fixture上は19行あれば19個の`yoykcode`が存在する。
+  これは制御用の値ではなく、実際に送信で使われる制御フィールドは別に1個だけ存在する
+  **`name="yoycod"`**(hidden、こちらは複数存在しない)である。
+- 取消ボタン(`<input type="button" class="button remove" onclick="javascript:yoykCancel('コード')">`)
+  は「予約中」の行にだけ存在し、「提供可能」（取置済み）の行には存在しない。ボタン押下時のJS
+  (`yoykCancel`)は、この`yoycod`へ対象コードを代入してから同じ`LBForm`をそのまま送信するだけで、
+  **クライアント側の確認ダイアログは無い**。
+- したがって、`LBForm`を一意に特定する条件は「hidden `gamenid`が`tiles.WUsrRsvList`であること」
+  かつ「hidden `yoycod`がちょうど1個だけ存在すること」で足りる(行ごとに複数存在する`yoykcode`とは
+  区別できる)。この条件はfixture `usrrsv.html`で実際に成立することを確認済み。
+- 取消の確定POST先は前掲のとおり`WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1`であり、
+  `yoycod`以外のフィールドはブラウザのsuccessful controlsをDOM順・同名重複込みでそのまま送る
+  (`ReservationCancelFormParser`参照)。
+- 実装(`LicsXpReservationSession.cancelReservation`)は、直接予約の確定POSTと同じ安全策
+  (排他区間・exactly-once・自動リトライ無効)を踏襲し、確定POST後に予約一覧を1回再取得して
+  対象コードの消失を確認する方式にした。**取消の成功・拒否時にサイトが返すダイアログ文言は
+  本実装時点(2026-07-27)で未実測であるため、既知の拒否語(「できません」「越えています」)を
+  含む場合だけ拒否と断定し、それ以外は一覧照合による成否判定に委ねる**（詳細は
+  `docs/backend-design.md`の予約取消の節を参照）。

@@ -313,6 +313,44 @@ class LocalDataTest {
     }
 
     @Test
+    fun `v6からv7移行は予約にcancelCode列を空文字列で追加する`() {
+        val databaseName = "migration-${UUID.randomUUID()}.db"
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(databaseName)
+                .callback(object : SupportSQLiteOpenHelper.Callback(6) {
+                    override fun onCreate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        database.execSQL(
+                            "CREATE TABLE reservations (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                                "title TEXT NOT NULL)",
+                        )
+                        database.execSQL("INSERT INTO reservations(title) VALUES ('移行前の予約')")
+                    }
+
+                    override fun onUpgrade(
+                        database: androidx.sqlite.db.SupportSQLiteDatabase,
+                        oldVersion: Int,
+                        newVersion: Int,
+                    ) = Unit
+                })
+                .build(),
+        )
+
+        try {
+            val sqlite = helper.writableDatabase
+            DatabaseMigrations.MIGRATION_6_7.migrate(sqlite)
+            sqlite.query("SELECT title, cancelCode FROM reservations").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("移行前の予約", cursor.getString(0))
+                assertEquals("", cursor.getString(1))
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
     fun `v2からv3移行は既存貸出を保持し読書記録と履歴チェックポイントを作成する`() {
         val databaseName = "migration-${UUID.randomUUID()}.db"
         val helper = FrameworkSQLiteOpenHelperFactory().create(

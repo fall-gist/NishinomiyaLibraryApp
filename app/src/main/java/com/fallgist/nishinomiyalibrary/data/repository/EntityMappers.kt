@@ -103,6 +103,7 @@ internal fun ReservationEntity.toDomain(): Reservation = Reservation(
     state = state,
     holdExpiryDate = holdExpiryDate,
     tilcod = tilcod,
+    cancelCode = cancelCode,
 )
 
 internal fun Reservation.toEntity(memberId: Long): ReservationEntity = ReservationEntity(
@@ -116,6 +117,7 @@ internal fun Reservation.toEntity(memberId: Long): ReservationEntity = Reservati
     holdExpiryDate = holdExpiryDate,
     firstReadyNotifiedAt = null,
     tilcod = tilcod,
+    cancelCode = cancelCode,
 )
 
 internal fun ShelfItemWithShelfName.toDomain(): ShelfItem = ShelfItem(

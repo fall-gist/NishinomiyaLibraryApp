@@ -14,6 +14,8 @@ import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartItem
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelBatchResult
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
 import java.time.LocalDate
@@ -102,6 +104,15 @@ interface ReservationCartRepository {
         target: ReservationTarget,
         confirmation: ReservationConfirmation,
     ): ReservationBatchResult
+}
+
+/**
+ * 予約取消の公開API。複数件をまとめて依頼できる（UIの一括取消向け）。
+ * 取消は利用者の明示操作からのみ呼ぶこと。自動処理・同期からは絶対に呼ばないこと
+ * （サイトに副作用を及ぼす操作であり、誤って自動実行すると取り返しがつかないため）。
+ */
+interface ReservationCancelRepository {
+    suspend fun cancelReservations(targets: List<ReservationCancelTarget>): ReservationCancelBatchResult
 }
 
 enum class SyncTrigger { MANUAL, SCHEDULED }

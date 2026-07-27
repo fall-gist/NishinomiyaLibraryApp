@@ -274,6 +274,45 @@ class LicsXpSession private constructor(
                 retryOnIOException = false,
             )
         }
+
+        /**
+         * 予約状況一覧(usrrsv)POSTのURLを、直後の取消POSTのRefererにだけ使う。
+         * 一覧取得自体は既存のfetchReservationSnapshotと同じ読み取り専用の位置づけであり、
+         * Refererは付与しない（ブラウザ実測でも一覧遷移自体はメニューからの通常POSTである）。
+         */
+        suspend fun postReservationList(
+            path: String,
+            query: Map<String, String> = emptyMap(),
+            form: FormBody,
+        ): LicsXpReservationListPage {
+            val url = endpointUrl(path, query)
+            val html = executeInExclusiveSequence(
+                Request.Builder().url(url).post(form).build(),
+                client,
+                retryOnIOException = true,
+            )
+            return LicsXpReservationListPage(html, url)
+        }
+
+        /** 予約状況一覧ページ由来のReferer/Originを持つ、予約取消専用の一回限りPOST。 */
+        suspend fun postReservationExactlyOnce(
+            path: String,
+            query: Map<String, String> = emptyMap(),
+            form: FormBody,
+            listPage: LicsXpReservationListPage,
+        ): String {
+            require(listPage.url.hasSameOriginAs(baseUrl)) { "一覧ページのoriginが不正です" }
+            return executeInExclusiveSequence(
+                Request.Builder()
+                    .url(endpointUrl(path, query))
+                    .header("Referer", listPage.url.toString())
+                    .header("Origin", baseUrl.origin())
+                    .post(form)
+                    .build(),
+                noRetryClient,
+                retryOnIOException = false,
+            )
+        }
     }
 
     internal fun updateTokens(html: String): PageTokens = HashExtractor.extract(html).also { tokens ->
@@ -434,6 +473,12 @@ internal class LicsXpReservationConfirmationPage internal constructor(
 
 /** 通常書誌詳細GETから内部生成したURLとHTMLの組。 */
 internal class LicsXpReservationDetailPage internal constructor(
+    val html: String,
+    internal val url: HttpUrl,
+)
+
+/** 予約状況一覧(usrrsv)POSTから内部生成したURLとHTMLの組。取消POSTのRefererにだけ使う。 */
+internal class LicsXpReservationListPage internal constructor(
     val html: String,
     internal val url: HttpUrl,
 )

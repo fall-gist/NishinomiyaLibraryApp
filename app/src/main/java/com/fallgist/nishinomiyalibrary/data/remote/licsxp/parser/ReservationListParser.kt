@@ -32,6 +32,7 @@ object ReservationListParser {
                 memberId = memberId,
                 title = row.cell(title, screen, "資料名"),
                 tilcod = titleCodeOf(row),
+                cancelCode = cancelCodeOf(row),
                 materialType = row.cell(materialType, screen, "書誌種別"),
                 pickupLibrary = pickupLibrary(row, row.cell(pickupLibraryColumn, screen, "受取館")),
                 reservedDate = reserved,
@@ -55,6 +56,18 @@ object ReservationListParser {
     }
 
     private val TITLE_CODE_REGEX = Regex("(?:hTilcod=|toTilInfoDetail\\(')(\\d+)")
+
+    /**
+     * 行内の取消ボタン(onclick="javascript:yoykCancel('コード')")からコードを取り出す。
+     * 「提供可能」（取置済み）の行には取消ボタンが無いため、状態文字列ではなくボタンの有無で判断する
+     * (サイト仕様の変化に追随するため)。ボタンが無ければ空文字列。
+     */
+    private fun cancelCodeOf(row: org.jsoup.nodes.Element): String {
+        val button = row.selectFirst("input[onclick*=yoykCancel]") ?: return ""
+        return CANCEL_CODE_REGEX.find(button.attr("onclick"))?.groupValues?.get(1).orEmpty()
+    }
+
+    private val CANCEL_CODE_REGEX = Regex("""yoykCancel\('(\d+)'\)""")
 
     private fun parseReservationDates(value: String): List<LocalDate> =
         shortDateRegex.findAll(value).map { match ->

@@ -109,6 +109,8 @@ data class ReservationEntity(
     val firstReadyNotifiedAt: Long?,
     /** 予約一覧の書誌詳細リンク(hTilcod)由来のタイトルコード。旧データは空文字列。 */
     val tilcod: String = "",
+    /** 取消ボタン(yoykCancel)由来の予約コード。取消ボタンが無い行では空文字列。旧データも空文字列。 */
+    val cancelCode: String = "",
 )
 
 @Entity(

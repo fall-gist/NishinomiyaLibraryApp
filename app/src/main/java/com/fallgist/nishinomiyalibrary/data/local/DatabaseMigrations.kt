@@ -93,4 +93,11 @@ object DatabaseMigrations {
             database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_reservation_cart_items_memberId_tilcod ON reservation_cart_items(memberId, tilcod)")
         }
     }
+
+    /** v7で予約に取消ボタン(yoykCancel)由来の予約コードを追加する。 */
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE reservations ADD COLUMN cancelCode TEXT NOT NULL DEFAULT ''")
+        }
+    }
 }

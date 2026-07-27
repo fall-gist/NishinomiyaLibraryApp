@@ -16,6 +16,7 @@ import com.fallgist.nishinomiyalibrary.data.repository.SearchRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.ReadingRecordRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.StatusRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.ReservationCartRepositoryImpl
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationCancelRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpReservationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.data.sync.AndroidNotificationSink
@@ -29,6 +30,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCancelRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -71,6 +73,10 @@ abstract class RepositoryBindingModule {
     @Binds
     @Singleton
     abstract fun bindReservationCartRepository(implementation: ReservationCartRepositoryImpl): ReservationCartRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindReservationCancelRepository(implementation: ReservationCancelRepositoryImpl): ReservationCancelRepository
 
     @Binds
     @Singleton

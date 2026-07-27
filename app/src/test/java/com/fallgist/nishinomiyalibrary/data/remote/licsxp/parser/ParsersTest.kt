@@ -579,6 +579,17 @@ class ParsersTest {
     }
 
     @Test
+    fun `予約一覧の取消コードは取消ボタンの有無で判定する`() {
+        val result = ReservationListParser.parse(fixture("usrrsv.html"))
+        // 予約中(取消ボタンあり)の行はコードが取れる。
+        assertEquals(ReservationState.WAITING, result.first().state)
+        assertTrue(result.first().cancelCode.matches(Regex("\\d+")))
+        // 提供可能(取消ボタン無し)の行は空文字列になる。
+        assertEquals(ReservationState.READY, result[12].state)
+        assertEquals("", result[12].cancelCode)
+    }
+
+    @Test
     fun `予約一覧の0件画面をパースできる`() {
         assertTrue(ReservationListParser.parse(emptyReservationList()).isEmpty())
     }

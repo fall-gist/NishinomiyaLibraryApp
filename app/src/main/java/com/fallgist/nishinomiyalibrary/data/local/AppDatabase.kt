@@ -45,7 +45,7 @@ import java.time.LocalDate
         NewArrivalEntity::class,
         ReservationCartItemEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 @TypeConverters(LocalDateConverters::class)

@@ -696,6 +696,119 @@ class ReservationGatewayTest {
         assertTrue(fetchNotes.single().second.contains("parsed=19"))
     }
 
+    @Test
+    fun `取消は要求列とRefererOriginを守り取消POSTを一回だけ送り対象消失でCancelledになる`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(fixture("usrrsv.html").replace("yoykCancel('1013074729')", "")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729")
+
+        assertEquals(ReservationCancelAttempt.Cancelled, result)
+        assertEquals(4, server.requestCount)
+        val requests = List(4) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals("/WOpacMnuTopInitAction.do?WebLinkFlag=1", requests[0].path)
+        assertEquals("GET", requests[0].method)
+        assertEquals("/WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv", requests[1].path)
+        assertEquals("POST", requests[1].method)
+        assertEquals("/WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1", requests[2].path)
+        assertEquals("POST", requests[2].method)
+        assertEquals(
+            server.url("/WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv").toString(),
+            requests[2].getHeader("Referer"),
+        )
+        assertEquals("${server.url("/").scheme}://${server.url("/").host}:${server.url("/").port}", requests[2].getHeader("Origin"))
+        assertEquals("1013074729", decodeForm(requests[2].body.readUtf8())["yoycod"]?.single())
+        assertEquals("/WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv", requests[3].path)
+        assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    @Test
+    fun `取消後も対象が一覧に残っていればIndeterminateAfterPostになる`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(fixture("usrrsv.html")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729")
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
+        assertEquals(4, server.requestCount)
+    }
+
+    @Test
+    fun `取消POST応答の既知拒否語はRejectedになる`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html><script>alert('この予約は取消できません。');</script></html>"))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729")
+
+        assertEquals(ReservationCancelAttempt.Rejected("この予約は取消できません。"), result)
+        // 拒否語を検出した時点で確定するため、一覧の再取得は行わない。
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun `一覧取得がログインフォームなら取消POSTを送らない`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("login_form.html")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729")
+
+        assertEquals(ReservationCancelAttempt.SessionExpiredBeforeSubmit, result)
+        assertEquals(2, server.requestCount)
+        val requests = List(2) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertTrue(requests.none { it.path?.contains("UsrRsvCancel") == true })
+    }
+
+    @Test
+    fun `メニューがログインフォームなら一覧も取消POSTも送らない`() = runBlocking {
+        server.enqueue(page(fixture("login_form.html")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729")
+
+        assertEquals(ReservationCancelAttempt.SessionExpiredBeforeSubmit, result)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun `一覧上に存在しない取消コードはLibraryErrorParseになる`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val error = try {
+            session.cancelReservation("9999999999999")
+            null
+        } catch (exception: LibraryError.Parse) {
+            exception
+        }
+
+        assertNotNull(error)
+        // 画面と対象の食い違いを検出した時点で中止するため、取消POSTは送らない。
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun `取消POSTの接続断でも再送しない`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729")
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
+        assertEquals(3, server.requestCount)
+    }
+
     private fun noteCapturingObserver(notes: MutableList<Pair<String, String>>): LicsXpDiagnosticObserver =
         object : LicsXpDiagnosticObserver {
             override fun onRequest(request: LicsXpDiagnosticRequest) = Unit

@@ -43,4 +43,12 @@ interface ReservationDao {
 
     @Query("DELETE FROM reservations WHERE memberId = :memberId")
     suspend fun deleteForMember(memberId: Long)
+
+    /**
+     * 取消成功が確認できた予約をローカルからも即時削除する。次回同期の全置換を待たず、
+     * 一覧画面が古い「予約中」を出し続けないようにするため。cancelCodeは空文字列では絞り込まない
+     * (空文字列は取消不可の行が共有し得るため、誤って複数行を消さないよう呼出し側で空文字列は渡さない)。
+     */
+    @Query("DELETE FROM reservations WHERE memberId = :memberId AND cancelCode = :cancelCode")
+    suspend fun deleteByCancelCode(memberId: Long, cancelCode: String)
 }
