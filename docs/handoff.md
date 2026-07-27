@@ -1027,5 +1027,29 @@ $env:LICSXP_PASSWORD=[Environment]::GetEnvironmentVariable('LICSXP_PASSWORD','Us
 `OutlinedTextField`への入力は従来どおり機能する（`OutlinedTextField`は自身の選択状態を
 独立して管理するため、外側の`SelectionContainer`と競合しない）。そのため`DisableSelection`による
 個別除外は行っていない。
+
+### 予約取消は未完成（2026-07-27、実測）
+
+実サイトへ`WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1`をPOSTして初めて判明した。
+**現在の実装は、予約取消を実際にサイトへ反映させることができない。**
+
+- サイトの取消操作は「確認ダイアログ表示→OK→実際の取消送信」の**2段階**であり、アプリが送信する
+  1回のPOSTは1段階目（確認ダイアログ`予約の取消を行います。よろしいですか？`を含む一覧画面が
+  返るだけ）にしか到達しない。取消後の一覧に対象が残っていることを実測で確認済み。
+- OK後に何を送信すれば実際に取り消されるかは**未特定**。共通JS `lbwebdialog.js`の`lbConfirm`は
+  `confirm()`をラップして真偽値を返すだけで、OK後の遷移先はページ固有スクリプト側にある。
+- 併せて、旧実装の拒否判定（「できません」「越えています」という一般語）は、全ページ共通で
+  埋め込まれているJS定数（`仮パスワードでは利用できません。パスワード変更を行なってください。`）
+  にも誤反応する欠陥があったため削除した。現在は実測した具体的な文言（`取消を行います`）だけで
+  「確認画面が返った(未完了)」ことを判定する`ReservationCancelAttempt.ConfirmationRequired`を返す。
+- 診断（`LicsXpSession.extractScreenScriptFieldAssignments`）を強化し、`confirm(`/`lbConfirm(`を
+  含む関数の本体、およびトップレベルの`confirm`/`lbConfirm`呼び出し文を診断ログへ出力できるように
+  したが、本実装時点ではOK後の送信内容の実測はまだ行っていない。
+
+次にやるべきこと: `liveReservationCancelDiagnostic`実行時の`cancel-post`ステージの診断ログ
+（`(top-level):confirm=...`、`関数名:body=...`）を確認し、OK後にどのアクションへ何を送るべきかを
+特定してから、2段階目のPOSTを実装する。それまでは`ReservationCancelRepositoryImpl`は
+`ConfirmationRequired`を「取消を完了できませんでした（確認画面が返りました）」として扱い、
+利用者へ成功と誤解させない。
   担当AIが独断で予約を作ってはならない
 - **アプリのUI操作と、サイト上での最終確認は所有者が行う。** CLI診断はUIを通らない

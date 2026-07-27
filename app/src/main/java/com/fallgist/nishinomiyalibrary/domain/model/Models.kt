@@ -223,8 +223,15 @@ data class ReservationCancelTarget(
 
 sealed interface ReservationCancelOutcome {
     data object Cancelled : ReservationCancelOutcome
-    /** siteMessageはサイトが返した拒否文言。取消の拒否文言は未実測のため、既知の拒否語を含む場合だけこの分類にする。 */
+    /** 現在は生成されない。一般語による拒否判定が誤検出を招くことが実測(2026-07-27)で判明したため。 */
     data class Rejected(val siteMessage: String) : ReservationCancelOutcome
+    /**
+     * 実測(2026-07-27)判明: 取消は2段階で、1回目のPOSTは確認ダイアログ（「予約の取消を行います。
+     * よろしいですか？」）を返す画面がそのまま応答として返ってくるだけで、取り消されていない。
+     * OK後に何を送信すべきかは未特定のため、ここで打ち切る。siteMessageは確認ダイアログ文言そのもの。
+     * 成功と誤解されないよう、[Unknown] とは区別できるようにしている。
+     */
+    data class ConfirmationRequired(val siteMessage: String) : ReservationCancelOutcome
     data class Failure(val reason: FailureReason) : ReservationCancelOutcome
     data class Unknown(val reason: UnknownReason) : ReservationCancelOutcome
 }

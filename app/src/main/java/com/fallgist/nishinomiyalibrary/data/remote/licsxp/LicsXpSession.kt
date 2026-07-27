@@ -701,6 +701,10 @@ private const val SCREEN_SCRIPT_ENTRY_LIMIT = 200
 private const val SCREEN_SCRIPT_ENTRY_MAX_CHARS = 160
 private const val FUNCTION_BODY_LIMIT = 8
 private const val FUNCTION_BODY_MAX_CHARS = 1200
+private const val TOP_LEVEL_CONFIRM_ENTRY_LIMIT = 3
+private const val TOP_LEVEL_CONFIRM_ENTRY_MAX_CHARS = 300
+/** 予約取消の確認ダイアログ（`confirm(` / `lbConfirm(`）が、関数の外(トップレベル)で呼ばれている場合に捉える。 */
+private val TOP_LEVEL_CONFIRM_CALL_REGEX = Regex("""\b(?:confirm|lbConfirm)\s*\(""")
 
 /**
  * 画面インラインJSの `document.<フォーム名>.action = ...` 代入から、
@@ -736,12 +740,20 @@ internal fun extractScreenScriptActionTargets(html: String): List<String> {
  * （数値マスク・1200文字切り詰め済み、最大8関数まで）。
  * 1. action設定の文字列リテラルに `Exec` を含む
  * 2. フォームフィールドへの代入（`.value=` または `.disabled=`）を1つ以上持つ
- * 出力順は、条件1に該当する関数を先に、その後に条件2のみの関数を、いずれもソース中の出現順とする。
+ * 3. 本体に `confirm(` または `lbConfirm(` を含む（予約取消の確認ダイアログを組み立てる関数を
+ *    診断で見えるようにするための条件。取消の確認画面が実測(2026-07-27)で判明したため追加した）
+ * 出力順は、条件1に該当する関数を先に、次に条件2のみの関数を、最後に条件3のみの関数を、
+ * いずれもソース中の出現順とする（条件1・2に該当する関数は条件3を満たしていてもそちらに含める）。
+ * 加えて、関数の外(トップレベル)にある `confirm(` / `lbConfirm(` を含む文を、
+ * `(top-level):confirm=<文>` の形で最大3件・各300文字まで追加する
+ * （ページ読み込み時に確認ダイアログを出す仕組みがトップレベルにある可能性があるため）。
  */
 internal fun extractScreenScriptFieldAssignments(html: String): List<String> {
     val assignments = mutableListOf<String>()
     val execFunctionBodies = mutableListOf<Pair<String, String>>()
     val fieldAssignmentFunctionBodies = mutableListOf<Pair<String, String>>()
+    val confirmFunctionBodies = mutableListOf<Pair<String, String>>()
+    val topLevelConfirmStatements = mutableListOf<String>()
     forEachScriptFunctionRegion(html) { label, body ->
         var hasFieldAssignment = false
         for (match in SCREEN_SCRIPT_FIELD_ASSIGNMENT_REGEX.findAll(body)) {
@@ -753,19 +765,28 @@ internal fun extractScreenScriptFieldAssignments(html: String): List<String> {
             assignments += "$label:$fieldName.$propertyName=$value"
         }
         if (label != TOP_LEVEL_LABEL) {
-            if (containsExecActionLiteral(body)) {
-                execFunctionBodies += label to body
-            } else if (hasFieldAssignment) {
-                fieldAssignmentFunctionBodies += label to body
+            when {
+                containsExecActionLiteral(body) -> execFunctionBodies += label to body
+                hasFieldAssignment -> fieldAssignmentFunctionBodies += label to body
+                containsConfirmCall(body) -> confirmFunctionBodies += label to body
             }
+        } else {
+            topLevelConfirmStatements += extractTopLevelConfirmStatements(body)
         }
     }
     val normalizedAssignments = assignments.distinct().map { it.take(SCREEN_SCRIPT_ENTRY_MAX_CHARS) }
-    val bodyEntries = (execFunctionBodies.distinctBy { it.first } + fieldAssignmentFunctionBodies.distinctBy { it.first })
+    val bodyEntries = (
+        execFunctionBodies.distinctBy { it.first } +
+            fieldAssignmentFunctionBodies.distinctBy { it.first } +
+            confirmFunctionBodies.distinctBy { it.first }
+        )
         .distinctBy { it.first }
         .take(FUNCTION_BODY_LIMIT)
         .map { (name, body) -> "$name:body=${maskAndTruncateFunctionBody(body)}" }
-    return (normalizedAssignments + bodyEntries).distinct().take(SCREEN_SCRIPT_ENTRY_LIMIT)
+    val topLevelConfirmEntries = topLevelConfirmStatements.distinct()
+        .take(TOP_LEVEL_CONFIRM_ENTRY_LIMIT)
+        .map { statement -> "$TOP_LEVEL_LABEL:confirm=${collapseAndMaskDigits(statement).take(TOP_LEVEL_CONFIRM_ENTRY_MAX_CHARS)}" }
+    return (normalizedAssignments + bodyEntries + topLevelConfirmEntries).distinct().take(SCREEN_SCRIPT_ENTRY_LIMIT)
 }
 
 /** action設定の連結式のうち、文字列リテラル部分（識別子ではない部分）に `Exec` を含むかどうか。 */
@@ -774,12 +795,35 @@ private fun containsExecActionLiteral(body: String): Boolean =
         splitConcatenationExpression(match.groupValues[1]).any { part -> !part.startsWith("+") && part.contains("Exec") }
     }
 
-/** 関数本体ソースを、連続空白を1個へ潰し・6桁以上の数字を伏せ・1200文字までに切って返す。 */
-private fun maskAndTruncateFunctionBody(body: String): String {
-    val collapsed = body.replace(Regex("""\s+"""), " ").trim()
-    val masked = LONG_DIGIT_RUN_REGEX.replace(collapsed, "[NUM]")
-    return masked.take(FUNCTION_BODY_MAX_CHARS)
+/** 関数本体に確認ダイアログ呼び出し(`confirm(` / `lbConfirm(`)を含むかどうか。大小文字は区別しない実測基準。 */
+private fun containsConfirmCall(body: String): Boolean =
+    body.contains("confirm(") || body.contains("lbConfirm(")
+
+/**
+ * トップレベル(関数の外)にある `confirm(` / `lbConfirm(` 呼び出しを含む文を、直前・直後のセミコロンで
+ * 区切って取り出す。`if (confirm(...)) { ... }` のような複合文は最初のセミコロンまでしか捉えないが、
+ * 診断用の抜粋としては十分であり、後段でも300文字までに切り詰める。
+ */
+private fun extractTopLevelConfirmStatements(topLevelBody: String): List<String> {
+    val statements = mutableListOf<String>()
+    for (match in TOP_LEVEL_CONFIRM_CALL_REGEX.findAll(topLevelBody)) {
+        val start = topLevelBody.lastIndexOf(';', match.range.first).let { if (it < 0) 0 else it + 1 }
+        val semicolonIndex = topLevelBody.indexOf(';', match.range.first)
+        val end = if (semicolonIndex < 0) topLevelBody.length else semicolonIndex + 1
+        val statement = topLevelBody.substring(start, end).trim()
+        if (statement.isNotEmpty()) statements += statement
+    }
+    return statements
 }
+
+/** 連続空白を1個へ潰し、6桁以上の数字を `[NUM]` に伏せる。本体・トップレベル抜粋の両方で使う。 */
+private fun collapseAndMaskDigits(text: String): String {
+    val collapsed = text.replace(Regex("""\s+"""), " ").trim()
+    return LONG_DIGIT_RUN_REGEX.replace(collapsed, "[NUM]")
+}
+
+/** 関数本体ソースを、連続空白を1個へ潰し・6桁以上の数字を伏せ・1200文字までに切って返す。 */
+private fun maskAndTruncateFunctionBody(body: String): String = collapseAndMaskDigits(body).take(FUNCTION_BODY_MAX_CHARS)
 
 /**
  * HTML（の中の `<script>` ブロック相当部分）を、関数本体（名前付き）とトップレベル部分に分けて順に処理する。

@@ -740,17 +740,37 @@ class ReservationGatewayTest {
     }
 
     @Test
-    fun `取消POST応答の既知拒否語はRejectedになる`() = runBlocking {
+    fun `取消POST応答に確認ダイアログ文言があればConfirmationRequiredになる`() = runBlocking {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
-        server.enqueue(page("<html><script>alert('この予約は取消できません。');</script></html>"))
+        server.enqueue(page("<html><script>lbConfirm('予約の取消を行います。よろしいですか？');</script></html>"))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
         val result = session.cancelReservation("1013074729")
 
-        assertEquals(ReservationCancelAttempt.Rejected("この予約は取消できません。"), result)
-        // 拒否語を検出した時点で確定するため、一覧の再取得は行わない。
+        assertEquals(ReservationCancelAttempt.ConfirmationRequired("予約の取消を行います。よろしいですか？"), result)
+        // 確認ダイアログ文言を検出した時点で確定するため、一覧の再取得は行わない。
         assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun `全ページ共通JS定数の一般語だけではRejectedにもConfirmationRequiredにもならない`() = runBlocking {
+        // 実測(2026-07-27)で判明した誤検出の回帰試験。
+        // 「仮パスワードでは利用できません。パスワード変更を行なってください。」は全ページ共通のJS定数であり、
+        // 「できません」のような一般語で判定すると取消応答でなくても誤ってRejected扱いになっていた。
+        val commonJsConstantScript =
+            "<script>var messageText = '仮パスワードでは利用できません。パスワード変更を行なってください。';</script>"
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(fixture("usrrsv.html") + commonJsConstantScript))
+        server.enqueue(page(fixture("usrrsv.html")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729")
+
+        // Rejected/ConfirmationRequiredにならず、取消後の一覧照合(対象が残っている)に委ねられる。
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
+        assertEquals(4, server.requestCount)
     }
 
     @Test

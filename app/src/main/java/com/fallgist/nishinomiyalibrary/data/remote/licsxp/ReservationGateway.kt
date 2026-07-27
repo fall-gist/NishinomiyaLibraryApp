@@ -68,15 +68,36 @@ sealed interface DirectReservationAttempt {
 }
 
 /**
- * 予約取消の1回の試みの結果。取消の成功・失敗時にサイトが返す文言は本実装時点(2026-07-27)で
- * 未実測であり、[Rejected] は既知の拒否語を含む文言が確認できた場合だけに限定して使う。
+ * 予約取消の1回の試みの結果。
+ *
+ * 実測(2026-07-27)で判明したとおり、予約取消は2段階になっている。
+ * `WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1` への1回目のPOSTは、
+ * ダイアログ文言 `予約の取消を行います。よろしいですか？` を含む予約状況一覧の画面を返すだけであり、
+ * この時点では取り消されていない（取消後の一覧に対象が残っていることを実測で確認済み）。
+ * OK後に何を送信すれば実際に取り消されるかは本実装時点で未特定である。
+ * このため、この段階を [ConfirmationRequired] として明示し、成功と誤解されないようにする。
+ *
+ * [Rejected] はかつて「できません」「越えています」等の一般語で判定していたが、これらは
+ * 全ページに埋め込まれた共通JSの定数（`仮パスワードでは利用できません。パスワード変更を行なって
+ * ください。` 等）にも一致してしまい誤検出することが実測で判明したため、現在は使用していない
+ * （型としては残すが、生成箇所は無い）。
  */
 sealed interface ReservationCancelAttempt {
     /** 取消POST後に一覧を再取得し、対象コードが消えていたことを確認できた。 */
     data object Cancelled : ReservationCancelAttempt
     data object SessionExpiredBeforeSubmit : ReservationCancelAttempt
     data object IndeterminateAfterPost : ReservationCancelAttempt
-    /** message はサイトが返した文言そのもの（拒否語を含むと判定できたもの）。 */
+    /**
+     * 応答が「予約の取消を行います。よろしいですか？」という確認ダイアログ文言を含んでいた。
+     * これは1段階目の応答であり、まだ取り消されていない。OK後に送るべき内容は未特定のため、
+     * ここでは送信できず処理を打ち切る。message はサイトが返した確認ダイアログ文言そのもの。
+     */
+    data class ConfirmationRequired(val message: String) : ReservationCancelAttempt
+    /**
+     * 現在は生成されない。一般語による拒否判定が誤検出を招くことが実測で判明したため。
+     * 実測で拒否文言そのものが判明した場合は、[ConfirmationRequired] のように専用の結果を
+     * 追加すること。
+     */
     data class Rejected(val message: String) : ReservationCancelAttempt
 }
 
@@ -332,11 +353,14 @@ internal class LicsXpReservationSession(
                 return@withExclusiveRequestSequence ReservationCancelAttempt.IndeterminateAfterPost
             }
             requireNotMaintenance(response) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
-            // 成功・失敗の文言は未実測のため、既知の拒否語を含む場合だけ断定する。それ以外は一覧照合に委ねる。
-            val rejectionMessage = extractSiteMessages(Jsoup.parse(response))
-                .firstOrNull { message -> CANCEL_REJECTION_MARKERS.any(message::contains) }
-            if (rejectionMessage != null) {
-                return@withExclusiveRequestSequence ReservationCancelAttempt.Rejected(rejectionMessage)
+            // 実測(2026-07-27): 1回目のPOST応答は「予約の取消を行います。よろしいですか？」という
+            // 確認ダイアログ文言を含む一覧画面であり、この時点ではまだ取り消されていない。
+            // 一般語（「できません」等）による判定は、全ページ共通のJS定数に誤反応するため行わない。
+            val confirmationMessage = extractSiteMessages(Jsoup.parse(response))
+                .firstOrNull { message -> message.contains(CANCEL_CONFIRMATION_MARKER) }
+            if (confirmationMessage != null) {
+                session.noteDiagnostic("cancel-reservation", "確認ダイアログが返り取消は未完了")
+                return@withExclusiveRequestSequence ReservationCancelAttempt.ConfirmationRequired(confirmationMessage)
             }
             // 取消後の一覧を1回だけ再取得し、対象コードが消えたかどうかで成否を判定する。
             // 再取得できない、または解析できない場合は成否不明として扱い、POSTは再送しない。
@@ -498,9 +522,10 @@ private fun requireNotMaintenance(html: String, onMaintenance: (() -> Unit)? = n
 
 private val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")
 /**
- * 取消拒否と断定してよい既知の拒否語。取消の拒否文言は本実装時点(2026-07-27)で未実測であり、
- * 実測できるまでの暫定的な安全側の判定に留める。該当しない文言では断定せず一覧照合に委ねる。
+ * 取消の1回目のPOST応答が返す確認ダイアログ文言の一部（実測(2026-07-27):
+ * 「予約の取消を行います。よろしいですか？」）。この文言が含まれる場合は、まだ取り消されておらず
+ * 確認画面が返っただけと判定する。
  */
-private val CANCEL_REJECTION_MARKERS = listOf("できません", "越えています")
+private const val CANCEL_CONFIRMATION_MARKER = "取消を行います"
 /** 設定とライブ確認で確定している12館。 */
 internal val PICKUP_LIBRARY_CODES = setOf("001", "002", "003", "004", "101", "102", "103", "104", "105", "106", "107", "109")

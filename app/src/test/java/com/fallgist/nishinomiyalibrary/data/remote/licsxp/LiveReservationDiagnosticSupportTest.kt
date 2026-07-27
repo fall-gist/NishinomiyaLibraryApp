@@ -680,6 +680,62 @@ class LiveReservationDiagnosticSupportTest {
     }
 
     @Test
+    fun `confirmまたはlbConfirmを含む関数の本体はbodyエントリとして出力される`() {
+        val html = """
+            <script>
+            function yoykCancel(yoycod) {
+                document.cnclForm.yoycod.value = yoycod;
+                lbConfirm('予約の取消を行います。よろしいですか？');
+            }
+            function plainConfirm() {
+                document.other.flag.value = confirm("実行しますか？");
+            }
+            </script>
+        """.trimIndent()
+
+        val assignments = extractScreenScriptFieldAssignments(html)
+
+        assertTrue(assignments.any { it.startsWith("yoykCancel:body=") })
+        assertTrue(assignments.any { it.startsWith("plainConfirm:body=") })
+    }
+
+    @Test
+    fun `トップレベルのconfirmlbConfirm呼び出しを含む文はtop-levelconfirmとして出力される`() {
+        val html = """
+            <script>
+            if (lbConfirm('予約の取消を行います。よろしいですか？')) {
+                document.cnclForm.submit();
+            }
+            </script>
+        """.trimIndent()
+
+        val assignments = extractScreenScriptFieldAssignments(html)
+
+        val topLevelConfirmEntries = assignments.filter { it.startsWith("(top-level):confirm=") }
+        assertEquals(1, topLevelConfirmEntries.size)
+        assertTrue(topLevelConfirmEntries.single().contains("予約の取消を行います"))
+    }
+
+    @Test
+    fun `既存のExecフィールド代入条件による本体出力は壊れていない`() {
+        val html = """
+            <script>
+            function fieldOnly() {
+                document.LBForm.returnValue.value = "1";
+            }
+            function execFn() {
+                document.LBForm.action="WOpacTifDirectYoyExecAction.do";
+            }
+            </script>
+        """.trimIndent()
+
+        val assignments = extractScreenScriptFieldAssignments(html)
+
+        val bodyLabels = assignments.filter { it.contains(":body=") }.map { it.substringBefore(":body=") }
+        assertEquals(listOf("execFn", "fieldOnly"), bodyLabels)
+    }
+
+    @Test
     fun `サイトメッセージは長い数字列をマスクする`() {
         val document = org.jsoup.Jsoup.parse(
             """<div id="messages"><li>会員番号1234567890123は既に予約済みです</li><li></li></div>""",

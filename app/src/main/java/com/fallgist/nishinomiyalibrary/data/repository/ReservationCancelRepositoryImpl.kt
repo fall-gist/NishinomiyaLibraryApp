@@ -117,6 +117,14 @@ class ReservationCancelRepositoryImpl @Inject constructor(
                         results += ReservationCancelItemResult(target, ReservationCancelOutcome.Rejected(attempt.message))
                         index++
                     }
+                    is ReservationCancelAttempt.ConfirmationRequired -> {
+                        // 確認画面が返っただけで取消は完了していない。成功と誤解させないよう専用の結果にする。
+                        results += ReservationCancelItemResult(
+                            target,
+                            ReservationCancelOutcome.ConfirmationRequired(attempt.message),
+                        )
+                        index++
+                    }
                     ReservationCancelAttempt.IndeterminateAfterPost -> {
                         results += ReservationCancelItemResult(
                             target,
