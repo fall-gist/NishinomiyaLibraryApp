@@ -132,6 +132,9 @@ tasks.register<Test>("liveReservationDiagnostic") {
     testClassesDirs = debugUnitTest.get().testClassesDirs
     classpath = debugUnitTest.get().classpath
     include(liveReservationDiagnosticClass)
+    testLogging {
+        showStandardStreams = true
+    }
     doFirst {
         val required = mapOf(
             "LICSXP_LIVE_RESERVATION" to "YES_I_UNDERSTAND",

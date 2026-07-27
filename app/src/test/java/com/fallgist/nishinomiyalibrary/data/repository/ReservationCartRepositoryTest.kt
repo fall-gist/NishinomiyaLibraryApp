@@ -297,6 +297,54 @@ class ReservationCartRepositoryTest {
     }
 
     @Test
+    fun `上限超過は一覧を取得せず拒否とし同一メンバーの次の項目へ進む`() = runBlocking {
+        val member = addMember("上限超過", "18")
+        var fetchCount = 0
+        val sent = mutableListOf<String>()
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = object : ReservationSession {
+                override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
+                    sent += tilcod
+                    return DirectReservationAttempt.LimitExceeded("図書・雑誌は予約制限を1冊越えています。")
+                }
+                override suspend fun fetchReservations(): List<Reservation> { fetchCount++; return emptyList() }
+                override fun close() = Unit
+            }
+        })
+        repository.addToCart(ReservationTarget(null, member, "first", "一")); repository.addToCart(ReservationTarget(null, member, "second", "二"))
+        val result = repository.confirmCart(ReservationConfirmation("106", 1000))
+        assertEquals(listOf("first", "second"), sent)
+        assertEquals(0, fetchCount)
+        assertEquals(
+            ReservationOutcome.Failure(FailureReason.RESERVATION_LIMIT_EXCEEDED, "図書・雑誌は予約制限を1冊越えています。"),
+            result.members.single().itemResults[0].outcome,
+        )
+        assertEquals(
+            ReservationOutcome.Failure(FailureReason.RESERVATION_LIMIT_EXCEEDED, "図書・雑誌は予約制限を1冊越えています。"),
+            result.members.single().itemResults[1].outcome,
+        )
+    }
+
+    @Test
+    fun `成功文言でも一覧照合を最終根拠とし対象があれば成功にする`() = runBlocking {
+        val member = addMember("成功文言", "19")
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) =
+                object : ReservationSession, ReservationSnapshotSource {
+                    override suspend fun directReserve(tilcod: String, pickupLibraryCode: String) = DirectReservationAttempt.Registered
+                    override suspend fun fetchReservations(): List<Reservation> = listOf(
+                        Reservation(0, "found", "", "", LocalDate.of(2030, 1, 1), null, ReservationState.WAITING, null, "found"),
+                    )
+                    override suspend fun fetchReservationSnapshot() = ReservationListSnapshot(fetchReservations(), complete = true)
+                    override fun close() = Unit
+                }
+        })
+        repository.addToCart(ReservationTarget(null, member, "found", "見つかる"))
+        val result = repository.confirmCart(ReservationConfirmation("106", 1000))
+        assertEquals(ReservationOutcome.Success, result.members.single().itemResults.single().outcome)
+    }
+
+    @Test
     fun `確認画面のまま返っても一覧にあれば成功として扱う`() = runBlocking {
         val member = addMember("防御的成功", "14")
         val repository = repository(object : ReservationGateway {

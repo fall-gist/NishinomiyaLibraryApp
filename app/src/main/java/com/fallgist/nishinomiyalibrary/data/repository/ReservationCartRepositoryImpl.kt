@@ -156,6 +156,17 @@ class ReservationCartRepositoryImpl @Inject constructor(
                     DirectReservationAttempt.Submitted -> provisional[target] = Provisional.Submitted
                     DirectReservationAttempt.DuplicateDetected -> provisional[target] = Provisional.Duplicate
                     DirectReservationAttempt.RejectedBeforeSubmit -> provisional[target] = Provisional.Failure(FailureReason.REJECTED_BY_SITE)
+                    is DirectReservationAttempt.LimitExceeded -> {
+                        // サイトが上限超過だと明示しているため、予約一覧との照合は行わない。
+                        // 資料区分ごとに上限が異なるため、同一メンバーの次の項目は中止せず続行する。
+                        provisional[target] = Provisional.Failure(FailureReason.RESERVATION_LIMIT_EXCEEDED, attempt.message)
+                    }
+                    DirectReservationAttempt.Registered -> {
+                        // サイトが成功と言っていても、成否判定の最終根拠は予約一覧照合のままにする
+                        // （成功時も失敗時と同じ確認画面が返るため、文言だけを信頼しない方針を維持する）。
+                        val canContinue = resolveStayedOnConfirmation(requireNotNull(session), target, targets, index, provisional)
+                        if (!canContinue) break
+                    }
                     DirectReservationAttempt.StayedOnConfirmation -> {
                         val canContinue = resolveStayedOnConfirmation(requireNotNull(session), target, targets, index, provisional)
                         if (!canContinue) break
@@ -221,6 +232,13 @@ class ReservationCartRepositoryImpl @Inject constructor(
                         when (retried) {
                             DirectReservationAttempt.Submitted -> provisional[target] = Provisional.Submitted
                             DirectReservationAttempt.DuplicateDetected -> provisional[target] = Provisional.Duplicate
+                            is DirectReservationAttempt.LimitExceeded -> {
+                                provisional[target] = Provisional.Failure(FailureReason.RESERVATION_LIMIT_EXCEEDED, retried.message)
+                            }
+                            DirectReservationAttempt.Registered -> {
+                                val canContinue = resolveStayedOnConfirmation(retrySession, target, targets, index, provisional)
+                                if (!canContinue) break
+                            }
                             DirectReservationAttempt.StayedOnConfirmation -> {
                                 val canContinue = resolveStayedOnConfirmation(retrySession, target, targets, index, provisional)
                                 if (!canContinue) break
@@ -322,7 +340,7 @@ class ReservationCartRepositoryImpl @Inject constructor(
     private fun resolve(provisional: Provisional?, tilcod: String, reservedTilcods: Set<String>?): ReservationOutcome = when (provisional) {
         null -> ReservationOutcome.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
         Provisional.VerifiedSuccess -> ReservationOutcome.Success
-        is Provisional.Failure -> ReservationOutcome.Failure(provisional.reason)
+        is Provisional.Failure -> ReservationOutcome.Failure(provisional.reason, provisional.siteMessage)
         Provisional.Submitted, is Provisional.Indeterminate, Provisional.Duplicate -> when {
             reservedTilcods == null -> ReservationOutcome.Unknown(UnknownReason.VERIFICATION_UNAVAILABLE)
             tilcod in reservedTilcods && provisional == Provisional.Duplicate -> ReservationOutcome.AlreadyReserved
@@ -370,7 +388,8 @@ class ReservationCartRepositoryImpl @Inject constructor(
         data object Submitted : Provisional
         data object VerifiedSuccess : Provisional
         data object Duplicate : Provisional
-        data class Failure(val reason: FailureReason) : Provisional
+        /** siteMessage は予約制限超過などでサイトが返した文言。無ければ null。 */
+        data class Failure(val reason: FailureReason, val siteMessage: String? = null) : Provisional
         data class Indeterminate(val reason: UnknownReason) : Provisional
     }
 }

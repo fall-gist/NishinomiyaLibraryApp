@@ -181,7 +181,8 @@ data class ReservationItemResult(
 sealed interface ReservationOutcome {
     data object Success : ReservationOutcome
     data object AlreadyReserved : ReservationOutcome
-    data class Failure(val reason: FailureReason) : ReservationOutcome
+    /** siteMessage はサイトが返した文言（例: 予約制限超過時のダイアログ文言）。無ければ null。 */
+    data class Failure(val reason: FailureReason, val siteMessage: String? = null) : ReservationOutcome
     data class Unknown(val reason: UnknownReason) : ReservationOutcome
 }
 
@@ -189,6 +190,7 @@ enum class FailureReason {
     AUTH,
     INVALID_PICKUP_LIBRARY,
     REJECTED_BY_SITE,
+    RESERVATION_LIMIT_EXCEEDED,
     SESSION_EXPIRED_BEFORE_SUBMIT,
     SITE_RESPONSE_CHANGED,
     SITE_MAINTENANCE,

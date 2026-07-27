@@ -275,15 +275,24 @@ private fun ReservationCartItem.toTarget() = ReservationTarget(id, memberId, til
 private fun ReservationItemResult.toResultRow(memberId: Long): ReservationResultRow = when (val value = outcome) {
     ReservationOutcome.Success -> ReservationResultRow(memberId, target.title, "予約成立", null, completed = true)
     ReservationOutcome.AlreadyReserved -> ReservationResultRow(memberId, target.title, "予約済み", "すでに予約済みの資料です", completed = true)
-    is ReservationOutcome.Failure -> ReservationResultRow(memberId, target.title, "予約できませんでした", value.reason.label(), completed = false)
+    is ReservationOutcome.Failure -> ReservationResultRow(memberId, target.title, "予約できませんでした", value.detail(), completed = false)
     is ReservationOutcome.Unknown -> ReservationResultRow(memberId, target.title, "予約状態を確認できません", value.reason.label(), completed = false)
 }
+
+/**
+ * 予約制限超過（[FailureReason.RESERVATION_LIMIT_EXCEEDED]）は、サイトが返した文言
+ * （[ReservationOutcome.Failure.siteMessage]）をそのまま見せることを基本とする。
+ * 文言が無い場合だけ既定文言を使う。
+ */
+private fun ReservationOutcome.Failure.detail(): String =
+    if (reason == FailureReason.RESERVATION_LIMIT_EXCEEDED) siteMessage ?: reason.label() else reason.label()
 
 private fun FailureReason.label(): String = when (this) {
     FailureReason.AUTH -> "メンバーの認証に失敗しました"
     FailureReason.INVALID_PICKUP_LIBRARY -> "受取館の指定が無効です"
     // サイトは業務的拒否（上限超過など）の理由を一切返さないため、断定的な理由を表示してはならない。
     FailureReason.REJECTED_BY_SITE -> "図書館サイトが予約を受け付けませんでした（予約上限に達しているなどの理由が考えられます）"
+    FailureReason.RESERVATION_LIMIT_EXCEEDED -> "予約できる冊数の上限に達しています"
     FailureReason.SESSION_EXPIRED_BEFORE_SUBMIT -> "ログイン状態が失効しました。再度お試しください"
     FailureReason.SITE_RESPONSE_CHANGED -> "図書館サイトの応答を確認できませんでした。時間をおいて再度お試しください"
     FailureReason.SITE_MAINTENANCE -> "図書館サイトがメンテナンス中です"

@@ -267,6 +267,48 @@ class ParsersTest {
     }
 
     @Test
+    fun `予約応答の上限超過alertはLimitExceededとなりmessageを整形する`() {
+        assertEquals(
+            DirectReservationResponseParser.Result.LimitExceeded("図書・雑誌は予約制限を1冊越えています。"),
+            DirectReservationResponseParser.parse("<script>alert('図書・雑誌は予約制限を1冊越えています。')</script>"),
+        )
+    }
+
+    @Test
+    fun `予約応答の上限超過は区分名と冊数が異なる文言でも検出しmessageを整形する`() {
+        val html = "<div id=\"messages\"><li>\n  コミックは予約制限を3冊越えています。\n</li></div>"
+        assertEquals(
+            DirectReservationResponseParser.Result.LimitExceeded("コミックは予約制限を3冊越えています。"),
+            DirectReservationResponseParser.parse(html),
+        )
+    }
+
+    @Test
+    fun `予約応答の成功文言はRegisteredになる`() {
+        assertEquals(
+            DirectReservationResponseParser.Result.Registered,
+            DirectReservationResponseParser.parse(
+                "<script>alert('予約登録しました。確認したい場合は予約状況一覧で確認して下さい。')</script>",
+            ),
+        )
+    }
+
+    @Test
+    fun `予約応答の重複alertとログイン画面は上限超過より優先される`() {
+        val limitAlert = "<script>alert('図書・雑誌は予約制限を1冊越えています。')</script>"
+        assertEquals(
+            DirectReservationResponseParser.Result.DuplicateDetected,
+            DirectReservationResponseParser.parse(
+                limitAlert + "<script>alert('予約済の書誌があります。予約できません。')</script>",
+            ),
+        )
+        assertEquals(
+            DirectReservationResponseParser.Result.LoginAfterPost,
+            DirectReservationResponseParser.parse(limitAlert + "<form action='j_security_check'><input name='j_password'></form>"),
+        )
+    }
+
+    @Test
     fun `予約確認フォームの制御項目は正しい型で一意に必要になる`() {
         val valid = fixture("reservation_confirm.html")
         assertParseError("reservation-confirm") {

@@ -50,6 +50,10 @@ sealed interface DirectReservationAttempt {
     data object IndeterminateAfterPost : DirectReservationAttempt
     /** 確定POST後も確認画面のまま。業務的拒否（上限超過など）の可能性があるが、この時点では断定できない。 */
     data object StayedOnConfirmation : DirectReservationAttempt
+    /** 実測(2026-07-27)の予約制限超過ダイアログ文言。message はサイトが返した文言そのもの。 */
+    data class LimitExceeded(val message: String) : DirectReservationAttempt
+    /** 実測(2026-07-27)の成功ダイアログ文言。ただし成否の最終判断は従来どおり予約一覧照合で行う。 */
+    data object Registered : DirectReservationAttempt
 }
 
 /** POST前に確定した館不一致。ネットワーク境界内だけで利用する。 */
@@ -208,11 +212,13 @@ internal class LicsXpReservationSession(
             } catch (_: LibraryError.Network) {
                 return@withExclusiveRequestSequence DirectReservationAttempt.IndeterminateAfterPost
             }
-            when (DirectReservationResponseParser.parse(response)) {
+            when (val parsed = DirectReservationResponseParser.parse(response)) {
                 DirectReservationResponseParser.Result.LoginAfterPost -> DirectReservationAttempt.IndeterminateAfterPost
                 DirectReservationResponseParser.Result.DuplicateDetected -> DirectReservationAttempt.DuplicateDetected
                 DirectReservationResponseParser.Result.IndeterminateAfterPost -> DirectReservationAttempt.IndeterminateAfterPost
                 DirectReservationResponseParser.Result.StayedOnConfirmation -> DirectReservationAttempt.StayedOnConfirmation
+                is DirectReservationResponseParser.Result.LimitExceeded -> DirectReservationAttempt.LimitExceeded(parsed.message)
+                DirectReservationResponseParser.Result.Registered -> DirectReservationAttempt.Registered
             }
         }
     }
