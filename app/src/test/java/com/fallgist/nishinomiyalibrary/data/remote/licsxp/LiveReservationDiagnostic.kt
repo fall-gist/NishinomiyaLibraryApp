@@ -202,6 +202,16 @@ internal suspend fun runLiveReservationInspection(
                     "failure=${retry.failureReason ?: "(none)"}",
             )
         }
+        // 予約成立の照合に使う一覧が完全と判定できるかを、書き込みなしで確認する。
+        // 不一致ならサマリ件数と解析行数が note カテゴリへ出る。
+        (session as? ReservationSnapshotSource)?.let { source ->
+            val snapshot = runCatching { source.fetchReservationSnapshot() }
+            snapshot.onSuccess {
+                logger.stage("reservation-list", "parsed=${it.reservations.size} complete=${it.complete}")
+            }.onFailure {
+                logger.stage("reservation-list", "取得できませんでした: ${it::class.simpleName}")
+            }
+        }
         return inspection
     } finally {
         session.close()

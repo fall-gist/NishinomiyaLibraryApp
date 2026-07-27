@@ -904,3 +904,29 @@ class LicsXpSession private constructor(
 `ReservationCartRepositoryTest`の既存拒否系テストは、フェイクセッションが`ReservationSnapshotSource`を
 実装して`complete = true`を返すよう更新した上で、完全性を確認できない場合に拒否と断定せず
 残件を中止する新規テストを追加した。
+
+
+### 予約一覧の完全性ガードのライブ確認（2026-07-27、書き込みなし）
+
+dry-run診断（`:app:liveReservationInspect`）に予約一覧の取得を追加し、実サイトで確認した結果は
+`parsed=19 complete=true`。**利用状況サマリの予約中件数と、解析した一覧の行数が一致した。**
+ガードは実アカウントで正しく通り、過剰に成否不明へ倒すことはない。
+
+同時に、検証アカウントの予約は19件で全体上限の20件には達していないことが分かった。したがって
+2026-07-27に `ONE PIECE 巻115` が拒否されたのは**コミックの4件制限**によるものである。
+
+### ライブ診断の実行体制（2026-07-27）
+
+カード番号とパスワードは所有者がWindowsのユーザー環境変数へ設定済みで、担当AIは値を読み出さずに
+実行時へ引き渡せる。PowerShellから次の形でユーザースコープを読み込む（値は出力しない）。
+
+```
+$env:LICSXP_CARD_NUMBER=[Environment]::GetEnvironmentVariable('LICSXP_CARD_NUMBER','User')
+$env:LICSXP_PASSWORD=[Environment]::GetEnvironmentVariable('LICSXP_PASSWORD','User')
+```
+
+- **書き込みなしのdry-run（`liveReservationInspect`）は担当AIが自走してよい。** 仮説検証の往復を
+  所有者に依存しない
+- **書き込みを伴う診断（`liveReservationDiagnostic`）は都度、所有者の承認を得てから実行する。**
+  担当AIが独断で予約を作ってはならない
+- **アプリのUI操作と、サイト上での最終確認は所有者が行う。** CLI診断はUIを通らない
