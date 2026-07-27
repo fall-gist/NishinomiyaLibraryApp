@@ -21,11 +21,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,6 +46,7 @@ import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationCartContent
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiState
 import com.fallgist.nishinomiyalibrary.ui.search.CoverImageLoaderHolder
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
+import kotlinx.coroutines.delay
 
 /** tilcodを持つ全画面から開ける、共通の書誌詳細ビュー。戻る操作で閉じる。 */
 @Composable
@@ -100,7 +108,9 @@ fun BookDetailView(
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                if (detail.fields.isNotEmpty()) {
+                if (detail.fields.isNotEmpty() || detail.tilcod.isNotBlank()) {
+                    val clipboardManager = LocalClipboardManager.current
+                    var tilcodCopied by remember(detail.tilcod) { mutableStateOf(false) }
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -119,6 +129,32 @@ fun BookDetailView(
                                     modifier = Modifier.width(88.dp),
                                 )
                                 Text(value, color = colors.ink, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                            }
+                        }
+                        if (detail.tilcod.isNotBlank()) {
+                            Row(
+                                modifier = Modifier
+                                    .clickable {
+                                        clipboardManager.setText(AnnotatedString(detail.tilcod))
+                                        tilcodCopied = true
+                                    }
+                                    .padding(vertical = 4.dp),
+                            ) {
+                                Text(
+                                    text = "資料コード",
+                                    color = colors.ink2,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.width(88.dp),
+                                )
+                                Text(detail.tilcod, color = colors.ink, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                            }
+                            if (tilcodCopied) {
+                                LaunchedEffect(Unit) {
+                                    delay(2000)
+                                    tilcodCopied = false
+                                }
+                                Text("コピーしました", color = colors.green, fontSize = 11.sp)
                             }
                         }
                     }
