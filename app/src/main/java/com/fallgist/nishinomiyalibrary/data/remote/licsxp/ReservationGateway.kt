@@ -74,8 +74,12 @@ sealed interface DirectReservationAttempt {
  * `WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1` への1回目のPOSTは、
  * ダイアログ文言 `予約の取消を行います。よろしいですか？` を含む予約状況一覧の画面を返すだけであり、
  * この時点では取り消されていない（取消後の一覧に対象が残っていることを実測で確認済み）。
- * OK後に何を送信すれば実際に取り消されるかは本実装時点で未特定である。
- * このため、この段階を [ConfirmationRequired] として明示し、成功と誤解されないようにする。
+ * ページ側のスクリプトは、このダイアログのOK後に `document.prevRequestForm`（1段階目に送った
+ * フォーム）へ `okCodes` のhiddenを追加してそのまま再送信する仕組みであることが実測(2026-07-27)で
+ * 判明したため、実装は1段階目に確認ダイアログ文言を検出した場合、`okCodes=OPACUSR001` を付けた
+ * 2段階目を `WOpacUsrRsvCancelAction.do`（クエリ無し）へ自動的に送る。
+ * ただし、この2段階目のPOSTによって実サイト上で実際に予約が取り消されることは、本実装時点では
+ * まだ確認できていない。
  *
  * [Rejected] はかつて「できません」「越えています」等の一般語で判定していたが、これらは
  * 全ページに埋め込まれた共通JSの定数（`仮パスワードでは利用できません。パスワード変更を行なって
@@ -89,8 +93,9 @@ sealed interface ReservationCancelAttempt {
     data object IndeterminateAfterPost : ReservationCancelAttempt
     /**
      * 応答が「予約の取消を行います。よろしいですか？」という確認ダイアログ文言を含んでいた。
-     * これは1段階目の応答であり、まだ取り消されていない。OK後に送るべき内容は未特定のため、
-     * ここでは送信できず処理を打ち切る。message はサイトが返した確認ダイアログ文言そのもの。
+     * 実装は1段階目でこの文言を検出すると、`okCodes=OPACUSR001` を付けた2段階目を自動的に送るため、
+     * この結果になるのは2段階目の応答にも同じ確認ダイアログ文言が含まれていた場合だけである。
+     * message はサイトが返した確認ダイアログ文言そのもの（1段階目・2段階目いずれかの応答由来）。
      */
     data class ConfirmationRequired(val message: String) : ReservationCancelAttempt
     /**
@@ -312,9 +317,10 @@ internal class LicsXpReservationSession(
 
     /**
      * 予約を取り消す。予約確定(directReserve)と同じ安全策を守る:
-     * 排他区間の中で行い、確定POSTはexactly-once・自動リトライ無効で送る。
-     * 取消の成功・失敗時にサイトが返す文言は本実装時点で未実測のため、文言による断定は
-     * 既知の拒否語を含む場合だけに限定し、それ以外は取消後の一覧照合で成否を判定する。
+     * 排他区間の中で行い、各POSTはexactly-once・自動リトライ無効で送る。
+     * 実測(2026-07-27)のとおり取消は2段階であり、1段階目の応答に確認ダイアログ文言
+     * （`取消を行います`）を検出した場合だけ、`okCodes=OPACUSR001` を付けた2段階目を自動的に送る。
+     * いずれの段階でも確認ダイアログ文言が返らなければ、取消後の一覧照合で成否を判定する。
      */
     override suspend fun cancelReservation(cancelCode: String): ReservationCancelAttempt {
         require(cancelCode.isNotBlank()) { "cancelCodeが空です" }
@@ -342,7 +348,7 @@ internal class LicsXpReservationSession(
                 session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
                 throw LibraryError.Parse(exception.screen, exception.reason)
             }
-            val response = try {
+            val stage1Page = try {
                 postReservationExactlyOnce(
                     "WOpacUsrRsvCancelAction.do",
                     mapOf("mngFlg2_handan" to "1", "kbnchgflag" to "1"),
@@ -352,37 +358,49 @@ internal class LicsXpReservationSession(
             } catch (_: LibraryError.Network) {
                 return@withExclusiveRequestSequence ReservationCancelAttempt.IndeterminateAfterPost
             }
-            requireNotMaintenance(response) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+            val stage1Html = stage1Page.html
+            requireNotMaintenance(stage1Html) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
             // 実測(2026-07-27): 1回目のPOST応答は「予約の取消を行います。よろしいですか？」という
             // 確認ダイアログ文言を含む一覧画面であり、この時点ではまだ取り消されていない。
             // 一般語（「できません」等）による判定は、全ページ共通のJS定数に誤反応するため行わない。
-            val confirmationMessage = extractSiteMessages(Jsoup.parse(response))
+            val stage1ConfirmationMessage = extractSiteMessages(Jsoup.parse(stage1Html))
                 .firstOrNull { message -> message.contains(CANCEL_CONFIRMATION_MARKER) }
-            if (confirmationMessage != null) {
-                session.noteDiagnostic("cancel-reservation", "確認ダイアログが返り取消は未完了")
-                return@withExclusiveRequestSequence ReservationCancelAttempt.ConfirmationRequired(confirmationMessage)
+            if (stage1ConfirmationMessage == null) {
+                return@withExclusiveRequestSequence resolveCancelByListDiff(session, cancelCode, ::listForm)
             }
-            // 取消後の一覧を1回だけ再取得し、対象コードが消えたかどうかで成否を判定する。
-            // 再取得できない、または解析できない場合は成否不明として扱い、POSTは再送しない。
-            val stillPresent = try {
-                val refetched = postReservationList("WOpacMnuTopToPwdLibraryAction.do", mapOf("gamen" to "usrrsv"), listForm())
-                if (isLoginForm(Jsoup.parse(refetched.html))) {
-                    session.noteDiagnostic("cancel-reservation", "取消後の一覧取得でログインフォームが返った")
-                    null
-                } else {
-                    requireNotMaintenance(refetched.html) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
-                    ReservationListParser.parse(refetched.html).any { it.cancelCode == cancelCode }
+            session.noteDiagnostic("cancel-reservation", "確認ダイアログを検出し2段階目を送信")
+            // 実測(2026-07-27): ページ側スクリプトは確認ダイアログのOK後、document.prevRequestForm
+            // （1段階目に送ったフォーム）へ okCodes のhiddenを追加してそのまま再送信するだけである。
+            // そのため2段階目の本文は「1段階目のクエリパラメータ→1段階目と同じ本文(同じ順序・
+            // 同名重複のまま)→okCodes」の順に組み立てる。
+            // 注意: okCodes=OPACUSR001 の値、および mngFlg2_handan/kbnchgflag を本文へ入れることは
+            // 予約取消の確認ダイアログに固有の実測値であり、他の操作では異なるメッセージコードになる。
+            val stage2Form = FormBody.Builder().apply {
+                add("mngFlg2_handan", "1")
+                add("kbnchgflag", "1")
+                for (index in 0 until cancelForm.size) {
+                    add(cancelForm.name(index), cancelForm.value(index))
                 }
-            } catch (exception: CancellationException) {
-                throw exception
-            } catch (exception: Exception) {
-                session.noteDiagnostic("cancel-reservation", "取消後の一覧を解析できなかった")
-                null
+                add("okCodes", "OPACUSR001")
+            }.build()
+            val stage2Response = try {
+                postReservationExactlyOnce(
+                    "WOpacUsrRsvCancelAction.do",
+                    emptyMap(),
+                    stage2Form,
+                    stage1Page,
+                )
+            } catch (_: LibraryError.Network) {
+                return@withExclusiveRequestSequence ReservationCancelAttempt.IndeterminateAfterPost
             }
-            when (stillPresent) {
-                false -> ReservationCancelAttempt.Cancelled
-                else -> ReservationCancelAttempt.IndeterminateAfterPost
+            requireNotMaintenance(stage2Response) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+            val stage2ConfirmationMessage = extractSiteMessages(Jsoup.parse(stage2Response))
+                .firstOrNull { message -> message.contains(CANCEL_CONFIRMATION_MARKER) }
+            if (stage2ConfirmationMessage != null) {
+                session.noteDiagnostic("cancel-reservation", "2段階目後も確認ダイアログが返り取消は未完了")
+                return@withExclusiveRequestSequence ReservationCancelAttempt.ConfirmationRequired(stage2ConfirmationMessage)
             }
+            resolveCancelByListDiff(session, cancelCode, ::listForm)
         }
     }
 
@@ -442,6 +460,38 @@ internal class LicsXpReservationSession(
                 detailHashPresent = hasNonEmptyDetailHash(detailHtml),
             )
         }
+    }
+}
+
+/**
+ * 取消後の一覧を1回だけ再取得し、対象コードが消えたかどうかで成否を判定する。
+ * 再取得できない、または解析できない場合は成否不明として扱い、POSTは再送しない。
+ * 1段階目のみで確認ダイアログが出なかった場合と、2段階目送信後に確認ダイアログが出なかった場合の
+ * 両方から呼ばれる共通ロジックであり、cancelReservationから重複を避けるために切り出した。
+ */
+private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveCancelByListDiff(
+    session: LicsXpSession,
+    cancelCode: String,
+    listForm: () -> FormBody,
+): ReservationCancelAttempt {
+    val stillPresent = try {
+        val refetched = postReservationList("WOpacMnuTopToPwdLibraryAction.do", mapOf("gamen" to "usrrsv"), listForm())
+        if (isLoginForm(Jsoup.parse(refetched.html))) {
+            session.noteDiagnostic("cancel-reservation", "取消後の一覧取得でログインフォームが返った")
+            null
+        } else {
+            requireNotMaintenance(refetched.html) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+            ReservationListParser.parse(refetched.html).any { it.cancelCode == cancelCode }
+        }
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Exception) {
+        session.noteDiagnostic("cancel-reservation", "取消後の一覧を解析できなかった")
+        null
+    }
+    return when (stillPresent) {
+        false -> ReservationCancelAttempt.Cancelled
+        else -> ReservationCancelAttempt.IndeterminateAfterPost
     }
 }
 

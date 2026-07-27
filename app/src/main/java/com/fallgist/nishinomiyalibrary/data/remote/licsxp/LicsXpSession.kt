@@ -294,18 +294,44 @@ class LicsXpSession private constructor(
             return LicsXpReservationListPage(html, url)
         }
 
-        /** 予約状況一覧ページ由来のReferer/Originを持つ、予約取消専用の一回限りPOST。 */
+        /**
+         * 予約状況一覧ページ由来のReferer/Originを持つ、予約取消1段階目専用の一回限りPOST。
+         * 実測(2026-07-27)のとおりこの応答自体は確認ダイアログ画面であり、そのURLを2段階目の
+         * Refererに使う必要があるため、戻り値はHTMLとURLの組で返す。
+         */
         suspend fun postReservationExactlyOnce(
             path: String,
             query: Map<String, String> = emptyMap(),
             form: FormBody,
             listPage: LicsXpReservationListPage,
-        ): String {
+        ): LicsXpReservationCancelStagePage {
             require(listPage.url.hasSameOriginAs(baseUrl)) { "一覧ページのoriginが不正です" }
+            val url = endpointUrl(path, query)
+            val html = executeInExclusiveSequence(
+                Request.Builder()
+                    .url(url)
+                    .header("Referer", listPage.url.toString())
+                    .header("Origin", baseUrl.origin())
+                    .post(form)
+                    .build(),
+                noRetryClient,
+                retryOnIOException = false,
+            )
+            return LicsXpReservationCancelStagePage(html, url)
+        }
+
+        /** 予約取消1段階目の応答ページ由来のReferer/Originを持つ、2段階目専用の一回限りPOST。 */
+        suspend fun postReservationExactlyOnce(
+            path: String,
+            query: Map<String, String> = emptyMap(),
+            form: FormBody,
+            stage1Page: LicsXpReservationCancelStagePage,
+        ): String {
+            require(stage1Page.url.hasSameOriginAs(baseUrl)) { "1段階目応答ページのoriginが不正です" }
             return executeInExclusiveSequence(
                 Request.Builder()
                     .url(endpointUrl(path, query))
-                    .header("Referer", listPage.url.toString())
+                    .header("Referer", stage1Page.url.toString())
                     .header("Origin", baseUrl.origin())
                     .post(form)
                     .build(),
@@ -479,6 +505,12 @@ internal class LicsXpReservationDetailPage internal constructor(
 
 /** 予約状況一覧(usrrsv)POSTから内部生成したURLとHTMLの組。取消POSTのRefererにだけ使う。 */
 internal class LicsXpReservationListPage internal constructor(
+    val html: String,
+    internal val url: HttpUrl,
+)
+
+/** 予約取消1段階目の応答ページ。2段階目POSTのRefererにだけ使う。 */
+internal class LicsXpReservationCancelStagePage internal constructor(
     val html: String,
     internal val url: HttpUrl,
 )

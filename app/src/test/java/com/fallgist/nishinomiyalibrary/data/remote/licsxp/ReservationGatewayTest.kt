@@ -740,17 +740,68 @@ class ReservationGatewayTest {
     }
 
     @Test
-    fun `取消POST応答に確認ダイアログ文言があればConfirmationRequiredになる`() = runBlocking {
+    fun `取消1段階目に確認ダイアログがあれば2段階目をクエリ無しで一回だけ送り本文とRefererOriginが1段階目由来になる`() = runBlocking {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html><script>lbConfirm('予約の取消を行います。よろしいですか？');</script></html>"))
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(fixture("usrrsv.html").replace("yoykCancel('1013074729')", "")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729")
+
+        assertEquals(ReservationCancelAttempt.Cancelled, result)
+        assertEquals(5, server.requestCount)
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals("/WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1", requests[2].path)
+        assertEquals("/WOpacUsrRsvCancelAction.do", requests[3].path)
+        assertEquals("POST", requests[3].method)
+        assertEquals(
+            server.url("/WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1").toString(),
+            requests[3].getHeader("Referer"),
+        )
+        assertEquals("${server.url("/").scheme}://${server.url("/").host}:${server.url("/").port}", requests[3].getHeader("Origin"))
+        // 2段階目の本文は「mngFlg2_handan=1, kbnchgflag=1」→1段階目と同じ本文(同じ順序・同名重複のまま)→okCodesの順。
+        val stage1Fields = decodeFormFields(requests[2].body.readUtf8())
+        val stage2Fields = decodeFormFields(requests[3].body.readUtf8())
+        assertEquals(
+            listOf("mngFlg2_handan" to "1", "kbnchgflag" to "1") + stage1Fields + listOf("okCodes" to "OPACUSR001"),
+            stage2Fields,
+        )
+        // 取消POSTはクエリ有無問わず1段階目・2段階目の2回だけ。
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    @Test
+    fun `2段階目後に対象消失でCancelledになる場合と対象が残っている場合を区別する`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html><script>lbConfirm('予約の取消を行います。よろしいですか？');</script></html>"))
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(fixture("usrrsv.html")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729")
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
+        assertEquals(5, server.requestCount)
+    }
+
+    @Test
+    fun `取消2段階目の応答にも確認ダイアログ文言があればConfirmationRequiredになる`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html><script>lbConfirm('予約の取消を行います。よろしいですか？');</script></html>"))
         server.enqueue(page("<html><script>lbConfirm('予約の取消を行います。よろしいですか？');</script></html>"))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
         val result = session.cancelReservation("1013074729")
 
         assertEquals(ReservationCancelAttempt.ConfirmationRequired("予約の取消を行います。よろしいですか？"), result)
-        // 確認ダイアログ文言を検出した時点で確定するため、一覧の再取得は行わない。
-        assertEquals(3, server.requestCount)
+        // 2段階目後も確認ダイアログが返ったため、一覧の再取得は行わない。
+        assertEquals(4, server.requestCount)
+        val requests = List(4) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
     }
 
     @Test
