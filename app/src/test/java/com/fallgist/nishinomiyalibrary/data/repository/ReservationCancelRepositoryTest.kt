@@ -56,8 +56,8 @@ class ReservationCancelRepositoryTest {
 
         val result = repository.cancelReservations(
             listOf(
-                ReservationCancelTarget(member, "one"),
-                ReservationCancelTarget(member, "two"),
+                target(member, "one"),
+                target(member, "two"),
             ),
         )
 
@@ -77,15 +77,15 @@ class ReservationCancelRepositoryTest {
         val gateway = object : ReservationGateway {
             override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession {
                 if (cardNumber == "2") throw LibraryError.Auth(null)
-                return cancelOnlySession { ReservationCancelAttempt.Cancelled }
+                return cancelOnlySession { _, _ -> ReservationCancelAttempt.Cancelled }
             }
         }
         val repository = repository(gateway)
 
         val result = repository.cancelReservations(
             listOf(
-                ReservationCancelTarget(bad, "x"),
-                ReservationCancelTarget(good, "y"),
+                target(bad, "x"),
+                target(good, "y"),
             ),
         )
 
@@ -101,12 +101,48 @@ class ReservationCancelRepositoryTest {
         val member = addMember("成否不明", "4")
         val repository = repository(fakeGateway(mapOf("z" to ReservationCancelAttempt.IndeterminateAfterPost)))
 
-        val result = repository.cancelReservations(listOf(ReservationCancelTarget(member, "z")))
+        val result = repository.cancelReservations(listOf(target(member, "z")))
 
         assertEquals(
             ReservationCancelOutcome.Unknown(UnknownReason.VERIFICATION_UNAVAILABLE),
             result.members.single().itemResults.single().outcome,
         )
+    }
+
+    @Test
+    fun `同一メンバーで同じ取消コードでもtilcodが異なる予約は削除しない`() = runBlocking {
+        val member = addMember("3キー削除", "6")
+        val cancelCode = "shared"
+        val targetTilcod = "tilcod-target"
+        val otherTilcod = "tilcod-other"
+        database.reservationDao().insert(reservation(member, cancelCode, targetTilcod))
+        database.reservationDao().insert(reservation(member, cancelCode, otherTilcod))
+        val repository = repository(fakeGateway(mapOf(cancelCode to ReservationCancelAttempt.Cancelled)))
+
+        val result = repository.cancelReservations(
+            listOf(ReservationCancelTarget(member, targetTilcod, cancelCode)),
+        )
+
+        assertEquals(ReservationCancelOutcome.Cancelled, result.members.single().itemResults.single().outcome)
+        assertEquals(listOf(otherTilcod), database.reservationDao().getForMember(member).map { it.tilcod })
+    }
+
+    @Test
+    fun `取消セッションには対象のtilcodをexpectedTilcodとして渡す`() = runBlocking {
+        val member = addMember("対象伝達", "7")
+        val receivedRequests = mutableListOf<Pair<String, String>>()
+        val gateway = object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession =
+                cancelOnlySession { cancelCode, expectedTilcod ->
+                    receivedRequests += cancelCode to expectedTilcod
+                    ReservationCancelAttempt.Cancelled
+                }
+        }
+        val repository = repository(gateway)
+
+        repository.cancelReservations(listOf(ReservationCancelTarget(member, "tilcod-expected", "cancel-expected")))
+
+        assertEquals(listOf("cancel-expected" to "tilcod-expected"), receivedRequests)
     }
 
     @Test
@@ -117,15 +153,15 @@ class ReservationCancelRepositoryTest {
             override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession {
                 opens++
                 return if (opens == 1) {
-                    cancelOnlySession { ReservationCancelAttempt.SessionExpiredBeforeSubmit }
+                    cancelOnlySession { _, _ -> ReservationCancelAttempt.SessionExpiredBeforeSubmit }
                 } else {
-                    cancelOnlySession { ReservationCancelAttempt.Cancelled }
+                    cancelOnlySession { _, _ -> ReservationCancelAttempt.Cancelled }
                 }
             }
         }
         val repository = repository(gateway)
 
-        val result = repository.cancelReservations(listOf(ReservationCancelTarget(member, "retry")))
+        val result = repository.cancelReservations(listOf(target(member, "retry")))
 
         assertEquals(2, opens)
         assertEquals(ReservationCancelOutcome.Cancelled, result.members.single().itemResults.single().outcome)
@@ -137,7 +173,11 @@ class ReservationCancelRepositoryTest {
         return id
     }
 
-    private fun reservation(memberId: Long, cancelCode: String): ReservationEntity = ReservationEntity(
+    private fun reservation(
+        memberId: Long,
+        cancelCode: String,
+        tilcod: String = tilcodFor(cancelCode),
+    ): ReservationEntity = ReservationEntity(
         memberId = memberId,
         title = "資料",
         materialType = "図書",
@@ -148,7 +188,13 @@ class ReservationCancelRepositoryTest {
         holdExpiryDate = null,
         firstReadyNotifiedAt = null,
         cancelCode = cancelCode,
+        tilcod = tilcod,
     )
+
+    private fun target(memberId: Long, cancelCode: String): ReservationCancelTarget =
+        ReservationCancelTarget(memberId, tilcodFor(cancelCode), cancelCode)
+
+    private fun tilcodFor(cancelCode: String): String = "tilcod-$cancelCode"
 
     private fun repository(gateway: ReservationGateway) = ReservationCancelRepositoryImpl(
         database.reservationDao(), database.memberDao(), credentials, gateway,
@@ -157,19 +203,26 @@ class ReservationCancelRepositoryTest {
     private fun fakeGateway(attempts: Map<String, ReservationCancelAttempt>): ReservationGateway =
         object : ReservationGateway {
             override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession =
-                cancelOnlySession { cancelCode -> requireNotNull(attempts[cancelCode]) { "未定義のcancelCode: $cancelCode" } }
+                cancelOnlySession { cancelCode, _ ->
+                    requireNotNull(attempts[cancelCode]) { "未定義のcancelCode: $cancelCode" }
+                }
         }
 
     /**
      * 取消以外(directReserve/fetchReservations)を呼ばないことを前提に、取消動作だけを差し替えるフェイク。
      * ReservationSessionはインターフェースのため、このテストで使わないメソッドも形式上実装が必要。
      */
-    private fun cancelOnlySession(cancel: suspend (String) -> ReservationCancelAttempt): ReservationSession =
+    private fun cancelOnlySession(
+        cancel: suspend (cancelCode: String, expectedTilcod: String) -> ReservationCancelAttempt,
+    ): ReservationSession =
         object : ReservationSession {
             override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt =
                 error("このテストではdirectReserveを呼ばない")
             override suspend fun fetchReservations(): List<Reservation> = error("このテストではfetchReservationsを呼ばない")
-            override suspend fun cancelReservation(cancelCode: String): ReservationCancelAttempt = cancel(cancelCode)
+            override suspend fun cancelReservation(
+                cancelCode: String,
+                expectedTilcod: String,
+            ): ReservationCancelAttempt = cancel(cancelCode, expectedTilcod)
             override fun close() = Unit
         }
 }

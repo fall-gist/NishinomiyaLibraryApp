@@ -12,6 +12,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import kotlinx.coroutines.CancellationException
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
 import okhttp3.FormBody
 
 /** 読み取り用 LibraryGateway と切り離した、予約確定だけの通信境界。 */
@@ -27,10 +28,10 @@ interface ReservationSession {
     /**
      * 指定コードの予約を取り消す。利用者の明示操作からのみ呼ぶこと。
      * 自動処理・バックグラウンド同期からは絶対に呼んではならない（副作用があるサイト操作のため）。
-     * 既定実装は未対応として例外を投げる。予約取消に関わらない既存のテスト用フェイクを
-     * 壊さないための既定値であり、本番実装(LicsXpReservationSession)は必ずoverrideする。
+     * 既定実装は未対応として例外を投げる。未対応実装を明示的に失敗させる既定値であり、
+     * 本番実装(LicsXpReservationSession)は必ずoverrideする。
      */
-    suspend fun cancelReservation(cancelCode: String): ReservationCancelAttempt =
+    suspend fun cancelReservation(cancelCode: String, expectedTilcod: String): ReservationCancelAttempt =
         throw UnsupportedOperationException("このセッションは予約取消に対応していません")
 
     fun close()
@@ -81,21 +82,23 @@ sealed interface DirectReservationAttempt {
  * ただし、この2段階目のPOSTによって実サイト上で実際に予約が取り消されることは、本実装時点では
  * まだ確認できていない。
  *
+ * [Cancelled] は、取消後に取得した完全な予約一覧から、送信前に固定した対象`tilcod`の行が
+ * 消えた場合だけ返す。`cancelCode`の消失だけでは、予約状態の変化に伴って取消ボタンが消えた
+ * 場合を成功と誤判定し得るため使わない。
+ *
  * [Rejected] はかつて「できません」「越えています」等の一般語で判定していたが、これらは
  * 全ページに埋め込まれた共通JSの定数（`仮パスワードでは利用できません。パスワード変更を行なって
  * ください。` 等）にも一致してしまい誤検出することが実測で判明したため、現在は使用していない
  * （型としては残すが、生成箇所は無い）。
  */
 sealed interface ReservationCancelAttempt {
-    /** 取消POST後に一覧を再取得し、対象コードが消えていたことを確認できた。 */
+    /** 取消POST後に完全な一覧を再取得し、送信前に固定した対象行が消えていたことを確認できた。 */
     data object Cancelled : ReservationCancelAttempt
     data object SessionExpiredBeforeSubmit : ReservationCancelAttempt
     data object IndeterminateAfterPost : ReservationCancelAttempt
     /**
-     * 応答が「予約の取消を行います。よろしいですか？」という確認ダイアログ文言を含んでいた。
-     * 実装は1段階目でこの文言を検出すると、`okCodes=OPACUSR001` を付けた2段階目を自動的に送るため、
-     * この結果になるのは2段階目の応答にも同じ確認ダイアログ文言が含まれていた場合だけである。
-     * message はサイトが返した確認ダイアログ文言そのもの（1段階目・2段階目いずれかの応答由来）。
+     * 互換性のため残している結果型。現行の [LicsXpReservationSession.cancelReservation] は生成しない。
+     * 1段階目・2段階目の成否は、確認文言の有無ではなく取消後の完全な予約一覧照合で判定する。
      */
     data class ConfirmationRequired(val message: String) : ReservationCancelAttempt
     /**
@@ -317,13 +320,15 @@ internal class LicsXpReservationSession(
 
     /**
      * 予約を取り消す。予約確定(directReserve)と同じ安全策を守る:
-     * 排他区間の中で行い、各POSTはexactly-once・自動リトライ無効で送る。
-     * 実測(2026-07-27)のとおり取消は2段階であり、1段階目の応答に確認ダイアログ文言
-     * （`取消を行います`）を検出した場合だけ、`okCodes=OPACUSR001` を付けた2段階目を自動的に送る。
-     * いずれの段階でも確認ダイアログ文言が返らなければ、取消後の一覧照合で成否を判定する。
+     * 排他区間の中で行い、状態変更POSTは自動リトライしない1回限りの試行として送る。
+     * これはネットワーク上の厳密なexactly-once保証ではなく、通信断時には成否不明が残る。
+     * 実測(2026-07-27)のとおり取消は2段階である。1段階目の応答が、同じ取消対象を残す予約一覧であり、
+     * かつ既知の取消確認プロトコル署名を持つ場合だけ、`okCodes=OPACUSR001` を付けた2段階目を送る。
+     * それ以外は取消後の一覧照合で成否を判定する。
      */
-    override suspend fun cancelReservation(cancelCode: String): ReservationCancelAttempt {
+    override suspend fun cancelReservation(cancelCode: String, expectedTilcod: String): ReservationCancelAttempt {
         require(cancelCode.isNotBlank()) { "cancelCodeが空です" }
+        require(expectedTilcod.isNotBlank()) { "expectedTilcodが空です" }
         return session.withExclusiveRequestSequence {
             val menu = get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
             requireNotMaintenance(menu) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
@@ -332,8 +337,10 @@ internal class LicsXpReservationSession(
                 return@withExclusiveRequestSequence ReservationCancelAttempt.SessionExpiredBeforeSubmit
             }
             session.updateTokens(menu)
-            val tokens = session.requireTokens()
-            fun listForm() = FormBody.Builder().add("hash", tokens.hash).add("gamenid", tokens.gamenId).build()
+            fun listForm(): FormBody {
+                val tokens = session.requireTokens()
+                return FormBody.Builder().add("hash", tokens.hash).add("gamenid", tokens.gamenId).build()
+            }
 
             val listPage = postReservationList("WOpacMnuTopToPwdLibraryAction.do", mapOf("gamen" to "usrrsv"), listForm())
             val listHtml = listPage.html
@@ -341,6 +348,26 @@ internal class LicsXpReservationSession(
             if (isLoginForm(Jsoup.parse(listHtml))) {
                 session.noteDiagnostic("cancel-reservation", "一覧取得でログインフォームが返った")
                 return@withExclusiveRequestSequence ReservationCancelAttempt.SessionExpiredBeforeSubmit
+            }
+            // cancelCodeは操作対象を選ぶための画面上の一時コードであり、成功照合には使わない。
+            // 送信前一覧から対象行を一意に特定して、安定IDであるtilcodを固定する。
+            val targetTilcod = try {
+                val reservations = ReservationListParser.parse(listHtml)
+                val target = reservations.filter { it.cancelCode == cancelCode }.singleOrNull()
+                    ?: throw ParseException("reservation-cancel", "取消コードに対応する予約行を一意に特定できません")
+                if (target.tilcod.isBlank()) {
+                    throw ParseException("reservation-cancel", "取消対象の資料コードを取得できません")
+                }
+                if (target.tilcod != expectedTilcod) {
+                    throw ParseException("reservation-cancel", "取消対象の資料コードが依頼時の値と一致しません")
+                }
+                if (reservations.count { it.tilcod == target.tilcod } != 1) {
+                    throw ParseException("reservation-cancel", "取消対象の資料コードを一意に特定できません")
+                }
+                target.tilcod
+            } catch (exception: ParseException) {
+                session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
+                throw LibraryError.Parse(exception.screen, exception.reason)
             }
             val cancelForm = try {
                 ReservationCancelFormParser.parse(listHtml).buildForm(cancelCode)
@@ -360,15 +387,12 @@ internal class LicsXpReservationSession(
             }
             val stage1Html = stage1Page.html
             requireNotMaintenance(stage1Html) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
-            // 実測(2026-07-27): 1回目のPOST応答は「予約の取消を行います。よろしいですか？」という
-            // 確認ダイアログ文言を含む一覧画面であり、この時点ではまだ取り消されていない。
-            // 一般語（「できません」等）による判定は、全ページ共通のJS定数に誤反応するため行わない。
-            val stage1ConfirmationMessage = extractSiteMessages(Jsoup.parse(stage1Html))
-                .firstOrNull { message -> message.contains(CANCEL_CONFIRMATION_MARKER) }
-            if (stage1ConfirmationMessage == null) {
-                return@withExclusiveRequestSequence resolveCancelByListDiff(session, cancelCode, ::listForm)
+            // 2段階目は状態変更POSTである。JSの一般的な到達可能性は推定せず、直前に利用者が指定した
+            // cancelCode/tilcodを含む一覧と、実測済みの取消確認プロトコル署名が両方そろう場合だけ送る。
+            if (!hasKnownCancelConfirmationStage(stage1Html, cancelCode, targetTilcod)) {
+                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, ::listForm)
             }
-            session.noteDiagnostic("cancel-reservation", "確認ダイアログを検出し2段階目を送信")
+            session.noteDiagnostic("cancel-reservation", "対象一致の取消確認プロトコル署名を検出し2段階目を送信")
             // 実測(2026-07-27): ページ側スクリプトは確認ダイアログのOK後、document.prevRequestForm
             // （1段階目に送ったフォーム）へ okCodes のhiddenを追加してそのまま再送信するだけである。
             // そのため2段階目の本文は「1段階目のクエリパラメータ→1段階目と同じ本文(同じ順序・
@@ -394,13 +418,9 @@ internal class LicsXpReservationSession(
                 return@withExclusiveRequestSequence ReservationCancelAttempt.IndeterminateAfterPost
             }
             requireNotMaintenance(stage2Response) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
-            val stage2ConfirmationMessage = extractSiteMessages(Jsoup.parse(stage2Response))
-                .firstOrNull { message -> message.contains(CANCEL_CONFIRMATION_MARKER) }
-            if (stage2ConfirmationMessage != null) {
-                session.noteDiagnostic("cancel-reservation", "2段階目後も確認ダイアログが返り取消は未完了")
-                return@withExclusiveRequestSequence ReservationCancelAttempt.ConfirmationRequired(stage2ConfirmationMessage)
-            }
-            resolveCancelByListDiff(session, cancelCode, ::listForm)
+            // 2段階目の応答に確認文言が残っていても、文字列だけで未完了とは断定しない。
+            // 成否は完全な取消後一覧で固定済みtilcodを照合して決める。
+            resolveCancelByListDiff(session, targetTilcod, ::listForm)
         }
     }
 
@@ -464,24 +484,42 @@ internal class LicsXpReservationSession(
 }
 
 /**
- * 取消後の一覧を1回だけ再取得し、対象コードが消えたかどうかで成否を判定する。
- * 再取得できない、または解析できない場合は成否不明として扱い、POSTは再送しない。
+ * 取消後のメニューと一覧を各1回だけ再取得し、対象の安定ID(tilcod)が消えたかどうかで成否を判定する。
+ * 最新メニューの予約件数サマリと一覧解析行数が一致しない、再取得・解析できない場合は成否不明として
+ * 扱い、POSTは再送しない。
  * 1段階目のみで確認ダイアログが出なかった場合と、2段階目送信後に確認ダイアログが出なかった場合の
  * 両方から呼ばれる共通ロジックであり、cancelReservationから重複を避けるために切り出した。
  */
 private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveCancelByListDiff(
     session: LicsXpSession,
-    cancelCode: String,
+    targetTilcod: String,
     listForm: () -> FormBody,
 ): ReservationCancelAttempt {
-    val stillPresent = try {
+    val targetRemoved = try {
+        val menu = get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
+        requireNotMaintenance(menu) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+        if (isLoginForm(Jsoup.parse(menu))) {
+            session.noteDiagnostic("cancel-reservation", "取消後のメニュー取得でログインフォームが返った")
+            return ReservationCancelAttempt.IndeterminateAfterPost
+        }
+        session.updateTokens(menu)
+        val summaryReservationCount = runCatching { SummaryParser.parse(menu).reservationCount }.getOrNull()
         val refetched = postReservationList("WOpacMnuTopToPwdLibraryAction.do", mapOf("gamen" to "usrrsv"), listForm())
         if (isLoginForm(Jsoup.parse(refetched.html))) {
             session.noteDiagnostic("cancel-reservation", "取消後の一覧取得でログインフォームが返った")
             null
         } else {
             requireNotMaintenance(refetched.html) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
-            ReservationListParser.parse(refetched.html).any { it.cancelCode == cancelCode }
+            val reservations = ReservationListParser.parse(refetched.html)
+            if (summaryReservationCount == null || summaryReservationCount != reservations.size) {
+                session.noteDiagnostic(
+                    "cancel-reservation",
+                    "取消後一覧の完全性を確認できない (summary=${summaryReservationCount?.toString() ?: "取得不可"}, parsed=${reservations.size})",
+                )
+                null
+            } else {
+                reservations.none { it.tilcod == targetTilcod }
+            }
         }
     } catch (exception: CancellationException) {
         throw exception
@@ -489,8 +527,8 @@ private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveCancelByListDi
         session.noteDiagnostic("cancel-reservation", "取消後の一覧を解析できなかった")
         null
     }
-    return when (stillPresent) {
-        false -> ReservationCancelAttempt.Cancelled
+    return when (targetRemoved) {
+        true -> ReservationCancelAttempt.Cancelled
         else -> ReservationCancelAttempt.IndeterminateAfterPost
     }
 }
@@ -577,5 +615,206 @@ private val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナ�
  * 確認画面が返っただけと判定する。
  */
 private const val CANCEL_CONFIRMATION_MARKER = "取消を行います"
+
+/**
+ * 2段階目POSTのための複合ガード。
+ *
+ * これはJavaScriptが実行されることを証明しない。直前の取消POSTの応答が、同じ`cancelCode`と`tilcod`を
+ * 残した予約一覧であり、取消フォームと既知の確認プロトコル署名を同時に持つことを照合する。
+ * 誤一致しても、送信対象は利用者が直前に明示した取消対象のフォームへ限定される。
+ */
+private fun hasKnownCancelConfirmationStage(html: String, cancelCode: String, targetTilcod: String): Boolean {
+    val targetStillPresent = runCatching {
+        val reservations = ReservationListParser.parse(html)
+        reservations.filter { it.cancelCode == cancelCode }.singleOrNull()?.tilcod == targetTilcod &&
+            reservations.count { it.tilcod == targetTilcod } == 1
+    }.getOrDefault(false)
+    if (!targetStillPresent) return false
+
+    val hasMatchingCancelForm = runCatching {
+        ReservationCancelFormParser.parse(html).buildForm(cancelCode)
+        true
+    }.getOrDefault(false)
+    return hasMatchingCancelForm && hasKnownCancelConfirmationProtocolSignature(html)
+}
+
+/**
+ * 取消確認を、2026-07-27に採取したlegacy scriptの確認済み構造だけに限定して検出する。
+ *
+ * これはJavaScriptの実行可能性を一般に推定するものではない。トップレベルの `if (0 != 1)` 分岐で
+ * `lbConfirm`/`window.confirm` を呼び、`rest` が真のとき `OPACUSR001` を `okArray` へ追加し、
+ * `document.prevRequestForm.appendChild(newHidden)` で再送フォームを組み立てる、実測済みの並びだけを許す。
+ * `src`付き、非JavaScript type、コメント・文字列・template literal・正規表現・関数/class/arrow関数・
+ * 不整合構文はプロトコル署名として扱わない。
+ */
+private fun hasKnownCancelConfirmationProtocolSignature(html: String): Boolean =
+    Jsoup.parse(html).select("script").any { script ->
+        if (!isInlineJavaScript(script)) return@any false
+        val source = sanitizeLegacyCancelScript(script.data()) ?: return@any false
+        if (hasTopLevelJavaScriptKeyword(source, "return")) return@any false
+        OBSERVED_LEGACY_CANCEL_CONFIRMATION.findAll(source).any { match ->
+            isTopLevelJavaScriptPosition(source, match.range.first) &&
+                isLegacyCancelStatementStart(source, match.range.first)
+        }
+    }
+
+private fun isInlineJavaScript(script: Element): Boolean {
+    if (script.hasAttr("src")) return false
+    if (!script.hasAttr("type")) return true
+    return script.attr("type").trim().lowercase() in STANDARD_JAVASCRIPT_MIME_TYPES
+}
+
+private val STANDARD_JAVASCRIPT_MIME_TYPES = setOf(
+    "text/javascript",
+    "application/javascript",
+    "text/ecmascript",
+    "application/ecmascript",
+)
+
+/**
+ * 実測legacy構造に不要な字句を拒否しつつ、コメントだけを空白化する。
+ * 取消のstage2は状態変更であるため、理解不能な構文を許容してはならない。
+ */
+private fun sanitizeLegacyCancelScript(script: String): String? {
+    val output = StringBuilder(script.length)
+    val parentheses = ArrayDeque<Char>()
+    var index = 0
+    while (index < script.length) {
+        val char = script[index]
+        if (char == '/' && script.getOrNull(index + 1) == '/') {
+            val end = script.indexOf('\n', index).let { if (it == -1) script.length else it }
+            repeat(end - index) { output.append(' ') }
+            index = end
+            continue
+        }
+        if (char == '/' && script.getOrNull(index + 1) == '*') {
+            val close = script.indexOf("*/", index + 2)
+            if (close == -1) return null
+            repeat(close + 2 - index) { output.append(' ') }
+            index = close + 2
+            continue
+        }
+        if (char == '\'' || char == '"') {
+            val end = skipLegacyJavaScriptString(script, index) ?: return null
+            output.append(legacyCancelStringToken(script.substring(index + 1, end - 1)))
+            index = end
+            continue
+        }
+        if (char == '`' || char == '/' || script.startsWith("=>", index) ||
+            isLegacyKeywordAt(script, index, "function") || isLegacyKeywordAt(script, index, "class")
+        ) return null
+        when (char) {
+            '(', '[', '{' -> parentheses.addLast(char)
+            ')' -> if (parentheses.removeLastOrNull() != '(') return null
+            ']' -> if (parentheses.removeLastOrNull() != '[') return null
+            '}' -> if (parentheses.removeLastOrNull() != '{') return null
+        }
+        output.append(char)
+        index++
+    }
+    return output.toString().takeIf { parentheses.isEmpty() }
+}
+
+private fun skipLegacyJavaScriptString(source: String, start: Int): Int? {
+    val quote = source[start]
+    var index = start + 1
+    while (index < source.length) {
+        when (source[index]) {
+            '\\' -> index += 2
+            quote -> return index + 1
+            '\n', '\r' -> return null
+            else -> index++
+        }
+    }
+    return null
+}
+
+/**
+ * 文字列の中身をそのまま正規表現へ渡さない。そうすると、文字列に埋め込まれた偽のスクリプトを
+ * 実行可能コードと取り違えるためである。実測済みの4値だけを記号化し、その他の文字列は候補外にする。
+ */
+private fun legacyCancelStringToken(value: String): String = when {
+    value.contains(CANCEL_CONFIRMATION_MARKER) -> "__CANCEL_MESSAGE__"
+    value == "" -> "__EMPTY__"
+    value == "#F1F1FF" -> "__CONFIRM_COLOR__"
+    value == "OPACUSR001" -> "__CANCEL_OK_CODE__"
+    else -> "__OTHER_STRING__"
+}
+
+private fun isLegacyKeywordAt(source: String, start: Int, keyword: String): Boolean =
+    source.startsWith(keyword, start) &&
+        (start == 0 || !source[start - 1].isLegacyJavaScriptIdentifierPart()) &&
+        (start + keyword.length == source.length || !source[start + keyword.length].isLegacyJavaScriptIdentifierPart())
+
+private fun Char.isLegacyJavaScriptIdentifierPart(): Boolean = isLetterOrDigit() || this == '_' || this == '$'
+
+/** 文字列と括弧の整合性を検査済みのsourceで、指定位置がトップレベルかを調べる。 */
+private fun isTopLevelJavaScriptPosition(source: String, position: Int): Boolean {
+    var braceDepth = 0
+    var index = 0
+    while (index < position) {
+        val char = source[index]
+        if (char == '\'' || char == '"') {
+            index = skipLegacyJavaScriptString(source, index) ?: return false
+            continue
+        }
+        when (char) {
+            '{' -> braceDepth += 1
+            '}' -> braceDepth -= 1
+        }
+        if (braceDepth < 0) return false
+        index++
+    }
+    return braceDepth == 0
+}
+
+private fun hasTopLevelJavaScriptKeyword(source: String, keyword: String): Boolean {
+    var braceDepth = 0
+    var index = 0
+    while (index < source.length) {
+        when (source[index]) {
+            '{' -> braceDepth++
+            '}' -> braceDepth--
+        }
+        if (braceDepth == 0 && isLegacyKeywordAt(source, index, keyword)) return true
+        index++
+    }
+    return false
+}
+
+/**
+ * `if (false) if (...)` のような単文分岐の内側を、トップレベルの候補として扱わない。
+ * 実測構造は独立した文として始まるため、直前は先頭・セミコロン・閉じ波括弧だけを許す。
+ */
+private fun isLegacyCancelStatementStart(source: String, position: Int): Boolean {
+    val previous = source.substring(0, position).lastOrNull { !it.isWhitespace() } ?: return true
+    return previous == ';' || previous == '}'
+}
+
+/**
+ * DevToolsで採取した取消確認ページのlegacy script構造。
+ * 文字列は引用符の種類だけを許容し、制御値・変数名・呼出し順は実測値へ固定する。
+ */
+private val OBSERVED_LEGACY_CANCEL_CONFIRMATION = Regex(
+    """(?xs)
+    if \s* \( \s* 0 \s* != \s* 1 \s* \) \s* \{
+      \s* if \s* \( \s* 0 \s* == \s* 1 \s* \) \s* \{
+        \s* rest \s*=\s* confirm \s* \( \s* __CANCEL_MESSAGE__ \s* \) \s* ;
+      \s* \} \s* else \s* \{
+        \s* rest \s*=\s* lbConfirm \s* \( \s* __CANCEL_MESSAGE__ \s* , \s* __EMPTY__ \s* , \s* __CONFIRM_COLOR__ \s* \) \s* ;
+      \s* \} \s* \}
+      \s* else \s* \{
+        \s* rest \s*=\s* window \. confirm \s* \( \s* __CANCEL_MESSAGE__ \s* \) \s* ;
+      \s* \}
+      \s* if \s* \( \s* rest \s* \) \s* \{
+        \s* okArray \s* \[ \s* okArray \. length \s* \] \s*=\s* __CANCEL_OK_CODE__ \s* ;
+        \s* submitFlg \s*=\s* false \s* ;
+      \s* \}
+      \s* else \s* \{ \s* return \s+ cancelDialog \s* \( \s* \) \s* ; \s* \}
+      (?:(?!document\.prevRequestForm\.appendChild\s*\(\s*newHidden\s*\)).)*
+      document \. prevRequestForm \. appendChild \s* \( \s* newHidden \s* \)
+    """.trimIndent(),
+)
+
 /** 設定とライブ確認で確定している12館。 */
 internal val PICKUP_LIBRARY_CODES = setOf("001", "002", "003", "004", "101", "102", "103", "104", "105", "106", "107", "109")

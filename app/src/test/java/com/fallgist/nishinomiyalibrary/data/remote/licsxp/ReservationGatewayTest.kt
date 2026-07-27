@@ -14,6 +14,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
+import org.jsoup.Jsoup
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -24,6 +25,10 @@ import org.junit.Before
 import org.junit.Test
 
 class ReservationGatewayTest {
+    private companion object {
+        const val CANCEL_TARGET_TILCOD = "1000001898886"
+    }
+
     private lateinit var server: MockWebServer
 
     @Before
@@ -701,14 +706,15 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
         server.enqueue(page("<html>取消受付</html>"))
-        server.enqueue(page(fixture("usrrsv.html").replace("yoykCancel('1013074729')", "")))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
-        val result = session.cancelReservation("1013074729")
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
         assertEquals(ReservationCancelAttempt.Cancelled, result)
-        assertEquals(4, server.requestCount)
-        val requests = List(4) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(5, server.requestCount)
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals("/WOpacMnuTopInitAction.do?WebLinkFlag=1", requests[0].path)
         assertEquals("GET", requests[0].method)
         assertEquals("/WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv", requests[1].path)
@@ -721,7 +727,8 @@ class ReservationGatewayTest {
         )
         assertEquals("${server.url("/").scheme}://${server.url("/").host}:${server.url("/").port}", requests[2].getHeader("Origin"))
         assertEquals("1013074729", decodeForm(requests[2].body.readUtf8())["yoycod"]?.single())
-        assertEquals("/WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv", requests[3].path)
+        assertEquals("/WOpacMnuTopInitAction.do?WebLinkFlag=1", requests[3].path)
+        assertEquals("/WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv", requests[4].path)
         assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
     }
 
@@ -730,29 +737,45 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
         server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(menuWithReservationCount(19)))
         server.enqueue(page(fixture("usrrsv.html")))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
-        val result = session.cancelReservation("1013074729")
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
         assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
-        assertEquals(4, server.requestCount)
+        assertEquals(5, server.requestCount)
+    }
+
+    @Test
+    fun `取消コードだけ消えて同じtilcod行が残っていてもCancelledにしない`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(menuWithReservationCount(19)))
+        server.enqueue(page(fixture("usrrsv.html").replace("yoykCancel('1013074729')", "")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+        assertEquals(5, server.requestCount)
     }
 
     @Test
     fun `取消1段階目に確認ダイアログがあれば2段階目をクエリ無しで一回だけ送り本文とRefererOriginが1段階目由来になる`() = runBlocking {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
-        server.enqueue(page("<html><script>lbConfirm('予約の取消を行います。よろしいですか？');</script></html>"))
+        server.enqueue(page(cancelConfirmationStageHtml()))
         server.enqueue(page("<html>取消完了</html>"))
-        server.enqueue(page(fixture("usrrsv.html").replace("yoykCancel('1013074729')", "")))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
-        val result = session.cancelReservation("1013074729")
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
         assertEquals(ReservationCancelAttempt.Cancelled, result)
-        assertEquals(5, server.requestCount)
-        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals("/WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1", requests[2].path)
         assertEquals("/WOpacUsrRsvCancelAction.do", requests[3].path)
         assertEquals("POST", requests[3].method)
@@ -776,31 +799,33 @@ class ReservationGatewayTest {
     fun `2段階目後に対象消失でCancelledになる場合と対象が残っている場合を区別する`() = runBlocking {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
-        server.enqueue(page("<html><script>lbConfirm('予約の取消を行います。よろしいですか？');</script></html>"))
+        server.enqueue(page(cancelConfirmationStageHtml()))
         server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(19)))
         server.enqueue(page(fixture("usrrsv.html")))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
-        val result = session.cancelReservation("1013074729")
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
         assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
-        assertEquals(5, server.requestCount)
+        assertEquals(6, server.requestCount)
     }
 
     @Test
-    fun `取消2段階目の応答にも確認ダイアログ文言があればConfirmationRequiredになる`() = runBlocking {
+    fun `取消2段階目の応答に確認文言が残っても一覧照合で成否不明にする`() = runBlocking {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
-        server.enqueue(page("<html><script>lbConfirm('予約の取消を行います。よろしいですか？');</script></html>"))
-        server.enqueue(page("<html><script>lbConfirm('予約の取消を行います。よろしいですか？');</script></html>"))
+        server.enqueue(page(cancelConfirmationStageHtml()))
+        server.enqueue(page(cancelConfirmationStageHtml()))
+        server.enqueue(page(menuWithReservationCount(19)))
+        server.enqueue(page(fixture("usrrsv.html")))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
-        val result = session.cancelReservation("1013074729")
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
-        assertEquals(ReservationCancelAttempt.ConfirmationRequired("予約の取消を行います。よろしいですか？"), result)
-        // 2段階目後も確認ダイアログが返ったため、一覧の再取得は行わない。
-        assertEquals(4, server.requestCount)
-        val requests = List(4) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
     }
 
@@ -814,14 +839,160 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
         server.enqueue(page(fixture("usrrsv.html") + commonJsConstantScript))
+        server.enqueue(page(menuWithReservationCount(19)))
         server.enqueue(page(fixture("usrrsv.html")))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
-        val result = session.cancelReservation("1013074729")
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
         // Rejected/ConfirmationRequiredにならず、取消後の一覧照合(対象が残っている)に委ねられる。
         assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
-        assertEquals(4, server.requestCount)
+        assertEquals(5, server.requestCount)
+    }
+
+    @Test
+    fun `静的な取消確認文言だけでは2段階目を送らない`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html><script>var confirmationText = '予約の取消を行います。よろしいですか？';</script></html>"))
+        server.enqueue(page(menuWithReservationCount(19)))
+        server.enqueue(page(fixture("usrrsv.html")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
+        assertEquals(5, server.requestCount)
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    @Test
+    fun `取消確認署名があってもstage1一覧から対象行が消えていれば2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(cancelConfirmationStageHtml(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+    }
+
+    @Test
+    fun `取消確認署名があってもstage1一覧の対象tilcodが変わっていれば2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(
+            cancelConfirmationStageHtml(fixture("usrrsv.html").replace("1000001898886", "1000000000000")),
+        )
+    }
+
+    @Test
+    fun `src付きscript内の取消確認署名では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(cancelConfirmationStageHtml(scriptAttributes = " src=\"cancel.js\""))
+    }
+
+    @Test
+    fun `template script内の取消確認署名では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(cancelConfirmationStageHtml(scriptAttributes = " type=\"text/x-template\""))
+    }
+
+    @Test
+    fun `json script内の取消確認署名では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(cancelConfirmationStageHtml(scriptAttributes = " type=\"application/json\""))
+    }
+
+    @Test
+    fun `トップレベルreturnの後にある取消確認署名では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(cancelConfirmationStageHtml(scriptPrefix = "return;"))
+    }
+
+    @Test
+    fun `未呼出し関数内の取消確認文言だけでは2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(
+            "<html><script>function showCancelConfirmation() { " +
+                cancelConfirmationScript() + " }</script></html>",
+        )
+    }
+
+    @Test
+    fun `未呼出しarrow関数内の取消確認構造だけでは2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(
+            "<html><script>const showCancelConfirmation = () => { " +
+                cancelConfirmationScript() + " };</script></html>",
+        )
+    }
+
+    @Test
+    fun `コメント内の取消確認構造だけでは2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent("<html><script>/* ${cancelConfirmationScript()} */</script></html>")
+    }
+
+    @Test
+    fun `通常文字列内の取消確認構造だけでは2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent("<html><script>var candidate = \"${cancelConfirmationScript()}\";</script></html>")
+    }
+
+    @Test
+    fun `template literal内の取消確認構造だけでは2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent("<html><script>const candidate = `${cancelConfirmationScript()}`;</script></html>")
+    }
+
+    @Test
+    fun `取消確認構造を持つ到達不能な関数内では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(
+            "<html><script>function unreachable() { " +
+                cancelConfirmationScript() + " } if (false) { unreachable(); }</script></html>",
+        )
+    }
+
+    @Test
+    fun `直接のif false分岐内にある取消確認構造では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(
+            "<html><script>if (false) { ${cancelConfirmationScript()} }</script></html>",
+        )
+    }
+
+    @Test
+    fun `正規表現リテラル内の取消確認構造では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(
+            "<html><script>var candidate = /${cancelConfirmationScript().replace("/", "\\/")}/;</script></html>",
+        )
+    }
+
+    @Test
+    fun `分割代入を使う関数内の取消確認構造では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent(
+            "<html><script>function unreachable({value}) { ${cancelConfirmationScript()} }</script></html>",
+        )
+    }
+
+    @Test
+    fun `丸括弧が不整合な取消確認構造では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent("<html><script>${cancelConfirmationScript()} (</script></html>")
+    }
+
+    @Test
+    fun `角括弧が不整合な取消確認構造では2段階目を送らない`() = runBlocking {
+        assertOnlyStage1IsSent("<html><script>${cancelConfirmationScript()} [</script></html>")
+    }
+
+    @Test
+    fun `取消後一覧のサマリ件数が不一致なら対象行が消えていてもCancelledにしない`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(menuWithReservationCount(19)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+    }
+
+    @Test
+    fun `取消後メニューのサマリを解析できなければ対象行が消えていてもCancelledにしない`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(fixture("menu.html").replace("id=\"stat-login\"", "id=\"stat-login-missing\"")))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
     }
 
     @Test
@@ -830,7 +1001,7 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("login_form.html")))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
-        val result = session.cancelReservation("1013074729")
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
         assertEquals(ReservationCancelAttempt.SessionExpiredBeforeSubmit, result)
         assertEquals(2, server.requestCount)
@@ -843,7 +1014,7 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("login_form.html")))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
-        val result = session.cancelReservation("1013074729")
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
         assertEquals(ReservationCancelAttempt.SessionExpiredBeforeSubmit, result)
         assertEquals(1, server.requestCount)
@@ -856,7 +1027,7 @@ class ReservationGatewayTest {
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
         val error = try {
-            session.cancelReservation("9999999999999")
+            session.cancelReservation("9999999999999", CANCEL_TARGET_TILCOD)
             null
         } catch (exception: LibraryError.Parse) {
             exception
@@ -868,16 +1039,68 @@ class ReservationGatewayTest {
     }
 
     @Test
+    fun `依頼時のtilcodと送信前一覧の対象行が不一致なら取消POSTを送らない`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val error = try {
+            session.cancelReservation("1013074729", "1000000000000")
+            null
+        } catch (exception: LibraryError.Parse) {
+            exception
+        }
+
+        assertNotNull(error)
+        assertEquals(2, server.requestCount)
+        val requests = List(2) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertTrue(requests.none { it.path?.contains("UsrRsvCancel") == true })
+    }
+
+    @Test
+    fun `対象tilcodが予約一覧内で重複していれば取消POST前にLibraryErrorParseになる`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(duplicateReservationRowWithSameTilcod(fixture("usrrsv.html"), "1013074729")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val error = try {
+            session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+            null
+        } catch (exception: LibraryError.Parse) {
+            exception
+        }
+
+        assertNotNull(error)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
     fun `取消POSTの接続断でも再送しない`() = runBlocking {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
-        val result = session.cancelReservation("1013074729")
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
         assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
         assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun `取消2段階目の接続断でも再送せずIndeterminateAfterPostになる`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(cancelConfirmationStageHtml()))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
+        assertEquals(4, server.requestCount)
+        val requests = List(4) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
     }
 
     private fun noteCapturingObserver(notes: MutableList<Pair<String, String>>): LicsXpDiagnosticObserver =
@@ -947,6 +1170,86 @@ class ReservationGatewayTest {
 
     private fun fixture(name: String): String =
         requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
+
+    private fun menuWithReservationCount(count: Int): String {
+        val document = Jsoup.parse(fixture("menu.html"))
+        val countElements = document.select("#stat-login #stat-resv .value")
+        require(countElements.size == 1) { "予約件数のサマリ要素を一意に特定できません" }
+        val countElement = countElements.single()
+        countElement.text(count.toString())
+        return document.outerHtml()
+    }
+
+    private fun withoutReservationRow(html: String, cancelCode: String): String {
+        val document = Jsoup.parse(html)
+        val target = document.select("input[onclick*=yoykCancel]")
+            .filter { it.attr("onclick").contains("yoykCancel('$cancelCode')") }
+            .singleOrNull()
+            ?: error("取消コード $cancelCode の取消ボタンを一意に特定できません")
+        val row = requireNotNull(target.closest("tr")) { "取消コード $cancelCode の取消行を特定できません" }
+        row.remove()
+        return document.outerHtml()
+    }
+
+    private fun duplicateReservationRowWithSameTilcod(html: String, cancelCode: String): String {
+        val document = Jsoup.parse(html)
+        val target = document.select("input[onclick*=yoykCancel]")
+            .filter { it.attr("onclick").contains("yoykCancel('$cancelCode')") }
+            .singleOrNull()
+            ?: error("取消コード $cancelCode の取消ボタンを一意に特定できません")
+        val row = requireNotNull(target.closest("tr")) { "取消コード $cancelCode の取消行を特定できません" }
+        val duplicate = row.clone()
+        requireNotNull(duplicate.selectFirst("input[onclick*=yoykCancel]")) { "複製した取消行に取消ボタンがありません" }
+            .attr("onclick", "yoykCancel('duplicate-cancel-code')")
+        row.after(duplicate)
+        return document.outerHtml()
+    }
+
+    private suspend fun assertOnlyStage1IsSent(stage1Html: String) {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(stage1Html))
+        server.enqueue(page(menuWithReservationCount(19)))
+        server.enqueue(page(fixture("usrrsv.html")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+        assertEquals(5, server.requestCount)
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    private fun cancelConfirmationStageHtml(
+        listHtml: String = fixture("usrrsv.html"),
+        scriptAttributes: String = "",
+        scriptPrefix: String = "",
+    ): String {
+        val script = "<script$scriptAttributes>$scriptPrefix${cancelConfirmationScript()}</script>"
+        require(listHtml.contains("</body>", ignoreCase = true)) { "予約一覧fixtureにbody終端がありません" }
+        return listHtml.replace("</body>", "$script</body>", ignoreCase = true)
+    }
+
+    /**
+     * DevToolsで採取した取消確認ページのlegacy scriptから、stage2判定に必要な実測構造を抜き出したもの。
+     * 単にconfirm文言を置くだけではstage2へ進ませないことを、負例テストと対にして検証する。
+     */
+    private fun cancelConfirmationScript(): String = """
+        if (0 != 1) {
+            if (0 == 1) {
+                rest = confirm('予約の取消を行います。よろしいですか？');
+            } else {
+                rest = lbConfirm('予約の取消を行います。よろしいですか？', '', '#F1F1FF');
+            }
+        } else {
+            rest = window.confirm('予約の取消を行います。よろしいですか？');
+        }
+        if (rest) {
+            okArray[okArray.length] = 'OPACUSR001';
+            submitFlg = false;
+        } else { return cancelDialog(); }
+        newHidden.name = OK_CODES_NAME;
+        document.prevRequestForm.appendChild(newHidden);
+    """.trimIndent()
 
     // ブラウザ実測: 予約導線はWOpacMsgNewListToTifTilDetailAction.do経由でtiles.WTifTilDetail2・
     // hash非空で描画される。実HTMLフィクスチャ(gamenid=tiles.WTifTilDetail・hash空)をテスト内で

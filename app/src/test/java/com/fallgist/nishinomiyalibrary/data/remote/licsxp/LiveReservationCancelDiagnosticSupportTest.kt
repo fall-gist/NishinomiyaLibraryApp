@@ -162,7 +162,7 @@ class LiveReservationCancelDiagnosticSupportTest {
             return if (cancelled) emptyList() else before
         }
 
-        override suspend fun cancelReservation(cancelCode: String): ReservationCancelAttempt {
+        override suspend fun cancelReservation(cancelCode: String, expectedTilcod: String): ReservationCancelAttempt {
             calls += "cancel"
             cancelCalls += 1
             cancelledWith = cancelCode

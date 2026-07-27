@@ -44,6 +44,7 @@ class ReservationCancelRepositoryImpl @Inject constructor(
             val grouped = linkedMapOf<Long, MutableList<ReservationCancelTarget>>()
             targets.forEach { target ->
                 require(target.memberId > 0) { "memberIdが不正です" }
+                require(target.tilcod.isNotBlank()) { "tilcodが空です" }
                 require(target.cancelCode.isNotBlank()) { "cancelCodeが空です" }
                 grouped.getOrPut(target.memberId) { mutableListOf() } += target
             }
@@ -89,7 +90,7 @@ class ReservationCancelRepositoryImpl @Inject constructor(
             while (index < targets.size) {
                 val target = targets[index]
                 val attempt = try {
-                    requireNotNull(session).cancelReservation(target.cancelCode)
+                    requireNotNull(session).cancelReservation(target.cancelCode, target.tilcod)
                 } catch (_: LibraryError.Parse) {
                     abortRemaining(results, targets, index, FailureReason.SITE_RESPONSE_CHANGED)
                     break
@@ -109,7 +110,7 @@ class ReservationCancelRepositoryImpl @Inject constructor(
                     ReservationCancelAttempt.Cancelled -> {
                         // 取消成功を確認できた予約は、次回の全置換同期を待たずローカルからも即時削除する。
                         // (同期は予約一覧を全置換するため、ここで消し忘れても次回同期で自己修復する。)
-                        reservationDao.deleteByCancelCode(memberId, target.cancelCode)
+                        reservationDao.deleteByTarget(memberId, target.tilcod, target.cancelCode)
                         results += ReservationCancelItemResult(target, ReservationCancelOutcome.Cancelled)
                         index++
                     }

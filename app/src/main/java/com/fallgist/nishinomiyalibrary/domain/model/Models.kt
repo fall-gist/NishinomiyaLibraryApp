@@ -215,21 +215,26 @@ data class ReservationBatchResult(
     val members: List<MemberReservationResult>,
 )
 
-/** 予約取消の依頼単位。1件の予約(cancelCode)に対応する。 */
+/** 予約取消の依頼単位。memberId・資料コード・予約取消コードで対象を固定する。 */
 data class ReservationCancelTarget(
     val memberId: Long,
+    val tilcod: String,
     val cancelCode: String,
-)
+) {
+    init {
+        require(memberId > 0) { "memberIdが不正です" }
+        require(tilcod.isNotBlank()) { "tilcodが空です" }
+        require(cancelCode.isNotBlank()) { "cancelCodeが空です" }
+    }
+}
 
 sealed interface ReservationCancelOutcome {
     data object Cancelled : ReservationCancelOutcome
     /** 現在は生成されない。一般語による拒否判定が誤検出を招くことが実測(2026-07-27)で判明したため。 */
     data class Rejected(val siteMessage: String) : ReservationCancelOutcome
     /**
-     * 実測(2026-07-27)判明: 取消は2段階で、1回目のPOSTは確認ダイアログ（「予約の取消を行います。
-     * よろしいですか？」）を返す画面がそのまま応答として返ってくるだけで、取り消されていない。
-     * OK後に何を送信すべきかは未特定のため、ここで打ち切る。siteMessageは確認ダイアログ文言そのもの。
-     * 成功と誤解されないよう、[Unknown] とは区別できるようにしている。
+     * 互換性のため残している結果型。現行の取消実装は既知の2段階確認プロトコルを送信し、
+     * 取消後の一覧照合で成否を判定するため、この型は生成しない。
      */
     data class ConfirmationRequired(val siteMessage: String) : ReservationCancelOutcome
     data class Failure(val reason: FailureReason) : ReservationCancelOutcome

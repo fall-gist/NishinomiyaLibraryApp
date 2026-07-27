@@ -1072,6 +1072,33 @@ UIも未実装である。
 
 ### 予約取消の実装・検証レビュー（生ログ監査、2026-07-27）
 
+#### レビュー指摘への対応（2026-07-27、実サイト未検証）
+
+レビューで必須としたバックエンド堅牢化を実装した。UIは引き続き未接続であり、アプリ実装による
+実サイト取消成功も未検証である。
+
+- 取消依頼は`memberId`・`tilcod`・`cancelCode`の3値で固定する。送信前の予約一覧を
+  `ReservationListParser`で再解析し、`cancelCode`一致行から一意・非空の`tilcod`を取得して、
+  依頼時の`tilcod`と一致する場合だけ進む。対象特定不能・不一致は取消POST前に
+  `LibraryError.Parse`で停止する。
+- 取消後はメニューを再取得して最新予約件数サマリを取り、一覧解析行数と一致する完全一覧でのみ、
+  固定した`tilcod`行の消失を`Cancelled`とする。取消ボタン（`cancelCode`）だけの消失、対象残存、
+  サマリ/一覧の解析不能、件数不一致はすべて`IndeterminateAfterPost`である。
+- 1段階目から2段階目へは、静的な文言ではなく、stage1応答を再解析して同じ`cancelCode`→同じ一意の
+  `tilcod`を持つ予約行と取消フォームが残ること、さらに`src`無しかつ標準JavaScript MIMEの実測済み
+  legacy script構造（`if (0 != 1)`→`rest = lbConfirm(...)`→`okArray`へ`OPACUSR001`→
+  `document.prevRequestForm.appendChild(newHidden)`）全体に一致することを両方確認してから進む。
+  JavaScriptを一般解釈せず、これは「直前に利用者が指定した対象を残す応答が既知プロトコル署名を持つ」
+  ことを確かめる複合ガードである。コメント・文字列・template literal・正規表現・非JavaScript script・
+  関数/class/arrow関数・括弧不整合はすべて2段階目なしとして照合へ進む。2段階目後も文言だけでは判定せず、一覧照合する。
+- 各取消POSTは「クライアントが自動再試行しない1回限りの試行」であり、ネットワーク上の厳密な
+  exactly-once保証ではない。1段階目・2段階目の通信断は再送せず成否不明とする。
+
+追加した回帰試験は、`cancelCode`だけ消えるケース、一覧不完全/サマリ解析不能、2段階目通信断、
+完全一覧での`tilcod`消失、stage1での対象消失/`tilcod`不一致、コメント・文字列・template literal・
+正規表現・`src`付き・template/json script・未呼出し関数・direct `if (false)`・分割代入関数・
+トップレベル`return`・括弧不整合に埋め込まれた取消構造を扱う。
+
 #### 監査範囲と結論
 
 所有者提供の`2026-07-27-reservation-cancel-investigation.md`全327行と、関連コミット

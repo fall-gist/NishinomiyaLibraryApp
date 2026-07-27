@@ -670,12 +670,13 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
 `ReservationCancelRepository`のコメント参照）。**
 
 - **ドメイン**: `Reservation.cancelCode`（取消ボタンの`yoykCancel('コード')`由来。取消ボタンが
-  無い行は空文字列）。`ReservationCancelTarget` / `ReservationCancelOutcome`
+  無い行は空文字列）。`ReservationCancelTarget`は`memberId`・`tilcod`・`cancelCode`の3値で対象を
+  固定する。`ReservationCancelOutcome`
   (`Cancelled` / `Rejected(siteMessage)` / `Failure(FailureReason)` / `Unknown(UnknownReason)`) /
   `ReservationCancelItemResult` / `MemberReservationCancelResult` / `ReservationCancelBatchResult`
   を`domain/model/Models.kt`に追加した。
 - **Room**: `ReservationEntity.cancelCode`をv6→v7で追加(`MIGRATION_6_7`、空文字列既定、v4→v5の
-  `tilcod`追加と同じ流儀)。`ReservationDao.deleteByCancelCode(memberId, cancelCode)`を追加し、
+  `tilcod`追加と同じ流儀)。`ReservationDao.deleteByTarget(memberId, tilcod, cancelCode)`を追加し、
   取消成功が確認できた予約だけをローカルからも即時削除できるようにした。**次回同期は予約一覧を
   全置換するため、ここで消し忘れても自己修復するが、UIが古い「予約中」を出し続けないよう
   即時削除も行う。**
@@ -687,21 +688,35 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
   元のDOM位置で上書きし、指定コードがページ上の取消ボタンのいずれとも一致しなければ
   `ParseException`にする(画面と対象の食い違い検出)。詳細な実測根拠は
   `docs/site-research.md`§9を参照。
-- **Gateway**: `ReservationSession.cancelReservation(cancelCode): ReservationCancelAttempt`
-  (`Cancelled` / `SessionExpiredBeforeSubmit` / `IndeterminateAfterPost` / `Rejected(message)`)。
-  `LicsXpReservationSession`の実装は、予約確定(`directReserve`)と同じ不変条件を守る:
-  1. `session.withExclusiveRequestSequence`の排他区間内で完結させる(他セッションの要求を挟まない)
-  2. メニュー取得→`updateTokens`→一覧POST(`WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv`)→
-     取消フォーム解析→取消POST(`WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1`)の順で、
-     取消POSTは`postReservationExactlyOnce`(exactly-once・自動リトライ無効・直前ページのReferer/Origin)
-     で送る
-  3. 取消POSTは通信断でも**絶対に再送しない**(`IndeterminateAfterPost`を返すのみ)
-  4. **取消の成功・拒否時にサイトが返す文言は本実装時点(2026-07-27)で未実測**である。既知の
-     拒否語(「できません」「越えています」)を含む場合だけ`Rejected`と断定し、それ以外は
-     取消後の一覧を1回だけ再取得して対象コードの消失を確認する(消えていれば`Cancelled`、
-     残っていれば`IndeterminateAfterPost`、再取得・解析に失敗しても`IndeterminateAfterPost`)
-  5. 解析失敗・ログインフォーム・メンテナンスは`fetch-reservations`と同じ流儀で
-     `cancel-reservation`カテゴリの診断ログに記録する
+- **Gateway**: `ReservationSession.cancelReservation(cancelCode, expectedTilcod): ReservationCancelAttempt`
+  (`Cancelled` / `SessionExpiredBeforeSubmit` / `IndeterminateAfterPost` / `ConfirmationRequired(message)` /
+  `Rejected(message)`)。`ConfirmationRequired` は互換型として残るが、現行の
+  `LicsXpReservationSession.cancelReservation` は生成しない。`LicsXpReservationSession`は次を守る:
+  1. `session.withExclusiveRequestSequence`の排他区間内で、メニュー→一覧→取消→照合を完結する。
+     排他中の通信は`ExclusiveRequestSequence`のAPIだけを使い、500ms制限も維持する。
+  2. 送信前一覧を`ReservationListParser`でも解析し、`cancelCode`一致行を一意に特定して非空かつ
+     一覧内で一意の`tilcod`を固定し、依頼時の`expectedTilcod`とも一致することを確認する。
+     `cancelCode`は取消フォームを選ぶためだけに使い、DB由来の`tilcod`だけや`cancelCode`消失で成功を
+     判定しない。特定不能・不一致・解析不能は取消POST前に
+     `LibraryError.Parse`で停止する。
+  3. 実測済みの1段階目POSTは`WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1`、確認OK後の
+     2段階目POSTは同アクション（クエリ無し）へ、同じフォーム値に`okCodes=OPACUSR001`を加えて送る。
+     2段階目へ進むのは、1段階目の応答を再解析して同じ`cancelCode`→同じ一意の`tilcod`を持つ予約行と
+     取消フォームが残っていることを確認したうえで、2026-07-27に採取したインラインJavaScript
+     （`src`無し、type無しまたは標準JavaScript MIME）のトップレベルlegacy script構造
+     （`if (0 != 1)`→`rest = lbConfirm(...)`→`okArray`へ`OPACUSR001`追加→
+     `document.prevRequestForm.appendChild(newHidden)`）全体に一致する場合だけとする。
+     JavaScriptの一般的な実行可能性は推定しない。これは「利用者が直前に指定した取消対象を残す応答が
+     既知の確認プロトコル署名を持つ」ことを確認する複合ガードである。コメント・文字列・template
+     literal・正規表現・非JavaScript script・関数/class/arrow関数・括弧不整合は根拠にせず、解析不能時も
+     送信しない。1段階目にこの複合条件が無い場合、または2段階目後は、いずれも照合へ進む。
+  4. 状態変更POSTは**自動再試行しない1回限りの試行**である。これはネットワーク上の厳密な
+     exactly-once保証ではない。各段階の通信断は再送せず`IndeterminateAfterPost`とする。
+  5. 照合は取消後にメニューを再取得し、最新サマリの予約件数と再取得一覧の解析行数が一致する
+     完全一覧でのみ行う。固定した`tilcod`行が無い場合だけ`Cancelled`、対象残存・件数不一致・
+     サマリ/一覧の解析不能・取得不能は`IndeterminateAfterPost`とする。
+  6. 解析失敗・ログインフォーム・メンテナンスは`fetch-reservations`と同じ流儀で
+     `cancel-reservation`カテゴリの診断ログに記録する。
 - **Repository**: `ReservationCancelRepository.cancelReservations(List<ReservationCancelTarget>)`。
   `ReservationCancelRepositoryImpl`は`ReservationCartRepositoryImpl.confirmCart`と同じ構造で、
   メンバーごとに分離セッションでログインし1件ずつ順に処理する。POST前セッション切れは1回だけ

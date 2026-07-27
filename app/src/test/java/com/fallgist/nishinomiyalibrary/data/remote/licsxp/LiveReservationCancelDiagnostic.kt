@@ -62,8 +62,8 @@ internal suspend fun runLiveReservationCancelDiagnostic(
         val target = matches.single()
         check(target.cancelCode.isNotBlank()) { "対象行に取消コードがないため取消を行いません" }
 
-        val attempt = session.cancelReservation(target.cancelCode)
-        // ConfirmationRequiredは「確認画面が返っただけで取消未完了」を表すため、文言も併せて出す。
+        val attempt = session.cancelReservation(target.cancelCode, target.tilcod)
+        // ConfirmationRequiredは互換型で、現行実装は生成しない。診断の将来互換のため文言は残して出す。
         // 他の分岐はattemptの既定のtoStringに委ねる(dataクラスのmessageも含めて出力される)。
         val attemptDetail = when (attempt) {
             is ReservationCancelAttempt.ConfirmationRequired -> "attempt=$attempt confirmationMessage=${attempt.message}"
