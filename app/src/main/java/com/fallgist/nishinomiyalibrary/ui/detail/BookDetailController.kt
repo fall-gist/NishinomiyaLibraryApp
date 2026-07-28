@@ -27,6 +27,27 @@ data class DetailReadRow(
     val description: String,
 )
 
+/**
+ * 予約中一覧(経路3)から開いた書誌詳細にだけ渡される、取消ボタン表示用の対象データ。
+ *
+ * 設計判断(docs/ui-design.md「方針: 予約取消の導線」経路3): 取消ボタンの出し分けは
+ * [com.fallgist.nishinomiyalibrary.ui.app.Destination] による分岐ではなく、[BookDetailController.open]
+ * の呼び出し元(経路)がこの値を渡すかどうかで行う。理由は2つ:
+ * 1. Destinationはナビゲーション用のprivate enumであり、ui.detail(共通オーバーレイ)から参照させると
+ *    ナビゲーション実装への逆依存が生まれる。
+ * 2. 呼び出し元(ReservationsScreen)は既にどの行がcancellable(tilcod・cancelCodeとも非空)かを
+ *    知っているため、そこでnull/非nullを決めれば「経路3以外はnull」も「cancelCode空はnull」も
+ *    同じ1箇所(ReservationsContentBuilder.cancelTargetForDetail)で表現できる。
+ *
+ * ui.reservations の型([com.fallgist.nishinomiyalibrary.ui.reservations.ReservationCancelCandidate]など)
+ * には依存しない。ui.reservations側がui.detailに依存する向き(一覧→共通詳細オーバーレイ)は既存だが、
+ * 逆向きの依存(共通オーバーレイ→個別画面)は避けるため、ここでは最小限のフィールドだけを持つ。
+ */
+data class BookDetailCancelTarget(
+    val memberId: Long,
+    val cancelCode: String,
+)
+
 /** 書誌詳細ビューの表示状態。[open] が false のときは非表示。 */
 data class BookDetailUiState(
     val open: Boolean = false,
@@ -41,6 +62,8 @@ data class BookDetailUiState(
     val lendable: Boolean? = null,
     val readRows: List<DetailReadRow> = emptyList(),
     val holdings: List<Holding> = emptyList(),
+    /** 非nullのときだけ取消ボタンを表示する。予約中一覧(経路3)から開いたcancellableな行のみ設定される。 */
+    val cancelTarget: BookDetailCancelTarget? = null,
 )
 
 /** 書誌詳細の既読情報・詳細項目を組み立てる純関数。 */
@@ -71,6 +94,23 @@ object BookDetailContentBuilder {
         fields.firstOrNull { (label, _) -> label.contains("著者") || label.contains("作者") }
             ?.second
             ?.takeIf { it.isNotBlank() }
+
+    /**
+     * 取消確認の確定と同時に、開いたままの書誌詳細ポップアップを閉じるべきかを判定する純関数。
+     *
+     * 設計判断(docs/ui-design.md「方針: 予約取消の導線」経路3、"取消成立後の書誌詳細ポップアップ"):
+     * 結果(成功/成否不明/失敗)を待たず、確認ダイアログの肯定操作と同時に閉じる。理由:
+     * - 取消結果は[com.fallgist.nishinomiyalibrary.ui.reservations.ReservationCancelResultRow]に
+     *   tilcodを持たないため、結果を書誌詳細側の対象と突き合わせる手段がない(タイトルが同名の別資料と
+     *   区別できない)。
+     * - 取消は不可逆な操作であり、確定した時点で対象は速やかにローカルDBから削除され一覧から消える。
+     *   確定後に詳細を開いたまま結果を待たせても、利用者にとって有用な情報は増えない
+     *   (結果は一覧側のReservationCancelResultsDialogで確認できる)。
+     * - 確認ダイアログはUI上モーダルであり、書誌詳細ポップアップが開いている間は他経路(1・2)からの
+     *   確認を同時に開始できない。したがって「書誌詳細にcancelTargetが設定されている」ことは、
+     *   今回の確認が経路3由来であることの十分条件になる。
+     */
+    fun shouldCloseDetailAfterCancelConfirm(cancelTarget: BookDetailCancelTarget?): Boolean = cancelTarget != null
 }
 
 /**
@@ -96,10 +136,18 @@ class BookDetailController(
         }
     }
 
-    fun open(tilcod: String, title: String) {
+    /** 予約中一覧以外(検索結果・新着・本棚・貸出中・読書記録・予約カート等)からの起動。取消ボタンは出さない。 */
+    fun open(tilcod: String, title: String) = open(tilcod, title, cancelTarget = null)
+
+    /**
+     * 経路3(予約中一覧から開いた書誌詳細)からの起動。[cancelTarget]が非nullのときだけ取消ボタンを表示する。
+     * 呼び出し元([com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsContentBuilder.cancelTargetForDetail])が
+     * 取消不可の行(cancelCode空)ではnullを渡すため、ここでは受け取った値をそのまま状態へ載せるだけでよい。
+     */
+    fun open(tilcod: String, title: String, cancelTarget: BookDetailCancelTarget?) {
         if (tilcod.isBlank()) return
         detailJob?.cancel()
-        _state.value = BookDetailUiState(open = true, tilcod = tilcod, title = title, loading = true)
+        _state.value = BookDetailUiState(open = true, tilcod = tilcod, title = title, loading = true, cancelTarget = cancelTarget)
         detailJob = scope.launch {
             try {
                 val detail = searchRepository.bookDetail(tilcod)
@@ -126,6 +174,7 @@ class BookDetailController(
                     lendable = detail.availableCount > 0,
                     readRows = readRows,
                     holdings = detail.holdings,
+                    cancelTarget = cancelTarget,
                 )
             } catch (exception: CancellationException) {
                 throw exception
@@ -136,6 +185,7 @@ class BookDetailController(
                     title = title,
                     loading = false,
                     errorMessage = errorMessage(exception),
+                    cancelTarget = cancelTarget,
                 )
             }
         }

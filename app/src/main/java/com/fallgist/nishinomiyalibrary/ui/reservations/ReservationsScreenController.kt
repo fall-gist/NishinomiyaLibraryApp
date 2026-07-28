@@ -6,6 +6,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
+import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -111,6 +112,14 @@ object ReservationsContentBuilder {
                     title = row.title,
                 )
             }
+
+    /**
+     * 予約中一覧の行から書誌詳細を開く際に渡す取消対象を組み立てる純関数(経路3)。
+     * [ReservationRow.cancellable]がfalseの行(cancelCodeまたはtilcodが空。提供可能・移送中など)では
+     * nullを返し、書誌詳細に取消ボタンを表示させない。
+     */
+    fun cancelTargetForDetail(row: ReservationRow): BookDetailCancelTarget? =
+        if (row.cancellable) BookDetailCancelTarget(memberId = row.memberId, cancelCode = row.cancelCode) else null
 
     /** 絞り込み前の全冊数を、メンバーごと・合計で集計する純関数。0件のメンバーはmapに含めない。 */
     fun countByMember(members: List<Member>, reservations: List<Reservation>): Map<Long, Int> {

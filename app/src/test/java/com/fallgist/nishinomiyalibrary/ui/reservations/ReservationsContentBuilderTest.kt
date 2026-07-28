@@ -3,9 +3,11 @@ package com.fallgist.nishinomiyalibrary.ui.reservations
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
+import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -136,5 +138,39 @@ class ReservationsContentBuilderTest {
         assertEquals(papa.id, candidates.single().target.memberId)
         assertEquals("1000001", candidates.single().target.tilcod)
         assertEquals("cancel-1", candidates.single().target.cancelCode)
+    }
+
+    // 経路3(予約中一覧から開いた書誌詳細): 取消可能な行だけ取消対象を渡す。
+
+    @Test
+    fun cancelTargetForDetailは取消可能な行では対象を返す() {
+        val reservations = listOf(
+            Reservation(papa.id, "取消可能", "本", "中央", today, 1, ReservationState.WAITING, null, "1000001", "cancel-1"),
+        )
+        val row = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null).single()
+
+        val target = ReservationsContentBuilder.cancelTargetForDetail(row)
+
+        assertEquals(BookDetailCancelTarget(memberId = papa.id, cancelCode = "cancel-1"), target)
+    }
+
+    @Test
+    fun cancelTargetForDetailはcancelCodeが空の行ではnullを返す() {
+        val reservations = listOf(
+            Reservation(papa.id, "提供可能", "本", "中央", today, null, ReservationState.READY, null, "1000002", ""),
+        )
+        val row = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null).single()
+
+        assertNull(ReservationsContentBuilder.cancelTargetForDetail(row))
+    }
+
+    @Test
+    fun cancelTargetForDetailはtilcodが空の行ではnullを返す() {
+        val reservations = listOf(
+            Reservation(papa.id, "旧データ", "本", "中央", today, 1, ReservationState.WAITING, null, "", "cancel-1"),
+        )
+        val row = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null).single()
+
+        assertNull(ReservationsContentBuilder.cancelTargetForDetail(row))
     }
 }

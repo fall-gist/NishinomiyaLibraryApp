@@ -36,6 +36,7 @@ import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
+import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
 @Composable
@@ -44,7 +45,9 @@ fun ReservationsScreen(
     cancelState: ReservationCancelUiState,
     onSelectMember: (Long?) -> Unit,
     onOpenMenu: () -> Unit,
-    onOpenDetail: (tilcod: String, title: String) -> Unit,
+    // 経路3: 予約中一覧から開く書誌詳細には取消対象(cancellableな行のみ非null)を添えて渡す。
+    // 他画面(検索結果・新着等)のonOpenDetailは2引数のままにして依存させない(第3引数はここだけ)。
+    onOpenDetail: (tilcod: String, title: String, cancelTarget: BookDetailCancelTarget?) -> Unit,
     onToggleSelection: (ReservationCancelKey) -> Unit,
     onRequestSingleCancel: (ReservationCancelCandidate) -> Unit,
     onRequestBulkCancel: (List<ReservationCancelCandidate>) -> Unit,
@@ -96,7 +99,9 @@ fun ReservationsScreen(
                         row = row,
                         selected = row.cancellable && row.cancelKey in cancelState.selectedKeys,
                         selectionEnabled = !cancelState.processing,
-                        onClick = { onOpenDetail(row.tilcod, row.title) },
+                        onClick = {
+                            onOpenDetail(row.tilcod, row.title, ReservationsContentBuilder.cancelTargetForDetail(row))
+                        },
                         onToggleSelection = { onToggleSelection(row.cancelKey) },
                         onRequestCancel = {
                             onRequestSingleCancel(

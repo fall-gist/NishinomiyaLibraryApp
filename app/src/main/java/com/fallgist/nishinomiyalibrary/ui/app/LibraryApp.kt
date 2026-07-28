@@ -37,8 +37,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreen
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
+import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
+import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailContentBuilder
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailView
 import com.fallgist.nishinomiyalibrary.ui.diagnostics.DiagnosticLogScreen
@@ -53,6 +56,7 @@ import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreen
 import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreen
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
+import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationCancelCandidate
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationCancelUiController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreen
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
@@ -204,6 +208,30 @@ fun LibraryApp(
                 // 画面本体をSelectionContainerで包み、長押しでのテキスト選択・コピーを可能にする。
                 // 書誌詳細・診断ログのオーバーレイやダイアログもこのBoxの内側にあるため、まとめて対象になる。
                 SelectionContainer {
+                    // 書誌詳細オーバーレイの状態。RESERVATIONS分岐でのonOpenDetail組み立てと、
+                    // オーバーレイ本体の描画、取消確定時の自動クローズ判定の3箇所で共有する。
+                    val detailState by bookDetailController.state.collectAsState()
+                    // 経路3: 書誌詳細の「この予約を取り消す」ボタン。第1段階のrequestSingleCancelConfirmation
+                    // (経路1と同じ確認文言)へそのまま委譲する。新しい確認の仕組みは作らない。
+                    val onRequestCancelFromDetail: (BookDetailCancelTarget) -> Unit = { target ->
+                        reservationCancelUiController.requestSingleCancelConfirmation(
+                            ReservationCancelCandidate(
+                                target = ReservationCancelTarget(target.memberId, detailState.tilcod, target.cancelCode),
+                                title = detailState.title,
+                            ),
+                        )
+                    }
+                    // 確認ダイアログの確定操作。ReservationsScreen(下記RESERVATIONS分岐)の
+                    // ReservationCancelConfirmDialogはこの1つを経路1・2・3すべてで共有する。
+                    // 経路3(書誌詳細にcancelTargetが設定されている状態で確定した場合)だけ、確定と
+                    // 同時にポップアップを閉じる。設計判断の理由はBookDetailContentBuilder
+                    // .shouldCloseDetailAfterCancelConfirmのKDoc参照。
+                    val onConfirmCancelFromDetail: () -> Unit = {
+                        reservationCancelUiController.confirmPending()
+                        if (BookDetailContentBuilder.shouldCloseDetailAfterCancelConfirm(detailState.cancelTarget)) {
+                            bookDetailController.close()
+                        }
+                    }
                     when (current) {
                         Destination.HOME -> HomeScreen(
                             state = state,
@@ -234,11 +262,12 @@ fun LibraryApp(
                                 cancelState = cancelState,
                                 onSelectMember = reservationsController::selectMember,
                                 onOpenMenu = openMenu,
-                                onOpenDetail = openDetail,
+                                onOpenDetail = { tilcod, title, cancelTarget -> bookDetailController.open(tilcod, title, cancelTarget) },
                                 onToggleSelection = reservationCancelUiController::toggleSelection,
                                 onRequestSingleCancel = reservationCancelUiController::requestSingleCancelConfirmation,
                                 onRequestBulkCancel = reservationCancelUiController::requestBulkCancelConfirmation,
-                                onConfirmCancel = reservationCancelUiController::confirmPending,
+                                // 経路3から開始した確認の確定操作も同じダイアログ・同じ関数を通る(第1段階の使い回し)。
+                                onConfirmCancel = onConfirmCancelFromDetail,
                                 onDismissCancelConfirmation = reservationCancelUiController::dismissConfirmation,
                                 onClearCancelResults = reservationCancelUiController::clearResults,
                                 onClearCancelError = reservationCancelUiController::clearError,
@@ -344,11 +373,16 @@ fun LibraryApp(
                     }
 
                     // どの画面の上にも重ねられる共通の書誌詳細オーバーレイ
-                    val detailState by bookDetailController.state.collectAsState()
                     if (detailState.open) {
-                        if (current == Destination.RESERVATION_CART) {
-                            // 予約カートからの起動だけは全画面オーバーレイではなくダイアログで重ねる。
-                            // カート画面自体の状態(受取館選択・結果表示等)は下に隠れたまま保たれる。
+                        if (current == Destination.RESERVATION_CART || current == Destination.RESERVATIONS) {
+                            // 予約カート・予約中一覧からの起動は全画面オーバーレイではなくダイアログで重ねる。
+                            // 下の画面自体の状態(受取館選択・結果表示、選択チェック・スクロール位置等)は
+                            // 隠れたまま保たれる。
+                            // 経路3(RESERVATIONS)の確認・結果ダイアログはここでは重ねて描画しない。
+                            // ReservationsScreen(上のRESERVATIONS分岐)が同じcancelStateを購読して
+                            // 既にAlertDialogを出しており(第1段階のものをそのまま使う)、ここでも描画すると
+                            // 二重表示になる。書誌詳細のDialogは別のAndroid Windowなので、その上に
+                            // ReservationsScreen側のAlertDialogが問題なく重なって見える。
                             Dialog(
                                 onDismissRequest = bookDetailController::close,
                                 properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -368,6 +402,7 @@ fun LibraryApp(
                                         onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
                                         onAddToCart = reservationUiController::addToCart,
                                         onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
+                                        onRequestCancel = onRequestCancelFromDetail,
                                         modifier = Modifier.fillMaxSize(),
                                     )
                                 }
@@ -381,6 +416,7 @@ fun LibraryApp(
                                 onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
                                 onAddToCart = reservationUiController::addToCart,
                                 onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
+                                onRequestCancel = onRequestCancelFromDetail,
                                 modifier = Modifier.fillMaxSize().background(colors.paper),
                             )
                         }

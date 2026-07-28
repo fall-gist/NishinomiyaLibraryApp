@@ -47,4 +47,19 @@ class BookDetailContentBuilderTest {
             BookDetailContentBuilder.writerLine(listOf("出版社" to "出版社", "著者名" to "著者名")),
         )
     }
+
+    // 経路3: 取消確定後に書誌詳細ポップアップを閉じるかどうかの判定(docs/ui-design.md「方針: 予約取消の導線」)
+
+    @Test
+    fun `取消対象が設定されている書誌詳細は確定と同時に閉じる`() {
+        assertEquals(
+            true,
+            BookDetailContentBuilder.shouldCloseDetailAfterCancelConfirm(BookDetailCancelTarget(memberId = 1, cancelCode = "c1")),
+        )
+    }
+
+    @Test
+    fun `取消対象が無い書誌詳細(経路3以外から開いた)は閉じない`() {
+        assertEquals(false, BookDetailContentBuilder.shouldCloseDetailAfterCancelConfirm(null))
+    }
 }

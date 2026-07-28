@@ -10,6 +10,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.domain.model.UnknownReason
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCancelRepository
+import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -46,6 +47,32 @@ class ReservationCancelUiControllerTest {
         advanceUntilIdle()
         assertEquals(1, repo.calls)
         assertNull(controller.state.value.pendingConfirmation)
+        controller.close()
+    }
+
+    @Test
+    fun `経路3(書誌詳細)からの候補も確認を経ないとcancelReservationsは呼ばれない`() = runTest {
+        // LibraryApp.ktのonRequestCancelFromDetailと同じ組み立て方(BookDetailCancelTarget +
+        // 書誌詳細のtilcod・titleからReservationCancelCandidateを作る)を模して検証する。
+        val repo = FakeCancelRepository()
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val detailTilcod = "100"
+        val detailTitle = "資料A"
+        val cancelTarget = BookDetailCancelTarget(memberId = father.id, cancelCode = "c1")
+        val candidateFromDetail = ReservationCancelCandidate(
+            target = ReservationCancelTarget(cancelTarget.memberId, detailTilcod, cancelTarget.cancelCode),
+            title = detailTitle,
+        )
+
+        controller.requestSingleCancelConfirmation(candidateFromDetail)
+        assertEquals(0, repo.calls)
+        advanceUntilIdle()
+        assertEquals(0, repo.calls)
+
+        controller.confirmPending()
+        advanceUntilIdle()
+        assertEquals(1, repo.calls)
         controller.close()
     }
 

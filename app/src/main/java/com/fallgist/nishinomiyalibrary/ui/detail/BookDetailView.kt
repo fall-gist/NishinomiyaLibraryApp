@@ -58,6 +58,8 @@ fun BookDetailView(
     onSelectPickupLibrary: (String) -> Unit,
     onAddToCart: (ReservationTarget) -> Unit,
     onRequestReserveNow: (ReservationTarget) -> Unit,
+    // 経路3: detail.cancelTargetが非nullのとき(予約中一覧から開いたcancellableな行)だけボタンを表示する。
+    onRequestCancel: (BookDetailCancelTarget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -106,6 +108,18 @@ fun BookDetailView(
                         Spacer(Modifier.height(8.dp))
                         detail.lendable?.let { LendPill(it) }
                     }
+                }
+                // 経路3(予約中一覧から開いた書誌詳細)専用。cancelTargetがnullの経路(検索結果・新着・
+                // 予約カート等)や、cancelCodeが空の資料(提供可能・移送中など)では表示しない。
+                detail.cancelTarget?.let { cancelTarget ->
+                    Spacer(Modifier.height(10.dp))
+                    androidx.compose.material3.Button(
+                        onClick = { onRequestCancel(cancelTarget) },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = colors.alert,
+                            contentColor = colors.card,
+                        ),
+                    ) { Text("この予約を取り消す") }
                 }
                 Spacer(Modifier.height(12.dp))
                 if (detail.fields.isNotEmpty() || detail.tilcod.isNotBlank()) {
