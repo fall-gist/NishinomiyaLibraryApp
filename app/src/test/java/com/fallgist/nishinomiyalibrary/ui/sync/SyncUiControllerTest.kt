@@ -13,7 +13,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -30,6 +30,7 @@ class SyncUiControllerTest {
     fun requestManualSync_reportsCompletionMessageAndClearsIsSyncing() = runTest {
         val controller = SyncUiController(
             statusRepository = FakeStatusRepository(syncResult = SyncResult.Completed(2, 0)),
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
         )
 
         controller.requestManualSync()
@@ -43,6 +44,7 @@ class SyncUiControllerTest {
     fun requestManualSync_partialFailure_reportsFailedMemberCount() = runTest {
         val controller = SyncUiController(
             statusRepository = FakeStatusRepository(syncResult = SyncResult.Completed(3, 2)),
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
         )
 
         controller.requestManualSync()
@@ -55,6 +57,7 @@ class SyncUiControllerTest {
     fun requestManualSync_exception_reportsFailureMessageAndClearsIsSyncing() = runTest {
         val controller = SyncUiController(
             statusRepository = FakeStatusRepository(throwOnSync = true),
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
         )
 
         controller.requestManualSync()
@@ -68,6 +71,7 @@ class SyncUiControllerTest {
     fun consumeMessage_withMatchingId_clearsMessage() = runTest {
         val controller = SyncUiController(
             statusRepository = FakeStatusRepository(syncResult = SyncResult.Completed(1, 0)),
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
         )
 
         controller.requestManualSync()
@@ -83,6 +87,7 @@ class SyncUiControllerTest {
     fun consumeMessage_withStaleId_doesNotClearNewerMessage() = runTest {
         val controller = SyncUiController(
             statusRepository = FakeStatusRepository(syncResult = SyncResult.Completed(1, 0)),
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
         )
 
         controller.requestManualSync()
@@ -103,15 +108,19 @@ class SyncUiControllerTest {
         // tryLockによる後発の黙殺を再現する。
         val gate = CompletableDeferred<Unit>()
         val status = FakeStatusRepository(syncResult = SyncResult.Completed(0, 0), gate = gate)
-        val controller = SyncUiController(statusRepository = status)
+        val controller = SyncUiController(
+            statusRepository = status,
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
+        )
 
-        launch { controller.requestManualSync() }
+        controller.requestManualSync()
         runCurrent()
         assertEquals(1, status.syncCallCount)
         assertTrue(controller.state.value.isSyncing)
 
         // 1件目がまだgateで止まっている間の再入。tryLockが失敗し、黙って無視されるはず。
         controller.requestManualSync()
+        runCurrent()
         assertEquals(1, status.syncCallCount)
 
         gate.complete(Unit)

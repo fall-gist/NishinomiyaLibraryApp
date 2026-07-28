@@ -81,7 +81,7 @@ open class MainActivity : ComponentActivity() {
                     state = state,
                     syncState = syncState,
                     onSelectMember = controller::selectMember,
-                    onManualSync = { uiScope.launch { syncUiController.requestManualSync() } },
+                    onManualSync = syncUiController::requestManualSync,
                     onConsumeSyncMessage = syncUiController::consumeMessage,
                     onRegister = controller::register,
                     loansController = loansController,
