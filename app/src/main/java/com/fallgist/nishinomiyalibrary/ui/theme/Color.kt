@@ -21,6 +21,13 @@ data class AppColors(
     val alert: Color,
     val alertBg: Color,
     val chipBg: Color,
+    /**
+     * 「成否不明」専用トーン(琥珀色系)。成功(green)・失敗(alert)のどちらとも取り違えないよう、
+     * 予約取消結果の`Unknown`(取り消せたか確認できません)だけに使う(2026-07-28導入)。
+     */
+    val caution: Color,
+    val cautionBg: Color,
+    val cautionInk: Color,
 )
 
 val LightAppColors = AppColors(
@@ -35,6 +42,9 @@ val LightAppColors = AppColors(
     alert = Color(0xFFB3452E),
     alertBg = Color(0xFFF7E7E2),
     chipBg = Color(0xFFEFEAE0),
+    caution = Color(0xFFB8860B),
+    cautionBg = Color(0xFFF7EFD9),
+    cautionInk = Color(0xFF7A5A00),
 )
 
 val DarkAppColors = AppColors(
@@ -49,6 +59,9 @@ val DarkAppColors = AppColors(
     alert = Color(0xFFE08A75),
     alertBg = Color(0xFF42281F),
     chipBg = Color(0xFF2C2921),
+    caution = Color(0xFFE0BB55),
+    cautionBg = Color(0xFF3D341A),
+    cautionInk = Color(0xFFF0D999),
 )
 
 val LocalAppColors = staticCompositionLocalOf { LightAppColors }

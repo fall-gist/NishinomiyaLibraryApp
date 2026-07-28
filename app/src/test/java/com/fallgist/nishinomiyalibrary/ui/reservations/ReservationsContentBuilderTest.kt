@@ -83,4 +83,58 @@ class ReservationsContentBuilderTest {
         assertEquals(mapOf(papa.id to 1), counts)
         assertFalse(counts.containsKey(hana.id))
     }
+
+    @Test
+    fun cancelCodeが空の行はcancellableがfalseになる() {
+        val reservations = listOf(
+            Reservation(papa.id, "取消可能", "本", "中央", today, 1, ReservationState.WAITING, null, "1000001", "cancel-1"),
+            Reservation(papa.id, "提供可能", "本", "中央", today, null, ReservationState.READY, null, "1000002", ""),
+        )
+
+        val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null)
+
+        assertTrue(rows.single { it.title == "取消可能" }.cancellable)
+        assertFalse(rows.single { it.title == "提供可能" }.cancellable)
+    }
+
+    @Test
+    fun tilcodが空ならcancelCodeがあってもcancellableはfalse() {
+        val reservations = listOf(
+            Reservation(papa.id, "旧データ", "本", "中央", today, 1, ReservationState.WAITING, null, "", "cancel-1"),
+        )
+
+        val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null)
+
+        assertFalse(rows.single().cancellable)
+    }
+
+    @Test
+    fun cancelCandidatesは選択済みかつ取消可能な行だけを候補にする() {
+        val cancellableRow = ReservationRow(
+            memberId = papa.id,
+            memberName = "パパ",
+            memberColorHex = "#111111",
+            title = "取消可能",
+            isReady = false,
+            statusLabel = "順番待ち",
+            pickupLabel = "中央",
+            queueLabel = null,
+            holdExpiryLabel = null,
+            tilcod = "1000001",
+            cancelCode = "cancel-1",
+        )
+        val notCancellableRow = cancellableRow.copy(title = "取消不可", tilcod = "1000002", cancelCode = "")
+        val unselectedRow = cancellableRow.copy(title = "未選択", tilcod = "1000003", cancelCode = "cancel-3")
+        val rows = listOf(cancellableRow, notCancellableRow, unselectedRow)
+
+        val candidates = ReservationsContentBuilder.cancelCandidates(
+            rows,
+            selectedKeys = setOf(cancellableRow.cancelKey, notCancellableRow.cancelKey),
+        )
+
+        assertEquals(listOf("取消可能"), candidates.map { it.title })
+        assertEquals(papa.id, candidates.single().target.memberId)
+        assertEquals("1000001", candidates.single().target.tilcod)
+        assertEquals("cancel-1", candidates.single().target.cancelCode)
+    }
 }

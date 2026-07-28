@@ -14,6 +14,7 @@ import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
 import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
+import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationCancelUiController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
 import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
@@ -34,6 +35,7 @@ open class MainActivity : ComponentActivity() {
     private lateinit var controller: HomeScreenController
     private lateinit var loansController: LoansScreenController
     private lateinit var reservationsController: ReservationsScreenController
+    private lateinit var reservationCancelUiController: ReservationCancelUiController
     private lateinit var readingRecordsController: ReadingRecordsScreenController
     private lateinit var bookshelfController: BookshelfScreenController
     private lateinit var searchController: SearchScreenController
@@ -57,6 +59,7 @@ open class MainActivity : ComponentActivity() {
         controller = resolveController(entryPoint)
         loansController = entryPoint.loansScreenController()
         reservationsController = entryPoint.reservationsScreenController()
+        reservationCancelUiController = entryPoint.reservationCancelUiController()
         readingRecordsController = entryPoint.readingRecordsScreenController()
         bookshelfController = entryPoint.bookshelfScreenController()
         searchController = entryPoint.searchScreenController()
@@ -77,6 +80,7 @@ open class MainActivity : ComponentActivity() {
                     onRegister = controller::register,
                     loansController = loansController,
                     reservationsController = reservationsController,
+                    reservationCancelUiController = reservationCancelUiController,
                     readingRecordsController = readingRecordsController,
                     bookshelfController = bookshelfController,
                     searchController = searchController,

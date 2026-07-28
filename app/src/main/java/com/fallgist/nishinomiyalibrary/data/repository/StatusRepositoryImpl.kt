@@ -17,6 +17,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.UserData
 import com.fallgist.nishinomiyalibrary.data.sync.PostSyncNotifier
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
@@ -160,7 +161,7 @@ class StatusRepositoryImpl @Inject constructor(
             database.replaceMemberSnapshot(
                 memberId = memberId,
                 loans = userData.loans.map { it.toEntity(it.memberId) },
-                reservations = userData.reservations.map { it.toEntity(it.memberId) },
+                reservations = excludeCancelledReservations(userData.reservations).map { it.toEntity(it.memberId) },
                 shelves = userData.shelves.map { it.toEntity(memberId) },
                 shelfItems = userData.shelfItems.map { it.toEntity(it.memberId) },
                 summary = userData.summary.toEntity(userData.summary.memberId),
@@ -207,3 +208,12 @@ class StatusRepositoryImpl @Inject constructor(
         const val COOLDOWN_MILLIS = 5 * 60 * 1000L
     }
 }
+
+/**
+ * 同期時に取消済み(CANCELLED)予約を保存対象から除外する純関数。
+ * 除外しないと、取消成立で即時削除した行が次回同期でサイトの「取消」行として復活してしまう
+ * (docs/ui-design.md「方針: 予約取消の導線」§取消済み行はアプリの一覧に出さない)。
+ * ユニットテストのためinternalで公開する(app/src/test/.../StatusRepositoryImplSyncTest.kt)。
+ */
+internal fun excludeCancelledReservations(reservations: List<Reservation>): List<Reservation> =
+    reservations.filter { it.state != ReservationState.CANCELLED }

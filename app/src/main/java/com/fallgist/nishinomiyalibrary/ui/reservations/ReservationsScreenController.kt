@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.reservations
 
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
@@ -20,6 +21,7 @@ import kotlinx.coroutines.launch
 
 /** 予約中一覧の1行。受取可能は先頭に集める。 */
 data class ReservationRow(
+    val memberId: Long,
     val memberName: String,
     val memberColorHex: String,
     val title: String,
@@ -30,7 +32,15 @@ data class ReservationRow(
     val holdExpiryLabel: String?,
     /** 書誌詳細リンク用。空文字列のときは遷移しない。 */
     val tilcod: String = "",
-)
+    /** 取消ボタン(yoykCancel)由来の予約コード。空文字列の行は取消不可(提供可能・移送中など)。 */
+    val cancelCode: String = "",
+) {
+    /** 取消ボタン・チェックボックスを表示できる行か。取消にはtilcodとcancelCodeの両方が要る。 */
+    val cancellable: Boolean get() = tilcod.isNotBlank() && cancelCode.isNotBlank()
+
+    /** チェックボックス選択・取消対象の指定に使う一意キー。[cancellable]な行でのみ意味を持つ。 */
+    val cancelKey: ReservationCancelKey get() = ReservationCancelKey(memberId, tilcod, cancelCode)
+}
 
 data class ReservationsUiState(
     val initialized: Boolean = false,
@@ -72,6 +82,7 @@ object ReservationsContentBuilder {
 
         return (ready + others).map { reservation ->
             ReservationRow(
+                memberId = reservation.memberId,
                 memberName = nameOf[reservation.memberId] ?: "?",
                 memberColorHex = colorOf[reservation.memberId]?.takeIf { it.isNotBlank() } ?: FALLBACK_COLOR,
                 title = reservation.title,
@@ -83,9 +94,23 @@ object ReservationsContentBuilder {
                 holdExpiryLabel = reservation.holdExpiryDate?.let { "取置期限 ${dateFormatter.format(it)} まで" }
                     ?: "取置期限 未定".takeIf { reservation.state == ReservationState.READY },
                 tilcod = reservation.tilcod,
+                cancelCode = reservation.cancelCode,
             )
         }
     }
+
+    /**
+     * チェック選択済みキーに対応する行だけを、取消候補へ変換する純関数。
+     * 取消不可の行(cancelCodeまたはtilcodが空)は、選択されていても含めない。
+     */
+    fun cancelCandidates(rows: List<ReservationRow>, selectedKeys: Set<ReservationCancelKey>): List<ReservationCancelCandidate> =
+        rows.filter { it.cancellable && it.cancelKey in selectedKeys }
+            .map { row ->
+                ReservationCancelCandidate(
+                    target = ReservationCancelTarget(row.memberId, row.tilcod, row.cancelCode),
+                    title = row.title,
+                )
+            }
 
     /** 絞り込み前の全冊数を、メンバーごと・合計で集計する純関数。0件のメンバーはmapに含めない。 */
     fun countByMember(members: List<Member>, reservations: List<Reservation>): Map<Long, Int> {

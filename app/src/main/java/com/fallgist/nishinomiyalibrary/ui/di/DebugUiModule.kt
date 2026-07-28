@@ -8,6 +8,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCancelRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
@@ -19,6 +20,7 @@ import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
+import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationCancelUiController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiController
 import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
@@ -88,6 +90,16 @@ object DebugUiProvisionModule {
     ): ReservationsScreenController = ReservationsScreenController(
         familyRepository = familyRepository,
         statusRepository = statusRepository,
+    )
+
+    @Provides
+    @Singleton
+    fun provideReservationCancelUiController(
+        cancelRepository: ReservationCancelRepository,
+        familyRepository: FamilyRepository,
+    ): ReservationCancelUiController = ReservationCancelUiController(
+        cancelRepository = cancelRepository,
+        familyRepository = familyRepository,
     )
 
     @Provides
@@ -204,6 +216,8 @@ interface MainActivityEntryPoint {
     fun loansScreenController(): LoansScreenController
 
     fun reservationsScreenController(): ReservationsScreenController
+
+    fun reservationCancelUiController(): ReservationCancelUiController
 
     fun readingRecordsScreenController(): ReadingRecordsScreenController
 

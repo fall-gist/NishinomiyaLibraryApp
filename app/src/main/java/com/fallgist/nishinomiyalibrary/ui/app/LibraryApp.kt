@@ -53,6 +53,7 @@ import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreen
 import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreen
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
+import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationCancelUiController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreen
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationCartScreen
@@ -96,6 +97,7 @@ fun LibraryApp(
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
     loansController: LoansScreenController,
     reservationsController: ReservationsScreenController,
+    reservationCancelUiController: ReservationCancelUiController,
     readingRecordsController: ReadingRecordsScreenController,
     bookshelfController: BookshelfScreenController,
     searchController: SearchScreenController,
@@ -226,11 +228,20 @@ fun LibraryApp(
 
                         Destination.RESERVATIONS -> {
                             val reservationsState by reservationsController.state.collectAsState()
+                            val cancelState by reservationCancelUiController.state.collectAsState()
                             ReservationsScreen(
                                 state = reservationsState,
+                                cancelState = cancelState,
                                 onSelectMember = reservationsController::selectMember,
                                 onOpenMenu = openMenu,
                                 onOpenDetail = openDetail,
+                                onToggleSelection = reservationCancelUiController::toggleSelection,
+                                onRequestSingleCancel = reservationCancelUiController::requestSingleCancelConfirmation,
+                                onRequestBulkCancel = reservationCancelUiController::requestBulkCancelConfirmation,
+                                onConfirmCancel = reservationCancelUiController::confirmPending,
+                                onDismissCancelConfirmation = reservationCancelUiController::dismissConfirmation,
+                                onClearCancelResults = reservationCancelUiController::clearResults,
+                                onClearCancelError = reservationCancelUiController::clearError,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
