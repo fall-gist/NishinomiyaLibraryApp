@@ -243,23 +243,14 @@ class RepositoryAndSyncTest {
         assertEquals(member.id, storedReservation.memberId)
         assertEquals(clock.millis(), storedReservation.firstReadyNotifiedAt)
 
-        val justBeforeCooldown = statusRepository(
-            gateway,
-            notificationService,
-            Clock.offset(clock, Duration.ofMinutes(4).plusSeconds(59)),
-        )
-        assertTrue(justBeforeCooldown.syncAll(SyncTrigger.MANUAL) is SyncResult.SkippedCooldown)
+        // クールダウンは撤廃済み(所有者判断、家庭内利用のため)。手動同期は直後でも即座に実行できる。
+        val immediatelyAfter = statusRepository(gateway, notificationService, clock)
+        assertEquals(SyncResult.Completed(1, 0), immediatelyAfter.syncAll(SyncTrigger.MANUAL))
         assertEquals(1, sink.pickupPlans.size)
 
-        val atCooldownBoundary = statusRepository(
-            gateway,
-            notificationService,
-            Clock.offset(clock, Duration.ofMinutes(5)),
-        )
-        assertEquals(SyncResult.Completed(1, 0), atCooldownBoundary.syncAll(SyncTrigger.MANUAL))
-        assertEquals(SyncResult.Completed(1, 0), atCooldownBoundary.syncAll(SyncTrigger.SCHEDULED))
+        assertEquals(SyncResult.Completed(1, 0), immediatelyAfter.syncAll(SyncTrigger.SCHEDULED))
         assertEquals(1, sink.pickupPlans.size)
-        assertTrue(atCooldownBoundary.lastSync().first()!!.succeeded == true)
+        assertTrue(immediatelyAfter.lastSync().first()!!.succeeded == true)
     }
 
     @Test
@@ -512,7 +503,9 @@ class RepositoryAndSyncTest {
     }
 
     @Test
-    fun `並行manual同期は一回だけネットワークを実行し後続をクールダウンでスキップする`() = runBlocking {
+    fun `並行manual同期はmutexで直列化されクールダウンなしで両方とも実行される`() = runBlocking {
+        // クールダウン撤廃(所有者判断、家庭内利用のため)後も、syncMutexによる直列化(同時ネットワーク
+        // 実行の防止)は維持する。後続は待たされるだけで、スキップされずに実行される。
         val clock = fixedClock("2030-09-01T09:00:00Z")
         val member = insertMember("並行同期", 0)
         credentialStore.savePassword(member.id, generatedValue())
@@ -536,8 +529,23 @@ class RepositoryAndSyncTest {
         releaseFetch.complete(Unit)
 
         assertEquals(SyncResult.Completed(1, 0), first.await())
-        assertTrue(second.await() is SyncResult.SkippedCooldown)
-        assertEquals(1, gateway.fetchedCardNumbers.size)
+        assertEquals(SyncResult.Completed(1, 0), second.await())
+        assertEquals(2, gateway.fetchedCardNumbers.size)
+    }
+
+    @Test
+    fun `手動同期はクールダウンなしで連続実行できる`() = runBlocking {
+        // 所有者判断でクールダウンを撤廃した(家庭内利用が前提、利用者の良心に委ねる、実機検証の支障)。
+        // 直後に連続して手動同期しても、両方ともCompletedで実行されることを確認する。
+        val clock = fixedClock("2030-09-02T09:00:00Z")
+        val member = insertMember("連続同期", 0)
+        credentialStore.savePassword(member.id, generatedValue())
+        val gateway = FakeGateway { _, _ -> userData(memberId = -1, dueDate = LocalDate.now(clock).plusDays(1)) }
+        val repository = statusRepository(gateway, CountingNotifier(), clock)
+
+        assertEquals(SyncResult.Completed(1, 0), repository.syncAll(SyncTrigger.MANUAL))
+        assertEquals(SyncResult.Completed(1, 0), repository.syncAll(SyncTrigger.MANUAL))
+        assertEquals(2, gateway.fetchedCardNumbers.size)
     }
 
     private fun statusRepository(

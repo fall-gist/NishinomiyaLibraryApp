@@ -222,18 +222,15 @@ private fun ReservationRowView(
                 )
             }
             // 取消ボタンは取消可能な行(cancelCodeが非空)だけに出す。無効化ではなく非表示にする。
+            // 書誌詳細の「この予約を取り消す」ボタン(BookDetailView)と同じ流儀・同じ色に揃え、行の右端に寄せる。
             if (row.cancellable) {
                 Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "取消",
-                    color = colors.alert,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onRequestCancel)
-                        .padding(vertical = 4.dp, horizontal = 2.dp),
-                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Button(
+                        onClick = onRequestCancel,
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.alert, contentColor = colors.card),
+                    ) { Text("取消") }
+                }
             }
         }
     }

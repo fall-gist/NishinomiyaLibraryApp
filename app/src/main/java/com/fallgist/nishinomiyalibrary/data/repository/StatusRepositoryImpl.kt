@@ -66,14 +66,11 @@ class StatusRepositoryImpl @Inject constructor(
     override fun lastSync(): Flow<SyncLog?> = syncLogDao.observeLatest().map { it?.toDomain() }
 
     override suspend fun syncAll(trigger: SyncTrigger): SyncResult = syncMutex.withLock {
+        // 手動更新のクールダウン(5分)は所有者判断で撤廃した(2026-07-28)。家庭内利用のみを想定しており
+        // サーバへの負荷となるほどのリクエストはそもそも送れないため、利用者の良心に委ねる。
+        // なお、リクエスト間の最小間隔500ms(LicsXpSessionのMINIMUM_REQUEST_INTERVAL_MILLIS)は
+        // 別レイヤーの安全策として維持している(docs/spec.md §5, docs/backend-design.md参照)。
         val startedAt = clock.millis()
-        if (trigger == SyncTrigger.MANUAL) {
-            val latestSuccessful = syncLogDao.getLatestSuccessful()
-            val nextAllowedAt = latestSuccessful?.finishedAtEpochMillis?.plus(COOLDOWN_MILLIS)
-            if (nextAllowedAt != null && startedAt < nextAllowedAt) {
-                return SyncResult.SkippedCooldown(nextAllowedAt)
-            }
-        }
 
         val logId = syncLogDao.insert(
             SyncLogEntity(
@@ -204,9 +201,6 @@ class StatusRepositoryImpl @Inject constructor(
         }
     }
 
-    private companion object {
-        const val COOLDOWN_MILLIS = 5 * 60 * 1000L
-    }
 }
 
 /**

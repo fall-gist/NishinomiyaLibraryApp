@@ -26,15 +26,12 @@ class SyncWorker(
             SyncWorkerEntryPoint::class.java,
         )
         return try {
-            when (val result = dependencies.statusRepository().syncAll(SyncTrigger.SCHEDULED)) {
-                is SyncResult.SkippedCooldown -> Result.success()
-                is SyncResult.Completed -> {
-                    when (syncWorkerDecision(result, runAttemptCount)) {
-                        SyncWorkerDecision.SUCCESS -> Result.success()
-                        SyncWorkerDecision.RETRY -> Result.retry()
-                        SyncWorkerDecision.FAILURE -> Result.failure()
-                    }
-                }
+            // SyncResultはCompleted一種類のみになった(SkippedCooldownは撤廃済み)。
+            val result = dependencies.statusRepository().syncAll(SyncTrigger.SCHEDULED) as SyncResult.Completed
+            when (syncWorkerDecision(result, runAttemptCount)) {
+                SyncWorkerDecision.SUCCESS -> Result.success()
+                SyncWorkerDecision.RETRY -> Result.retry()
+                SyncWorkerDecision.FAILURE -> Result.failure()
             }
         } catch (exception: CancellationException) {
             throw exception

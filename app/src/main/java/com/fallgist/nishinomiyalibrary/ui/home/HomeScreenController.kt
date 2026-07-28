@@ -154,7 +154,5 @@ class HomeScreenController(
         } else {
             "同期が完了しました(一部失敗: ${result.failedMemberCount}人)"
         }
-
-        is SyncResult.SkippedCooldown -> "少し前に同期済みです。しばらくしてから再試行してください"
     }
 }

@@ -136,6 +136,4 @@ sealed interface SyncResult {
     ) : SyncResult {
         val isCompleteSuccess: Boolean get() = failedMemberCount == 0
     }
-
-    data class SkippedCooldown(val nextAllowedAtEpochMillis: Long) : SyncResult
 }

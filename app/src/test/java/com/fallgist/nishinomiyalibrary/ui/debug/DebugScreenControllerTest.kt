@@ -96,7 +96,7 @@ class DebugScreenControllerTest {
     }
 
     @Test
-    fun manualSync_formatsCompletePartialSkippedAndFailureSafely() = runTest {
+    fun manualSync_formatsCompletePartialAndFailureSafely() = runTest {
         val status = FakeStatusRepository()
         val controller = controller(status = status)
 
@@ -108,9 +108,10 @@ class DebugScreenControllerTest {
         controller.requestManualSync()
         assertTrue(controller.state.value.syncMessage.contains("一部失敗: 1人"))
 
-        status.syncResult = SyncResult.SkippedCooldown(nextAllowedAtEpochMillis = 0L)
+        // クールダウンは撤廃済み(所有者判断、家庭内利用のため)。連続実行してもCompletedのまま。
+        status.syncResult = SyncResult.Completed(syncedMemberCount = 1, failedMemberCount = 0)
         controller.requestManualSync()
-        assertTrue(controller.state.value.syncMessage.contains("待機中"))
+        assertTrue(controller.state.value.syncMessage.contains("同期が完了"))
 
         status.syncFailure = IllegalStateException("下位例外の詳細")
         assertEquals(ManualSyncAction.Failed, controller.requestManualSync())

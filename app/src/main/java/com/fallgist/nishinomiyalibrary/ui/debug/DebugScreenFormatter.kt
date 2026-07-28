@@ -80,8 +80,6 @@ object DebugScreenFormatter {
             result.failedMemberCount == 0 -> "同期が完了しました（${result.syncedMemberCount}人）"
             else -> "同期が完了しました（一部失敗: ${result.failedMemberCount}人、成功: ${result.syncedMemberCount}人）"
         }
-
-        is SyncResult.SkippedCooldown -> "同期は待機中です。しばらくしてから再試行してください"
     }
 
     fun syncFailureMessage(): String = "同期に失敗しました。通信状況を確認して再試行してください"
