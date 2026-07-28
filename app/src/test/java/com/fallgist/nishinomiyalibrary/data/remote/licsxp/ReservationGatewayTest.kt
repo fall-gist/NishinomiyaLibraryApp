@@ -771,8 +771,10 @@ class ReservationGatewayTest {
      * 「予約状態が赤字で『取消』・取消ボタンの位置に『非表示』ボタン(yoykHihyoji)」へ書き換える。
      * 赤字表示の実クラス名は未確認のため、"red"は実測待ちの仮のクラス名である。
      */
-    private fun cancelledFirstRowUsrrsvHtml(): String {
-        val html = fixture("usrrsv.html")
+    private fun cancelledFirstRowUsrrsvHtml(): String = withFirstRowCancelledAndHidden(fixture("usrrsv.html"))
+
+    /** [html]の1行目(tilcod=CANCEL_TARGET_TILCOD)を「取消」状態＋非表示ボタン(yoykHihyoji)へ書き換える。 */
+    private fun withFirstRowCancelledAndHidden(html: String): String {
         val withCancelledState = Regex("""id="ItemDeta0105i'1'" class="a-center">[\s\S]*?</td>""").replace(html) {
             "id=\"ItemDeta0105i'1'\" class=\"a-center red\">\n\t\t\t\t取消\n\t      </td>"
         }
@@ -971,6 +973,172 @@ class ReservationGatewayTest {
         </table>
         </html>
         """.trimIndent()
+    }
+
+    // 13回目のライブ観測(2026-07-28)実測: 同じtilcodの行が2つ(予約中1・取消1)ある状態が見つかった。
+    // 取消済み行を非表示にせず同じ書誌を予約し直すと起きる、普通の運用操作であり実運用で必ず起きる。
+    // tilcodだけでは行の同一性を追えないサイト仕様のため、送信前は「取消可能な行(cancelCodeが非空)」の
+    // 一意性で対象を特定し、送信後は「取消可能な行の消失」＋「取消済み行の増分(基準値+1)」で判定する。
+
+    @Test
+    fun `同一tilcodに取消済み行が併存していても送信前に一意特定でき2段階目まで進みCancelledになる`() = runBlocking {
+        val beforeHtml = usrrsvHtmlWithCancelledDuplicateOfTarget()
+        // 基準値(送信前の取消済み行数)は1。送信後に取消済み行が2(基準値+1)・取消可能な行が0になる。
+        val afterHtml = withFirstRowCancelledAndHidden(beforeHtml)
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(beforeHtml))
+        server.enqueue(
+            page(
+                cancelConfirmationStageHtml(
+                    listHtml = beforeHtml,
+                    previousRequestSourceHtml = beforeHtml,
+                ),
+            ),
+        )
+        server.enqueue(page("<html>取消完了</html>"))
+        // 元からの取消済み重複行1行を含めた合計20行のうち、取消済みは2行(重複行1+今回取消1)になるため
+        // サマリの予約中件数は18。
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(afterHtml))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        // 送信前の一意特定(取消可能な行の一意性)を通過し、2段階目まで進んだことはPOST数で確認できる。
+        assertEquals(ReservationCancelAttempt.Cancelled, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    @Test
+    fun `重複併存の状態から対象tilcodの行が全て消えていればCancelledAndHiddenになる`() = runBlocking {
+        val beforeHtml = usrrsvHtmlWithCancelledDuplicateOfTarget()
+        // 対象tilcodの行(元の予約中行＋重複した取消済み行)を両方とも一覧から取り除く。
+        val afterHtml = withoutReservationRow(withoutTargetTilcodDuplicateRow(beforeHtml), "1013074729")
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(beforeHtml))
+        server.enqueue(
+            page(
+                cancelConfirmationStageHtml(
+                    listHtml = beforeHtml,
+                    previousRequestSourceHtml = beforeHtml,
+                ),
+            ),
+        )
+        server.enqueue(page("<html>取消完了</html>"))
+        // 対象tilcodの行(元の予約中行1・重複した取消済み行1)がどちらも消えるため、20行から2行減って18行、
+        // うち取消済みは0のためサマリの予約中件数も18。
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(afterHtml))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        // CancelledAndHiddenの判定は基準値で場合分けしない。対象tilcodの行が全て消えている状態は、
+        // 並行操作が無い限り「取消＋非表示」以外では起きないため。
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    @Test
+    fun `重複併存の状態で取消済み行数が基準値のままならIndeterminateAfterPostになる`() = runBlocking {
+        val beforeHtml = usrrsvHtmlWithCancelledDuplicateOfTarget()
+        // 元の予約中行から取消ボタンだけを消し、状態は「予約中」のまま残す
+        // （cancelCodeは消えるが取消済み(CANCELLED)にはならない、既存の「取消コードだけ消えて…」と同じ発想）。
+        // 取消済み行数は重複行の1のまま(基準値のまま)で増えない。
+        val afterHtml = beforeHtml.replace("onclick=\"javascript:yoykCancel('1013074729')\" value=\"取消\"", "")
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(beforeHtml))
+        server.enqueue(
+            page(
+                cancelConfirmationStageHtml(
+                    listHtml = beforeHtml,
+                    previousRequestSourceHtml = beforeHtml,
+                ),
+            ),
+        )
+        server.enqueue(page("<html>取消完了</html>"))
+        // 予約中のまま残る行1(cancelCodeだけ空)+取消済み行1で、取消済みでない行は19(=20-1)のまま。
+        server.enqueue(page(menuWithReservationCount(19)))
+        server.enqueue(page(afterHtml))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    @Test
+    fun `重複併存の状態で取消可能な行が残っていればIndeterminateAfterPostになる`() = runBlocking {
+        val beforeHtml = usrrsvHtmlWithCancelledDuplicateOfTarget()
+        // 送信後も一覧が変化しない(取消が実際には反映されていない)場合を模す。
+        val afterHtml = beforeHtml
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(beforeHtml))
+        server.enqueue(
+            page(
+                cancelConfirmationStageHtml(
+                    listHtml = beforeHtml,
+                    previousRequestSourceHtml = beforeHtml,
+                ),
+            ),
+        )
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(19)))
+        server.enqueue(page(afterHtml))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    /**
+     * usrrsv.htmlの対象tilcod行(cancelCode=1013074729)を複製し、複製側だけ「取消」状態＋非表示ボタン
+     * (yoykHihyoji)へ書き換えて元の行の直後に挿入する。取消済み行を非表示にせず同じ書誌を再予約すると
+     * 起きる状態（普通の運用操作、13回目のライブ観測実測）を模す。元の行(予約中・取消可能)はそのまま
+     * 残るため、送信前の一覧は「取消済み行1つ＋予約中行1つ」になる。
+     * 実行の行は実サイト実測どおり列数が多く単純な合成行では列がずれるため、
+     * duplicateReservationRowWithSameTilcodと同じくJsoupで実際の行を複製する方式を使う。
+     */
+    private fun usrrsvHtmlWithCancelledDuplicateOfTarget(): String {
+        val document = Jsoup.parse(fixture("usrrsv.html"))
+        val target = document.select("input[onclick*=yoykCancel]")
+            .filter { it.attr("onclick").contains("yoykCancel('1013074729')") }
+            .singleOrNull()
+            ?: error("対象行の取消ボタンを一意に特定できません")
+        val row = requireNotNull(target.closest("tr")) { "対象行を特定できません" }
+        val duplicate = row.clone()
+        // id="ItemDeta0105i'1'"のような、値そのものに引用符を含む実測id属性はCSSの[id=value]記法で
+        // 安全に指定できないため、正規表現一致(~=)による部分一致で予約状態セルを特定する。
+        val stateCell = duplicate.selectFirst("td[id~=ItemDeta0105i]")
+            ?: error("複製行の予約状態セルを特定できません")
+        stateCell.text("取消")
+        val duplicateButton = duplicate.selectFirst("input[onclick~=yoykCancel]")
+            ?: error("複製行に取消ボタンがありません")
+        duplicateButton.attr("onclick", "javascript:yoykHihyoji('1013074728')")
+        duplicateButton.attr("value", "非表示")
+        row.after(duplicate)
+        return document.outerHtml()
+    }
+
+    /** [usrrsvHtmlWithCancelledDuplicateOfTarget]が追加した複製行だけを取り除く。 */
+    private fun withoutTargetTilcodDuplicateRow(html: String): String {
+        val document = Jsoup.parse(html)
+        val duplicateButton = document.select("input[onclick*=yoykHihyoji]")
+            .singleOrNull { it.attr("onclick").contains("yoykHihyoji('1013074728')") }
+            ?: error("複製行の非表示ボタンを一意に特定できません")
+        requireNotNull(duplicateButton.closest("tr")) { "複製行を特定できません" }.remove()
+        return document.outerHtml()
     }
 
     @Test
@@ -1958,8 +2126,10 @@ class ReservationGatewayTest {
             ?: error("取消コード $cancelCode の取消ボタンを一意に特定できません")
         val row = requireNotNull(target.closest("tr")) { "取消コード $cancelCode の取消行を特定できません" }
         val duplicate = row.clone()
+        // CANCEL_CODE_REGEXは数字だけを取消コードとして抽出するため、複製側も数字にしないと
+        // 「取消可能な行(cancelCodeが非空)が2つ」という本来検証したい曖昧ケースを再現できない。
         requireNotNull(duplicate.selectFirst("input[onclick*=yoykCancel]")) { "複製した取消行に取消ボタンがありません" }
-            .attr("onclick", "yoykCancel('duplicate-cancel-code')")
+            .attr("onclick", "yoykCancel('9999999999')")
         row.after(duplicate)
         return document.outerHtml()
     }

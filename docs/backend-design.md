@@ -680,6 +680,19 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
 > 常に不完全になっていた完全性ガードは誤りだったと判明し、本節どおり修正した
 > （詳細は`docs/site-research.md`§12回目）。実サイトでの取消成立は確認済みだが、非表示ボタンの
 > 実装（`yoykHihyoji`の送信）は未実装であり、`Cancelled`状態の資料が一覧に残り続ける。
+> **13回目のライブ観測で、取消済み行を非表示にせず同じ書誌を再予約すると同一tilcodの行が2つになる
+> ことを確認した**（普通の運用操作であり実運用で必ず起きる）。この状態では改修前のコードが送信前・
+> 送信後のどちらでも常に停止・成否不明になっていたため、「取消可能な行の一意性」と「取消済み行の
+> 増分」で照合する方式へ改めた。**続く13回目のライブ取消検証で、この重複併存状態
+> （予約中1・取消済み1）からの取消が実サイトで成立することを確認した**
+> （`cancel-target: matches=2 cancellable=1 cancelled=1` → `attempt=Cancelled`、取消後は
+> 対象tilcodの行が2つとも`state=CANCELLED`・非表示ボタンあり、基準値1→2の増分と完全性ガード
+> （19 = 21 − 2）はいずれも設計どおり。詳細は`docs/site-research.md`§13回目）。
+> **これにより、アプリ実装による実サイトでの予約取消は、単純なケース（12回目）・同一tilcod重複が
+> ある状態（13回目）のいずれも成立することを確認済みである。** 検証の過程で、取消後の一覧観測ログ
+> （`LiveReservationCancelDiagnostic.kt`の`cancel-after`）が`singleOrNull`の誤用により、対象tilcodが
+> 2行あるときに行が実在するのに「見つからない」と誤記録するバグが見つかり修正した（成否判定自体は
+> 別ロジックのため実害は無かった）。
 
 - **ドメイン**: `Reservation.cancelCode`（取消ボタンの`yoykCancel('コード')`由来。取消ボタンが
   無い行は空文字列）。`ReservationCancelTarget`は`memberId`・`tilcod`・`cancelCode`の3値で対象を
@@ -710,20 +723,29 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
   `ParseException`にする(画面と対象の食い違い検出)。詳細な実測根拠は
   `docs/site-research.md`§9を参照。
 - **Gateway**: `ReservationSession.cancelReservation(cancelCode, expectedTilcod): ReservationCancelAttempt`
-  (`Cancelled` / `SessionExpiredBeforeSubmit` / `IndeterminateAfterPost` / `ConfirmationRequired(message)` /
-  `Rejected(message)`)。`ConfirmationRequired` は互換型として残るが、現行の
-  `LicsXpReservationSession.cancelReservation` は生成しない。`LicsXpReservationSession`は次を守る:
+  (`Cancelled` / `CancelledAndHidden` / `SessionExpiredBeforeSubmit` / `IndeterminateAfterPost` /
+  `ConfirmationRequired(message)` / `Rejected(message)`)。`ConfirmationRequired` は互換型として残るが、
+  現行の`LicsXpReservationSession.cancelReservation` は生成しない。`LicsXpReservationSession`は次を守る:
   1. `session.withExclusiveRequestSequence`の排他区間内で、メニュー→一覧→取消→照合を完結する。
      排他中の通信は`ExclusiveRequestSequence`のAPIだけを使い、500ms制限も維持する。
-  2. 送信前一覧を`ReservationListParser`でも解析し、`cancelCode`一致行を一意に特定して非空かつ
-     一覧内で一意の`tilcod`を固定し、依頼時の`expectedTilcod`とも一致することを確認する。
+  2. 送信前一覧を`ReservationListParser`でも解析し、`cancelCode`一致行を一意に特定して非空かつ、
+     一覧内で「`tilcod`が一致しかつ`cancelCode`が非空（取消可能）」な行が一意であることを確認し、
+     依頼時の`expectedTilcod`とも一致することを確認する。13回目のライブ観測(2026-07-28、
+     `docs/site-research.md`§13回目)実測どおり、取消済み行を非表示にせず同じ書誌を再予約すると
+     同一`tilcod`の行が複数になり得る（普通の運用操作であり実運用で必ず起きる）。行の同一性を追える
+     安定IDがサイト側に無いため、一意性は「取消可能な行」の中で判定する（取消済み行の併存は許容し、
+     取消可能な行が同一`tilcod`に2つある本当に曖昧なケースだけ停止する）。
      `cancelCode`は取消フォームを選ぶためだけに使い、DB由来の`tilcod`だけや`cancelCode`消失で成功を
      判定しない。特定不能・不一致・解析不能は取消POST前に
-     `LibraryError.Parse`で停止する。
+     `LibraryError.Parse`で停止する。送信前一覧における「対象`tilcod`・state=CANCELLEDの行数」を
+     基準値として記録し、5.の判定表で使う。
   3. 実測済みの1段階目POSTは`WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1`である。確認OK後の
      2段階目POSTはstage1 HTMLの一意な`form[name=prevRequestForm]`からaction・successful controlsをDOM順で取得し、
      scriptが単純代入した`OK_CODES_NAME`の実際のfield名へ`OPACUSR001`を末尾追加して送る。
-     2段階目へ進むのは、1段階目の応答を再解析して同じ`cancelCode`→同じ一意の`tilcod`を持つ予約行と、
+     2段階目へ進むのは、1段階目の応答を再解析して同じ`cancelCode`→取消可能な行の中で一意な`tilcod`
+     （送信前対象特定と同じ判定。13回目のライブ観測(2026-07-28)実測どおり同一`tilcod`に取消済み行が
+     併存し得るため、単純な`tilcod`一致件数では判定しない。改めないと重複併存時に2段階目が常に
+     スキップされてしまう）を持つ予約行と、
      2026-07-27に採取したインラインJavaScript
      （`src`無し、type無しまたは標準JavaScript MIME）の固定legacy script構造
      （外側の`if (document.all || IS_EXPLORER_11 || isEdge)`→`lbConfirm`/`lbConfirm1`/`window.confirm`→
@@ -779,19 +801,23 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
      一致する完全一覧でのみ行う（旧: 単純な解析行数との一致。取消済み行が1行でもあると常に不完全に
      なっていた欠陥を修正）。実測内訳: 予約中15+提供可能3+移送中1+取消1=20行、サマリ19
      （取消済み行だけが除外され、移送中・提供可能はサマリに数えられる。移送中を除外してはならない）。
-     完全一覧を前提に、対象`tilcod`行について次のとおり判定する:
+     完全一覧を前提に、対象`tilcod`行について次のとおり判定する（**13回目のライブ観測(2026-07-28、
+     `docs/site-research.md`§13回目)で判明した同一`tilcod`重複への対応として改訂済み**）:
 
-     | 取消後の対象tilcod行 | 判定 |
+     | 送信後の対象`tilcod`行 | 判定 |
      |---|---|
-     | 一覧に無い | `CancelledAndHidden` |
-     | `state=CANCELLED` **かつ** 非表示ボタン(`yoykHihyoji`)あり | `Cancelled` |
-     | 状態のみ一致／ボタンのみ一致 | `IndeterminateAfterPost` |
-     | 予約中・提供可能・移送中等で残存 | `IndeterminateAfterPost` |
+     | 対象`tilcod`の行が1つも無い | `CancelledAndHidden` |
+     | `state=CANCELLED`かつ非表示ボタン(`yoykHihyoji`)ありの行数 == 送信前の基準値+1、かつ`cancelCode`非空の行が0 | `Cancelled` |
+     | 上記以外（増分が0や2以上、取消可能な行が残っている、状態とボタンの片方だけ一致 等） | `IndeterminateAfterPost` |
      | サマリ/一覧の解析不能・取得不能 | `IndeterminateAfterPost` |
 
-     状態文字列とボタンの両方が一致した場合だけ成功とし、片方だけの一致は確証がないため
-     `IndeterminateAfterPost`へ倒す。`Cancelled`と`CancelledAndHidden`を分けているのは、所有者の
-     方針（非表示操作を将来アプリへ組み込むかもしれない）による。
+     行の同一性を追える安定IDがサイト側に無いため、単純な行の消失ではなく「取消可能な行の消失」＋
+     「取消済み行の増分（送信前に記録した基準値との比較）」で判定する。「取消済み行が1つ増えた」
+     だけでなく「取消可能な行が無くなった」も同時に要求するのは、確証がなければ成否不明へ倒す既存
+     方針のためであり、緩めていない。`CancelledAndHidden`の判定は基準値で場合分けしない（対象`tilcod`
+     の行が全て消えている状態は、並行操作が無い限り「取消＋非表示」以外では起きないため）。
+     `Cancelled`と`CancelledAndHidden`を分けているのは、所有者の方針（非表示操作を将来アプリへ
+     組み込むかもしれない）による。
   6. 解析失敗・ログインフォーム・メンテナンスは`fetch-reservations`と同じ流儀で
      `cancel-reservation`カテゴリの診断ログに記録する。
 - **Repository**: `ReservationCancelRepository.cancelReservations(List<ReservationCancelTarget>)`。
@@ -803,5 +829,6 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
   扱い、どちらもローカルDBから即時削除する。
 - **未検証事項**: 取消の拒否ダイアログの実文言、予約上限や利用制限に関する取消固有の
   拒否条件、CSV出力・順番解除・非表示ボタン(`yoykHihyoji`)自体の送信など他の画面内アクション
-  (`docs/site-research.md`§9・§12回目参照)。取消の成功自体は12回目のライブ取消診断(2026-07-28)で
-  確認済み（詳細は本節冒頭のコールアウトを参照）。
+  (`docs/site-research.md`§9・§12回目参照)。取消の成功自体は12回目（単純なケース）・13回目
+  （同一`tilcod`重複があるケース、本節5.の判定表）のライブ取消診断(2026-07-28)でいずれも実サイトでの
+  成立を確認済み（詳細は本節冒頭のコールアウトを参照）。

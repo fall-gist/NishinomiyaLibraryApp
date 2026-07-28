@@ -451,7 +451,11 @@ internal class LicsXpReservationSession(
             }
             // cancelCodeは操作対象を選ぶための画面上の一時コードであり、成功照合には使わない。
             // 送信前一覧から対象行を一意に特定して、安定IDであるtilcodを固定する。
-            val targetTilcod = try {
+            // 13回目のライブ観測(2026-07-28)実測どおり、取消済み行を非表示にせず同じ書誌を再予約すると
+            // 同一tilcodの行が複数になり得る（普通の運用操作であり実運用で必ず起きる）。tilcodだけでは
+            // 行の同一性を追えないサイト仕様のため、一意性は「取消可能な行（cancelCodeが非空）」の
+            // 中で判定する。取消可能な行が同一tilcodに2つある本当に曖昧なケースは従来どおり停止する。
+            val (targetTilcod, cancelledBeforeCount) = try {
                 val reservations = ReservationListParser.parse(listHtml)
                 val target = reservations.filter { it.cancelCode == cancelCode }.singleOrNull()
                     ?: throw ParseException("reservation-cancel", "取消コードに対応する予約行を一意に特定できません")
@@ -461,10 +465,14 @@ internal class LicsXpReservationSession(
                 if (target.tilcod != expectedTilcod) {
                     throw ParseException("reservation-cancel", "取消対象の資料コードが依頼時の値と一致しません")
                 }
-                if (reservations.count { it.tilcod == target.tilcod } != 1) {
+                if (reservations.count { it.tilcod == target.tilcod && it.cancelCode.isNotBlank() } != 1) {
                     throw ParseException("reservation-cancel", "取消対象の資料コードを一意に特定できません")
                 }
-                target.tilcod
+                // 送信後の判定(resolveCancelByListDiff)で「取消済み行が1つ増えたか」を確認するための基準値。
+                val cancelledBeforeCount = reservations.count {
+                    it.tilcod == target.tilcod && it.state == ReservationState.CANCELLED
+                }
+                target.tilcod to cancelledBeforeCount
             } catch (exception: ParseException) {
                 session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
                 throw LibraryError.Parse(exception.screen, exception.reason)
@@ -522,7 +530,7 @@ internal class LicsXpReservationSession(
             // 2段階目は状態変更POSTである。JSの一般的な到達可能性は推定せず、直前に利用者が指定した
             // cancelCode/tilcodを含む一覧と、実測済みの取消確認プロトコル署名が両方そろう場合だけ送る。
             if (!stageInspection.matched) {
-                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, ::listForm)
+                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, cancelledBeforeCount, ::listForm)
             }
             val confirmationForm = try {
                 ReservationCancelConfirmationFormParser.parse(
@@ -531,7 +539,7 @@ internal class LicsXpReservationSession(
                 )
             } catch (exception: ParseException) {
                 session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
-                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, ::listForm)
+                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, cancelledBeforeCount, ::listForm)
             }
             // actionが省略されている場合（実測(2026-07-28)どおりの実サイト相当）は、HTML標準どおり
             // 「現在のドキュメントURL」＝1段階目に実際に送ったURL(stage1Page.url、クエリ付き)を使う。
@@ -540,7 +548,7 @@ internal class LicsXpReservationSession(
                 session.resolveReservationCancelAction(confirmationForm.action, stage1Page.url)
             } catch (exception: ParseException) {
                 session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
-                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, ::listForm)
+                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, cancelledBeforeCount, ::listForm)
             }
             session.noteDiagnostic("cancel-reservation", "対象一致の取消確認プロトコル署名と再送フォームを検出し2段階目を送信")
             val stage2Response = try {
@@ -555,7 +563,7 @@ internal class LicsXpReservationSession(
             requireNotMaintenance(stage2Response) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
             // 2段階目の応答に確認文言が残っていても、文字列だけで未完了とは断定しない。
             // 成否は完全な取消後一覧で固定済みtilcodを照合して決める。
-            resolveCancelByListDiff(session, targetTilcod, ::listForm)
+            resolveCancelByListDiff(session, targetTilcod, cancelledBeforeCount, ::listForm)
         }
     }
 
@@ -619,29 +627,42 @@ internal class LicsXpReservationSession(
 }
 
 /**
- * 取消後のメニューと一覧を各1回だけ再取得し、対象の安定ID(tilcod)が消えたかどうかで成否を判定する。
- * 最新メニューの予約件数サマリと一覧解析行数が一致しない、再取得・解析できない場合は成否不明として
- * 扱い、POSTは再送しない。
- * 1段階目のみで確認ダイアログが出なかった場合と、2段階目送信後に確認ダイアログが出なかった場合の
- * 両方から呼ばれる共通ロジックであり、cancelReservationから重複を避けるために切り出した。
- */
-/**
  * 取消後一覧照合の結果。[resolveCancelByListDiff]内だけで使う中間状態で、外部には公開しない。
  * `null`（完全性を確認できない・解析できない・ログインフォームが返った等）は
  * [ReservationCancelAttempt.IndeterminateAfterPost]へ倒す。
+ * 1段階目のみで確認ダイアログが出なかった場合と、2段階目送信後に確認ダイアログが出なかった場合の
+ * 両方から呼ばれる共通ロジックであり、cancelReservationから重複を避けるために切り出した。
  */
 private enum class CancelListDiffOutcome {
-    /** 対象tilcod行が一覧から消えていた。 */
+    /**
+     * 対象tilcodの行が1つも無い。13回目のライブ観測(2026-07-28)で判明したとおり、同一tilcodに
+     * 取消済み行が併存し得るサイトだが、対象tilcodの行が全て消えている状態は、並行操作（他端末等）が
+     * 無い限り「取消＋非表示」以外では起きない。そのためこのケースだけは基準値による場合分けをしない。
+     */
     REMOVED_FROM_LIST,
-    /** 対象tilcod行が「取消」状態(CANCELLED)で残り、かつ非表示ボタン(yoykHihyoji)がある。 */
-    CANCELLED_WITH_HIDE_BUTTON,
-    /** 対象tilcod行は残っているが、状態・ボタンの片方だけが一致、またはどちらも一致しない。 */
+    /**
+     * 「取消」状態(CANCELLED)かつ非表示ボタン(yoykHihyoji)ありの行数が、送信前に記録した基準値
+     * （対象tilcodのうち送信前から取消済みだった行数）+1になり、かつ取消可能な行(cancelCodeが非空)が
+     * 0になった。「取消済み行が1つ増えた」だけでなく「取消可能な行が無くなった」も同時に要求するのは、
+     * 確証がなければ成否不明へ倒す既存方針のためである。
+     */
+    CANCELLED_COUNT_INCREMENTED,
+    /** 上記以外（増分が0や2以上、取消可能な行が残っている、状態とボタンの片方だけ一致 等）。 */
     STILL_PRESENT_OTHERWISE,
 }
 
+/**
+ * 取消後のメニューと一覧を各1回だけ再取得し、対象tilcodの行の変化から成否を判定する。
+ *
+ * 13回目のライブ観測(2026-07-28)実測どおり、取消済み行を非表示にせず同じ書誌を再予約すると同一tilcod
+ * の行が複数になり得る（普通の運用操作であり実運用で必ず起きる）。tilcodだけでは行の同一性を追えない
+ * サイト仕様のため、単純な行の消失ではなく「取消可能な行の消失」＋「取消済み行の増分」で判定する。
+ * [cancelledBeforeCount]は送信前一覧における対象tilcod・state=CANCELLEDの行数（基準値）。
+ */
 private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveCancelByListDiff(
     session: LicsXpSession,
     targetTilcod: String,
+    cancelledBeforeCount: Int,
     listForm: () -> FormBody,
 ): ReservationCancelAttempt {
     val outcome = try {
@@ -676,12 +697,17 @@ private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveCancelByListDi
                 val matches = rows.filter { it.reservation.tilcod == targetTilcod }
                 when {
                     matches.isEmpty() -> CancelListDiffOutcome.REMOVED_FROM_LIST
-                    // 対象tilcodが重複している異常系は、どちらの行を見るべきか一意に決められないため
-                    // 成否不明へ倒す（既存の重複検出方針と同じ、確証がなければ断定しない）。
-                    matches.size > 1 -> CancelListDiffOutcome.STILL_PRESENT_OTHERWISE
-                    matches.single().reservation.state == ReservationState.CANCELLED && matches.single().hideButtonPresent ->
-                        CancelListDiffOutcome.CANCELLED_WITH_HIDE_BUTTON
-                    else -> CancelListDiffOutcome.STILL_PRESENT_OTHERWISE
+                    else -> {
+                        val hasCancellableRow = matches.any { it.reservation.cancelCode.isNotBlank() }
+                        val cancelledWithHideButtonCount = matches.count {
+                            it.reservation.state == ReservationState.CANCELLED && it.hideButtonPresent
+                        }
+                        if (!hasCancellableRow && cancelledWithHideButtonCount == cancelledBeforeCount + 1) {
+                            CancelListDiffOutcome.CANCELLED_COUNT_INCREMENTED
+                        } else {
+                            CancelListDiffOutcome.STILL_PRESENT_OTHERWISE
+                        }
+                    }
                 }
             }
         }
@@ -693,7 +719,7 @@ private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveCancelByListDi
     }
     return when (outcome) {
         CancelListDiffOutcome.REMOVED_FROM_LIST -> ReservationCancelAttempt.CancelledAndHidden
-        CancelListDiffOutcome.CANCELLED_WITH_HIDE_BUTTON -> ReservationCancelAttempt.Cancelled
+        CancelListDiffOutcome.CANCELLED_COUNT_INCREMENTED -> ReservationCancelAttempt.Cancelled
         CancelListDiffOutcome.STILL_PRESENT_OTHERWISE, null -> ReservationCancelAttempt.IndeterminateAfterPost
     }
 }
@@ -804,10 +830,14 @@ private fun inspectCancelConfirmationStage(
     targetTilcod: String,
     signatureInspection: CancelConfirmationSignatureInspection = inspectKnownCancelConfirmationProtocolSignature(html),
 ): CancelConfirmationStageInspection {
+    // 13回目のライブ観測(2026-07-28)実測どおり、同一tilcodに取消済み行が併存し得るため、一意性は
+    // cancelReservationの対象特定と同様に「取消可能な行（cancelCodeが非空）」の中で判定する
+    // （stage1応答は1段階目POSTの直後であり、実際の取消はまだ起きていないため、この時点の一覧は
+    // 送信前の一覧と同じ内容のはずである）。
     val targetStillPresent = runCatching {
         val reservations = ReservationListParser.parse(html)
         reservations.filter { it.cancelCode == cancelCode }.singleOrNull()?.tilcod == targetTilcod &&
-            reservations.count { it.tilcod == targetTilcod } == 1
+            reservations.count { it.tilcod == targetTilcod && it.cancelCode.isNotBlank() } == 1
     }.getOrDefault(false)
     return CancelConfirmationStageInspection(
         targetStillPresent = targetStillPresent,

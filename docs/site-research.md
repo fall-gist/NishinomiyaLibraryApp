@@ -833,3 +833,82 @@
   一覧にあるかに加え、ある場合は`state`（CANCELLED/WAITING/READY/IN_TRANSIT/UNKNOWN）と
   非表示ボタン(`yoykHihyoji`)の有無を記録するようにした（資料名・cancelCode値は出さない）。
   これにより次回のライブでは「取消成立→取消状態で残存」を直接確認できる。
+
+#### 13回目のライブ観測と同一tilcod重複への対応（2026-07-28）
+
+- **確認済み・実運用で同一tilcodの行が重複する**: 13回目の対象として指定された書誌を読み取り専用で
+  観測したところ、同じ`tilcod`の行が2つあった。
+  ```
+  list-summary: summaryReservationCount=20  parsedRowCount=21
+  highlight[0]: tilcod=1000002035525  stateText=予約中  state=WAITING    cancelCodePresent=true   buttons=[yoykCancel]
+  highlight[1]: tilcod=1000002035525  stateText=取消    state=CANCELLED  cancelCodePresent=false  buttons=[yoykHihyoji]
+  ```
+  取消済み行を非表示にせず同じ書誌を予約し直すと、この状態になる。「取り消してから同じ本を予約し直す」
+  は普通の運用操作であるため、実運用で必ず起きる。`tilcod`を安定IDとして採用したのは監査レビューの
+  指摘に沿った判断だったが、「取消後も行が残る」仕様（§12回目参照）を知らずに設計したため、この重複を
+  想定できていなかった。
+- **確認済み・重複があると取消が一切できなかった**: 改修前は、`cancelReservation`の送信前対象特定
+  （`reservations.count { it.tilcod == target.tilcod } != 1`）と、`resolveCancelByListDiff`の
+  `matches.size > 1 -> STILL_PRESENT_OTHERWISE`が、いずれも同一tilcodの行が2つある時点で送信前・
+  送信後を問わず常に不一致・成否不明にしていた。行の同一性を追える安定IDがサイト側に無いため、
+  「取消可能な行の一意性」と「取消済み行の増分」で照合する方式へ改めた。
+- **対応済み（本改修）**: 送信前の対象特定を「`tilcod`が一致し、かつ`cancelCode`が非空（取消可能）な
+  行」の中での一意性に変更した（`ReservationGateway.kt`の`cancelReservation`）。取消済み行1つ＋
+  予約中行1つは一意特定でき、取消可能な行が2つある本当に曖昧なケースだけ従来どおり送信前に停止する。
+  同じ理由で、stage1応答から2段階目送信可否を判定する`inspectCancelConfirmationStage`の
+  `targetStillPresent`判定（複合ガードの一部）も同様に「取消可能な行の一意性」へ改めた
+  （改めないと、重複がある状態で1段階目までは進んでも2段階目が常にスキップされ、今回の改修の目的を
+  果たせなかったため）。
+  送信前一覧における「対象tilcod・state=CANCELLEDの行数」を基準値として記録し、`resolveCancelByListDiff`
+  へ渡す。判定表:
+
+  | 送信後の対象tilcod行 | 判定 |
+  |---|---|
+  | 対象tilcodの行が1つも無い | `CancelledAndHidden` |
+  | `state=CANCELLED`かつ非表示ボタンありの行数 == 基準値+1、かつ`cancelCode`非空の行が0 | `Cancelled` |
+  | 上記以外（増分が0や2以上、取消可能な行が残っている、状態とボタンの片方だけ一致 等） | `IndeterminateAfterPost` |
+
+  「取消済み行が1つ増えた」だけでなく「取消可能な行が無くなった」も同時に要求するのは、確証がなければ
+  成否不明へ倒す既存方針のためであり、緩めていない。`CancelledAndHidden`の判定は基準値で場合分けしない
+  （対象tilcodの行が全て消えている状態は、並行操作が無い限り「取消＋非表示」以外では起きないため）。
+  完全性ガード（`summary == 取消済みでない行数`、§12回目参照）は前置き条件として維持している。
+  `LiveReservationCancelDiagnostic.kt`の対象特定も同じ考え方に直し、`cancel-target`ステージのログに
+  対象tilcodの行数の内訳（`matches`・`cancellable`・`cancelled`の件数）を出すようにした
+  （cancelCodeの値・資料名は出さない）。
+  「非表示」ボタン(`yoykHihyoji`)自体の送信（一覧から実際に消す操作）は今回もスコープ外で未着手。
+
+- **確認済み・重複併存下での取消が実サイトで成立した（本改修のライブ検証完了）**: 同一tilcod重複
+  対応版を、対象tilcod行が「予約中1・取消済み1」の状態の書誌で実行した。
+
+  ```
+  cancel-target: tilcod=1000002035525 matches=2 cancellable=1 cancelled=1
+  cancel-reservation-stage: targetStillPresent=true signatureMatched=true matched=true
+  cancel-reservation-prevform: forms=1 attrs=method,name action=(empty) method=post controls=222
+  cancel-post: attempt=Cancelled     ← 取消POSTは2回、完全性ガードの警告なし
+  ```
+
+  取消後の一覧観測（読み取り専用、`liveReservationListInspect`）:
+  ```
+  list-summary: summaryReservationCount=19  parsedRowCount=21
+  highlight[0]: tilcod=1000002035525  stateText=取消  state=CANCELLED  cancelCodePresent=false  buttons=[yoykHihyoji]
+  highlight[1]: tilcod=1000002035525  stateText=取消  state=CANCELLED  cancelCodePresent=false  buttons=[yoykHihyoji]
+  ```
+
+  取消前は「予約中1行＋取消済み1行」、取消後は「取消済み2行」。基準値1→2の増分、取消可能な行の消滅
+  （`cancellable=1`→0）、完全性ガード（19 = 21 − 取消2行）のいずれも設計どおりに動作した。
+  `attempt=Cancelled`（`matched`が対象tilcod2行目でも一致）であり、送信前の対象特定（取消可能な行の
+  一意性）・stage1複合ガード・送信後判定の3箇所の改修がいずれも実サイトで正しく機能したことを確認した。
+  **これにより、アプリ実装による実サイトでの予約取消は、同一tilcod重複がある状態を含めて成立することを
+  確認済みとする**（12回目で単純なケース、13回目で重複併存ケースを確認）。これまで本節・
+  `docs/backend-design.md`で「未検証」としてきた記述はこの実測をもって更新した。
+- **修正済み・診断ログの`singleOrNull`バグ**: 上記のライブ検証自体は成功したが、取消後の
+  一覧観測ログに1件バグがあった。`LiveReservationCancelDiagnostic.kt`の`cancel-after`ステージが
+  `inspection.rows.singleOrNull { it.tilcod == config.tilcod }`を使っており、`singleOrNull`は該当が
+  2件以上のとき`null`を返す。今回まさに取消後は対象tilcodが2行だったため、行が実在するのに
+  `cancel-after: targetPresent=false`と誤って記録された。成否判定は`resolveCancelByListDiff`が
+  別途正しく行うため実害は無かったが（`attempt=Cancelled`は正しい）、診断ログが事実と食い違って
+  いた。あなたが対応した同一tilcod重複が、診断側だけ取り残されていた形である。対象tilcodの行を
+  `filter`で全件取得し、行数と各行の`state`・非表示ボタン有無を記録するよう修正した（資料名・
+  cancelCode値は引き続き出さない）。`targetRowPresentAfter`も「対象tilcodの行が1行以上あるか」
+  （`isNotEmpty()`相当）の意味に改めた。`ReservationListInspector`未対応セッション向けの
+  フォールバック経路も件数ベースへ揃えた。
