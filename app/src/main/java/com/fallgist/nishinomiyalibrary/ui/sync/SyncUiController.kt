@@ -55,8 +55,8 @@ class SyncUiController(
     }
 
     /**
-     * 呼び出し元のコンテキストで動くが、通信は LicsXpSession が Dispatchers.IO へ逃がしており
-     * (executeOnce の withContext)、ここでディスパッチャを切り替える必要はない。
+     * scope(既定はDispatchers.Default)上で動く。通信は LicsXpSession が Dispatchers.IO へ
+     * 逃がしており(executeOnce の withContext)、ここでさらに切り替える必要はない。
      */
     private suspend fun runManualSync() {
         if (!syncMutex.tryLock()) return

@@ -299,4 +299,72 @@ Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
 ## 8. 実装後に残る既知の弱点
 
 - 同期失敗が、ホーム以外の画面ではSnackbarが消えると追えなくなる（上記のとおり意図した割り切り）
-- 本棚のプルリフレッシュ動作は未検証（§4.7）
+- ~~本棚のプルリフレッシュ動作は未検証（§4.7）~~ → §9で実機確認済み
+
+## 9. 実機検証の結果と追加修正（2026-07-28）
+
+所有者がCI（GitHub Actions）の`app-debug-apk`を実機へ入れて確認した。
+
+### 確認できたこと
+
+- **本棚のプルは動く**（§4.7の懸念は解消）。`LazyRow`内の`LazyColumn`構造でも縦プルが
+  親の`PullToRefreshBox`へ届く。下方向プルは`onPostScroll`＝子が消費しなかった残りで
+  拾う実装（material3 1.3.0 `PullToRefresh.kt:308-323`）であるため、という読みどおりだった
+- ホーム・貸出中・予約中・読書記録でプルが効き、Snackbarで結果が出る
+- ホームの「いますぐ同期」で同期中に他画面へ移ると、そちらでもインジケータが回っている
+  （`SyncUiController`への状態集約が意図どおり働いている）
+- 画面回転でSnackbarが二重表示にはならない
+- 空状態は未確認。予約が0件になる状況が作れないため。ただし他画面と同じ形であり実害は無い見込み
+
+### 判明した不具合: 画面回転で同期がキャンセルされる
+
+**現象**: インジケータ表示中に画面を回転させると更新が中断される。ホームの更新ボタンも待機表示に戻る。
+
+**原因**: `MainActivity`が同期を`uiScope`で起動しているが（`MainActivity.kt:79`）、この
+`uiScope`は`onDestroy`で`cancel()`される（`MainActivity.kt:101`）。画面回転はActivityの
+破棄・再生成なので、同期コルーチンごとキャンセルされる。
+
+`requestManualSync`の`finally`は実行されるため`isSyncing=false`に戻り`Mutex`も解放される。
+デッドロックはしないが、**同期は途中で止まる**。メンバーが複数いる場合、2人目の途中で回転すると
+1人目だけ更新された状態で終わり、しかも`CancellationException`は再スローされるため
+Snackbarでの通知も出ない。利用者からは「更新したのに古いまま」に見える。
+
+**これは本機能で入れた退行ではない。** 旧`HomeScreenController.requestManualSync`も同じ
+`uiScope`から呼ばれており、同じ問題を抱えていた。ただしプルリフレッシュで手動同期の使用頻度が
+上がるぶん、遭遇しやすくなる。
+
+### 修正: SyncUiController自身のスコープで走らせる
+
+`SyncUiController`は`@Singleton`でActivityより長生きするため、自前のスコープを持たせる。
+
+```kotlin
+class SyncUiController(
+    private val statusRepository: StatusRepository,
+    dispatcher: CoroutineDispatcher = Dispatchers.Default,
+) {
+    // Activity再生成で同期が中断されないよう、Controller自身のscopeで走らせる。
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+
+    /** suspendではない。呼ぶとscope上で同期が始まり、Activityが壊れても走り続ける。 */
+    fun requestManualSync() {
+        scope.launch { runManualSync() }
+    }
+
+    private suspend fun runManualSync() { /* 従来requestManualSyncにあった中身をそのまま */ }
+}
+```
+
+- `MainActivity`側は`onManualSync = syncUiController::requestManualSync`となり、
+  `uiScope.launch`で包む必要が無くなる
+- **`dispatcher`引数が復活する。** §4.1で「使い道がない」として一度削除したが、今度は
+  scopeの生成という正当な用途がある。他のController（`HomeScreenController`等）も
+  同じ形であり、プロジェクトの既存パターンと揃う。`private val`にはせず、scope生成にだけ使う
+- 副次的効果として、回転を挟んでもSnackbarの結果表示が失われなくなる
+
+**テストへの影響**: `requestManualSync`が非suspendになるため、`SyncUiControllerTest`は
+待ち方を書き換える必要がある。`dispatcher`に`UnconfinedTestDispatcher(testScheduler)`を
+渡せば今度は実際に効くので、`runCurrent()`/`advanceUntilIdle()`で制御できる。
+検証する6つの性質（§5）は変えない。
+
+**スコープのライフサイクル**: `close()`は設けない。`@Singleton`でありプロセスと寿命を共にする。
+これは同期を最後まで走らせたいという本修正の目的そのものである。
