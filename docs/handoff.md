@@ -818,6 +818,8 @@ class LicsXpSession private constructor(
 その上で走らせる形にした。`MainActivity`は`syncUiController::requestManualSync`を渡すだけになる。
 `close()`は設けない——同期を最後まで走らせることが目的のため、プロセスと寿命を共にする。
 
+**修正後に実機で再確認し、回転しても中断されないことを確認済み（2026-07-29、所有者）。**
+
 ### 既知の弱点（意図した割り切り）
 
 - 同期失敗はSnackbarが消えると追えなくなる。ホームだけはAppBarの`lastSyncFailed`で後追いできるが、
