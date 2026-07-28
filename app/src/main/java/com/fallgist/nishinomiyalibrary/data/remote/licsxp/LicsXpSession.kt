@@ -3,6 +3,7 @@ package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.HashExtractor
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.PageTokens
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelConfirmationAction
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -368,15 +369,41 @@ class LicsXpSession private constructor(
     internal fun requireTokens(): PageTokens = lastPageTokens
         ?: throw ParseException("session", "hash と gamenid がまだ取得されていません")
 
-    /** prevRequestForm actionをbaseUrl基準で解決し、取消2段階目として許可する同一origin・同一pathへ限定する。 */
-    internal fun resolveReservationCancelAction(action: String): HttpUrl {
-        val resolved = baseUrl.resolve(action)
-            ?: throw ParseException("reservation-cancel-confirmation", "取消確認フォームactionを解決できません")
-        val expected = requireNotNull(baseUrl.resolve("WOpacUsrRsvCancelAction.do"))
-        if (!resolved.hasSameOriginAs(baseUrl) || resolved.encodedPath != expected.encodedPath || resolved.querySize != 0) {
-            throw ParseException("reservation-cancel-confirmation", "取消確認フォームactionが許可された送信先ではありません")
+    /**
+     * prevRequestFormの送信先を解決し、取消2段階目として許可する同一origin・同一pathへ限定する。
+     *
+     * actionが明示されている（[ReservationCancelConfirmationAction.Explicit]）場合はbaseUrl基準で
+     * 解決し、従来どおり同一origin・同一path・クエリ無しへ限定する。
+     *
+     * actionが省略されている（[ReservationCancelConfirmationAction.SameAsCurrentDocument]）場合は、
+     * HTML標準どおり送信先は現在のドキュメントURLであり、11回目のライブ診断(2026-07-28)で1段階目が
+     * リダイレクトしないことを実測済みのため、現在のドキュメントURL＝1段階目に実際に送ったURLである
+     * [currentDocumentUrl]をそのまま使う。この場合はクエリの有無を制約しない
+     * （1段階目は`mngFlg2_handan`/`kbnchgflag`クエリ付きで送るのが正しい）。
+     * [currentDocumentUrl]は呼出し元が自ら組み立てて実際に送信したURLであり、HTML由来の値ではないが、
+     * 同一origin・同一pathの検証は明示action時と同様に必ず行う（防御的な安全弁として）。
+     */
+    internal fun resolveReservationCancelAction(
+        action: ReservationCancelConfirmationAction,
+        currentDocumentUrl: HttpUrl,
+    ): HttpUrl {
+        val expectedPath = requireNotNull(baseUrl.resolve("WOpacUsrRsvCancelAction.do")).encodedPath
+        return when (action) {
+            is ReservationCancelConfirmationAction.Explicit -> {
+                val resolved = baseUrl.resolve(action.value)
+                    ?: throw ParseException("reservation-cancel-confirmation", "取消確認フォームactionを解決できません")
+                if (!resolved.hasSameOriginAs(baseUrl) || resolved.encodedPath != expectedPath || resolved.querySize != 0) {
+                    throw ParseException("reservation-cancel-confirmation", "取消確認フォームactionが許可された送信先ではありません")
+                }
+                resolved
+            }
+            ReservationCancelConfirmationAction.SameAsCurrentDocument -> {
+                if (!currentDocumentUrl.hasSameOriginAs(baseUrl) || currentDocumentUrl.encodedPath != expectedPath) {
+                    throw ParseException("reservation-cancel-confirmation", "取消確認フォームactionが許可された送信先ではありません")
+                }
+                currentDocumentUrl
+            }
         }
-        return resolved
     }
 
     internal fun newIsolatedSession(): LicsXpSession = LicsXpSession(
@@ -519,6 +546,17 @@ class LicsXpSession private constructor(
     internal fun noteDiagnostic(stage: String, detail: String) {
         if (!diagnosticObserver.enabled) return
         safelyObserve { diagnosticObserver.onNote(stage, detail) }
+    }
+
+    /**
+     * [detail]の計算コストそのものを無効時に省きたい呼出し向けのオーバーロード。
+     * 実サイトのstage1応答は巨大scriptを多数含み、prevRequestForm診断（tail=の候補ごとの再走査等）の
+     * 計算コストは無視できないため、通常経路（診断無効＝[LicsXpDiagnosticObserver.None]）では
+     * [detail]自体を一切評価しない。意味・出力は上記オーバーロードと同じ。
+     */
+    internal fun noteDiagnostic(stage: String, detail: () -> String) {
+        if (!diagnosticObserver.enabled) return
+        safelyObserve { diagnosticObserver.onNote(stage, detail()) }
     }
 }
 

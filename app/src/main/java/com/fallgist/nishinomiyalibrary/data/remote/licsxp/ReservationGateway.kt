@@ -12,6 +12,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCanc
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import kotlinx.coroutines.CancellationException
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
@@ -56,6 +57,43 @@ internal interface ReservationSnapshotSource {
     suspend fun fetchReservationSnapshot(): ReservationListSnapshot
 }
 
+/**
+ * 予約状況一覧1行分の観測結果（診断専用、読み取り専用）。
+ * 12回目のライブ実測(2026-07-28)で、取消後も対象行が一覧に残り、予約状態列が「取消」・取消ボタンの
+ * 位置に「非表示」ボタンへ変わることが判明した。この構造を確定させるための最小限のフィールドだけを持つ。
+ * **資料名・書誌タイトルは絶対に含めない。** cancelCodeも値そのものは持たず、有無の真偽値だけを持つ。
+ */
+internal data class ReservationListRowInspection(
+    val tilcod: String,
+    /** 予約状態列の生テキスト（「予約中」「提供可能」「取消」等）。 */
+    val stateText: String,
+    /** [ReservationListParser]が返すstate enum値（生テキストをどう解釈しているかの現状把握用）。 */
+    val state: ReservationState,
+    /** [ReservationListParser]のcancelCode抽出（`input[onclick*=yoykCancel]`限定）が非空を返したか。値は持たない。 */
+    val cancelCodePresent: Boolean,
+    /** その行の`input[onclick]`全部から読み取った関数名（yoykCancel/yoykHihyoji等）。引数の値は含まない。 */
+    val buttonFunctionNames: List<String>,
+    /** その行のセルに付与されているclass属性値（赤字表示等のCSSクラス名）。重複は除く。 */
+    val cellClassNames: List<String>,
+)
+
+/** 予約状況一覧の観測結果。取消・非表示・予約のいずれのPOSTも行わない。 */
+internal data class ReservationListInspection(
+    val summaryReservationCount: Int?,
+    val parsedRowCount: Int,
+    val rows: List<ReservationListRowInspection>,
+)
+
+/**
+ * 予約状況一覧のHTML構造だけを読み取る診断専用の口。[ReservationConfirmationInspector]と同じ流儀で、
+ * 既存の[ReservationSession]を壊さずに追加するため別インターフェースへ切り出す。
+ * 実装は`fetchReservationSnapshot`と同じ経路（メニューGET→一覧表示POST）だけを使い、
+ * 取消・非表示・予約のいずれのPOSTも送らない。[ReservationListParser]の解釈ロジックは変更しない。
+ */
+internal interface ReservationListInspector {
+    suspend fun inspectReservationList(): ReservationListInspection
+}
+
 sealed interface DirectReservationAttempt {
     data object Submitted : DirectReservationAttempt
     data object DuplicateDetected : DirectReservationAttempt
@@ -80,13 +118,15 @@ sealed interface DirectReservationAttempt {
  * ページ側のスクリプトは、このダイアログのOK後に `document.prevRequestForm`（1段階目に送った
  * フォーム）へ `okCodes` のhiddenを追加してそのまま再送信する仕組みであることが実測(2026-07-27)で
  * 判明したため、実装は1段階目に確認ダイアログ文言を検出した場合、`okCodes=OPACUSR001` を付けた
- * 2段階目を `WOpacUsrRsvCancelAction.do`（クエリ無し）へ自動的に送る。
- * ただし、この2段階目のPOSTによって実サイト上で実際に予約が取り消されることは、本実装時点では
- * まだ確認できていない。
+ * 2段階目を送る（送信先の詳細は[LicsXpSession.resolveReservationCancelAction]を参照）。
  *
- * [Cancelled] は、取消後に取得した完全な予約一覧から、送信前に固定した対象`tilcod`の行が
- * 消えた場合だけ返す。`cancelCode`の消失だけでは、予約状態の変化に伴って取消ボタンが消えた
- * 場合を成功と誤判定し得るため使わない。
+ * **12回目のライブ取消診断(2026-07-28)で、実サイトの取消が成立することを確認した**
+ * （2段階目応答の画面固有メッセージが「予約の取消が完了しました。」だった）。同時に行った
+ * 読み取り専用の一覧観測(`liveReservationListInspect`)で、取消後の実サイトの挙動が判明した:
+ * 取消しても対象行は一覧から消えず、予約状態列が「取消」（[ReservationState.CANCELLED]）になり、
+ * 取消ボタン(`yoykCancel`)の位置に「非表示」ボタン(`yoykHihyoji`)が置かれる。「非表示」ボタンを
+ * 押すと初めて一覧から消える。所有者の方針（非表示操作を将来アプリへ組み込むかもしれない）により、
+ * [Cancelled]（取消済みで一覧に残っている）と[CancelledAndHidden]（一覧に無い）を分けている。
  *
  * [Rejected] はかつて「できません」「越えています」等の一般語で判定していたが、これらは
  * 全ページに埋め込まれた共通JSの定数（`仮パスワードでは利用できません。パスワード変更を行なって
@@ -94,8 +134,20 @@ sealed interface DirectReservationAttempt {
  * （型としては残すが、生成箇所は無い）。
  */
 sealed interface ReservationCancelAttempt {
-    /** 取消POST後に完全な一覧を再取得し、送信前に固定した対象行が消えていたことを確認できた。 */
+    /**
+     * 取消POST後に完全な一覧を再取得し、送信前に固定した対象`tilcod`行が「取消」状態
+     * （[ReservationState.CANCELLED]）で残っており、かつ取消ボタンの位置に「非表示」ボタン
+     * (`yoykHihyoji`)が置かれていることを確認できた。取消は成立しているが、一覧からはまだ
+     * 消えていない状態（実測(2026-07-28)どおり、非表示ボタンを押すまで一覧に残る）。
+     * 状態文字列とボタンの両方が一致した場合だけを成功とする。片方だけの一致
+     * （状態のみ／ボタンのみ）は[IndeterminateAfterPost]へ倒す（確証がなければ成否不明へ倒す方針）。
+     */
     data object Cancelled : ReservationCancelAttempt
+    /**
+     * 取消POST後に完全な一覧を再取得し、送信前に固定した対象`tilcod`行が一覧から消えていたことを
+     * 確認できた。既に非表示化されたのか、サイトが別の理由で即時に一覧から消したのかは区別しない。
+     */
+    data object CancelledAndHidden : ReservationCancelAttempt
     data object SessionExpiredBeforeSubmit : ReservationCancelAttempt
     data object IndeterminateAfterPost : ReservationCancelAttempt
     /**
@@ -215,7 +267,7 @@ class LicsXpReservationGateway private constructor(
 internal class LicsXpReservationSession(
     private val session: LicsXpSession,
     private val sequenceHooks: ReservationSequenceHooks,
-) : ReservationSession, ReservationConfirmationInspector, ReservationSnapshotSource {
+) : ReservationSession, ReservationConfirmationInspector, ReservationSnapshotSource, ReservationListInspector {
     override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
         require(tilcod.isNotBlank()) { "tilcodが空です" }
         require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
@@ -310,14 +362,60 @@ internal class LicsXpReservationSession(
             session.noteDiagnostic("fetch-reservations", "${exception.screen}: ${exception.reason}")
             throw LibraryError.Parse(exception.screen, exception.reason)
         }
-        val complete = summaryReservationCount != null && summaryReservationCount == reservations.size
+        // 12回目のライブ取消＋一覧観測(2026-07-28)の実測どおり、サマリの予約中件数は取消済み行
+        // （state=CANCELLED）だけを数えない。提供可能(READY)・移送中(IN_TRANSIT)は数えられている
+        // （実測内訳: 予約中15+提供可能3+移送中1+取消1=20行、サマリ19）。このため完全性は
+        // 「サマリ件数 == 取消済みでない行数」で判定する。移送中を除外してはならない。
+        val activeReservationCount = reservations.count { it.state != ReservationState.CANCELLED }
+        val complete = summaryReservationCount != null && summaryReservationCount == activeReservationCount
         if (!complete) {
             session.noteDiagnostic(
                 "fetch-reservations",
-                "サマリ件数と解析行数が不一致 (summary=${summaryReservationCount?.toString() ?: "取得不可"}, parsed=${reservations.size})",
+                "サマリ件数と解析行数(取消除く)が不一致 " +
+                    "(summary=${summaryReservationCount?.toString() ?: "取得不可"}, " +
+                    "active=$activeReservationCount, parsed=${reservations.size})",
             )
         }
         return ReservationListSnapshot(reservations, complete)
+    }
+
+    /**
+     * 予約状況一覧を1回取得し、行ごとの構造を観測する（診断専用、読み取り専用）。
+     * 通信経路は[fetchReservationSnapshot]と同一（メニューGET→一覧表示POST）で、
+     * 取消・非表示・予約のいずれのPOSTも送らない。[ReservationListParser]の解釈結果
+     * （tilcod・state・cancelCode有無）はそのまま流用し、解釈ロジックには一切手を加えない。
+     */
+    override suspend fun inspectReservationList(): ReservationListInspection {
+        val menu = session.get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
+        requireNotMaintenance(menu) { session.noteDiagnostic("inspect-reservation-list", "メンテナンス") }
+        if (isLoginForm(Jsoup.parse(menu))) {
+            session.noteDiagnostic("inspect-reservation-list", "ログインフォームが返った")
+            throw LibraryError.Auth(null)
+        }
+        session.updateTokens(menu)
+        val summaryReservationCount = runCatching { SummaryParser.parse(menu).reservationCount }.getOrNull()
+        val tokens = session.requireTokens()
+        val html = session.post(
+            "WOpacMnuTopToPwdLibraryAction.do",
+            mapOf("gamen" to "usrrsv"),
+            FormBody.Builder().add("hash", tokens.hash).add("gamenid", tokens.gamenId).build(),
+        )
+        requireNotMaintenance(html) { session.noteDiagnostic("inspect-reservation-list", "メンテナンス") }
+        if (isLoginForm(Jsoup.parse(html))) {
+            session.noteDiagnostic("inspect-reservation-list", "一覧取得でログインフォームが返った")
+            throw LibraryError.Auth(null)
+        }
+        val reservations = try {
+            ReservationListParser.parse(html)
+        } catch (exception: ParseException) {
+            session.noteDiagnostic("inspect-reservation-list", "${exception.screen}: ${exception.reason}")
+            throw LibraryError.Parse(exception.screen, exception.reason)
+        }
+        return ReservationListInspection(
+            summaryReservationCount = summaryReservationCount,
+            parsedRowCount = reservations.size,
+            rows = inspectReservationListRows(html, reservations),
+        )
     }
 
     /**
@@ -398,6 +496,29 @@ internal class LicsXpReservationSession(
                 signatureInspection = signatureInspection,
             )
             session.noteDiagnostic("cancel-reservation-stage", stageInspection.diagnosticSummary())
+            // 診断専用。判定には使わない（forms=/attrs=/action=等の読み取り結果を記録するだけ）。
+            // 10回目のライブ診断で、実サイトのprevRequestFormにaction属性が無いことが分かった。
+            // 11回目のライブ診断(2026-07-28)で、実サイトのprevRequestFormはname/method=postのみを
+            // 持ちaction属性が存在しないこと、ページ側JSはactionを設定せずsubmit()するだけであること
+            // まで確認できた。このため送信先は「1段階目の現在のドキュメントURL」（下のactionUrl解決を
+            // 参照）で確定させ、この診断は補助情報としてのみ残す。
+            // レビュー指摘: この呼び出しはnoteDiagnostic本体（safelyObserve/runCatching）へ渡す前に
+            // 引数として先に評価されるため、ここで例外が漏れるとcancelReservation自体が失敗し、
+            // ReservationCancelRepositoryImplの汎用catchでMEMBER_ABORTED_AFTER_SITE_CHANGEへ化けて
+            // 同一会員の残件処理まで中断してしまう。診断は判定に関与しないため、失敗しても
+            // cancelReservationの結果には影響させない。
+            // レビュー指摘: 実サイトのstage1は巨大scriptを多数含み、tail=の候補ごとの再走査コストは
+            // 無視できないため、診断が無効なとき（通常経路）はinspectPrevRequestFormDiagnostic自体を
+            // 呼ばない。ラムダを受けるnoteDiagnosticオーバーロードが、有効時だけこれを評価する。
+            session.noteDiagnostic("cancel-reservation-prevform") {
+                try {
+                    inspectPrevRequestFormDiagnostic(stage1Html)
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Exception) {
+                    "exception=${exception::class.simpleName}"
+                }
+            }
             // 2段階目は状態変更POSTである。JSの一般的な到達可能性は推定せず、直前に利用者が指定した
             // cancelCode/tilcodを含む一覧と、実測済みの取消確認プロトコル署名が両方そろう場合だけ送る。
             if (!stageInspection.matched) {
@@ -412,8 +533,11 @@ internal class LicsXpReservationSession(
                 session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
                 return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, ::listForm)
             }
+            // actionが省略されている場合（実測(2026-07-28)どおりの実サイト相当）は、HTML標準どおり
+            // 「現在のドキュメントURL」＝1段階目に実際に送ったURL(stage1Page.url、クエリ付き)を使う。
+            // ハードコードはしない。1段階目はリダイレクトしないことを実測済みのため、ここで安全に使える。
             val actionUrl = try {
-                session.resolveReservationCancelAction(confirmationForm.action)
+                session.resolveReservationCancelAction(confirmationForm.action, stage1Page.url)
             } catch (exception: ParseException) {
                 session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
                 return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, ::listForm)
@@ -501,12 +625,26 @@ internal class LicsXpReservationSession(
  * 1段階目のみで確認ダイアログが出なかった場合と、2段階目送信後に確認ダイアログが出なかった場合の
  * 両方から呼ばれる共通ロジックであり、cancelReservationから重複を避けるために切り出した。
  */
+/**
+ * 取消後一覧照合の結果。[resolveCancelByListDiff]内だけで使う中間状態で、外部には公開しない。
+ * `null`（完全性を確認できない・解析できない・ログインフォームが返った等）は
+ * [ReservationCancelAttempt.IndeterminateAfterPost]へ倒す。
+ */
+private enum class CancelListDiffOutcome {
+    /** 対象tilcod行が一覧から消えていた。 */
+    REMOVED_FROM_LIST,
+    /** 対象tilcod行が「取消」状態(CANCELLED)で残り、かつ非表示ボタン(yoykHihyoji)がある。 */
+    CANCELLED_WITH_HIDE_BUTTON,
+    /** 対象tilcod行は残っているが、状態・ボタンの片方だけが一致、またはどちらも一致しない。 */
+    STILL_PRESENT_OTHERWISE,
+}
+
 private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveCancelByListDiff(
     session: LicsXpSession,
     targetTilcod: String,
     listForm: () -> FormBody,
 ): ReservationCancelAttempt {
-    val targetRemoved = try {
+    val outcome = try {
         val menu = get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
         requireNotMaintenance(menu) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
         if (isLoginForm(Jsoup.parse(menu))) {
@@ -521,15 +659,30 @@ private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveCancelByListDi
             null
         } else {
             requireNotMaintenance(refetched.html) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
-            val reservations = ReservationListParser.parse(refetched.html)
-            if (summaryReservationCount == null || summaryReservationCount != reservations.size) {
+            val rows = ReservationListParser.parseRows(refetched.html)
+            // 12回目のライブ取消＋一覧観測(2026-07-28)の実測どおり、サマリの予約中件数は取消済み行
+            // （state=CANCELLED）だけを数えない。提供可能(READY)・移送中(IN_TRANSIT)は数えられている
+            // （実測内訳: 予約中15+提供可能3+移送中1+取消1=20行、サマリ19）。移送中を除外してはならない。
+            val activeRowCount = rows.count { it.reservation.state != ReservationState.CANCELLED }
+            if (summaryReservationCount == null || summaryReservationCount != activeRowCount) {
                 session.noteDiagnostic(
                     "cancel-reservation",
-                    "取消後一覧の完全性を確認できない (summary=${summaryReservationCount?.toString() ?: "取得不可"}, parsed=${reservations.size})",
+                    "取消後一覧の完全性を確認できない " +
+                        "(summary=${summaryReservationCount?.toString() ?: "取得不可"}, " +
+                        "active=$activeRowCount, parsed=${rows.size})",
                 )
                 null
             } else {
-                reservations.none { it.tilcod == targetTilcod }
+                val matches = rows.filter { it.reservation.tilcod == targetTilcod }
+                when {
+                    matches.isEmpty() -> CancelListDiffOutcome.REMOVED_FROM_LIST
+                    // 対象tilcodが重複している異常系は、どちらの行を見るべきか一意に決められないため
+                    // 成否不明へ倒す（既存の重複検出方針と同じ、確証がなければ断定しない）。
+                    matches.size > 1 -> CancelListDiffOutcome.STILL_PRESENT_OTHERWISE
+                    matches.single().reservation.state == ReservationState.CANCELLED && matches.single().hideButtonPresent ->
+                        CancelListDiffOutcome.CANCELLED_WITH_HIDE_BUTTON
+                    else -> CancelListDiffOutcome.STILL_PRESENT_OTHERWISE
+                }
             }
         }
     } catch (exception: CancellationException) {
@@ -538,9 +691,10 @@ private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveCancelByListDi
         session.noteDiagnostic("cancel-reservation", "取消後の一覧を解析できなかった")
         null
     }
-    return when (targetRemoved) {
-        true -> ReservationCancelAttempt.Cancelled
-        else -> ReservationCancelAttempt.IndeterminateAfterPost
+    return when (outcome) {
+        CancelListDiffOutcome.REMOVED_FROM_LIST -> ReservationCancelAttempt.CancelledAndHidden
+        CancelListDiffOutcome.CANCELLED_WITH_HIDE_BUTTON -> ReservationCancelAttempt.Cancelled
+        CancelListDiffOutcome.STILL_PRESENT_OTHERWISE, null -> ReservationCancelAttempt.IndeterminateAfterPost
     }
 }
 
@@ -724,7 +878,7 @@ private fun inspectKnownCancelConfirmationProtocolSignature(html: String): Cance
         scanOutcomeCounts[extraction.outcome] = (scanOutcomeCounts[extraction.outcome] ?: 0) + 1
         extractedCandidateCount += extraction.candidates.size
         extraction.candidates.forEach candidateLoop@ { candidate ->
-            val source = sanitizeLegacyCancelScript(candidate) ?: return@candidateLoop
+            val source = sanitizeLegacyCancelScript(candidate.text) ?: return@candidateLoop
             sanitizeSucceededCount += 1
             if (OBSERVED_LEGACY_CANCEL_CONFIRMATION.matches(source)) fixedRegexMatchCount += 1
         }
@@ -758,13 +912,23 @@ private enum class CandidateExtractionOutcome(val diagnosticName: String) {
     UNBALANCED_DELIMITER("unbalanced"),
 }
 
+/**
+ * 署名候補の切り出し結果。[text]は既存どおり[sanitizeLegacyCancelScript]へそのまま渡して判定に使う
+ * （挙動は無変更）。[endIndex]は診断専用の`tail=`抽出（候補の直後に続く文を読む）にだけ使う、
+ * script内での候補終端位置（終端の1つ後ろ）。
+ */
+private data class CandidateExtractionMatch(
+    val text: String,
+    val endIndex: Int,
+)
+
 private data class CandidateExtractionInspection(
-    val candidates: List<String>,
+    val candidates: List<CandidateExtractionMatch>,
     val outcome: CandidateExtractionOutcome,
 )
 
 private fun inspectObservedCancelConfirmationCandidates(script: String): CandidateExtractionInspection {
-    val candidates = mutableListOf<String>()
+    val candidates = mutableListOf<CandidateExtractionMatch>()
     val parentheses = ArrayDeque<Boolean>()
     var bracketsDepth = 0
     var bracesDepth = 0
@@ -832,7 +996,7 @@ private fun inspectObservedCancelConfirmationCandidates(script: String): Candida
                 ) {
                     val candidateEnd = extractObservedCancelConfirmationCandidate(script, index)
                     if (candidateEnd != null) {
-                        candidates += script.substring(index, candidateEnd)
+                        candidates += CandidateExtractionMatch(script.substring(index, candidateEnd), candidateEnd)
                         index = candidateEnd
                         previousCodeSignificant = '}'
                         canStartRegexLiteral = true
@@ -1191,6 +1355,269 @@ private val OBSERVED_LEGACY_CANCEL_CONFIRMATION = Regex(
     \s* \}
     """.trimIndent(),
 )
+
+/**
+ * 診断専用（読み取り専用）: 1段階目応答の`form[name=prevRequestForm]`の構造と、`prevRequestForm`を
+ * 参照するscript文を1行のサマリへまとめる。
+ *
+ * 10回目のライブ診断で判明したとおり、実サイトの`prevRequestForm`にはaction属性が無く、
+ * [ReservationCancelConfirmationFormParser.parse]がParseExceptionで停止する。一方、ブラウザ実測の
+ * 2段階目送信先はクエリ無しの`WOpacUsrRsvCancelAction.do`だった（docs/site-research.md:573付近）。
+ * action属性が空ならHTML仕様上は現在のドキュメントURLへ送られるはずでこの実測と矛盾するが、
+ * hidden追加後の送信処理（採取済み`reservation_cancel_confirmation_live_fragment.js`のfor文より後）
+ * は未採取であり、送信先を決めている実際のコードが分からない。この関数は、その未採取部分を推測する
+ * 手がかりとして、prevRequestFormの属性とscript内の関連文をそのまま（機微値はマスクして）記録する
+ * だけであり、既存の2段階目送信可否・送信内容の判定には一切関与しない。
+ *
+ * `stmts=`は識別子`prevRequestForm`を含む文だけを拾うため、`var f = document.prevRequestForm;`の
+ * ような別名束縛や`document.forms["prevRequestForm"]`のような文字列経由の参照では、送信先を決める
+ * 本体処理（`f.action = ...`, `f.submit()`等）を取りこぼす。レビュー指摘により、識別子名に依存しない
+ * 採取として`tail=`を追加した。既存の取消確認プロトコル署名の候補切り出し（外側if/else→
+ * if(rest)/else→for(okArray)の3文）が候補を切り出せたときだけ、その候補の直後に続く文を最大6件、
+ * 同じ字句走査規則で機械的に読む。呼出し元（[cancelReservation]）はこの関数の呼び出しを
+ * try/catchで包んでおり、ここで例外が発生しても取消の判定・送信内容には影響しない。
+ */
+private fun inspectPrevRequestFormDiagnostic(html: String): String {
+    val document = Jsoup.parse(html)
+    val forms = document.select("form[name=prevRequestForm]")
+    val summary = StringBuilder("forms=").append(forms.size)
+    if (forms.size == 1) {
+        val form = forms.single()
+        val attributeNames = form.attributes().map { it.key }.sorted()
+        summary.append(" attrs=").append(attributeNames.joinToString(","))
+        listOf("action", "method", "target", "enctype", "id").forEach { attributeName ->
+            val value = form.attr(attributeName).trim()
+            summary.append(' ').append(attributeName).append('=')
+                .append(maskDiagnosticValue(value.ifEmpty { "(empty)" }))
+        }
+        val controls = form.select(
+            "input[name]:not([disabled]), select[name]:not([disabled]), textarea[name]:not([disabled])",
+        )
+        summary.append(" controls=").append(controls.size)
+    }
+    val inlineScripts = document.select("script").filter(::isInlineJavaScript).map { it.data() }
+
+    val statements = inlineScripts
+        .flatMap { script -> extractPrevRequestFormStatements(script) ?: emptyList() }
+        .distinct()
+        .take(MAX_PREV_REQUEST_FORM_STATEMENTS)
+        .map { statement -> truncateDiagnosticStatement(sanitizeDiagnosticStatement(statement), MAX_PREV_REQUEST_FORM_STATEMENT_LENGTH) }
+    summary.append(" stmts=")
+    summary.append(if (statements.isEmpty()) "(none)" else statements.joinToString("|"))
+
+    val tailStatements = inlineScripts
+        .flatMap(::extractSignatureCandidateTailStatements)
+        .distinct()
+        .take(MAX_TAIL_STATEMENTS)
+        .map { statement -> truncateDiagnosticStatement(sanitizeDiagnosticStatement(statement), MAX_TAIL_STATEMENT_LENGTH) }
+    summary.append(" tail=")
+    summary.append(if (tailStatements.isEmpty()) "(none)" else tailStatements.joinToString("|"))
+
+    val okCodesName = runCatching { ReservationCancelConfirmationFormParser.extractOkCodesFieldName(document) }.getOrNull()
+    summary.append(" okCodesName=").append(maskDiagnosticValue(okCodesName ?: "(unresolved)"))
+    return summary.toString()
+}
+
+private const val MAX_PREV_REQUEST_FORM_STATEMENTS = 8
+private const val MAX_PREV_REQUEST_FORM_STATEMENT_LENGTH = 160
+private const val MAX_TAIL_STATEMENTS = 6
+private const val MAX_TAIL_STATEMENT_LENGTH = 200
+private const val PREV_REQUEST_FORM_IDENTIFIER = "prevRequestForm"
+private val LONG_DIGIT_RUN = Regex("""\d{6,}""")
+private val WHITESPACE_RUN = Regex("""\s+""")
+
+/** 8文字以上の英数字トークンのうち、数字を1文字以上含むものだけを対象にする（純粋な識別子は潰さない）。 */
+private val DIGIT_BEARING_ALNUM_TOKEN = Regex("""(?=[0-9A-Za-z]*\d)[0-9A-Za-z]{8,}""")
+
+/** これらの語を含む文は、値の一部だけでなく文全体を伏せる（hash/passwordの類は部分マスクでは不十分）。 */
+private val REDACTED_STATEMENT_MARKERS = listOf("hash", "password", "passwd", "j_username", "j_password")
+
+private fun maskLongDigitRuns(value: String): String = LONG_DIGIT_RUN.replace(value, "<num>")
+
+private fun maskAlphanumericTokens(value: String): String = DIGIT_BEARING_ALNUM_TOKEN.replace(value, "<tok>")
+
+/** 属性値・okCodesName向け: 数字だけの長い並びと、数字混じりの英数字トークンをマスクする。 */
+private fun maskDiagnosticValue(value: String): String = maskAlphanumericTokens(maskLongDigitRuns(value))
+
+/**
+ * stmts=/tail=向け: hash等の秘密値を示唆する語を含む文は、値の一部だけでなく文全体を`[REDACTED]`にする。
+ * 該当しなければ[maskDiagnosticValue]と同じマスクだけを適用する。
+ */
+private fun sanitizeDiagnosticStatement(statement: String): String =
+    if (REDACTED_STATEMENT_MARKERS.any { marker -> statement.contains(marker, ignoreCase = true) }) "[REDACTED]"
+    else maskDiagnosticValue(statement)
+
+private fun truncateDiagnosticStatement(statement: String, maxLength: Int): String =
+    if (statement.length <= maxLength) statement else statement.take(maxLength) + "…"
+
+/**
+ * 診断専用の字句走査結果。コメント・通常文字列・正規表現の内部を避けながら、丸括弧・角括弧の外にある
+ * `;`/`{`/`}`の位置から「文」境界を求める。[startBoundaries]は文の開始位置（先頭0を含む。`;`/`{`/`}`の
+ * 直後も含む）、[endBoundaries]は文の終了位置（`;`/`}`自体の位置。`{`は終了側に含めない＝仕様どおり）、
+ * [identifierPositions]は[extractPrevRequestFormStatements]専用の識別子出現位置。
+ *
+ * 既知の制約: `{`/`}`は丸括弧・角括弧のような深さ管理をしない。そのため、あるstatementの内部に
+ * ネストしたブロック（if/for等）が含まれる場合、そのブロック内側の`}`だけを見て文の終端と誤認する
+ * ことがある。診断専用のヒント表示であり、既存の判定ロジック（[sanitizeLegacyCancelScript]や
+ * [inspectObservedCancelConfirmationCandidates]の候補切り出しそのもの）には使っていないため許容する。
+ */
+private data class StatementBoundaryScan(
+    val startBoundaries: List<Int>,
+    val endBoundaries: List<Int>,
+    val identifierPositions: List<Int>,
+)
+
+private fun scanStatementBoundaries(script: String, identifier: String? = null): StatementBoundaryScan? {
+    val startBoundaries = mutableListOf(0)
+    val endBoundaries = mutableListOf<Int>()
+    val identifierPositions = mutableListOf<Int>()
+    val parentheses = ArrayDeque<Char>()
+    var index = 0
+    while (index < script.length) {
+        val char = script[index]
+        if (char.isWhitespace()) {
+            index += 1
+            continue
+        }
+        if (char == '/' && script.getOrNull(index + 1) == '/') {
+            index = script.indexOf('\n', index).let { if (it == -1) script.length else it + 1 }
+            continue
+        }
+        if (char == '/' && script.getOrNull(index + 1) == '*') {
+            val close = script.indexOf("*/", index + 2)
+            if (close == -1) return null
+            index = close + 2
+            continue
+        }
+        if (char == '`') return null
+        if (char == '\'' || char == '"') {
+            index = skipLegacyJavaScriptString(script, index) ?: return null
+            continue
+        }
+        if (char == '/' && isLikelyJavaScriptRegexLiteral(script, index)) {
+            index = skipJavaScriptRegexLiteral(script, index) ?: return null
+            continue
+        }
+        if (char.isLegacyJavaScriptIdentifierPart()) {
+            var end = index + 1
+            while (script.getOrNull(end)?.isLegacyJavaScriptIdentifierPart() == true) end += 1
+            if (identifier != null && script.substring(index, end) == identifier) identifierPositions += index
+            index = end
+            continue
+        }
+        when (char) {
+            '(', '[' -> parentheses.addLast(char)
+            ')' -> if (parentheses.removeLastOrNull() != '(') return null
+            ']' -> if (parentheses.removeLastOrNull() != '[') return null
+            ';', '{', '}' -> if (parentheses.isEmpty()) {
+                if (char == ';' || char == '}') endBoundaries += index
+                startBoundaries += index + 1
+            }
+        }
+        index += 1
+    }
+    if (parentheses.isNotEmpty()) return null
+    return StatementBoundaryScan(startBoundaries, endBoundaries, identifierPositions)
+}
+
+/**
+ * 診断専用の字句走査。識別子`prevRequestForm`を含む「文」を、コメント・通常文字列・正規表現の内部を
+ * 避けながら抽出する。取消確認プロトコル署名検査や[sanitizeLegacyCancelScript]と同じ保守的方針で、
+ * template literalが現れたscriptや、未終端のコメント・文字列・正規表現、丸括弧・角括弧の不整合がある
+ * scriptはnullを返して丸ごと対象外にする。
+ *
+ * 「文」の境界は、丸括弧・角括弧の外にある`;`/`{`/`}`の直後を開始、`;`/`{`ではなく`;`/`}`を終了とする
+ * （仕様どおり、開始側だけ`{`も境界に含む）。判定・送信内容には一切使わない。
+ */
+private fun extractPrevRequestFormStatements(script: String): List<String>? {
+    val scan = scanStatementBoundaries(script, PREV_REQUEST_FORM_IDENTIFIER) ?: return null
+    if (scan.identifierPositions.isEmpty()) return emptyList()
+    val statements = LinkedHashSet<String>()
+    scan.identifierPositions.forEach { position ->
+        val start = scan.startBoundaries.lastOrNull { it <= position } ?: 0
+        // 終了境界の`;`/`}`自体は「文」の一部として含める（末尾の区切り記号ごと1文とする）。
+        val end = scan.endBoundaries.firstOrNull { it >= position }?.plus(1) ?: script.length
+        if (end <= start) return@forEach
+        val normalized = script.substring(start, end).trim().replace(WHITESPACE_RUN, " ")
+        if (normalized.isNotEmpty()) statements += normalized
+    }
+    return statements.toList()
+}
+
+/**
+ * 診断専用。identifierを問わず、[position]から始まる文を最大[maxCount]件、同じ字句走査規則で
+ * 機械的に切り出す。署名候補（[inspectObservedCancelConfirmationCandidates]）の終端位置から呼ぶことで、
+ * 別名束縛（`var f = document.prevRequestForm; f.action = ...; f.submit();`）や文字列経由の参照
+ * （`document.forms["prevRequestForm"]`）のように識別子ベースの[extractPrevRequestFormStatements]が
+ * 取りこぼす送信処理を、識別子名に依存せず読む。scriptが字句走査できない場合は空リストを返す
+ * （呼出し元は複数scriptを合算するため、例外にせず空で返す）。
+ */
+private fun extractStatementsAfter(script: String, position: Int, maxCount: Int): List<String> {
+    val scan = scanStatementBoundaries(script) ?: return emptyList()
+    val statements = mutableListOf<String>()
+    var cursor = scan.startBoundaries.firstOrNull { it >= position } ?: return emptyList()
+    while (statements.size < maxCount && cursor < script.length) {
+        val end = scan.endBoundaries.firstOrNull { it >= cursor }?.plus(1) ?: script.length
+        if (end <= cursor) break
+        val normalized = script.substring(cursor, end).trim().replace(WHITESPACE_RUN, " ")
+        if (normalized.isNotEmpty()) statements += normalized
+        if (end >= script.length) break
+        cursor = end
+    }
+    return statements
+}
+
+/**
+ * 診断専用。1つのscript内にある取消確認プロトコル署名候補（切り出せたものすべて。厳密な固定正規表現
+ * に一致するかどうかは問わない＝「候補を切り出せたとき」の定義どおり）それぞれについて、直後に続く
+ * 文を読む。既存の[inspectKnownCancelConfirmationProtocolSignature]の判定（matched等）には一切影響
+ * しない、完全に独立した読み取りである。
+ */
+private fun extractSignatureCandidateTailStatements(script: String): List<String> {
+    val extraction = inspectObservedCancelConfirmationCandidates(script)
+    if (extraction.candidates.isEmpty()) return emptyList()
+    return extraction.candidates.flatMap { candidate -> extractStatementsAfter(script, candidate.endIndex, MAX_TAIL_STATEMENTS) }
+}
+
+/**
+ * 診断専用（読み取り専用）。予約状況一覧テーブルの各行から、[ReservationListRowInspection]が持つ
+ * 追加フィールド（予約状態列の生テキスト・行内の`input[onclick]`全部の関数名・セルのclass属性値）を
+ * 読み取り、[reservations]（[ReservationListParser.parse]の結果、`tbody > tr`と同じ順）と行番号で
+ * 対応付ける。[ReservationListParser]自体は呼ばず解釈も変えない。テーブルや列が見つからない場合は
+ * 空リストを返す（診断専用のため、本体の判定のように例外にはしない）。
+ */
+private fun inspectReservationListRows(html: String, reservations: List<Reservation>): List<ReservationListRowInspection> {
+    val document = Jsoup.parse(html)
+    val table = document.selectFirst("table[summary=予約状況一覧表]") ?: return emptyList()
+    val headerCells = table.select("thead tr").lastOrNull()?.select("th") ?: return emptyList()
+    val stateColumnIndex = headerCells.indexOfFirst { it.text().trim().contains("予約状態") }
+    return table.select("tbody > tr").mapIndexed { index, row ->
+        val cells = row.children().filter { it.tagName() == "th" || it.tagName() == "td" }
+        val stateText = if (stateColumnIndex >= 0) {
+            cells.getOrNull(stateColumnIndex)?.text()?.trim().orEmpty()
+        } else {
+            ""
+        }
+        val buttonFunctionNames = row.select("input[onclick]").mapNotNull { button ->
+            ONCLICK_FUNCTION_NAME_REGEX.find(button.attr("onclick"))?.groupValues?.get(1)
+        }
+        val cellClassNames = cells.flatMap { it.className().split(Regex("""\s+""")) }
+            .filter { it.isNotBlank() }
+            .distinct()
+        val reservation = reservations.getOrNull(index)
+        ReservationListRowInspection(
+            tilcod = reservation?.tilcod.orEmpty(),
+            stateText = stateText,
+            state = reservation?.state ?: ReservationState.UNKNOWN,
+            cancelCodePresent = reservation?.cancelCode?.isNotBlank() ?: false,
+            buttonFunctionNames = buttonFunctionNames,
+            cellClassNames = cellClassNames,
+        )
+    }
+}
+
+/** `javascript:yoykCancel('123')` / `yoykHihyoji('123')` のような呼び出しから関数名だけを取り出す。引数値は含めない。 */
+private val ONCLICK_FUNCTION_NAME_REGEX = Regex("""([A-Za-z_][A-Za-z0-9_]*)\s*\(""")
 
 /** 設定とライブ確認で確定している12館。 */
 internal val PICKUP_LIBRARY_CODES = setOf("001", "002", "003", "004", "101", "102", "103", "104", "105", "106", "107", "109")

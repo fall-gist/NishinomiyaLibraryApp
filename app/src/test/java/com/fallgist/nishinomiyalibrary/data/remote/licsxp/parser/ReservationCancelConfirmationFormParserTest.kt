@@ -14,12 +14,25 @@ class ReservationCancelConfirmationFormParserTest {
             expectedStage1Fields = listOf("first" to "1", "second" to "2", "second" to "3").map(::field),
         )
 
-        assertEquals("WOpacUsrRsvCancelAction.do", form.action)
+        assertEquals(ReservationCancelConfirmationAction.Explicit("WOpacUsrRsvCancelAction.do"), form.action)
         val body = form.buildForm()
         assertEquals(
             listOf("second" to "2", "first" to "1", "second" to "3", "approvedCodes" to "OPACUSR001"),
             (0 until body.size).map { body.name(it) to body.value(it) },
         )
+    }
+
+    @Test
+    fun `prevRequestFormにaction属性が無ければSameAsCurrentDocumentになる`() {
+        // 11回目のライブ診断(2026-07-28)実測どおり、実サイトのprevRequestFormはaction属性を持たない。
+        // 以前はここでParseExceptionにしていたが、HTML標準どおり「現在のドキュメントURLへ送る」ことを
+        // 型で表現するよう改めた。
+        val form = ReservationCancelConfirmationFormParser.parse(
+            html = confirmationHtml(action = null),
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+
+        assertEquals(ReservationCancelConfirmationAction.SameAsCurrentDocument, form.action)
     }
 
     @Test
@@ -96,14 +109,18 @@ class ReservationCancelConfirmationFormParserTest {
     private fun confirmationHtml(
         fields: List<Pair<String, String>> = listOf("first" to "1", "second" to "2"),
         okCodesName: String = "okCodes",
-    ): String = """
+        action: String? = "WOpacUsrRsvCancelAction.do",
+    ): String {
+        val actionAttribute = if (action == null) "" else " action=\"$action\""
+        return """
         <html><body>
-          <form name="prevRequestForm" action="WOpacUsrRsvCancelAction.do">
+          <form name="prevRequestForm"$actionAttribute>
             ${fields.joinToString("\n") { (name, value) -> "<input type=\"hidden\" name=\"$name\" value=\"$value\">" }}
           </form>
           <script>const OK_CODES_NAME = "$okCodesName";</script>
         </body></html>
-    """.trimIndent()
+        """.trimIndent()
+    }
 
     private fun assertParseError(block: () -> Unit) {
         val error = try {

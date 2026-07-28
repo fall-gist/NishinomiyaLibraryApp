@@ -10,7 +10,17 @@ object ReservationListParser {
     private val shortDateRegex = Regex("\\d{2}/\\d{2}/\\d{2}")
     private val contactMethodRegex = Regex("Ｅｍａｉｌ|Email|メール|電話|連絡不要")
 
-    fun parse(html: String, memberId: Long = UNASSIGNED_MEMBER_ID): List<Reservation> {
+    fun parse(html: String, memberId: Long = UNASSIGNED_MEMBER_ID): List<Reservation> =
+        parseRows(html, memberId).map { it.reservation }
+
+    /**
+     * 取消の成否判定に必要な追加情報（「非表示」ボタン(`yoykHihyoji`)の有無）を含めて解析する。
+     * 12回目のライブ実測(2026-07-28)で、取消後は対象行が一覧から消えず、予約状態が「取消」になり
+     * 取消ボタン(`yoykCancel`)が非表示ボタン(`yoykHihyoji`)へ置き換わることが判明した。この判定に
+     * 必要な最小限の情報だけをRoomへ永続化しない内部型[ReservationListRow]として追加する。
+     * `parse()`の戻り値・挙動はこのメソッドの結果を`map`しているだけで変えていない。
+     */
+    internal fun parseRows(html: String, memberId: Long = UNASSIGNED_MEMBER_ID): List<ReservationListRow> {
         val document = Jsoup.parse(html)
         ParserSupport.requireHeading(document, screen, "予約状況一覧")
         val table = ParserSupport.requireTable(document, screen, "予約状況一覧表")
@@ -28,7 +38,7 @@ object ReservationListParser {
             val allocated = dates.getOrNull(1)
             val stateText = row.cell(state, screen, "予約状態")
             val expiryText = row.cell(holdExpiry, screen, "取置期限")
-            Reservation(
+            val reservation = Reservation(
                 memberId = memberId,
                 title = row.cell(title, screen, "資料名"),
                 tilcod = titleCodeOf(row),
@@ -37,15 +47,24 @@ object ReservationListParser {
                 pickupLibrary = pickupLibrary(row, row.cell(pickupLibraryColumn, screen, "受取館")),
                 reservedDate = reserved,
                 queuePosition = row.cell(queue, screen, "順位").filter(Char::isDigit).toIntOrNull(),
-                state = when (stateText) {
-                    "予約中" -> ReservationState.WAITING
-                    "提供可能" -> ReservationState.READY
-                    else -> ReservationState.UNKNOWN
-                },
+                state = stateOf(stateText),
                 holdExpiryDate = expiryText.takeIf { it.isNotEmpty() }
                     ?.let { ParserSupport.parseShortDateWithYear(it, allocated ?: reserved, screen, "取置期限") },
             )
+            ReservationListRow(reservation, hideButtonPresent = hideButtonOf(row))
         }
+    }
+
+    /**
+     * 実測(2026-07-28)済みの状態文字列を[ReservationState]へ写す。
+     * 「予約中」「提供可能」「取消」「移送中」以外は未知の状態としてUNKNOWNのままにする。
+     */
+    private fun stateOf(stateText: String): ReservationState = when (stateText) {
+        "予約中" -> ReservationState.WAITING
+        "提供可能" -> ReservationState.READY
+        "取消" -> ReservationState.CANCELLED
+        "移送中" -> ReservationState.IN_TRANSIT
+        else -> ReservationState.UNKNOWN
     }
 
     /** 資料名セルの書誌詳細リンク(hTilcod / toTilInfoDetail)からタイトルコードを取り出す。 */
@@ -69,6 +88,14 @@ object ReservationListParser {
 
     private val CANCEL_CODE_REGEX = Regex("""yoykCancel\('(\d+)'\)""")
 
+    /**
+     * 行内の非表示ボタン(onclick="javascript:yoykHihyoji('コード')")の有無。
+     * 12回目のライブ実測(2026-07-28)どおり、取消後は取消ボタンがこのボタンへ置き換わる。
+     * コード値そのものは判定に不要（非表示機能の実装は未依頼）のため保持せず、有無だけを返す。
+     */
+    private fun hideButtonOf(row: org.jsoup.nodes.Element): Boolean =
+        row.selectFirst("input[onclick*=yoykHihyoji]") != null
+
     private fun parseReservationDates(value: String): List<LocalDate> =
         shortDateRegex.findAll(value).map { match ->
             ParserSupport.parseShortDate(match.value, screen, "予約日")
@@ -81,3 +108,13 @@ object ReservationListParser {
         return cellText.replace(contactMethodRegex, "").replace(Regex("[\\s\\u3000]+"), "")
     }
 }
+
+/**
+ * 取消の成否判定専用の1行分。Roomへは永続化しない（[hideButtonPresent]はEntityへ持たせない）。
+ * [ReservationListParser.parseRows]の戻り値としてのみ使う内部型。
+ */
+internal data class ReservationListRow(
+    val reservation: Reservation,
+    /** 非表示ボタン(yoykHihyoji)の有無。コード値は保持しない。 */
+    val hideButtonPresent: Boolean,
+)

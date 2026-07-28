@@ -37,7 +37,14 @@ internal data class LiveReservationCancelDiagnosticConfig(
 
 internal data class LiveReservationCancelDiagnosticReport(
     val attempt: ReservationCancelAttempt,
-    val stillPresentAfter: Boolean,
+    /**
+     * 取消後、対象tilcod行が一覧に残っているかどうかの観測値（診断ログにも`cancel-after`として出す）。
+     * 12回目のライブ取消＋一覧観測(2026-07-28)で確定した仕様どおり、取消成立後も対象行は「取消」状態
+     * (`ReservationState.CANCELLED`)のまま一覧に残り得る（非表示ボタン`yoykHihyoji`を押すまで消えない）。
+     * そのためこの値**だけ**では成否を断定できない。観測値として残すが、成否判定には使わないこと
+     * （判定は[attempt]で行う。[LiveReservationCancelDiagnosticTest]参照）。
+     */
+    val targetRowPresentAfter: Boolean,
 )
 
 /**
@@ -71,9 +78,31 @@ internal suspend fun runLiveReservationCancelDiagnostic(
         }
         logger.stage("cancel-post", attemptDetail)
 
-        val stillPresent = session.fetchReservations().any { it.tilcod == config.tilcod }
-        logger.stage("cancel-after", "targetPresent=$stillPresent")
-        return LiveReservationCancelDiagnosticReport(attempt, stillPresent)
+        // 12回目のライブ取消＋一覧観測(2026-07-28)で確定した仕様どおり、取消成立後も対象tilcod行は
+        // 「取消」状態のまま一覧に残り得る。この観測（cancel-after）は成否の断定には使わず、
+        // 「取消成立→取消状態で残存」を次のライブで直接確認するための読み取り専用の記録に限定する。
+        // 送信内容は変えない。一覧観測に対応したセッション(ReservationListInspector)であれば、
+        // 資料名・cancelCodeの値を出さずにstate・非表示ボタン(yoykHihyoji)の有無まで記録する。
+        // 対応していないセッション（テストのフェイク等）では、従来どおり在否だけをfetchReservationsで見る。
+        val inspector = session as? ReservationListInspector
+        val targetRowPresentAfter = if (inspector != null) {
+            val inspection = inspector.inspectReservationList()
+            val row = inspection.rows.singleOrNull { it.tilcod == config.tilcod }
+            if (row != null) {
+                logger.stage(
+                    "cancel-after",
+                    "targetPresent=true state=${row.state} hideButtonPresent=${row.buttonFunctionNames.contains("yoykHihyoji")}",
+                )
+            } else {
+                logger.stage("cancel-after", "targetPresent=false")
+            }
+            row != null
+        } else {
+            val present = session.fetchReservations().any { it.tilcod == config.tilcod }
+            logger.stage("cancel-after", "targetPresent=$present")
+            present
+        }
+        return LiveReservationCancelDiagnosticReport(attempt, targetRowPresentAfter)
     } finally {
         session.close()
     }
@@ -108,6 +137,14 @@ class LiveReservationCancelDiagnosticTest {
             },
             logger = logger,
         ))
-        org.junit.Assert.assertFalse("取消後照合で対象資料がまだ残っています", report.stillPresentAfter)
+        // 12回目のライブ取消＋一覧観測(2026-07-28)で確定した仕様どおり、取消成立後も対象行は
+        // 「取消」状態のまま一覧に残り得るため、一覧からの消失(targetRowPresentAfter)では
+        // 成否を断定しない。成否はreport.attemptで判定する。
+        val succeeded = report.attempt == ReservationCancelAttempt.Cancelled ||
+            report.attempt == ReservationCancelAttempt.CancelledAndHidden
+        org.junit.Assert.assertTrue(
+            "取消が成立しませんでした: attempt=${report.attempt} targetRowPresentAfter=${report.targetRowPresentAfter}",
+            succeeded,
+        )
     }
 }

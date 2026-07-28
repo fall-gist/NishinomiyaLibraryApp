@@ -114,6 +114,7 @@ dependencies {
 val liveReservationDiagnosticClass = "**/LiveReservationDiagnosticTest.class"
 val liveReservationInspectionClass = "**/LiveReservationInspectionTest.class"
 val liveReservationCancelDiagnosticClass = "**/LiveReservationCancelDiagnosticTest.class"
+val liveReservationListInspectionClass = "**/LiveReservationListInspectionTest.class"
 
 // 通常の unit test / CI は本番通信を行う診断クラスを発見対象から除外する。
 tasks.withType<Test>().configureEach {
@@ -125,6 +126,9 @@ tasks.withType<Test>().configureEach {
     }
     if (name != "liveReservationCancelDiagnostic") {
         exclude(liveReservationCancelDiagnosticClass)
+    }
+    if (name != "liveReservationListInspect") {
+        exclude(liveReservationListInspectionClass)
     }
 }
 
@@ -213,6 +217,37 @@ tasks.register<Test>("liveReservationCancelDiagnostic") {
         }.keys
         check(invalid.isEmpty()) {
             "ライブ予約取消診断を開始しません。不足または不正な明示環境変数: ${invalid.joinToString()}"
+        }
+    }
+}
+
+// 取消POST・非表示POST・予約POSTのいずれも送らない、予約状況一覧の構造観測専用タスク（書き込み副作用なし）。
+// 12回目のライブ実測で、取消後も一覧に対象が残り「取消」状態・「非表示」ボタンへ変わることが判明したため、
+// その構造（状態文字列・ボタンのonclick関数名・セルのclass属性）を消える前に読み取るための専用タスク。
+// 書き込みを一切行わないため、取消の同意フラグ(LICSXP_LIVE_CANCEL_CONFIRM)は要求しない。
+tasks.register<Test>("liveReservationListInspect") {
+    group = "verification"
+    description = "予約状況一覧の構造だけを読み取る（書き込み副作用なし。取消・非表示・予約のPOSTを一切送らない）"
+    val debugUnitTest = tasks.named<Test>("testDebugUnitTest")
+    testClassesDirs = debugUnitTest.get().testClassesDirs
+    classpath = debugUnitTest.get().classpath
+    include(liveReservationListInspectionClass)
+    testLogging {
+        showStandardStreams = true
+    }
+    doFirst {
+        val required = mapOf(
+            "LICSXP_LIVE_RESERVATION" to "YES_I_UNDERSTAND",
+            "LICSXP_LIST_INSPECT" to "INSPECT_ONLY",
+            "LICSXP_CARD_NUMBER" to null,
+            "LICSXP_PASSWORD" to null,
+        )
+        val invalid = required.filter { (name, expected) ->
+            val value = System.getenv(name)
+            value.isNullOrBlank() || (expected != null && value != expected)
+        }.keys
+        check(invalid.isEmpty()) {
+            "予約状況一覧の読み取り専用観測を開始しません。不足または不正な明示環境変数: ${invalid.joinToString()}"
         }
     }
 }

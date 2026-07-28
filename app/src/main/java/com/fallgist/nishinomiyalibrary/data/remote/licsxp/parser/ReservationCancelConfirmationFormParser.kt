@@ -20,8 +20,16 @@ object ReservationCancelConfirmationFormParser {
         val forms = document.select("form[name=prevRequestForm]")
         if (forms.size != 1) throw ParseException(SCREEN, "prevRequestFormを一意に特定できません")
         val form = forms.single()
-        val action = form.attr("action").trim()
-        if (action.isEmpty()) throw ParseException(SCREEN, "prevRequestFormのactionがありません")
+        // 11回目のライブ診断(2026-07-28)で、実サイトのprevRequestFormにaction属性が存在しない
+        // （属性はname/method=postのみ）ことが判明した。HTML標準ではaction省略時の送信先は
+        // 現在のドキュメントURLであり、以前のように空文字列を即ParseExceptionにはしない。
+        // 呼出し側が「明示action」と「現在のドキュメントURL」を取り違えないよう型で分ける。
+        val actionAttribute = form.attr("action").trim()
+        val action = if (actionAttribute.isEmpty()) {
+            ReservationCancelConfirmationAction.SameAsCurrentDocument
+        } else {
+            ReservationCancelConfirmationAction.Explicit(actionAttribute)
+        }
         val fields = form.select("input[name]:not([disabled]), select[name]:not([disabled]), textarea[name]:not([disabled])")
             .mapNotNull(::toSuccessfulField)
         if (!sameFieldMultiset(fields, expectedStage1Fields)) {
@@ -34,7 +42,12 @@ object ReservationCancelConfirmationFormParser {
         return ReservationCancelConfirmationForm(action, fields, okCodesFieldName)
     }
 
-    private fun extractOkCodesFieldName(document: org.jsoup.nodes.Document): String {
+    /**
+     * OK_CODES_NAME代入値の抽出。可視性はinternal。
+     * ReservationGateway.kt の診断（cancel-reservation-prevform）が、判定に使うのと同じ抽出結果を
+     * 読み取り専用で参照するために公開している。抽出ロジック自体は変更していない。
+     */
+    internal fun extractOkCodesFieldName(document: org.jsoup.nodes.Document): String {
         val values = document.select("script")
             .filter(::isInlineJavaScript)
             .flatMap { extractOkCodesAssignments(it.data()) }
@@ -244,8 +257,26 @@ object ReservationCancelConfirmationFormParser {
     private val STANDARD_JAVASCRIPT_MIME_TYPES = setOf("text/javascript", "application/javascript", "text/ecmascript", "application/ecmascript")
 }
 
+/**
+ * 取消確認フォーム(prevRequestForm)の送信先。
+ *
+ * 11回目のライブ診断(2026-07-28)で、実サイトのprevRequestFormにaction属性が存在しないことが確認できた。
+ * HTML標準ではaction省略時の送信先は「現在のドキュメントURL」であり、1段階目はリダイレクトしない
+ * （実測: status=200 redirect=-）ため、この「現在のドキュメントURL」は1段階目に実際に送ったURL
+ * （クエリ付き `WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1`）と同一になる。
+ * 呼出し側（[com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpSession.resolveReservationCancelAction]）
+ * がこの2つを取り違えないよう、空文字列をそのまま渡す曖昧な扱いにはせず型で区別する。
+ */
+sealed interface ReservationCancelConfirmationAction {
+    /** action属性が明示されている場合の、trim済みの生の値。 */
+    data class Explicit(val value: String) : ReservationCancelConfirmationAction
+
+    /** action属性が省略されている場合。送信先は現在のドキュメントURL（＝1段階目に実際に送ったURL）。 */
+    data object SameAsCurrentDocument : ReservationCancelConfirmationAction
+}
+
 class ReservationCancelConfirmationForm internal constructor(
-    val action: String,
+    val action: ReservationCancelConfirmationAction,
     private val fields: List<ReservationCancelConfirmationField>,
     private val okCodesFieldName: String,
 ) {

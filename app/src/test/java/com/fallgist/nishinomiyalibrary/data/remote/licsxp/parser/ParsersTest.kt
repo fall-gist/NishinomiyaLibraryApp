@@ -573,7 +573,9 @@ class ParsersTest {
         assertEquals(ReservationState.READY, result[12].state)
         assertEquals(LocalDate.of(2026, 7, 10), result[12].reservedDate)
         assertEquals(LocalDate.of(2026, 7, 23), result[12].holdExpiryDate)
-        assertEquals(ReservationState.UNKNOWN, result[13].state)
+        // result[13]は実サイト実測データ由来の「移送中」行。以前はUNKNOWNへ丸めていたが、
+        // 12回目のライブ取消＋一覧観測(2026-07-28)の仕様確定によりIN_TRANSITへマップするようになった。
+        assertEquals(ReservationState.IN_TRANSIT, result[13].state)
         assertEquals(ReservationState.READY, result.last().state)
         assertEquals(LocalDate.of(2026, 7, 29), result.last().holdExpiryDate)
     }
@@ -587,6 +589,53 @@ class ParsersTest {
         // 提供可能(取消ボタン無し)の行は空文字列になる。
         assertEquals(ReservationState.READY, result[12].state)
         assertEquals("", result[12].cancelCode)
+    }
+
+    // 12回目のライブ取消＋一覧観測(2026-07-28)で確定した仕様: 取消後も対象行は一覧から消えず、
+    // 予約状態列が「取消」になり取消ボタン(yoykCancel)が非表示ボタン(yoykHihyoji)へ置き換わる。
+    // 「移送中」という状態も存在し、取消・非表示いずれのボタンも持たない。
+
+    @Test
+    fun `予約状態が取消の行はCANCELLEDにマップされ非表示ボタンの有無を返す`() {
+        val html = """
+            <h1>予約状況一覧</h1>
+            <table summary='予約状況一覧表'><thead><tr><th>資料名</th><th>書誌種別</th><th>受取館</th><th>予約日</th><th>順位</th><th>予約状態</th><th>取置期限</th></tr></thead>
+            <tbody><tr>
+                <td><a href="?hTilcod=1000000000099">取消済み資料</a></td>
+                <td>一般</td><td>本館</td><td>26/07/01</td><td></td><td>取消</td><td></td>
+                <td><input type="button" onclick="javascript:yoykHihyoji('1013099999')" value="非表示"></td>
+            </tr></tbody></table>
+        """.trimIndent()
+
+        val rows = ReservationListParser.parseRows(html)
+
+        assertEquals(1, rows.size)
+        val row = rows.single()
+        assertEquals(ReservationState.CANCELLED, row.reservation.state)
+        assertEquals("", row.reservation.cancelCode)
+        assertTrue(row.hideButtonPresent)
+        // parse()の戻り値・挙動はこのメソッドの結果をmapしているだけで変わらない。
+        assertEquals(listOf(row.reservation), ReservationListParser.parse(html))
+    }
+
+    @Test
+    fun `予約状態が移送中の行はIN_TRANSITにマップされ取消も非表示もボタンが無い`() {
+        val html = """
+            <h1>予約状況一覧</h1>
+            <table summary='予約状況一覧表'><thead><tr><th>資料名</th><th>書誌種別</th><th>受取館</th><th>予約日</th><th>順位</th><th>予約状態</th><th>取置期限</th></tr></thead>
+            <tbody><tr>
+                <td><a href="?hTilcod=1000000000098">移送中の資料</a></td>
+                <td>一般</td><td>本館</td><td>26/07/01</td><td></td><td>移送中</td><td></td>
+            </tr></tbody></table>
+        """.trimIndent()
+
+        val rows = ReservationListParser.parseRows(html)
+
+        assertEquals(1, rows.size)
+        val row = rows.single()
+        assertEquals(ReservationState.IN_TRANSIT, row.reservation.state)
+        assertEquals("", row.reservation.cancelCode)
+        assertFalse(row.hideButtonPresent)
     }
 
     @Test

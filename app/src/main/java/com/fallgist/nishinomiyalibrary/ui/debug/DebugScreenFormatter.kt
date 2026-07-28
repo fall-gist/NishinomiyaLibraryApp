@@ -118,5 +118,9 @@ object DebugScreenFormatter {
         ReservationState.WAITING -> "順番待ち"
         ReservationState.READY -> "受取可能"
         ReservationState.UNKNOWN -> "不明"
+        // 12回目のライブ取消＋一覧観測(2026-07-28)で確定。UI(画面)は未実装のため、デバッグ画面向けの
+        // 最小限の文言だけを追加する。
+        ReservationState.CANCELLED -> "取消済み"
+        ReservationState.IN_TRANSIT -> "移送中"
     }
 }

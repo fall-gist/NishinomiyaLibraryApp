@@ -532,12 +532,16 @@
 - 取消の確定POST先は前掲のとおり`WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1`であり、
   `yoycod`以外のフィールドはブラウザのsuccessful controlsをDOM順・同名重複込みでそのまま送る
   (`ReservationCancelFormParser`参照)。
-- **実装仕様（2026-07-27、現行）**: 取消依頼は`memberId`・`tilcod`・`cancelCode`で対象を固定する。
-  送信直前に取得した一覧で`cancelCode`一致行を一意に特定し、非空かつ依頼時の`tilcod`と一致するときだけ
-  1段階目POSTを送る。取消後はメニューの予約件数サマリと再取得一覧の行数が一致する完全一覧で、固定した
-  `tilcod`行が消えた場合だけ`Cancelled`とする。`cancelCode`だけの消失、対象残存、解析不能・件数不一致は
-  すべて成否不明である。状態変更POSTはクライアントが自動再試行しない1回限りの試行であり、通信断時に
-  ネットワーク上のexactly-onceを保証するものではない。詳細は`docs/backend-design.md`の予約取消の節を参照。
+- **実装仕様（2026-07-27時点。12回目のライブ実測(2026-07-28)により判定は§12回目のとおり改訂済み）**:
+  取消依頼は`memberId`・`tilcod`・`cancelCode`で対象を固定する。送信直前に取得した一覧で`cancelCode`
+  一致行を一意に特定し、非空かつ依頼時の`tilcod`と一致するときだけ1段階目POSTを送る。
+  この時点では「取消後に固定した`tilcod`行が一覧から消えた場合だけ`Cancelled`とする」判定だったが、
+  これは誤りだった。実サイトは取消後も対象行を一覧から消さず、「取消」状態のまま残すことが
+  12回目のライブ取消＋一覧観測(2026-07-28、§12回目参照)で判明したため、状態文字列
+  （`state=CANCELLED`）と非表示ボタン(`yoykHihyoji`)の両方一致で`Cancelled`、一覧から消えていれば
+  `CancelledAndHidden`と判定するよう改めた。状態変更POSTはクライアントが自動再試行しない1回限りの
+  試行であり、通信断時にネットワーク上のexactly-onceを保証するものではない（この方針は不変）。
+  詳細は`docs/backend-design.md`の予約取消の節を参照。
 
 ### 予約取消は2段階である（実測、2026-07-27。2段階目の実装は同日中に完了）
 
@@ -574,6 +578,16 @@
   `?mngFlg2_handan=1&kbnchgflag=1`というクエリ付きだった）。なぜクエリが無くなるのか
   （`document.prevRequestForm`のaction属性の実値など、submit処理の詳細）は未確認であり、
   ここでは実測できた結果（クエリ無しでPOSTされたという事実）のみを記載する。
+  > **注記（2026-07-28、11回目診断後に追記）**: この「クエリ無し」という記録は、後日
+  > 11回目のアプリ側ライブ診断（§11回目参照）による直接実測と矛盾する。11回目では
+  > `prevRequestForm`にaction属性自体が存在せず、ページのJSは`document.prevRequestForm.submit()`を
+  > そのまま呼ぶだけであり、かつ1段階目応答はリダイレクトしていない
+  > （`status=200 redirect=-`）ことを確認した。HTML標準どおりなら送信先は現在のドキュメントURL、
+  > すなわち1段階目に実際に送ったクエリ付きURLになるはずであり、上記の「クエリ無し」という
+  > ブラウザDevTools採取の記録とは食い違う。DevToolsのNetworkパネルのName列がパスしか
+  > 表示しないための読み違いだった可能性が高いが、**これは推定であって確定ではない**。
+  > 実装は11回目の直接実測（action属性が無い・`submit()`でそのまま送信・リダイレクト無し）を
+  > 根拠として、2段階目を1段階目と同じクエリ付きURLへ送るよう変更した。
 - 2段階目の本文は次の順で構成する: 1段階目のクエリパラメータ（`mngFlg2_handan=1`、
   `kbnchgflag=1`）を先頭に置き、続けて1段階目に実際に送った本文と同じ内容を同じ順序・
   同名重複のまま並べ、最後に`okCodes=OPACUSR001`を付ける。
@@ -702,3 +716,120 @@
   いずれの原因もこの結果だけから断定してはならない。
 - **結論**: 現行の`prevRequestForm`版が実サイトで第2段階POSTを成功させ、取消を成立させることは未検証である。
   次のライブ検証には、現在取消可能で非空の`cancelCode`を持つ別の`tilcod`が必要である。
+
+#### 10回目アプリライブ取消診断とprevRequestForm構造診断の追加（2026-07-28）
+
+- **確認済み**: 第10回では`cancel-reservation-signature`/`cancel-reservation-stage`とも`matched=true`まで
+  到達したが、`ReservationCancelConfirmationFormParser.parse`が「prevRequestFormのactionがありません」で
+  `ParseException`となり、2段階目POSTは送信されなかった（取消POST 1回のみ、安全側で停止）。実サイトの
+  `form[name=prevRequestForm]`にはaction属性が無いことがここで初めて判明した。
+- **対応済み（診断追加、判定・送信内容は無変更）**: 判定ロジックを変えず、`cancel-reservation-prevform`
+  診断を追加した。1段階目応答の`prevRequestForm`の属性一覧（値ではなく属性名）、`action`/`method`/`target`/
+  `enctype`/`id`の値（6桁以上の数字・8文字以上の数字混じり英数字トークンはマスク、`hash`等を含む文は
+  文全体を伏せる）、`controls`件数、識別子`prevRequestForm`を含むscript文（`stmts=`）、既存の取消確認
+  プロトコル署名の候補が切り出せたときその直後に続く文（`tail=`、識別子非依存）、`OK_CODES_NAME`の
+  実際のfield名を1行のサマリとして記録するだけで、2段階目の送信可否・送信内容には一切関与しない。
+  アプリによる取消成立は引き続き未検証である。
+
+#### 11回目アプリライブ取消診断とprevRequestForm action省略の実装反映（2026-07-28）
+
+- **確認済み**: 10回目で追加した`cancel-reservation-prevform`診断が実測データを返した。
+  ```
+  cancel-reservation-prevform: forms=1 attrs=method,name action=(empty) method=post
+    target=(empty) enctype=(empty) id=(empty) controls=213
+    stmts=document.prevRequestForm.appendChild(newHidden);|// フォームをサブミット …|document.prevRequestForm.submit();
+  ```
+  実サイトの`prevRequestForm`は`name`/`method="post"`の2属性だけを持ち、**action属性は存在しない**。
+  ページのJSはactionを設定せず`document.prevRequestForm.submit()`でそのまま送信する。加えて、
+  1段階目POSTの応答は`status=200 redirect=-`（リダイレクト無し）である。
+- **確認済み**: HTML標準ではform actionの省略時、送信先は現在のドキュメントURLである。1段階目は
+  リダイレクトしていないため、stage1のドキュメントURLは実際に1段階目を送ったURL、すなわち
+  `WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1`（**クエリ付き**）になる。これは
+  上述（§2段階目の仕組みと実装）の「クエリ無し」という所有者ブラウザ採取記録と矛盾する。
+  DevTools Network パネルのName列がパスしか表示しないための読み違いだった可能性が高いが、
+  **これは推定であって確定ではない**。
+- **対応済み（本番第2段階成功は依然未検証）**: `ReservationCancelConfirmationFormParser.parse`は、
+  action属性が空でも`ParseException`にせず、`ReservationCancelConfirmationAction`
+  （`Explicit(value)` / `SameAsCurrentDocument`）という型で「明示action」と「現在のドキュメントURL」を
+  区別するよう変更した。`LicsXpSession.resolveReservationCancelAction`は`SameAsCurrentDocument`の場合、
+  1段階目に実際に送ったURL（`LicsXpReservationCancelStagePage.url`、クエリ付き）をハードコードせずに
+  そのまま2段階目の送信先として使う。安全条件（同一origin・パスが`WOpacUsrRsvCancelAction.do`）は
+  action明示時と同様に必ず検証する。2段階目の本文（DOM順のsuccessful controls＋`OK_CODES_NAME`の
+  実field名で`OPACUSR001`）と、1段階目送信内容との多重集合一致検査は無変更である。実サイトでは
+  `controls=213`であり、この一致検査は今回の改修で初めて実際に評価されることになる。
+  アプリによる実サイトでの取消成立は依然として未検証である。
+- **未確認・今回は対応せず**: `stmts=`のサンプル出力に`// フォームをサブミット …`という、コメント文が
+  そのまま混入して見える箇所がある。これは字句走査が「文」の範囲をコメントを除去せず生テキストの
+  スライスとして切り出しているためで、直前に長いコメントがあると160文字の切り詰めで実コードが
+  隠れることがある既知の制約である。今回のタスクの依頼範囲外のため未対応。
+
+#### 12回目のライブ取消＋一覧観測と成否判定の改修（2026-07-28）
+
+- **確認済み・実サイトの取消が成立した**: 11回目の実装（action省略時は1段階目と同じクエリ付きURLへ
+  2段階目を送る）を反映した12回目のライブ取消診断で、2段階目応答の画面固有メッセージが
+  「予約の取消が完了しました。」だった。診断が拾った8件のメッセージのうち、7番目だけが1段階目の
+  確認文言「予約の取消を行います。よろしいですか？」から差し替わっており、他7件は全ページ共通の
+  JS定数（会員種別文言等）で1段階目と同一だった。**これにより、これまで「未検証」としてきた
+  「アプリによる実サイトでの取消成立」は確認済みになった。**
+- **確認済み・取消後も一覧に対象が残る（所有者提供の仕様、実測で裏付け）**: 取消しても対象書誌は
+  予約状況一覧から消えない。予約状態列が赤字で「取消」と表示され、取消ボタン(`yoykCancel`)の位置に
+  「非表示」ボタン(`yoykHihyoji`)が置かれる。「非表示」ボタンを押すと初めて一覧から消える。
+  読み取り専用の一覧観測タスク`liveReservationListInspect`（書き込み副作用ゼロ、取消・非表示・予約の
+  POSTを一切送らない）で、この状態が実サイトに出ているうちに構造を直接確認した:
+  ```
+  list-summary: summaryReservationCount=19  parsedRowCount=20
+  list-row[19]: tilcod=...  stateText=取消    state=UNKNOWN(旧)  cancelCodePresent=false  buttons=[yoykHihyoji]
+  list-row[12]: tilcod=...  stateText=提供可能  state=READY        cancelCodePresent=false  buttons=[]
+  list-row[18]: tilcod=...  stateText=移送中   state=UNKNOWN(旧)  cancelCodePresent=false  buttons=[]
+  他17行:       stateText=予約中  state=WAITING      cancelCodePresent=true   buttons=[yoykCancel]
+  ```
+  （`state=UNKNOWN(旧)`は観測時点＝本改修前の解釈。本改修でCANCELLED/IN_TRANSITへ変更した。）
+- **確認済み・状態とボタンの実測一覧**:
+
+  | 予約状態(stateText) | ReservationState | 取消ボタン(yoykCancel) | 非表示ボタン(yoykHihyoji) | cancelCode |
+  |---|---|---|---|---|
+  | 予約中 | WAITING | あり | なし | 非空 |
+  | 提供可能 | READY | なし | なし | 空 |
+  | 移送中 | IN_TRANSIT | なし | なし | 空 |
+  | 取消 | CANCELLED | なし | あり | 空 |
+
+  実測内訳（全20行）: 予約中15行 + 提供可能3行 + 移送中1行 + 取消1行 = 20行。
+  サマリの予約中件数(19)から除外されるのは**取消済み行だけ**であり、提供可能・移送中はサマリに
+  数えられている（19 = 20 − 1(取消)）。移送中を完全性判定から除外してはならない。
+- **対応済み（本改修）**: `ReservationState`に`CANCELLED`・`IN_TRANSIT`を追加し、
+  `ReservationListParser`で「取消」→CANCELLED、「移送中」→IN_TRANSITへマップするようにした。
+  `LocalDateConverters.reservationStateToString`が`name`文字列で保存する既存実装のため、
+  Roomマイグレーションは不要（DBバージョンは7のまま）。
+  `ReservationListParser`に判定専用の内部関数`parseRows`を追加し、`Reservation`に加えて非表示ボタン
+  (`yoykHihyoji`)の有無（コード値は保持しない）を返す。公開`parse()`の戻り値・挙動は
+  `parseRows`の結果を`map`しているだけで変えていない。
+  `ReservationCancelAttempt.Cancelled`を`Cancelled`（取消済みで一覧に残っている）と
+  `CancelledAndHidden`（一覧に無い。既に非表示化されたのか、サイトが別の理由で即時に消したのかは
+  区別しない）に分けた。所有者の方針（非表示操作を将来アプリへ組み込むかもしれない）による。
+  取消後一覧照合(`resolveCancelByListDiff`)の判定表:
+
+  | 取消後の対象tilcod行 | 判定 |
+  |---|---|
+  | 一覧に無い | `CancelledAndHidden` |
+  | `state=CANCELLED` **かつ** `yoykHihyoji`ボタンあり | `Cancelled` |
+  | 状態のみ一致／ボタンのみ一致 | `IndeterminateAfterPost` |
+  | 予約中・提供可能・移送中等で残存 | `IndeterminateAfterPost` |
+  | 一覧の再取得・解析に失敗 | `IndeterminateAfterPost`（従来どおり） |
+
+  状態文字列とボタンの両方を要求するのは、既存の「状態文字列だけに依存しない」方針と「確証がなければ
+  成否不明へ倒す」方針の両立である。
+  完全性ガード（`fetchReservationSnapshot`の`complete`、および`resolveCancelByListDiff`内の同種の
+  判定）は、`summaryReservationCount == reservations.size`から
+  `summaryReservationCount == (取消状態でない行数)`へ改めた。取消済み行が1行でもあると常に不完全
+  になっていた既存の欠陥（直接予約側の成立照合にも影響していた）もこの修正で解消される。
+  `ReservationCancelOutcome`にも`Cancelled`/`CancelledAndHidden`を追加し、
+  `ReservationCancelRepositoryImpl`は両方とも成功として扱い、どちらもローカルDBから即時削除する。
+- **対応済み（12回目直後に追補）**: 前段落で「未対応」としていた`liveReservationCancelDiagnostic`タスクの
+  `LiveReservationCancelDiagnostic.kt`の矛盾を修正した。取消後照合の成否判定は
+  `assertFalse(report.stillPresentAfter)`（対象tilcodが一覧に一切無いことを期待する誤った判定）
+  から、`report.attempt`が`Cancelled`または`CancelledAndHidden`であることの判定へ改めた。
+  一覧からの消失を表す観測値は`targetRowPresentAfter`へ改名し、フィールドとしては残しつつ、
+  成否の断定には使わないことを明記した。あわせて`cancel-after`診断ステージで、対象tilcod行が
+  一覧にあるかに加え、ある場合は`state`（CANCELLED/WAITING/READY/IN_TRANSIT/UNKNOWN）と
+  非表示ボタン(`yoykHihyoji`)の有無を記録するようにした（資料名・cancelCode値は出さない）。
+  これにより次回のライブでは「取消成立→取消状態で残存」を直接確認できる。

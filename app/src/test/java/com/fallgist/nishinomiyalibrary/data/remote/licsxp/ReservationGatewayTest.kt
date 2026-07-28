@@ -16,6 +16,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import org.jsoup.Jsoup
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelFormParser
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -702,8 +703,87 @@ class ReservationGatewayTest {
         assertTrue(fetchNotes.single().second.contains("parsed=19"))
     }
 
+    // 12回目のライブ取消診断で取消が成立した(2026-07-28)後、所有者から「取消後も一覧に対象が残り、
+    // 予約状態列が『取消』・取消ボタンが『非表示』ボタンへ変わる」という仕様が提供された。
+    // 消える前に実サイトの構造を読み取るための、書き込み副作用ゼロの観測診断のテスト。
+
     @Test
-    fun `取消は要求列とRefererOriginを守り取消POSTを一回だけ送り対象消失でCancelledになる`() = runBlocking {
+    fun `一覧観測は行ごとの状態テキストとボタン関数名とcancelCode有無を返す`() = runBlocking {
+        server.enqueue(page("<html>温め</html>", cookie = true))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(""))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+
+        val inspection = (session as ReservationListInspector).inspectReservationList()
+
+        assertEquals(19, inspection.summaryReservationCount)
+        assertEquals(19, inspection.parsedRowCount)
+        assertEquals(19, inspection.rows.size)
+        val firstRow = inspection.rows.first()
+        assertEquals(CANCEL_TARGET_TILCOD, firstRow.tilcod)
+        assertEquals("予約中", firstRow.stateText)
+        assertEquals(ReservationState.WAITING, firstRow.state)
+        assertTrue(firstRow.cancelCodePresent)
+        assertEquals(listOf("yoykCancel"), firstRow.buttonFunctionNames)
+        assertTrue(firstRow.cellClassNames.contains("a-center"))
+        // 資料名はどの行にも含めない。
+        inspection.rows.forEach { row ->
+            assertFalse(row.toString().contains("一穂"))
+            assertFalse(row.toString().contains("恋と食"))
+        }
+    }
+
+    @Test
+    fun `取消済み行を模したfixtureでReservationListParserがCANCELLEDへマップすることを固定する`() = runBlocking {
+        server.enqueue(page("<html>温め</html>", cookie = true))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(""))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(cancelledFirstRowUsrrsvHtml()))
+        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+
+        val inspection = (session as ReservationListInspector).inspectReservationList()
+
+        assertEquals(19, inspection.parsedRowCount)
+        val firstRow = inspection.rows.first()
+        assertEquals(CANCEL_TARGET_TILCOD, firstRow.tilcod)
+        assertEquals("取消", firstRow.stateText)
+        // 12回目のライブ取消＋一覧観測(2026-07-28)で確定した仕様どおり、「取消」はCANCELLEDへマップする
+        // （本改修でReservationListParserに追加したマッピング）。
+        assertEquals(ReservationState.CANCELLED, firstRow.state)
+        // 取消ボタン(yoykCancel)が非表示ボタン(yoykHihyoji)へ差し替わるため、既存のcancelCode抽出
+        // (input[onclick*=yoykCancel]限定)は一致せず空になる。
+        assertFalse(firstRow.cancelCodePresent)
+        assertEquals(listOf("yoykHihyoji"), firstRow.buttonFunctionNames)
+        assertTrue(firstRow.cellClassNames.contains("red"))
+    }
+
+    /**
+     * usrrsv.htmlの1行目(tilcod=CANCEL_TARGET_TILCOD)だけを、所有者提供の仕様どおり
+     * 「予約状態が赤字で『取消』・取消ボタンの位置に『非表示』ボタン(yoykHihyoji)」へ書き換える。
+     * 赤字表示の実クラス名は未確認のため、"red"は実測待ちの仮のクラス名である。
+     */
+    private fun cancelledFirstRowUsrrsvHtml(): String {
+        val html = fixture("usrrsv.html")
+        val withCancelledState = Regex("""id="ItemDeta0105i'1'" class="a-center">[\s\S]*?</td>""").replace(html) {
+            "id=\"ItemDeta0105i'1'\" class=\"a-center red\">\n\t\t\t\t取消\n\t      </td>"
+        }
+        return withCancelledState.replace(
+            "onclick=\"javascript:yoykCancel('1013074729')\" value=\"取消\"",
+            "onclick=\"javascript:yoykHihyoji('1013074729')\" value=\"非表示\"",
+        )
+    }
+
+    @Test
+    fun `取消は要求列とRefererOriginを守り取消POSTを一回だけ送り対象消失でCancelledAndHiddenになる`() = runBlocking {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
         server.enqueue(page("<html>取消受付</html>"))
@@ -713,7 +793,7 @@ class ReservationGatewayTest {
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
         val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
-        assertEquals(ReservationCancelAttempt.Cancelled, result)
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
         assertEquals(5, server.requestCount)
         val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals("/WOpacMnuTopInitAction.do?WebLinkFlag=1", requests[0].path)
@@ -762,6 +842,137 @@ class ReservationGatewayTest {
         assertEquals(5, server.requestCount)
     }
 
+    // 12回目のライブ取消＋一覧観測(2026-07-28)で確定した仕様: 取消後も対象行は一覧から消えず、
+    // 予約状態が「取消」になり取消ボタン(yoykCancel)が非表示ボタン(yoykHihyoji)へ置き換わる。
+    // 状態文字列とボタンの両方が一致した場合だけCancelled、片方だけの一致はIndeterminateAfterPostへ倒す。
+
+    @Test
+    fun `取消後に対象行が取消状態かつ非表示ボタンありならCancelledになる`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        // cancelledFirstRowUsrrsvHtmlは19行中1行を取消状態にする。サマリの予約中件数は取消済み行を
+        // 数えないため18(=19-1)になる。
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(cancelledFirstRowUsrrsvHtml()))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.Cancelled, result)
+        assertEquals(5, server.requestCount)
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    @Test
+    fun `取消後に対象行の状態が取消でもボタンがyoykCancelのままならIndeterminateAfterPostになる`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(cancelledStateOnlyFirstRowUsrrsvHtml()))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        // 状態文字列だけの一致では成功と断定しない（確証がなければ成否不明へ倒す方針）。
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
+        assertEquals(5, server.requestCount)
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    @Test
+    fun `取消後に対象行のボタンがyoykHihyojiでも状態が予約中のままならIndeterminateAfterPostになる`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        // 状態は「予約中」のまま(WAITING)なのでサマリの予約中件数は変わらず19のまま。
+        server.enqueue(page(menuWithReservationCount(19)))
+        server.enqueue(page(hideButtonOnlyFirstRowUsrrsvHtml()))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        // ボタンだけの一致では成功と断定しない（確証がなければ成否不明へ倒す方針）。
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, result)
+        assertEquals(5, server.requestCount)
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    /** 状態だけ「取消」に変え、取消ボタン(yoykCancel)はそのまま残す（ボタンだけ不一致の異常系検証用）。 */
+    private fun cancelledStateOnlyFirstRowUsrrsvHtml(): String =
+        Regex("""id="ItemDeta0105i'1'" class="a-center">[\s\S]*?</td>""").replace(fixture("usrrsv.html")) {
+            "id=\"ItemDeta0105i'1'\" class=\"a-center red\">\n\t\t\t\t取消\n\t      </td>"
+        }
+
+    /** ボタンだけ非表示(yoykHihyoji)に変え、状態は「予約中」のまま残す（状態だけ不一致の異常系検証用）。 */
+    private fun hideButtonOnlyFirstRowUsrrsvHtml(): String = fixture("usrrsv.html").replace(
+        "onclick=\"javascript:yoykCancel('1013074729')\" value=\"取消\"",
+        "onclick=\"javascript:yoykHihyoji('1013074729')\" value=\"非表示\"",
+    )
+
+    @Test
+    fun `完全性ガードは移送中を除外せず取消済み行だけを除いて計算する`() = runBlocking {
+        // 12回目のライブ観測実測(2026-07-28)どおりの内訳: 予約中15行+提供可能3行+移送中1行+取消1行=20行。
+        // サマリの予約中件数(19)は取消済み行だけを除いた数であり、移送中・提供可能は数えられている。
+        // 移送中を誤って除外しないことをこのテストで固定する。
+        val states = List(15) { "予約中" } + List(3) { "提供可能" } + listOf("移送中", "取消")
+        server.enqueue(page("<html>温め</html>", cookie = true))
+        server.enqueue(page(fixture("login_form.html")))
+        server.enqueue(page("<html>中継</html>"))
+        server.enqueue(page(""))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(menuWithReservationCount(19)))
+        server.enqueue(page(syntheticReservationListHtmlWithStates(states)))
+        val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+
+        val snapshot = (session as ReservationSnapshotSource).fetchReservationSnapshot()
+
+        assertEquals(20, snapshot.reservations.size)
+        assertEquals(1, snapshot.reservations.count { it.state == ReservationState.CANCELLED })
+        assertEquals(1, snapshot.reservations.count { it.state == ReservationState.IN_TRANSIT })
+        assertTrue(snapshot.complete)
+    }
+
+    /** 行ごとに任意の予約状態文字列を指定できる、判定用の最小構造の予約状況一覧HTML。 */
+    private fun syntheticReservationListHtmlWithStates(states: List<String>): String {
+        val rows = states.mapIndexed { zeroBasedIndex, stateText ->
+            val position = zeroBasedIndex + 1
+            val button = when (stateText) {
+                "予約中" -> "<input type=\"button\" onclick=\"javascript:yoykCancel('9000000000$position')\" value=\"取消\">"
+                "取消" -> "<input type=\"button\" onclick=\"javascript:yoykHihyoji('9000000000$position')\" value=\"非表示\">"
+                else -> ""
+            }
+            """
+            <tr>
+                <td><a href="?hTilcod=20000000000$position">タイトル$position</a></td>
+                <td>図書</td>
+                <td>本館</td>
+                <td>26/07/01</td>
+                <td>$position</td>
+                <td>$stateText</td>
+                <td></td>
+                <td>$button</td>
+            </tr>
+            """.trimIndent()
+        }.joinToString("\n")
+        return """
+        <html>
+        <h1>予約状況一覧</h1>
+        <table summary="予約状況一覧表">
+            <thead><tr><th>資料名</th><th>書誌種別</th><th>受取館</th><th>予約日</th><th>順位</th><th>予約状態</th><th>取置期限</th></tr></thead>
+            <tbody>
+            $rows
+            </tbody>
+        </table>
+        </html>
+        """.trimIndent()
+    }
+
     @Test
     fun `実測確認script抽出断片を含む取消1段階目なら2段階目をクエリ無しで一回だけ送り本文とRefererOriginが1段階目由来になる`() = runBlocking {
         server.enqueue(page(fixture("menu.html")))
@@ -774,7 +985,7 @@ class ReservationGatewayTest {
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
         val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
-        assertEquals(ReservationCancelAttempt.Cancelled, result)
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
         assertEquals(6, server.requestCount)
         val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals("/WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1", requests[2].path)
@@ -807,7 +1018,7 @@ class ReservationGatewayTest {
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
 
-        assertEquals(ReservationCancelAttempt.Cancelled, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
         assertEquals(6, server.requestCount)
         val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
@@ -880,6 +1091,323 @@ class ReservationGatewayTest {
         )
     }
 
+    // 10回目のライブ診断で判明した「実サイトのprevRequestFormにaction属性が無い」という事実の
+    // 追加調査のためのprevform診断（読み取り専用）。既存の2段階目送信可否・送信内容は一切変えない。
+
+    @Test
+    fun `診断prevformはaction付きprevRequestFormと関連script文とokCodesNameを記録しPOST回数を変えない`() = runBlocking {
+        val extraStatements =
+            "document.prevRequestForm.action = \"WOpacUsrRsvCancelAction.do\"; document.prevRequestForm.submit();"
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(cancelConfirmationStageHtml(scriptBody = "${cancelConfirmationScript()} $extraStatements")))
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+        val notes = mutableListOf<Pair<String, String>>()
+        val root = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), noteCapturingObserver(notes), waitForRequestSlot = {})
+        val session = LicsXpReservationSession(root, ReservationSequenceHooks())
+
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        // このprevform診断の追加によって取消POSTの回数・宛先が変わっていないことを確認する。
+        assertEquals("/WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1", requests[2].path)
+        assertEquals("/WOpacUsrRsvCancelAction.do", requests[3].path)
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+
+        val prevformNotes = notes.filter { it.first == "cancel-reservation-prevform" }
+        assertEquals(1, prevformNotes.size)
+        val summary = prevformNotes.single().second
+        assertTrue(summary.contains("forms=1"))
+        assertTrue(summary.contains("action=WOpacUsrRsvCancelAction.do"))
+        assertTrue(summary.contains("method=(empty)"))
+        assertTrue(summary.contains("document.prevRequestForm.appendChild(newHidden);"))
+        assertTrue(summary.contains("document.prevRequestForm.action = \"WOpacUsrRsvCancelAction.do\";"))
+        assertTrue(summary.contains("document.prevRequestForm.submit();"))
+        assertTrue(summary.contains("okCodesName=okCodes"))
+        assertFalse(summary.contains("1013074729"))
+        assertFalse(summary.contains(CANCEL_TARGET_TILCOD))
+    }
+
+    @Test
+    fun `診断prevformはaction空(明示的な空文字列)でも2段階目を1段階目と同じクエリ付きURLへ送る`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(cancelConfirmationStageHtml(previousRequestAction = "")))
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+        val notes = mutableListOf<Pair<String, String>>()
+        val root = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), noteCapturingObserver(notes), waitForRequestSlot = {})
+        val session = LicsXpReservationSession(root, ReservationSequenceHooks())
+
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        // 11回目のライブ診断(2026-07-28)の実測に基づく設計変更: action省略時はHTML標準どおり
+        // 現在のドキュメントURL（＝1段階目に実際に送ったクエリ付きURL）へ2段階目を送る。
+        // 以前はここでParseExceptionにして一覧照合へ倒していたが、今回の実測でaction省略は
+        // 例外ではなく正常系（実サイトの実際の挙動）だと判明したための変更。
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals("/WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1", requests[2].path)
+        assertEquals("/WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1", requests[3].path)
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+
+        val prevformNotes = notes.filter { it.first == "cancel-reservation-prevform" }
+        assertEquals(1, prevformNotes.size)
+        val summary = prevformNotes.single().second
+        assertTrue(summary.contains("forms=1"))
+        assertTrue(summary.contains("action=(empty)"))
+        assertTrue(summary.contains("document.prevRequestForm.appendChild(newHidden);"))
+        assertTrue(summary.contains("okCodesName=okCodes"))
+    }
+
+    @Test
+    fun `実サイト相当(action属性なしmethod=post)のprevRequestFormは2段階目を1段階目と同じクエリ付きURLへ送る`() = runBlocking {
+        // 11回目のライブ実測(2026-07-28)の再現: forms=1 attrs=method,name action=(empty) method=post
+        // target=(empty) enctype=(empty) id=(empty)。action属性自体が存在しない点が前のテストとの違い。
+        val listHtml = fixture("usrrsv.html")
+        val stage1 = ReservationCancelFormParser.parse(listHtml).buildForm("1013074729")
+        val controls = buildList {
+            add("mngFlg2_handan" to "1")
+            add("kbnchgflag" to "1")
+            for (index in 0 until stage1.size) add(stage1.name(index) to stage1.value(index))
+        }.joinToString("") { (name, value) -> "<input type=\"hidden\" name=\"${htmlAttribute(name)}\" value=\"${htmlAttribute(value)}\">" }
+        val prevForm = "<form name=\"prevRequestForm\" method=\"post\">$controls</form>"
+        val script = "<script>var OK_CODES_NAME = \"okCodes\"; ${cancelConfirmationScript()}</script>"
+        val stage1Html = listHtml.replace("</body>", "$prevForm$script</body>", ignoreCase = true)
+
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(listHtml))
+        server.enqueue(page(stage1Html))
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals("/WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1", requests[2].path)
+        // 実測どおり、2段階目は1段階目と同じクエリ付きURLへ送られる（クエリ無しへのハードコードはしない）。
+        assertEquals("/WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1", requests[3].path)
+        assertEquals("POST", requests[3].method)
+        assertEquals(
+            server.url("/WOpacUsrRsvCancelAction.do?mngFlg2_handan=1&kbnchgflag=1").toString(),
+            requests[3].getHeader("Referer"),
+        )
+        assertEquals("${server.url("/").scheme}://${server.url("/").host}:${server.url("/").port}", requests[3].getHeader("Origin"))
+        // 2段階目の本文はmngFlg2_handan/kbnchgflag→1段階目と同じ本文→okCodesの順（従来どおり不変）。
+        val stage1Fields = decodeFormFields(requests[2].body.readUtf8())
+        val stage2Fields = decodeFormFields(requests[3].body.readUtf8())
+        assertEquals(
+            listOf("mngFlg2_handan" to "1", "kbnchgflag" to "1") + stage1Fields + listOf("okCodes" to "OPACUSR001"),
+            stage2Fields,
+        )
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
+    @Test
+    fun `診断が無効なときnoteDiagnosticのラムダは評価されない`() {
+        // レビュー指摘対応: inspectPrevRequestFormDiagnostic相当の計算コストを、診断無効時（通常経路）
+        // は一切払わないことを、呼び出し回数を数える形で直接検証する（LicsXpSession.noteDiagnosticの
+        // ラムダ受け取りオーバーロード自体の振る舞いを、cancelReservation全体を動かさずに確認する）。
+        var evaluationCount = 0
+        val disabledSession = LicsXpSession(server.url("/"), waitForRequestSlot = {})
+        disabledSession.noteDiagnostic("test-stage") {
+            evaluationCount += 1
+            "detail"
+        }
+        assertEquals(0, evaluationCount)
+
+        val notes = mutableListOf<Pair<String, String>>()
+        val enabledSession = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), noteCapturingObserver(notes), waitForRequestSlot = {})
+        enabledSession.noteDiagnostic("test-stage") {
+            evaluationCount += 1
+            "detail"
+        }
+        assertEquals(1, evaluationCount)
+        assertEquals(listOf("test-stage" to "detail"), notes)
+    }
+
+    @Test
+    fun `診断prevformは文字列リテラルとコメント内のprevRequestFormを抽出しない`() = runBlocking {
+        val decoyScript =
+            "// prevRequestFormを参照するコメントは無視されるべき\n" +
+                "var note = \"prevRequestFormという文字列も無視されるべき\";\n"
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(cancelConfirmationStageHtml(scriptBody = "$decoyScript${cancelConfirmationScript()}")))
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+        val notes = mutableListOf<Pair<String, String>>()
+        val root = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), noteCapturingObserver(notes), waitForRequestSlot = {})
+        val session = LicsXpReservationSession(root, ReservationSequenceHooks())
+
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+
+        val summary = notes.single { it.first == "cancel-reservation-prevform" }.second
+        assertTrue(summary.contains("document.prevRequestForm.appendChild(newHidden);"))
+        assertFalse(summary.contains("コメントは無視されるべき"))
+        assertFalse(summary.contains("文字列も無視されるべき"))
+    }
+
+    @Test
+    fun `診断prevformは6桁以上の連続数字をnumへマスクする`() = runBlocking {
+        val listHtml = fixture("usrrsv.html")
+        val stage1 = ReservationCancelFormParser.parse(listHtml).buildForm("1013074729")
+        val controls = buildList {
+            add("mngFlg2_handan" to "1")
+            add("kbnchgflag" to "1")
+            for (index in 0 until stage1.size) add(stage1.name(index) to stage1.value(index))
+        }.joinToString("") { (name, value) -> "<input type=\"hidden\" name=\"$name\" value=\"$value\">" }
+        val maskedStatement = "document.prevRequestForm.dataset.code = \"12345678\";"
+        val script =
+            "<script>var OK_CODES_NAME = \"okCodes\"; ${cancelConfirmationScript()} $maskedStatement</script>"
+        // target属性は取消2段階目の送信先解決には使われないため、属性値マスクだけを安全に確認できる。
+        val prevForm =
+            "<form name=\"prevRequestForm\" action=\"WOpacUsrRsvCancelAction.do\" target=\"report1234567\">$controls</form>"
+        val stage1Html = listHtml.replace("</body>", "$prevForm$script</body>", ignoreCase = true)
+
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(listHtml))
+        server.enqueue(page(stage1Html))
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+        val notes = mutableListOf<Pair<String, String>>()
+        val root = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), noteCapturingObserver(notes), waitForRequestSlot = {})
+        val session = LicsXpReservationSession(root, ReservationSequenceHooks())
+
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+
+        val summary = notes.single { it.first == "cancel-reservation-prevform" }.second
+        assertFalse(summary.contains("1234567"))
+        assertFalse(summary.contains("12345678"))
+        assertTrue(summary.contains("target=report<num>"))
+        assertTrue(summary.contains("document.prevRequestForm.dataset.code = \"<num>\";"))
+    }
+
+    // レビュー指摘対応: 英数字混在の秘密値マスク（<tok>）とhash等を含む文の全体伏せ（[REDACTED]）。
+
+    @Test
+    fun `診断prevformは英数字混在の秘密値をtokへhashを含む文を丸ごとREDACTEDへマスクする`() = runBlocking {
+        val tokenStatement = "document.prevRequestForm.token = \"8f3a91cd7e2b\";"
+        val hashStatement = "document.prevRequestForm.hash.value = \"zzz\";"
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(
+            page(cancelConfirmationStageHtml(scriptBody = "${cancelConfirmationScript()} $tokenStatement $hashStatement")),
+        )
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+        val notes = mutableListOf<Pair<String, String>>()
+        val root = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), noteCapturingObserver(notes), waitForRequestSlot = {})
+        val session = LicsXpReservationSession(root, ReservationSequenceHooks())
+
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+
+        val summary = notes.single { it.first == "cancel-reservation-prevform" }.second
+        // 数字混じりの8文字以上の英数字トークンは値の一部だけ<tok>へマスクされる。
+        assertTrue(summary.contains("document.prevRequestForm.token = \"<tok>\";"))
+        assertFalse(summary.contains("8f3a91cd7e2b"))
+        // hashを含む文は部分マスクではなく文全体を[REDACTED]にする。
+        assertTrue(summary.contains("[REDACTED]"))
+        assertFalse(summary.contains("hash.value"))
+        assertFalse(summary.contains("zzz"))
+        // 純粋な識別子（数字を含まない）はマスクしない。
+        assertTrue(summary.contains("document.prevRequestForm.appendChild(newHidden);"))
+    }
+
+    // レビュー指摘対応: 識別子prevRequestFormに依存しない tail= 診断
+    // （署名候補の直後に続く文を最大6文、字句走査で機械的に読む）。
+
+    @Test
+    fun `診断prevformのtailは署名候補直後の送信処理文を識別子どおりに拾う`() = runBlocking {
+        val extraStatements =
+            "document.prevRequestForm.action = \"WOpacUsrRsvCancelAction.do\"; document.prevRequestForm.submit();"
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(cancelConfirmationStageHtml(scriptBody = "${cancelConfirmationScript()} $extraStatements")))
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+        val notes = mutableListOf<Pair<String, String>>()
+        val root = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), noteCapturingObserver(notes), waitForRequestSlot = {})
+        val session = LicsXpReservationSession(root, ReservationSequenceHooks())
+
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+
+        val summary = notes.single { it.first == "cancel-reservation-prevform" }.second
+        val tailSection = summary.substringAfter("tail=").substringBefore(" okCodesName=")
+        assertTrue(tailSection.contains("document.prevRequestForm.action = \"WOpacUsrRsvCancelAction.do\";"))
+        assertTrue(tailSection.contains("document.prevRequestForm.submit();"))
+    }
+
+    @Test
+    fun `診断prevformのtailは別名束縛でも送信処理文を識別子非依存に拾う`() = runBlocking {
+        // f はprevRequestFormのローカル別名。「prevRequestForm」という識別子はf.action/f.submit()には
+        // 一切現れないため、識別子ベースのstmts=では取りこぼす。tail=は署名候補の直後を機械的に読むだけ
+        // なので、別名束縛でも送信先を決める処理を拾えることを確認する。
+        val aliasStatements =
+            "var f = document.prevRequestForm; f.action = \"WOpacUsrRsvCancelAction.do\"; f.submit();"
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(cancelConfirmationStageHtml(scriptBody = "${cancelConfirmationScript()} $aliasStatements")))
+        server.enqueue(page("<html>取消完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+        val notes = mutableListOf<Pair<String, String>>()
+        val root = LicsXpSession(server.url("/"), okhttp3.OkHttpClient(), noteCapturingObserver(notes), waitForRequestSlot = {})
+        val session = LicsXpReservationSession(root, ReservationSequenceHooks())
+
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+
+        val summary = notes.single { it.first == "cancel-reservation-prevform" }.second
+        val stmtsSection = summary.substringAfter("stmts=").substringBefore(" tail=")
+        val tailSection = summary.substringAfter("tail=").substringBefore(" okCodesName=")
+        // 識別子ベースのstmts=は別名束縛の代入文までしか拾えない（既知の限界。tail=追加の動機そのもの）。
+        assertTrue(stmtsSection.contains("var f = document.prevRequestForm;"))
+        assertFalse(stmtsSection.contains("f.action"))
+        assertFalse(stmtsSection.contains("f.submit"))
+        // tail=は識別子に依存しないため、別名経由の送信処理文を両方とも拾う。
+        assertTrue(tailSection.contains("f.action = \"WOpacUsrRsvCancelAction.do\";"))
+        assertTrue(tailSection.contains("f.submit();"))
+    }
+
     @Test
     fun `取消確認署名診断は巨大scriptでも集計のみを記録し2段階目を送る`() = runBlocking {
         assertCancelSignatureDiagnostic(
@@ -949,7 +1477,7 @@ class ReservationGatewayTest {
     }
 
     @Test
-    fun `2段階目後に対象消失でCancelledになる場合と対象が残っている場合を区別する`() = runBlocking {
+    fun `2段階目後に対象消失でCancelledAndHiddenになる場合と対象が残っている場合を区別する`() = runBlocking {
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
         server.enqueue(page(cancelConfirmationStageHtml()))
@@ -1459,7 +1987,7 @@ class ReservationGatewayTest {
         server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
-        assertEquals(ReservationCancelAttempt.Cancelled, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
         assertEquals(6, server.requestCount)
         val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
@@ -1489,7 +2017,7 @@ class ReservationGatewayTest {
         val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
         assertEquals(
-            if (expectStage2) ReservationCancelAttempt.Cancelled else ReservationCancelAttempt.IndeterminateAfterPost,
+            if (expectStage2) ReservationCancelAttempt.CancelledAndHidden else ReservationCancelAttempt.IndeterminateAfterPost,
             result,
         )
         assertEquals(if (expectStage2) 6 else 5, server.requestCount)

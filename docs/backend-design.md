@@ -669,26 +669,40 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
 バックグラウンド同期からの呼び出しは設計上禁止する（`ReservationSession.cancelReservation`・
 `ReservationCancelRepository`のコメント参照）。**
 
-> **ライブ検証の現状（2026-07-28）**: 固定値で第2段階を組み立てた旧版は、第1・第2段階の計2 POSTが
-> HTTP 200でも取消不成立で、対象`tilcod`は残存した（取消後サマリ19件、一覧パーサ20行）。その後の
-> `prevRequestForm`実DOM版のライブでは、開始時点で対象は1件あったが`cancelCode`が空のため、送信前安全弁で
-> 取消POST 0回のまま停止した。`cancelCode`が空になった原因は未確認であり、前回POSTの影響等を断定しない。
-> よって、現行版が本番で第2段階POSTを成功させ取消を成立させることは未検証である。次回は別の現在取消可能な
-> `tilcod`でのみ検証できる。
+> **ライブ検証の現状（2026-07-28、12回目で取消成立を確認済み）**: 固定値で第2段階を組み立てた旧版は
+> 取消不成立が続き（詳細な経緯は`docs/site-research.md`§8〜§11回目）、11回目でaction省略時に
+> 1段階目と同じクエリ付きURLへ2段階目を送るよう変更した。**12回目のライブ取消診断で、2段階目応答の
+> 画面固有メッセージが「予約の取消が完了しました。」となり、実サイトでの取消成立を確認した。**
+> 同時に行った読み取り専用の一覧観測（`liveReservationListInspect`、書き込み副作用ゼロ）で、
+> 所有者提供の仕様（取消後も対象行は一覧から消えず、予約状態が「取消」になり取消ボタンが
+> 「非表示」ボタン(`yoykHihyoji`)へ置き換わる。非表示ボタンを押すと初めて一覧から消える）を実測で
+> 裏付けた。これにより、対象tilcod行の消失だけをCancelledとしていた旧判定と、取消済み行があると
+> 常に不完全になっていた完全性ガードは誤りだったと判明し、本節どおり修正した
+> （詳細は`docs/site-research.md`§12回目）。実サイトでの取消成立は確認済みだが、非表示ボタンの
+> 実装（`yoykHihyoji`の送信）は未実装であり、`Cancelled`状態の資料が一覧に残り続ける。
 
 - **ドメイン**: `Reservation.cancelCode`（取消ボタンの`yoykCancel('コード')`由来。取消ボタンが
   無い行は空文字列）。`ReservationCancelTarget`は`memberId`・`tilcod`・`cancelCode`の3値で対象を
   固定する。`ReservationCancelOutcome`
-  (`Cancelled` / `Rejected(siteMessage)` / `Failure(FailureReason)` / `Unknown(UnknownReason)`) /
-  `ReservationCancelItemResult` / `MemberReservationCancelResult` / `ReservationCancelBatchResult`
-  を`domain/model/Models.kt`に追加した。
+  (`Cancelled` / `CancelledAndHidden` / `Rejected(siteMessage)` / `Failure(FailureReason)` /
+  `Unknown(UnknownReason)`) / `ReservationCancelItemResult` / `MemberReservationCancelResult` /
+  `ReservationCancelBatchResult` を`domain/model/Models.kt`に追加した。
+  12回目のライブ実測(2026-07-28、`docs/site-research.md`§12回目)で判明した、取消後も一覧に残る
+  「取消」状態・「移送中」状態に対応するため、`ReservationState`へ`CANCELLED`・`IN_TRANSIT`を
+  追加した。`LocalDateConverters.reservationStateToString`が`name`文字列で保存する既存実装のため、
+  Roomマイグレーションは不要（DBバージョンは7のまま）。
 - **Room**: `ReservationEntity.cancelCode`をv6→v7で追加(`MIGRATION_6_7`、空文字列既定、v4→v5の
   `tilcod`追加と同じ流儀)。`ReservationDao.deleteByTarget(memberId, tilcod, cancelCode)`を追加し、
   取消成功が確認できた予約だけをローカルからも即時削除できるようにした。**次回同期は予約一覧を
   全置換するため、ここで消し忘れても自己修復するが、UIが古い「予約中」を出し続けないよう
-  即時削除も行う。**
+  即時削除も行う。** `Cancelled`/`CancelledAndHidden`のどちらでも即時削除する（12回目実測でどちらも
+  取消成立を意味すると判明したため。詳細は後述）。
 - **パーサ**: `ReservationListParser`は行内の取消ボタン(`onclick*=yoykCancel`)の有無で`cancelCode`を
-  抽出する（状態文字列ではなくボタンの有無で判断し、サイト仕様の変化に追随する）。
+  抽出する（状態文字列ではなくボタンの有無で判断し、サイト仕様の変化に追随する）。予約状態文字列は
+  「予約中」→WAITING、「提供可能」→READY、「取消」→CANCELLED、「移送中」→IN_TRANSIT、それ以外は
+  UNKNOWNへ写す。取消の成否判定専用に、内部関数`parseRows`が`Reservation`と非表示ボタン
+  (`onclick*=yoykHihyoji`)の有無（コード値は保持しない）の組を返す。公開`parse()`の戻り値・挙動は
+  `parseRows`の結果を`map`しているだけで変わらない。
   新設の`ReservationCancelFormParser`は予約状況一覧(`LBForm`、`gamenid=tiles.WUsrRsvList`かつ
   hidden`yoycod`がちょうど1個)を一意特定し、successful controlsをDOM順・同名重複
   (`yoykcode`が行数分並ぶ)を保持したまま抽出する。`buildForm(cancelCode)`は`yoycod`だけを
@@ -717,8 +731,16 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
      `document.prevRequestForm.appendChild(newHidden)`）全体に一致する場合だけとする。
      `prevRequestForm`の既存controlsは、`mngFlg2_handan=1`・`kbnchgflag=1`と送信前に一意に解析済みの
      `cancelForm`の全項目について名前・値・重複数が一致する場合だけ受け入れる（送信順はstage1 DOM順を維持）。
-     actionはbaseUrlと同一originかつ`WOpacUsrRsvCancelAction.do`のpathに限定し、解析・照合・URL検証のいずれかに
-     失敗した場合は第2段階を送らない。
+     actionの解決は`ReservationCancelConfirmationAction`型（`Explicit(value)` / `SameAsCurrentDocument`）で
+     場合分けする。action属性が明示されていれば従来どおりbaseUrlと同一originかつ
+     `WOpacUsrRsvCancelAction.do`のpath・クエリ無しに限定する。11回目のライブ実測(2026-07-28、
+     `docs/site-research.md`§11回目)で判明したとおり、実サイトの`prevRequestForm`は実際にはaction属性を
+     持たない（`name`/`method=post`のみ）。HTML標準ではaction省略時の送信先は現在のドキュメントURLであり、
+     1段階目はリダイレクトしないことを実測済みのため、この場合は1段階目に実際に送ったURL
+     （`LicsXpReservationCancelStagePage.url`、クエリ付き）をハードコードせずそのまま使う。この場合も
+     同一originかつ`WOpacUsrRsvCancelAction.do`のpathであることは同様に検証する（クエリの有無は
+     制約しない。1段階目はクエリ付きで送るのが正しいため）。解析・照合・URL検証のいずれかに失敗した場合は
+     第2段階を送らない。
      `OK_CODES_NAME`抽出は既存の署名字句走査と同じ正規表現開始文脈（制御条件終端、`else`、arrow、block終端、
      ASI後を含む）を用い、曖昧な`/`は正規表現として扱う。コメント・通常文字列・template literal・正規表現内の
      偽代入は根拠にせず、同名の既存controlとの衝突も拒否する。
@@ -737,6 +759,12 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
      さらに`cancel-reservation-stage`診断として、値を出さず`targetStillPresent`、`signatureMatched`、
      最終`matched`のBooleanだけを記録する。この診断は複合ガードの原因切分け専用であり、
      第2段階POSTの可否を変えない。
+     10回目診断（`docs/site-research.md`§10回目）で追加した`cancel-reservation-prevform`診断は、
+     `prevRequestForm`の属性一覧・`action`/`method`/`target`/`enctype`/`id`（機微値はマスク）・
+     controls件数・識別子`prevRequestForm`を含むscript文・取消確認プロトコル署名の候補直後に続く文・
+     `OK_CODES_NAME`の実field名を1行のサマリとして記録するだけで、判定・送信内容には関与しない。
+     実サイトのstage1は巨大scriptを多数含み計算コストが無視できないため、`LicsXpSession.noteDiagnostic`に
+     ラムダを受け取るオーバーロードを追加し、診断が無効な通常経路ではこの診断の計算自体を行わない。
      2026-07-28第5回診断で外側ifが外側block内にあることを確認したため、候補を包むwrapperの種類・
      block深度・`if (false)`・未呼出し関数などの一般到達可能性は安全条件に含めない。JavaScriptの
      一般的な実行可能性は推定しない。ただし、固定署名の3文（外側if/else、`if(rest)/else`、`for(okArray)`）
@@ -746,9 +774,24 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
      1段階目にこの複合条件が無い場合、または2段階目後は、いずれも照合へ進む。
   4. 状態変更POSTは**自動再試行しない1回限りの試行**である。これはネットワーク上の厳密な
      exactly-once保証ではない。各段階の通信断は再送せず`IndeterminateAfterPost`とする。
-  5. 照合は取消後にメニューを再取得し、最新サマリの予約件数と再取得一覧の解析行数が一致する
-     完全一覧でのみ行う。固定した`tilcod`行が無い場合だけ`Cancelled`、対象残存・件数不一致・
-     サマリ/一覧の解析不能・取得不能は`IndeterminateAfterPost`とする。
+  5. **（12回目のライブ取消＋一覧観測(2026-07-28)で確定した仕様に基づき改修済み）** 照合は取消後に
+     メニューを再取得し、最新サマリの予約件数と再取得一覧の「取消状態(CANCELLED)でない行数」が
+     一致する完全一覧でのみ行う（旧: 単純な解析行数との一致。取消済み行が1行でもあると常に不完全に
+     なっていた欠陥を修正）。実測内訳: 予約中15+提供可能3+移送中1+取消1=20行、サマリ19
+     （取消済み行だけが除外され、移送中・提供可能はサマリに数えられる。移送中を除外してはならない）。
+     完全一覧を前提に、対象`tilcod`行について次のとおり判定する:
+
+     | 取消後の対象tilcod行 | 判定 |
+     |---|---|
+     | 一覧に無い | `CancelledAndHidden` |
+     | `state=CANCELLED` **かつ** 非表示ボタン(`yoykHihyoji`)あり | `Cancelled` |
+     | 状態のみ一致／ボタンのみ一致 | `IndeterminateAfterPost` |
+     | 予約中・提供可能・移送中等で残存 | `IndeterminateAfterPost` |
+     | サマリ/一覧の解析不能・取得不能 | `IndeterminateAfterPost` |
+
+     状態文字列とボタンの両方が一致した場合だけ成功とし、片方だけの一致は確証がないため
+     `IndeterminateAfterPost`へ倒す。`Cancelled`と`CancelledAndHidden`を分けているのは、所有者の
+     方針（非表示操作を将来アプリへ組み込むかもしれない）による。
   6. 解析失敗・ログインフォーム・メンテナンスは`fetch-reservations`と同じ流儀で
      `cancel-reservation`カテゴリの診断ログに記録する。
 - **Repository**: `ReservationCancelRepository.cancelReservations(List<ReservationCancelTarget>)`。
@@ -756,6 +799,9 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
   メンバーごとに分離セッションでログインし1件ずつ順に処理する。POST前セッション切れは1回だけ
   再ログインして同じ対象を再試行し、以降も切れる場合は残件を中止する。Parse/メンテナンス/
   ネットワーク例外は当該項目を失敗にして以降の同一メンバー項目を中止する。他メンバーは独立して
-  続行する。取消成功が確認できた項目はローカルDBからも即時削除する。
-- **未検証事項**: 取消の成功・拒否ダイアログの実文言、予約上限や利用制限に関する取消固有の
-  拒否条件、CSV出力・順番解除・非表示など他の画面内アクション(`docs/site-research.md`§9参照)。
+  続行する。`Cancelled`・`CancelledAndHidden`はどちらも取消成立を意味するため、両方とも成功として
+  扱い、どちらもローカルDBから即時削除する。
+- **未検証事項**: 取消の拒否ダイアログの実文言、予約上限や利用制限に関する取消固有の
+  拒否条件、CSV出力・順番解除・非表示ボタン(`yoykHihyoji`)自体の送信など他の画面内アクション
+  (`docs/site-research.md`§9・§12回目参照)。取消の成功自体は12回目のライブ取消診断(2026-07-28)で
+  確認済み（詳細は本節冒頭のコールアウトを参照）。

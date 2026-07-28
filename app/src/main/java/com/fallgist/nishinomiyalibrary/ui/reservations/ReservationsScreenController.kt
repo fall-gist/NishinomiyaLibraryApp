@@ -97,6 +97,10 @@ object ReservationsContentBuilder {
         ReservationState.READY -> "受取可能"
         ReservationState.WAITING -> "順番待ち"
         ReservationState.UNKNOWN -> "状態不明"
+        // 12回目のライブ取消＋一覧観測(2026-07-28)で確定。以前はUNKNOWN(状態不明)扱いだった状態を
+        // 区別できるようになっただけで、一覧への表示可否(フィルタ)は変えていない。
+        ReservationState.CANCELLED -> "取消済み"
+        ReservationState.IN_TRANSIT -> "移送中"
     }
 }
 

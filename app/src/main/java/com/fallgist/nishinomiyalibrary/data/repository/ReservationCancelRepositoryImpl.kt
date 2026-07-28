@@ -107,11 +107,19 @@ class ReservationCancelRepositoryImpl @Inject constructor(
                 }
 
                 when (attempt) {
-                    ReservationCancelAttempt.Cancelled -> {
+                    // 12回目のライブ実測(2026-07-28)どおり、取消後も対象行は一覧に残り得る（Cancelled）か、
+                    // 一覧から消える（CancelledAndHidden）かのいずれかであり、いずれも取消は成立している。
+                    // ローカルDBからの即時削除もローカルUI向けの結果も、両方とも成功として同じ扱いにする。
+                    ReservationCancelAttempt.Cancelled, ReservationCancelAttempt.CancelledAndHidden -> {
                         // 取消成功を確認できた予約は、次回の全置換同期を待たずローカルからも即時削除する。
                         // (同期は予約一覧を全置換するため、ここで消し忘れても次回同期で自己修復する。)
                         reservationDao.deleteByTarget(memberId, target.tilcod, target.cancelCode)
-                        results += ReservationCancelItemResult(target, ReservationCancelOutcome.Cancelled)
+                        val outcome = if (attempt == ReservationCancelAttempt.Cancelled) {
+                            ReservationCancelOutcome.Cancelled
+                        } else {
+                            ReservationCancelOutcome.CancelledAndHidden
+                        }
+                        results += ReservationCancelItemResult(target, outcome)
                         index++
                     }
                     is ReservationCancelAttempt.Rejected -> {

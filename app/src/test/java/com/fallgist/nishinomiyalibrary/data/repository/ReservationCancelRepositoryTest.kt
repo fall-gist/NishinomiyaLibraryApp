@@ -71,6 +71,32 @@ class ReservationCancelRepositoryTest {
     }
 
     @Test
+    fun `CancelledAndHiddenもCancelledと同じくローカルから即時削除し成功として扱う`() = runBlocking {
+        // 12回目のライブ実測(2026-07-28)どおり、取消後に対象行が一覧から消える(CancelledAndHidden)場合も
+        // 一覧に残る(Cancelled)場合も、どちらも取消は成立している。両方とも成功として同じ扱いにする。
+        val member = addMember("非表示区別", "8")
+        database.reservationDao().insert(reservation(member, "hidden"))
+        database.reservationDao().insert(reservation(member, "stillListed"))
+        val attempts = mapOf(
+            "hidden" to ReservationCancelAttempt.CancelledAndHidden,
+            "stillListed" to ReservationCancelAttempt.Cancelled,
+        )
+        val repository = repository(fakeGateway(attempts))
+
+        val result = repository.cancelReservations(
+            listOf(
+                target(member, "hidden"),
+                target(member, "stillListed"),
+            ),
+        )
+
+        assertEquals(ReservationCancelOutcome.CancelledAndHidden, result.members.single().itemResults[0].outcome)
+        assertEquals(ReservationCancelOutcome.Cancelled, result.members.single().itemResults[1].outcome)
+        // どちらも成功のため、両方ともローカルから削除される。
+        assertEquals(emptyList<String>(), database.reservationDao().getForMember(member).map { it.cancelCode })
+    }
+
+    @Test
     fun `1件が失敗しても残りのメンバーは処理を続行する`() = runBlocking {
         val bad = addMember("失敗", "2")
         val good = addMember("成功", "3")

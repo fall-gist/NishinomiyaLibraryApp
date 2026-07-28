@@ -71,7 +71,16 @@ data class Reservation(
     val cancelCode: String = "",
 )
 
-enum class ReservationState { WAITING, READY, UNKNOWN }
+/**
+ * 12回目のライブ取消＋一覧観測(2026-07-28)で確定した実測内訳（予約状況一覧、全20行）:
+ * 予約中15行(WAITING) + 提供可能3行(READY) + 移送中1行(IN_TRANSIT) + 取消1行(CANCELLED) = 20行。
+ * サマリの予約中件数(19)は取消済み行だけを除いた数であり、移送中・提供可能は数えられている。
+ * [CANCELLED]は予約状態列が「取消」の行（取消ボタンが「非表示」ボタン(yoykHihyoji)へ置き換わる）。
+ * [IN_TRANSIT]は予約状態列が「移送中」の行（取消・非表示いずれのボタンも無い）。
+ * Roomへは`LocalDateConverters.reservationStateToString`が`name`文字列で保存するため、
+ * 定数追加にRoomマイグレーションは不要（列型は変わらない）。
+ */
+enum class ReservationState { WAITING, READY, UNKNOWN, CANCELLED, IN_TRANSIT }
 
 data class Shelf(
     val no: Int,
@@ -229,7 +238,17 @@ data class ReservationCancelTarget(
 }
 
 sealed interface ReservationCancelOutcome {
+    /**
+     * 取消が成立し、対象行が「取消」状態で一覧に残っている（非表示にできる状態）。
+     * 12回目のライブ実測(2026-07-28)どおり、実サイトは取消後も対象行を一覧から消さない。
+     */
     data object Cancelled : ReservationCancelOutcome
+    /**
+     * 取消が成立し、対象行が一覧に無い。既に非表示化されたのか、サイトが別の理由で即時に
+     * 一覧から消したのかは区別しない。所有者の方針により、非表示操作を将来アプリへ組み込む
+     * 可能性を見込んで[Cancelled]とは別の結果型にしている。
+     */
+    data object CancelledAndHidden : ReservationCancelOutcome
     /** 現在は生成されない。一般語による拒否判定が誤検出を招くことが実測(2026-07-27)で判明したため。 */
     data class Rejected(val siteMessage: String) : ReservationCancelOutcome
     /**

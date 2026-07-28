@@ -112,9 +112,42 @@ class LiveReservationCancelDiagnosticSupportTest {
 
         assertEquals(1, gateway.session.cancelCalls)
         assertEquals("c1", gateway.session.cancelledWith)
-        assertFalse(report.stillPresentAfter)
+        assertFalse(report.targetRowPresentAfter)
         assertTrue(report.attempt is ReservationCancelAttempt.Cancelled)
         assertEquals(listOf("fetch-before", "cancel", "fetch-after", "close"), gateway.session.calls)
+    }
+
+    @Test
+    fun `一覧観測に対応したセッションでは取消後も対象行が取消状態で残っていることを観測できる`() = runBlocking {
+        // 12回目のライブ取消＋一覧観測(2026-07-28)で確定した仕様どおり、取消成立後も対象行は
+        // 「取消」状態のまま一覧に残り得る。この場合でもattemptはCancelledであり、
+        // targetRowPresentAfter(観測値)がtrueであることは失敗を意味しない。
+        val gateway = FakeCancelListInspectorGateway(
+            before = listOf(reservation(tilcod = "1000000000001", cancelCode = "c1")),
+            afterState = ReservationState.CANCELLED,
+            afterHideButtonPresent = true,
+        )
+        val config = authorizedConfig()
+
+        val report = runLiveReservationCancelDiagnostic(gateway, config, LiveReservationDiagnosticLogger())
+
+        assertTrue(report.attempt is ReservationCancelAttempt.Cancelled)
+        assertTrue(report.targetRowPresentAfter)
+    }
+
+    @Test
+    fun `一覧観測に対応したセッションで取消後に対象行が消えていればtargetRowPresentAfterはfalseになる`() = runBlocking {
+        val gateway = FakeCancelListInspectorGateway(
+            before = listOf(reservation(tilcod = "1000000000001", cancelCode = "c1")),
+            afterState = null,
+            afterHideButtonPresent = false,
+        )
+        val config = authorizedConfig()
+
+        val report = runLiveReservationCancelDiagnostic(gateway, config, LiveReservationDiagnosticLogger())
+
+        assertTrue(report.attempt is ReservationCancelAttempt.CancelledAndHidden)
+        assertFalse(report.targetRowPresentAfter)
     }
 
     private fun authorizedConfig(): LiveReservationCancelDiagnosticConfig = requireNotNull(
@@ -172,6 +205,54 @@ class LiveReservationCancelDiagnosticSupportTest {
 
         override fun close() {
             calls += "close"
+        }
+    }
+
+    /**
+     * [ReservationListInspector]に対応したセッションのフェイク。取消後、対象行が「取消」状態のまま
+     * 残る（[afterState]非null）か、一覧から消える（[afterState]がnull）かを選べる。
+     */
+    private class FakeCancelListInspectorGateway(
+        private val before: List<Reservation>,
+        private val afterState: ReservationState?,
+        private val afterHideButtonPresent: Boolean,
+    ) : ReservationGateway {
+        override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession =
+            FakeCancelListInspectorSession(before, afterState, afterHideButtonPresent)
+    }
+
+    private class FakeCancelListInspectorSession(
+        private val before: List<Reservation>,
+        private val afterState: ReservationState?,
+        private val afterHideButtonPresent: Boolean,
+    ) : ReservationSession, ReservationListInspector {
+        override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt =
+            error("この診断では使わない")
+
+        override suspend fun fetchReservations(): List<Reservation> = before
+
+        override suspend fun cancelReservation(cancelCode: String, expectedTilcod: String): ReservationCancelAttempt =
+            if (afterState != null) ReservationCancelAttempt.Cancelled else ReservationCancelAttempt.CancelledAndHidden
+
+        override fun close() = Unit
+
+        override suspend fun inspectReservationList(): ReservationListInspection {
+            val state = afterState
+            val rows = if (state != null) {
+                listOf(
+                    ReservationListRowInspection(
+                        tilcod = before.single().tilcod,
+                        stateText = "取消",
+                        state = state,
+                        cancelCodePresent = false,
+                        buttonFunctionNames = if (afterHideButtonPresent) listOf("yoykHihyoji") else emptyList(),
+                        cellClassNames = emptyList(),
+                    ),
+                )
+            } else {
+                emptyList()
+            }
+            return ReservationListInspection(summaryReservationCount = null, parsedRowCount = rows.size, rows = rows)
         }
     }
 }
