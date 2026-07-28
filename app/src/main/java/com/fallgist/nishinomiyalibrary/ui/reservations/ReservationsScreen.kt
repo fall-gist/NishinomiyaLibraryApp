@@ -7,11 +7,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -148,6 +150,11 @@ private fun BulkCancelBar(selectedCount: Int, enabled: Boolean, onClick: () -> U
     }
 }
 
+// 取消不可の行でチェックボックスを非表示にした際、タイトルの行頭を揃えるための予約幅。
+// Checkboxの実占有幅(padding(start = 4.dp) + Material3 minimumInteractiveComponentSize の 48.dp)と一致させる。
+// 値はandroidx.compose.material3:material3-android:1.3.0のソース(Checkbox.kt/InteractiveComponentSize.kt)で実測確認済み。
+private val ReservationCheckboxSlotWidth = 4.dp + 48.dp
+
 @Composable
 private fun ReservationRowView(
     row: ReservationRow,
@@ -171,14 +178,20 @@ private fun ReservationRowView(
             ),
         verticalAlignment = Alignment.Top,
     ) {
-        // チェックボックスは独立したタップ領域を持つ。行タップ(書誌詳細を開く)を誤発火させない。
-        Checkbox(
-            checked = selected,
-            onCheckedChange = { onToggleSelection() },
-            enabled = row.cancellable && selectionEnabled,
-            colors = CheckboxDefaults.colors(checkedColor = colors.alert),
-            modifier = Modifier.padding(top = 8.dp, start = 4.dp),
-        )
+        if (row.cancellable) {
+            // チェックボックスは独立したタップ領域を持つ。行タップ(書誌詳細を開く)を誤発火させない。
+            Checkbox(
+                checked = selected,
+                onCheckedChange = { onToggleSelection() },
+                enabled = selectionEnabled,
+                colors = CheckboxDefaults.colors(checkedColor = colors.alert),
+                modifier = Modifier.padding(top = 8.dp, start = 4.dp),
+            )
+        } else {
+            // 取消できない行(受取可能・移送中など)ではチェックボックス自体を出さない(無効表示は分かりにくいため)。
+            // ただしチェックボックス分の幅は空けておき、全行でタイトルの行頭を揃える。
+            Spacer(modifier = Modifier.width(ReservationCheckboxSlotWidth))
+        }
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -208,9 +221,44 @@ private fun ReservationRowView(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(text = "受取館 ${row.pickupLabel}", color = colors.ink2, fontSize = 11.sp)
-                row.queueLabel?.let { Text(text = it, color = colors.ink2, fontSize = 11.sp) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = "受取館 ${row.pickupLabel}",
+                        color = colors.ink2,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    row.queueLabel?.let {
+                        Text(
+                            text = it,
+                            color = colors.ink2,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                // 取消ボタンは取消可能な行(cancelCodeが非空)だけに出す。無効化ではなく非表示にする。
+                // 書誌詳細の「この予約を取り消す」ボタン(BookDetailView)と同じ色・流儀を踏襲。
+                // 「受取館/順位」行の右端に収めるため、Material3のButton既定(高さ40dp)より
+                // heightとcontentPaddingを詰めて行の高さ増加を抑える(タップ領域は32dpを確保し押しやすさは維持)。
+                if (row.cancellable) {
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = onRequestCancel,
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.alert, contentColor = colors.card),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp),
+                    ) { Text("取消") }
+                }
             }
             row.holdExpiryLabel?.let {
                 Spacer(Modifier.height(2.dp))
@@ -220,17 +268,6 @@ private fun ReservationRowView(
                     fontSize = 11.sp,
                     fontWeight = if (row.isReady) FontWeight.SemiBold else FontWeight.Normal,
                 )
-            }
-            // 取消ボタンは取消可能な行(cancelCodeが非空)だけに出す。無効化ではなく非表示にする。
-            // 書誌詳細の「この予約を取り消す」ボタン(BookDetailView)と同じ流儀・同じ色に揃え、行の右端に寄せる。
-            if (row.cancellable) {
-                Spacer(Modifier.height(6.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Button(
-                        onClick = onRequestCancel,
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.alert, contentColor = colors.card),
-                    ) { Text("取消") }
-                }
             }
         }
     }
