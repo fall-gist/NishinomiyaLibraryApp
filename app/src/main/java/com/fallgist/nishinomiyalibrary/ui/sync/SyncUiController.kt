@@ -5,8 +5,6 @@ import com.fallgist.nishinomiyalibrary.domain.repository.SyncResult
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncTrigger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -32,14 +30,17 @@ data class SyncMessage(val id: Long, val text: String)
  */
 class SyncUiController(
     private val statusRepository: StatusRepository,
-    private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val _state = MutableStateFlow(SyncUiState())
     val state: StateFlow<SyncUiState> = _state
     private val syncMutex = Mutex()
     private val messageSequence = AtomicLong(0L)
 
-    /** 同期中の再入は黙って無視する（tryLockで判定）。 */
+    /**
+     * 同期中の再入は黙って無視する（tryLockで判定）。
+     * 呼び出し元のコンテキストで動くが、通信は LicsXpSession が Dispatchers.IO へ逃がしており
+     * (executeOnce の withContext)、ここでディスパッチャを切り替える必要はない。
+     */
     suspend fun requestManualSync() {
         if (!syncMutex.tryLock()) return
         // 「同期中です」はメッセージとして流さない。プル中であることは
