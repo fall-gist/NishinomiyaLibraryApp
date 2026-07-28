@@ -791,13 +791,32 @@ class LicsXpSession private constructor(
 - `SyncUiControllerTest`を新設（6件）。完了メッセージ、一部失敗の人数、例外時の失敗メッセージ、
   `consumeMessage`の一致・不一致、同期中の再入で`syncAll`が2回呼ばれないこと。
   再入テストは`CompletableDeferred`で1件目をsyncAll内に留めて実際のインターリーブを作っている
-- **実機・エミュレータでの動作確認は未実施。** 本作業時点で開発機にAndroid端末が接続されておらず、
-  AVDも1つも作成されていなかったため。特に次の2点が未確認である:
-  - **本棚のプルが実際に反応するか**。`LazyRow`（横）の中に列ごとの`LazyColumn`（縦）が並ぶ構造で、
-    縦プルが親へ届くかが焦点。`PullToRefresh`の実装を読むと下方向プルは`onPostScroll`、つまり
-    **子が消費しなかった残り**で拾っており、列内`LazyColumn`が先頭にあれば伝播する見込みが高い。
-    ただし読んだだけであり、動作は未確認
-  - 画面回転時にSnackbarが二重表示にならないこと
+- **実機で動作確認済み（2026-07-28、所有者）。** 開発機にはAndroid端末もAVDも無いため、
+  CI（`.github/workflows/build.yml`、`on: push`）が出す`app-debug-apk`アーティファクトを
+  実機へ入れて確認した。**今後この種の確認はこの経路で行うこと。**
+  - **本棚のプルは動く。** `LazyRow`内に`LazyColumn`が並ぶ構造でも縦プルが親へ届く。
+    下方向プルは`onPostScroll`＝子が消費しなかった残りで拾う実装のためで、事前の読みどおりだった
+  - ホーム・貸出中・予約中・読書記録でプルが効き、Snackbarで結果が出る
+  - ホームの「いますぐ同期」中に他画面へ移ってもインジケータが回っている（状態集約が働いている）
+  - 画面回転でSnackbarは二重表示にならない
+  - **空状態だけ未確認。** 予約が0件になる状況を作れないため。他画面と同じ形であり実害は無い見込み
+- 実機検証で**画面回転により同期が中断される不具合**が見つかり、修正済み（下記）
+
+### 画面回転で同期が中断される不具合（2026-07-28、修正済み）
+
+`MainActivity`が同期を`uiScope`で起動していたが、この`uiScope`は`onDestroy`で`cancel()`される。
+画面回転はActivityの破棄・再生成なので、同期コルーチンごとキャンセルされていた。
+`finally`は実行されるため`isSyncing=false`に戻りMutexも解放されるが、**同期は途中で止まる**。
+メンバーが複数いる場合、2人目の途中で回転すると1人目だけ更新された状態で終わり、
+`CancellationException`は再スローされるためSnackbarでの通知も出ない。
+
+**本機能で入れた退行ではない。** 旧`HomeScreenController.requestManualSync`も同じ`uiScope`から
+呼ばれており同じ問題を抱えていた。プルリフレッシュで手動同期の頻度が上がり顕在化した。
+
+修正は、`SyncUiController`（`@Singleton`でActivityより長生き）に自前の
+`CoroutineScope(SupervisorJob() + dispatcher)`を持たせ、`requestManualSync`を非suspendにして
+その上で走らせる形にした。`MainActivity`は`syncUiController::requestManualSync`を渡すだけになる。
+`close()`は設けない——同期を最後まで走らせることが目的のため、プロセスと寿命を共にする。
 
 ### 既知の弱点（意図した割り切り）
 
@@ -808,9 +827,13 @@ class LicsXpSession private constructor(
 
 ### 開発環境の注意（2026-07-28に判明）
 
-このリポジトリには`local.properties`が無く、Gradleを回すには`JAVA_HOME`（Android Studio同梱の
-`jbr`で可）と`ANDROID_HOME`を明示指定する必要がある。指定しないと
-「SDK location not found」または「JAVA_HOME is not set」で失敗する。
+- このリポジトリには`local.properties`が無く、ローカルでGradleを回すには`JAVA_HOME`
+  （Android Studio同梱の`jbr`で可）と`ANDROID_HOME`を明示指定する必要がある。指定しないと
+  「SDK location not found」または「JAVA_HOME is not set」で失敗する。
+- **実機検証はCIのアーティファクトから行う。** 開発機にAndroid端末は接続されておらず、AVDも
+  1つも作成されていない。プッシュすれば`.github/workflows/build.yml`が単体テストと
+  デバッグAPKビルドを回し、`app-debug-apk`として保存するので、そこから取って実機へ入れる。
+  エミュレータを新規に用意する必要はない。
 
 ## 今後の構想（2026-07-26時点。未着手・未設計）
 
