@@ -86,25 +86,6 @@ class HomeScreenControllerTest {
         controller.close()
     }
 
-    @Test
-    fun requestManualSync_reportsCompletionMessage() = runTest {
-        val controller = HomeScreenController(
-            familyRepository = FakeFamilyRepository(MutableStateFlow(emptyList())),
-            statusRepository = FakeStatusRepository(syncResult = SyncResult.Completed(2, 0)),
-            scheduleStarter = FakeScheduleStarter(),
-            dispatcher = UnconfinedTestDispatcher(testScheduler),
-            today = { today },
-        )
-        advanceUntilIdle()
-
-        controller.requestManualSync()
-        advanceUntilIdle()
-
-        assertTrue(controller.state.value.syncMessage!!.contains("同期が完了"))
-        assertEquals(false, controller.state.value.isSyncing)
-        controller.close()
-    }
-
     data class AddedMember(val name: String, val colorHex: String, val cardNumber: String, val password: String)
 
     private class FakeFamilyRepository(

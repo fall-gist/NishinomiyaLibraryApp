@@ -3,8 +3,6 @@ package com.fallgist.nishinomiyalibrary.ui.home
 import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
-import com.fallgist.nishinomiyalibrary.domain.repository.SyncResult
-import com.fallgist.nishinomiyalibrary.domain.repository.SyncTrigger
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationValidation
@@ -42,7 +40,6 @@ class HomeScreenController(
     val state: StateFlow<HomeUiState> = _state
 
     private val selectedMemberId = MutableStateFlow<Long?>(null)
-    private val syncMutex = Mutex()
     private val launchMutex = Mutex()
     private var scheduleCompleted = false
     private val observationJob: Job
@@ -127,32 +124,8 @@ class HomeScreenController(
         }
     }
 
-    suspend fun requestManualSync() {
-        if (!syncMutex.tryLock()) return
-        _state.update { it.copy(isSyncing = true, syncMessage = "同期中です") }
-        try {
-            val result = statusRepository.syncAll(SyncTrigger.MANUAL)
-            _state.update { it.copy(syncMessage = manualSyncMessage(result)) }
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (_: Exception) {
-            _state.update { it.copy(syncMessage = "同期に失敗しました。通信状況を確認してください") }
-        } finally {
-            _state.update { it.copy(isSyncing = false) }
-            syncMutex.unlock()
-        }
-    }
-
     fun close() {
         observationJob.cancel()
         scope.coroutineContext[Job]?.cancel()
-    }
-
-    private fun manualSyncMessage(result: SyncResult): String = when (result) {
-        is SyncResult.Completed -> if (result.failedMemberCount == 0) {
-            "同期が完了しました"
-        } else {
-            "同期が完了しました(一部失敗: ${result.failedMemberCount}人)"
-        }
     }
 }

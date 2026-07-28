@@ -16,14 +16,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,10 +45,13 @@ import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReservationsScreen(
     state: ReservationsUiState,
     cancelState: ReservationCancelUiState,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
     onSelectMember: (Long?) -> Unit,
     onOpenMenu: () -> Unit,
     // 経路3: 予約中一覧から開く書誌詳細には取消対象(cancellableな行のみ非null)を添えて渡す。
@@ -69,9 +76,9 @@ fun ReservationsScreen(
             countByMemberId = state.countByMemberId,
             totalCount = state.totalCount,
         )
-        if (state.rows.isEmpty()) {
-            EmptyNote("予約中の本はありません")
-        } else {
+        // BulkCancelBarと取消エラー表示はプル領域の外に置く(絞り込み行の直下)。
+        // 空のときに出さない条件は元のrows.isEmpty()分岐のまま維持する。
+        if (state.rows.isNotEmpty()) {
             BulkCancelBar(
                 selectedCount = cancelState.selectedKeys.size,
                 enabled = cancelState.canCancelSelection,
@@ -91,29 +98,42 @@ fun ReservationsScreen(
                         .padding(horizontal = 18.dp, vertical = 4.dp),
                 )
             }
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 18.dp),
-            ) {
-                items(state.rows) { row ->
-                    ReservationRowView(
-                        row = row,
-                        selected = row.cancellable && row.cancelKey in cancelState.selectedKeys,
-                        selectionEnabled = !cancelState.processing,
-                        onClick = {
-                            onOpenDetail(row.tilcod, row.title, ReservationsContentBuilder.cancelTargetForDetail(row))
-                        },
-                        onToggleSelection = { onToggleSelection(row.cancelKey) },
-                        onRequestCancel = {
-                            onRequestSingleCancel(
-                                ReservationCancelCandidate(
-                                    target = ReservationCancelTarget(row.memberId, row.tilcod, row.cancelCode),
-                                    title = row.title,
-                                ),
-                            )
-                        },
-                    )
+        }
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            if (state.rows.isEmpty()) {
+                // 空状態でもプルできるよう、スクロール可能なコンポーネントで包む。
+                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    EmptyNote("予約中の本はありません")
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 18.dp),
+                ) {
+                    items(state.rows) { row ->
+                        ReservationRowView(
+                            row = row,
+                            selected = row.cancellable && row.cancelKey in cancelState.selectedKeys,
+                            selectionEnabled = !cancelState.processing,
+                            onClick = {
+                                onOpenDetail(row.tilcod, row.title, ReservationsContentBuilder.cancelTargetForDetail(row))
+                            },
+                            onToggleSelection = { onToggleSelection(row.cancelKey) },
+                            onRequestCancel = {
+                                onRequestSingleCancel(
+                                    ReservationCancelCandidate(
+                                        target = ReservationCancelTarget(row.memberId, row.tilcod, row.cancelCode),
+                                        title = row.title,
+                                    ),
+                                )
+                            },
+                        )
+                    }
                 }
             }
         }

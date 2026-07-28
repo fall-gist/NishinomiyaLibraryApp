@@ -19,6 +19,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -26,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -69,6 +72,7 @@ import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreen
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreen
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
+import com.fallgist.nishinomiyalibrary.ui.sync.SyncUiState
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import kotlinx.coroutines.launch
 
@@ -96,8 +100,10 @@ private enum class Destination(val label: String, val emoji: String, val primary
 @Composable
 fun LibraryApp(
     state: HomeUiState,
+    syncState: SyncUiState,
     onSelectMember: (Long?) -> Unit,
     onManualSync: () -> Unit,
+    onConsumeSyncMessage: (Long) -> Unit,
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
     loansController: LoansScreenController,
     reservationsController: ReservationsScreenController,
@@ -124,6 +130,15 @@ fun LibraryApp(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val openMenu: () -> Unit = { scope.launch { drawerState.open() } }
+    // 手動同期の結果(成功・一部失敗・失敗)をSnackbarへ通知する。開始時のメッセージは
+    // SyncUiController側で流していないので、ここで表示するのは完了・失敗時のみ。
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(syncState.message) {
+        syncState.message?.let { message ->
+            snackbarHostState.showSnackbar(message.text)
+            onConsumeSyncMessage(message.id)
+        }
+    }
     // tilcodを持つどの一覧からでも共通の書誌詳細を開く
     val openDetail: (String, String) -> Unit = bookDetailController::open
 
@@ -182,6 +197,7 @@ fun LibraryApp(
     ) {
         Scaffold(
             containerColor = colors.paper,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
                 NavigationBar(containerColor = colors.card) {
                     primaryTabs.forEach { dest ->
@@ -235,8 +251,10 @@ fun LibraryApp(
                     when (current) {
                         Destination.HOME -> HomeScreen(
                             state = state,
+                            isRefreshing = syncState.isSyncing,
                             onSelectMember = onSelectMember,
                             onManualSync = onManualSync,
+                            onRefresh = onManualSync,
                             onRegister = onRegister,
                             onOpenMenu = openMenu,
                             // ホーム画面から書誌詳細を開くのは「うけとれる予約」「返す本」の2箇所のみ
@@ -257,6 +275,8 @@ fun LibraryApp(
                             val loansState by loansController.state.collectAsState()
                             LoansScreen(
                                 state = loansState,
+                                isRefreshing = syncState.isSyncing,
+                                onRefresh = onManualSync,
                                 onSelectMember = loansController::selectMember,
                                 onOpenMenu = openMenu,
                                 // 貸出中一覧から開く書誌詳細は既に貸出中の資料なので、予約セクションは出さない。
@@ -278,6 +298,8 @@ fun LibraryApp(
                             ReservationsScreen(
                                 state = reservationsState,
                                 cancelState = cancelState,
+                                isRefreshing = syncState.isSyncing,
+                                onRefresh = onManualSync,
                                 onSelectMember = reservationsController::selectMember,
                                 onOpenMenu = openMenu,
                                 // 予約中一覧から開く書誌詳細は既に予約中の資料なので、予約セクションは出さない。
@@ -306,6 +328,8 @@ fun LibraryApp(
                             val readingState by readingRecordsController.state.collectAsState()
                             ReadingRecordsScreen(
                                 state = readingState,
+                                isRefreshing = syncState.isSyncing,
+                                onRefresh = onManualSync,
                                 onSelectMember = readingRecordsController::selectMember,
                                 onQueryChange = readingRecordsController::updateQuery,
                                 onOpenMenu = openMenu,
@@ -318,6 +342,8 @@ fun LibraryApp(
                             val shelfState by bookshelfController.state.collectAsState()
                             BookshelfScreen(
                                 state = shelfState,
+                                isRefreshing = syncState.isSyncing,
+                                onRefresh = onManualSync,
                                 onSelectMember = bookshelfController::selectMember,
                                 onOpenMenu = openMenu,
                                 onOpenDetail = openDetail,

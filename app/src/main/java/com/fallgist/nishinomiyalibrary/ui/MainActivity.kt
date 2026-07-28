@@ -20,6 +20,7 @@ import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiController
+import com.fallgist.nishinomiyalibrary.ui.sync.SyncUiController
 import com.fallgist.nishinomiyalibrary.ui.theme.NishinomiyaLibraryTheme
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +34,7 @@ open class MainActivity : ComponentActivity() {
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private lateinit var controller: HomeScreenController
+    private lateinit var syncUiController: SyncUiController
     private lateinit var loansController: LoansScreenController
     private lateinit var reservationsController: ReservationsScreenController
     private lateinit var reservationCancelUiController: ReservationCancelUiController
@@ -57,6 +59,7 @@ open class MainActivity : ComponentActivity() {
             MainActivityEntryPoint::class.java,
         )
         controller = resolveController(entryPoint)
+        syncUiController = entryPoint.syncUiController()
         loansController = entryPoint.loansScreenController()
         reservationsController = entryPoint.reservationsScreenController()
         reservationCancelUiController = entryPoint.reservationCancelUiController()
@@ -72,11 +75,14 @@ open class MainActivity : ComponentActivity() {
 
         setContent {
             val state by controller.state.collectAsState()
+            val syncState by syncUiController.state.collectAsState()
             NishinomiyaLibraryTheme {
                 LibraryApp(
                     state = state,
+                    syncState = syncState,
                     onSelectMember = controller::selectMember,
-                    onManualSync = { uiScope.launch { controller.requestManualSync() } },
+                    onManualSync = { uiScope.launch { syncUiController.requestManualSync() } },
+                    onConsumeSyncMessage = syncUiController::consumeMessage,
                     onRegister = controller::register,
                     loansController = loansController,
                     reservationsController = reservationsController,

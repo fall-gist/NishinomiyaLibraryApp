@@ -11,9 +11,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,9 +35,12 @@ import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadingRecordsScreen(
     state: ReadingRecordsUiState,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
     onSelectMember: (Long?) -> Unit,
     onQueryChange: (String) -> Unit,
     onOpenMenu: () -> Unit,
@@ -63,24 +70,38 @@ fun ReadingRecordsScreen(
             selectedMemberId = state.selectedMemberId,
             onSelect = onSelectMember,
         )
-        when {
-            state.showActivationHint -> EmptyNote(
-                "このメンバーの読書記録がまだありません。" +
-                    "図書館サイト側で読書履歴が有効化されていない可能性があります。",
-            )
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            when {
+                // 空状態が3種類とも、スクロール可能なコンポーネントで包んでプルを受け取れるようにする。
+                state.showActivationHint -> Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    EmptyNote(
+                        "このメンバーの読書記録がまだありません。" +
+                            "図書館サイト側で読書履歴が有効化されていない可能性があります。",
+                    )
+                }
 
-            state.rows.isEmpty() && state.query.isNotBlank() ->
-                EmptyNote("「${state.query}」に一致する記録はありません")
+                state.rows.isEmpty() && state.query.isNotBlank() ->
+                    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        EmptyNote("「${state.query}」に一致する記録はありません")
+                    }
 
-            state.rows.isEmpty() -> EmptyNote("読書記録はまだありません")
+                state.rows.isEmpty() ->
+                    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        EmptyNote("読書記録はまだありません")
+                    }
 
-            else -> LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 18.dp),
-            ) {
-                items(state.rows) { row ->
-                    ReadingRowView(row, onClick = { onOpenDetail(row.tilcod, row.title) })
+                else -> LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 18.dp),
+                ) {
+                    items(state.rows) { row ->
+                        ReadingRowView(row, onClick = { onOpenDetail(row.tilcod, row.title) })
+                    }
                 }
             }
         }

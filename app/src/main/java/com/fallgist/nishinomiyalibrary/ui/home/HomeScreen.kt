@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,7 +19,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,8 +46,10 @@ private fun parseMemberColor(hex: String, fallback: Color): Color = runCatching 
 @Composable
 fun HomeScreen(
     state: HomeUiState,
+    isRefreshing: Boolean,
     onSelectMember: (Long?) -> Unit,
     onManualSync: () -> Unit,
+    onRefresh: () -> Unit,
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
@@ -56,30 +61,29 @@ fun HomeScreen(
         !state.initialized -> Box(modifier.background(colors.paper))
         // 認証済みメンバーが1人もいなければ、その場で完結する登録フォームだけを出す。
         state.members.isEmpty() -> MemberRegistrationForm(onRegister = onRegister, modifier = modifier)
-        else -> HomeContent(state, onSelectMember, onManualSync, onOpenMenu, onOpenDetail, modifier)
+        else -> HomeContent(state, isRefreshing, onSelectMember, onManualSync, onRefresh, onOpenMenu, onOpenDetail, modifier)
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeContent(
     state: HomeUiState,
+    isRefreshing: Boolean,
     onSelectMember: (Long?) -> Unit,
     onManualSync: () -> Unit,
+    onRefresh: () -> Unit,
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
-    Column(
-        modifier = modifier
-            .background(colors.paper)
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 16.dp),
-    ) {
+    Column(modifier = modifier.background(colors.paper)) {
+        // AppBarとメンバー絞り込みはプル対象の外に固定する。一緒に動くと落ち着かない見え方になるため。
         AppBar(
             lastSyncText = state.lastSyncText,
             lastSyncFailed = state.lastSyncFailed,
-            isSyncing = state.isSyncing,
+            isSyncing = isRefreshing,
             onManualSync = onManualSync,
             onOpenMenu = onOpenMenu,
         )
@@ -88,29 +92,33 @@ private fun HomeContent(
             selectedMemberId = state.selectedMemberId,
             onSelectMember = onSelectMember,
         )
-        state.syncMessage?.let { message ->
-            Text(
-                text = message,
-                color = colors.ink2,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
-            )
-        }
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 16.dp),
+            ) {
+                if (state.readyGroups.isNotEmpty()) {
+                    SectionHeader("うけとれる予約")
+                    Column(modifier = Modifier.padding(horizontal = 18.dp)) {
+                        state.readyGroups.forEach { ReadyGroupView(it, onOpenDetail) }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
 
-        if (state.readyGroups.isNotEmpty()) {
-            SectionHeader("うけとれる予約")
-            Column(modifier = Modifier.padding(horizontal = 18.dp)) {
-                state.readyGroups.forEach { ReadyGroupView(it, onOpenDetail) }
-            }
-            Spacer(Modifier.height(16.dp))
-        }
-
-        SectionHeader("返す本")
-        if (state.dueGroups.isEmpty()) {
-            EmptyNote("借りている本はありません")
-        } else {
-            Column(modifier = Modifier.padding(horizontal = 18.dp)) {
-                state.dueGroups.forEach { DueGroupView(it, onOpenDetail) }
+                SectionHeader("返す本")
+                if (state.dueGroups.isEmpty()) {
+                    EmptyNote("借りている本はありません")
+                } else {
+                    Column(modifier = Modifier.padding(horizontal = 18.dp)) {
+                        state.dueGroups.forEach { DueGroupView(it, onOpenDetail) }
+                    }
+                }
             }
         }
     }

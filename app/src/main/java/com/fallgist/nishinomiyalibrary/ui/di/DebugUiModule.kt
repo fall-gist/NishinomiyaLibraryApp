@@ -26,6 +26,7 @@ import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiControlle
 import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
+import com.fallgist.nishinomiyalibrary.ui.sync.SyncUiController
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -71,6 +72,12 @@ object DebugUiProvisionModule {
         statusRepository = statusRepository,
         scheduleStarter = scheduleStarter,
     )
+
+    @Provides
+    @Singleton
+    fun provideSyncUiController(
+        statusRepository: StatusRepository,
+    ): SyncUiController = SyncUiController(statusRepository = statusRepository)
 
     @Provides
     @Singleton
@@ -212,6 +219,8 @@ object DebugUiProvisionModule {
 @InstallIn(SingletonComponent::class)
 interface MainActivityEntryPoint {
     fun homeScreenController(): HomeScreenController
+
+    fun syncUiController(): SyncUiController
 
     fun loansScreenController(): LoansScreenController
 

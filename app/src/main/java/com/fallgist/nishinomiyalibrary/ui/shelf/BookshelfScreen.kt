@@ -17,9 +17,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,9 +38,12 @@ import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookshelfScreen(
     state: BookshelfUiState,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
     onSelectMember: (Long?) -> Unit,
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
@@ -50,16 +57,27 @@ fun BookshelfScreen(
             selectedMemberId = state.selectedMemberId,
             onSelect = onSelectMember,
         )
-        if (state.columns.isEmpty()) {
-            EmptyNote("マイ本棚の登録はありません")
-        } else {
-            // 全員分の本棚を横並びで一覧できるようにする(確定仕様)。
-            LazyRow(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(state.columns) { column -> ShelfColumnView(column, onOpenDetail) }
+        // 本棚はLazyRow(横)の中に列ごとのLazyColumn(縦)が並ぶ構造。縦プルが列内リストに
+        // 消費されず親のPullToRefreshBoxへ届くかは実機未検証(docs/design/pull-to-refresh.md §4.7)。
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            if (state.columns.isEmpty()) {
+                // 空状態でもプルできるよう、スクロール可能なコンポーネントで包む。
+                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    EmptyNote("マイ本棚の登録はありません")
+                }
+            } else {
+                // 全員分の本棚を横並びで一覧できるようにする(確定仕様)。
+                LazyRow(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(state.columns) { column -> ShelfColumnView(column, onOpenDetail) }
+                }
             }
         }
     }

@@ -21,8 +21,6 @@ data class HomeUiState(
     val lastSyncFailed: Boolean = false,
     val readyGroups: List<ReadyGroup> = emptyList(),
     val dueGroups: List<DueGroup> = emptyList(),
-    val isSyncing: Boolean = false,
-    val syncMessage: String? = null,
 )
 
 /** 同期由来のデータだけで構成する、ホームの内容部分。 */

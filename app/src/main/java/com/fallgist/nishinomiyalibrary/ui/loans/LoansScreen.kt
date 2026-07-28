@@ -12,8 +12,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,9 +32,12 @@ import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoansScreen(
     state: LoansUiState,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
     onSelectMember: (Long?) -> Unit,
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
@@ -46,16 +53,26 @@ fun LoansScreen(
             countByMemberId = state.countByMemberId,
             totalCount = state.totalCount,
         )
-        if (state.rows.isEmpty()) {
-            EmptyNote("貸出中の本はありません")
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 18.dp),
-            ) {
-                items(state.rows) { row ->
-                    LoanRowView(row, onClick = { onOpenDetail(row.tilcod, row.title) })
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            if (state.rows.isEmpty()) {
+                // 空状態でもプルできるよう、スクロール可能なコンポーネントで包む(PullToRefreshBoxは
+                // ネストスクロール経由でジェスチャを受け取るため、素のTextだけでは反応しない)。
+                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    EmptyNote("貸出中の本はありません")
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 18.dp),
+                ) {
+                    items(state.rows) { row ->
+                        LoanRowView(row, onClick = { onOpenDetail(row.tilcod, row.title) })
+                    }
                 }
             }
         }
