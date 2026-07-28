@@ -239,7 +239,17 @@ fun LibraryApp(
                             onManualSync = onManualSync,
                             onRegister = onRegister,
                             onOpenMenu = openMenu,
-                            onOpenDetail = openDetail,
+                            // ホーム画面から書誌詳細を開くのは「うけとれる予約」「返す本」の2箇所のみ
+                            // (readyGroups・dueGroups)。どちらも既に予約済み・貸出中の資料を見ているため、
+                            // 予約セクションは出さない。
+                            onOpenDetail = { tilcod, title ->
+                                bookDetailController.open(
+                                    tilcod,
+                                    title,
+                                    cancelTarget = null,
+                                    hideReservationSectionAsAlreadyReservedOrOnLoan = true,
+                                )
+                            },
                             modifier = Modifier.fillMaxSize(),
                         )
 
@@ -249,7 +259,15 @@ fun LibraryApp(
                                 state = loansState,
                                 onSelectMember = loansController::selectMember,
                                 onOpenMenu = openMenu,
-                                onOpenDetail = openDetail,
+                                // 貸出中一覧から開く書誌詳細は既に貸出中の資料なので、予約セクションは出さない。
+                                onOpenDetail = { tilcod, title ->
+                                    bookDetailController.open(
+                                        tilcod,
+                                        title,
+                                        cancelTarget = null,
+                                        hideReservationSectionAsAlreadyReservedOrOnLoan = true,
+                                    )
+                                },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -262,7 +280,16 @@ fun LibraryApp(
                                 cancelState = cancelState,
                                 onSelectMember = reservationsController::selectMember,
                                 onOpenMenu = openMenu,
-                                onOpenDetail = { tilcod, title, cancelTarget -> bookDetailController.open(tilcod, title, cancelTarget) },
+                                // 予約中一覧から開く書誌詳細は既に予約中の資料なので、予約セクションは出さない。
+                                // 取消ボタンの表示可否(cancelTarget)とは独立に指定する。
+                                onOpenDetail = { tilcod, title, cancelTarget ->
+                                    bookDetailController.open(
+                                        tilcod,
+                                        title,
+                                        cancelTarget,
+                                        hideReservationSectionAsAlreadyReservedOrOnLoan = true,
+                                    )
+                                },
                                 onToggleSelection = reservationCancelUiController::toggleSelection,
                                 onRequestSingleCancel = reservationCancelUiController::requestSingleCancelConfirmation,
                                 onRequestBulkCancel = reservationCancelUiController::requestBulkCancelConfirmation,

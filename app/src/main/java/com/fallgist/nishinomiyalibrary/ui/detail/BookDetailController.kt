@@ -64,6 +64,20 @@ data class BookDetailUiState(
     val holdings: List<Holding> = emptyList(),
     /** 非nullのときだけ取消ボタンを表示する。予約中一覧(経路3)から開いたcancellableな行のみ設定される。 */
     val cancelTarget: BookDetailCancelTarget? = null,
+    /**
+     * trueのときだけ予約セクション(見出し「予約」・メンバー選択・受取館選択・
+     * 「カートへ追加」「今すぐ予約」ボタン等の全体)を非表示にする。
+     *
+     * 既にすでに予約済み・貸出中の資料を見ているホーム画面(「うけとれる予約」「返す本」)・
+     * 貸出中一覧・予約中一覧から開いた書誌詳細では、その資料を改めて予約する導線は不要なため
+     * このフラグを立てる。それ以外の経路(蔵書検索・新着・読書記録・本棚・予約カート等)では
+     * 従来どおり予約セクションを表示するため、既定値はfalse(表示する)。
+     *
+     * [cancelTarget](取消ボタンの表示可否)とは独立した概念であり、どちらか一方の値からもう
+     * 一方を導出できない。例えば予約中一覧(経路3)から開いた場合はこのフラグはtrueだが、
+     * cancelTargetはcancelCodeが空でない限りは非nullになる。
+     */
+    val reservationSectionHiddenAsAlreadyReservedOrOnLoan: Boolean = false,
 )
 
 /** 書誌詳細の既読情報・詳細項目を組み立てる純関数。 */
@@ -140,14 +154,27 @@ class BookDetailController(
     fun open(tilcod: String, title: String) = open(tilcod, title, cancelTarget = null)
 
     /**
-     * 経路3(予約中一覧から開いた書誌詳細)からの起動。[cancelTarget]が非nullのときだけ取消ボタンを表示する。
+     * [cancelTarget]が非nullのときだけ取消ボタンを表示する起動。予約セクションの表示可否は
+     * 別途[hideReservationSectionAsAlreadyReservedOrOnLoan]で指定する(既定は表示のまま)。
      * 呼び出し元([com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsContentBuilder.cancelTargetForDetail])が
      * 取消不可の行(cancelCode空)ではnullを渡すため、ここでは受け取った値をそのまま状態へ載せるだけでよい。
      */
-    fun open(tilcod: String, title: String, cancelTarget: BookDetailCancelTarget?) {
+    fun open(
+        tilcod: String,
+        title: String,
+        cancelTarget: BookDetailCancelTarget?,
+        hideReservationSectionAsAlreadyReservedOrOnLoan: Boolean = false,
+    ) {
         if (tilcod.isBlank()) return
         detailJob?.cancel()
-        _state.value = BookDetailUiState(open = true, tilcod = tilcod, title = title, loading = true, cancelTarget = cancelTarget)
+        _state.value = BookDetailUiState(
+            open = true,
+            tilcod = tilcod,
+            title = title,
+            loading = true,
+            cancelTarget = cancelTarget,
+            reservationSectionHiddenAsAlreadyReservedOrOnLoan = hideReservationSectionAsAlreadyReservedOrOnLoan,
+        )
         detailJob = scope.launch {
             try {
                 val detail = searchRepository.bookDetail(tilcod)
@@ -175,6 +202,7 @@ class BookDetailController(
                     readRows = readRows,
                     holdings = detail.holdings,
                     cancelTarget = cancelTarget,
+                    reservationSectionHiddenAsAlreadyReservedOrOnLoan = hideReservationSectionAsAlreadyReservedOrOnLoan,
                 )
             } catch (exception: CancellationException) {
                 throw exception
@@ -186,6 +214,7 @@ class BookDetailController(
                     loading = false,
                     errorMessage = errorMessage(exception),
                     cancelTarget = cancelTarget,
+                    reservationSectionHiddenAsAlreadyReservedOrOnLoan = hideReservationSectionAsAlreadyReservedOrOnLoan,
                 )
             }
         }

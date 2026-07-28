@@ -200,15 +200,20 @@ fun BookDetailView(
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
-                ReservationActions(
-                    detail = detail,
-                    reservation = reservation,
-                    onSelectMember = onSelectReservationMember,
-                    onSelectPickupLibrary = onSelectPickupLibrary,
-                    onAddToCart = onAddToCart,
-                    onRequestReserveNow = onRequestReserveNow,
-                )
+                // 既に予約済み・貸出中の資料を見ている経路(ホーム画面のうけとれる予約・返す本、
+                // 貸出中一覧、予約中一覧)から開いた場合は、改めて予約する導線が不要なため
+                // セクション全体(見出し・メンバー選択・受取館選択・ボタン)を出さない。
+                if (!detail.reservationSectionHiddenAsAlreadyReservedOrOnLoan) {
+                    Spacer(Modifier.height(16.dp))
+                    ReservationActions(
+                        detail = detail,
+                        reservation = reservation,
+                        onSelectMember = onSelectReservationMember,
+                        onSelectPickupLibrary = onSelectPickupLibrary,
+                        onAddToCart = onAddToCart,
+                        onRequestReserveNow = onRequestReserveNow,
+                    )
+                }
 
                 if (detail.holdings.isNotEmpty()) {
                     Spacer(Modifier.height(16.dp))

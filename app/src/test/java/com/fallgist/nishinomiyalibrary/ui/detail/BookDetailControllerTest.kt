@@ -12,7 +12,9 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -65,6 +67,55 @@ class BookDetailControllerTest {
         advanceUntilIdle()
 
         assertNull(controller.state.value.cancelTarget)
+    }
+
+    // 予約セクションの出し分け(ホーム画面のうけとれる予約・返す本、貸出中一覧、予約中一覧から開いた
+    // 場合だけ非表示)を検証する。取消ボタンの出し分け(cancelTarget)とは独立したフラグである。
+
+    @Test
+    fun `2引数openでは予約セクションは非表示にならない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val controller = controller(dispatcher)
+
+        controller.open("1000001", "資料A")
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.reservationSectionHiddenAsAlreadyReservedOrOnLoan)
+    }
+
+    @Test
+    fun `非表示を指定して開いた場合は予約セクションが非表示になる`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val controller = controller(dispatcher)
+
+        controller.open(
+            "1000001",
+            "資料A",
+            cancelTarget = null,
+            hideReservationSectionAsAlreadyReservedOrOnLoan = true,
+        )
+        advanceUntilIdle()
+
+        assertTrue(controller.state.value.reservationSectionHiddenAsAlreadyReservedOrOnLoan)
+    }
+
+    @Test
+    fun `予約中一覧から開いた場合は予約セクションは非表示だが取消ボタンは表示される`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val controller = controller(dispatcher)
+        val cancelTarget = BookDetailCancelTarget(memberId = member.id, cancelCode = "cancel-1")
+
+        controller.open(
+            "1000001",
+            "資料A",
+            cancelTarget,
+            hideReservationSectionAsAlreadyReservedOrOnLoan = true,
+        )
+        advanceUntilIdle()
+
+        // 2つのフラグが独立していることの確認: 予約セクションは非表示、取消対象は保持されたまま。
+        assertTrue(controller.state.value.reservationSectionHiddenAsAlreadyReservedOrOnLoan)
+        assertEquals(cancelTarget, controller.state.value.cancelTarget)
     }
 
     private class FakeSearchRepository : SearchRepository {
