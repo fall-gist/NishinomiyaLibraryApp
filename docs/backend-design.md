@@ -835,3 +835,18 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
   (`docs/site-research.md`§9・§12回目参照)。取消の成功自体は12回目（単純なケース）・13回目
   （同一`tilcod`重複があるケース、本節5.の判定表）のライブ取消診断(2026-07-28)でいずれも実サイトでの
   成立を確認済み（詳細は本節冒頭のコールアウトを参照）。
+
+### 11.10 新着キーワード自動予約
+
+機能要件は`docs/spec.md`§3.11、実装可能な技術設計は
+[`docs/design/new-arrival-auto-reservation.md`](design/new-arrival-auto-reservation.md)を正とする。
+2026-07-29時点では設計完了・実装未着手である。
+
+自動予約は既存の予約確定POST・予約一覧照合を再利用するが、公開
+`ReservationCartRepository`へ確認なしのAPIを追加しない。`ReservationCartRepositoryImpl`内の
+送信結果解決を共通の`ReservationSubmissionResolver`へ抽出し、手動側は最終確認後、自動側は
+マスタースイッチとルールによる事前許可の後に、それぞれ別のオーケストレータから呼ぶ。
+
+Roomはv7→v8とし、ルール、語、2か月の制御記録、直近1回の表示履歴を追加する。
+POST直前に`PREPARED`を永続化し、結果未確定のままプロセスが停止した資料は自動再送しない。
+新着取得から予約完了までをSingletonのCoordinatorで排他し、日次Workerも画面更新も同じ入口を使う。
