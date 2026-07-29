@@ -7,6 +7,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationCancelAttempt
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSession
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationWriteBoundaryAware
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.MemberReservationCancelResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelBatchResult
@@ -16,8 +17,6 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.domain.model.UnknownReason
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCancelRepository
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -35,12 +34,10 @@ class ReservationCancelRepositoryImpl @Inject constructor(
     private val memberDao: MemberDao,
     private val credentialStore: CredentialStore,
     private val gateway: ReservationGateway,
+    private val operationGate: ReservationOperationGate = ReservationOperationGate(),
 ) : ReservationCancelRepository {
-    // 予約確定と取消が同時に走ると、サイト側の状態を取り違えかねないため、送信全体を一列化する。
-    private val submissionMutex = Mutex()
-
     override suspend fun cancelReservations(targets: List<ReservationCancelTarget>): ReservationCancelBatchResult =
-        submissionMutex.withLock {
+        operationGate.withOperation {
             val grouped = linkedMapOf<Long, MutableList<ReservationCancelTarget>>()
             targets.forEach { target ->
                 require(target.memberId > 0) { "memberIdが不正です" }
@@ -48,12 +45,17 @@ class ReservationCancelRepositoryImpl @Inject constructor(
                 require(target.cancelCode.isNotBlank()) { "cancelCodeが空です" }
                 grouped.getOrPut(target.memberId) { mutableListOf() } += target
             }
-            ReservationCancelBatchResult(grouped.map { (memberId, memberTargets) -> processMember(memberId, memberTargets) })
+            ReservationCancelBatchResult(
+                grouped.map { (memberId, memberTargets) ->
+                    processMember(memberId, memberTargets, ::markWriteStarted)
+                },
+            )
         }
 
     private suspend fun processMember(
         memberId: Long,
         targets: List<ReservationCancelTarget>,
+        beforeWrite: () -> Unit,
     ): MemberReservationCancelResult {
         val memberAndPassword = try {
             memberDao.getById(memberId)?.let { member ->
@@ -84,6 +86,7 @@ class ReservationCancelRepositoryImpl @Inject constructor(
                 exception.rethrowIfCancellation()
                 return allFailure(memberId, targets, FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
             }
+            (session as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(beforeWrite)
 
             var index = 0
             var sessionExpiredRetried = false
@@ -148,7 +151,9 @@ class ReservationCancelRepositoryImpl @Inject constructor(
                             break
                         }
                         sessionExpiredRetried = true
-                        requireNotNull(session).close()
+                        val expiredSession = requireNotNull(session)
+                        (expiredSession as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(null)
+                        expiredSession.close()
                         val retrySession = try {
                             gateway.openAuthenticatedSession(member.cardNumber, password)
                         } catch (_: LibraryError.Auth) {
@@ -168,6 +173,7 @@ class ReservationCancelRepositoryImpl @Inject constructor(
                             abortRemaining(results, targets, index, FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
                             break
                         }
+                        (retrySession as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(beforeWrite)
                         session = retrySession
                         // indexは進めず、同じ対象を再ログイン後のセッションで再試行する。
                     }
@@ -175,6 +181,7 @@ class ReservationCancelRepositoryImpl @Inject constructor(
             }
             return MemberReservationCancelResult(memberId, results)
         } finally {
+            (session as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(null)
             session?.close()
         }
     }

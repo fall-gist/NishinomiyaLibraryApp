@@ -23,8 +23,6 @@ import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartReposito
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -41,8 +39,8 @@ class ReservationCartRepositoryImpl @Inject constructor(
     private val gateway: ReservationGateway,
     private val clock: Clock,
     private val pickupSubmissionDao: ReservationPickupSubmissionDao = database.reservationPickupSubmissionDao(),
+    private val operationGate: ReservationOperationGate = ReservationOperationGate(),
 ) : ReservationCartRepository {
-    private val submissionMutex = Mutex()
     private val submissionResolver = ReservationSubmissionResolver(gateway)
 
     override fun cartItems(): Flow<List<ReservationCartItem>> = cartDao.observeAll().map { items ->
@@ -69,12 +67,12 @@ class ReservationCartRepositoryImpl @Inject constructor(
     }
 
     override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult =
-        submissionMutex.withLock {
+        operationGate.withOperation {
             validateConfirmation(confirmation)
             // 対象を通信前に固定する。以降の追加・削除は今回の送信対象を変えない。
             val items = cartDao.getAll()
             val targets = items.map { it.toTarget() }
-            val execution = execute(targets, confirmation)
+            val execution = execute(targets, confirmation, ::markWriteStarted)
             recordPickupSubmissions(execution, confirmation.pickupLibraryCode)
             deleteCompletedCartItems(execution.result)
             execution.result
@@ -83,10 +81,10 @@ class ReservationCartRepositoryImpl @Inject constructor(
     override suspend fun reserveNow(
         target: ReservationTarget,
         confirmation: ReservationConfirmation,
-    ): ReservationBatchResult = submissionMutex.withLock {
+    ): ReservationBatchResult = operationGate.withOperation {
         validateConfirmation(confirmation)
         validateTarget(target, permitCartItemId = false)
-        val execution = execute(listOf(target), confirmation)
+        val execution = execute(listOf(target), confirmation, ::markWriteStarted)
         recordPickupSubmissions(execution, confirmation.pickupLibraryCode)
         execution.result
     }
@@ -94,11 +92,12 @@ class ReservationCartRepositoryImpl @Inject constructor(
     private suspend fun execute(
         targets: List<ReservationTarget>,
         confirmation: ReservationConfirmation,
+        beforeWrite: () -> Unit,
     ): ReservationExecution {
         val grouped = linkedMapOf<Long, MutableList<ReservationTarget>>()
         targets.forEach { target -> grouped.getOrPut(target.memberId) { mutableListOf() } += target }
         val members = grouped.map { (memberId, memberTargets) ->
-            processMember(memberId, memberTargets, confirmation)
+            processMember(memberId, memberTargets, confirmation, beforeWrite)
         }
         return ReservationExecution(
             result = ReservationBatchResult(members.map(ProcessMemberResult::result)),
@@ -110,6 +109,7 @@ class ReservationCartRepositoryImpl @Inject constructor(
         memberId: Long,
         targets: List<ReservationTarget>,
         confirmation: ReservationConfirmation,
+        beforeWrite: () -> Unit,
     ): ProcessMemberResult {
         val memberAndPassword = try {
             memberDao.getById(memberId)?.let { member ->
@@ -130,6 +130,7 @@ class ReservationCartRepositoryImpl @Inject constructor(
             password = password,
             targets = targets,
             pickupLibraryCode = confirmation.pickupLibraryCode,
+            beforeWrite = beforeWrite,
         )
         return ProcessMemberResult(
             result = MemberReservationResult(memberId, resolution.itemResults),

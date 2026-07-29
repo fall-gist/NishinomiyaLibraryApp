@@ -40,6 +40,16 @@ interface ReservationSession {
     fun close()
 }
 
+/**
+ * 状態変更 POST の直前を通知できる予約セッション。
+ *
+ * 実通信実装だけが担う内部契約であり、既存のテスト用 [ReservationSession] 実装には要求しない。
+ * コールバックは一つの論理的な予約・取消操作につき最初の状態変更 POST の直前に一度だけ呼ばれる。
+ */
+internal interface ReservationWriteBoundaryAware {
+    fun setBeforeWriteBoundary(callback: (() -> Unit)?)
+}
+
 /** 予約一覧と、その一覧が完全だと確認できたかどうか。照合の断定はcompleteのときだけ行う。 */
 internal data class ReservationListSnapshot(
     val reservations: List<Reservation>,
@@ -267,7 +277,18 @@ class LicsXpReservationGateway private constructor(
 internal class LicsXpReservationSession(
     private val session: LicsXpSession,
     private val sequenceHooks: ReservationSequenceHooks,
-) : ReservationSession, ReservationConfirmationInspector, ReservationSnapshotSource, ReservationListInspector {
+) : ReservationSession, ReservationConfirmationInspector, ReservationSnapshotSource, ReservationListInspector, ReservationWriteBoundaryAware {
+    private var beforeWriteBoundary: (() -> Unit)? = null
+
+    override fun setBeforeWriteBoundary(callback: (() -> Unit)?) {
+        beforeWriteBoundary = callback
+    }
+
+    private fun markWriteBoundaryOnce(marked: Boolean): Boolean {
+        if (!marked) beforeWriteBoundary?.invoke()
+        return true
+    }
+
     override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
         require(tilcod.isNotBlank()) { "tilcodが空です" }
         require(pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
@@ -309,6 +330,8 @@ internal class LicsXpReservationSession(
             }
             if (pickupLibraryCode !in confirmation.pickupLibraryCodes) throw InvalidPickupLibraryException()
             val form = confirmation.buildForm(pickupLibraryCode)
+            // 確認画面の解析と受取館検証を完了してから、確定 POST の直前で書込み境界を通知する。
+            markWriteBoundaryOnce(marked = false)
             val response = try {
                 postReservationExactlyOnce(
                     "WOpacTifDirectYoyExecAction.do",
@@ -430,6 +453,7 @@ internal class LicsXpReservationSession(
         require(cancelCode.isNotBlank()) { "cancelCodeが空です" }
         require(expectedTilcod.isNotBlank()) { "expectedTilcodが空です" }
         return session.withExclusiveRequestSequence {
+            var writeBoundaryMarked = false
             val menu = get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
             requireNotMaintenance(menu) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
             if (isLoginForm(Jsoup.parse(menu))) {
@@ -483,6 +507,7 @@ internal class LicsXpReservationSession(
                 session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
                 throw LibraryError.Parse(exception.screen, exception.reason)
             }
+            writeBoundaryMarked = markWriteBoundaryOnce(writeBoundaryMarked)
             val stage1Page = try {
                 postReservationExactlyOnce(
                     "WOpacUsrRsvCancelAction.do",
@@ -551,6 +576,7 @@ internal class LicsXpReservationSession(
                 return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, cancelledBeforeCount, ::listForm)
             }
             session.noteDiagnostic("cancel-reservation", "対象一致の取消確認プロトコル署名と再送フォームを検出し2段階目を送信")
+            writeBoundaryMarked = markWriteBoundaryOnce(writeBoundaryMarked)
             val stage2Response = try {
                 postReservationExactlyOnce(
                     actionUrl,

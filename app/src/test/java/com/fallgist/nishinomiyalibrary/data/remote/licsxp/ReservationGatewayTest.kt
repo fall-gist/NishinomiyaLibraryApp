@@ -130,6 +130,8 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("reservation_confirm.html").replace("<option value=\"106\">高須分室</option>", "")))
         val root = LicsXpSession(server.url("/"), waitForRequestSlot = {})
         val session = LicsXpReservationGateway(root).openAuthenticatedSession("1234", "secret")
+        var writeBoundaryCalls = 0
+        (session as ReservationWriteBoundaryAware).setBeforeWriteBoundary { writeBoundaryCalls++ }
         val error = try {
             session.directReserve("1000000000001", "106")
             null
@@ -137,6 +139,7 @@ class ReservationGatewayTest {
             exception
         }
         assertNotNull(error)
+        assertEquals(0, writeBoundaryCalls)
         assertEquals(7, server.requestCount)
     }
 
@@ -150,8 +153,11 @@ class ReservationGatewayTest {
         server.enqueue(page(fixture("login_form.html")))
         val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
             .openAuthenticatedSession("1234", "secret")
+        var writeBoundaryCalls = 0
+        (session as ReservationWriteBoundaryAware).setBeforeWriteBoundary { writeBoundaryCalls++ }
 
         assertEquals(DirectReservationAttempt.SessionExpiredBeforeSubmit, session.directReserve("1000000000001", "106"))
+        assertEquals(0, writeBoundaryCalls)
 
         val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals("/WOpacMsgNewListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000000001", requests.last().path)
@@ -171,8 +177,11 @@ class ReservationGatewayTest {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
         val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
             .openAuthenticatedSession("1234", "secret")
+        var writeBoundaryCalls = 0
+        (session as ReservationWriteBoundaryAware).setBeforeWriteBoundary { writeBoundaryCalls++ }
 
         assertEquals(DirectReservationAttempt.IndeterminateAfterPost, session.directReserve("1000000000001", "106"))
+        assertEquals(1, writeBoundaryCalls)
         assertEquals(8, server.requestCount)
     }
 

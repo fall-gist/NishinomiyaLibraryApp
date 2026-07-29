@@ -11,6 +11,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationListSnapshot
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSession
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSnapshotSource
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationWriteBoundaryAware
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
@@ -584,6 +585,55 @@ class ReservationCartRepositoryTest {
         }
     }
 
+    @Test
+    fun `再認証後の予約POSTは書込み世代を一度だけ増加させる`() = runBlocking {
+        val member = addMember("再認証POST", "retry-write")
+        val gate = ReservationOperationGate()
+        val first = writeAwareSession { DirectReservationAttempt.SessionExpiredBeforeSubmit }
+        val second = writeAwareSession { beforeWrite ->
+            beforeWrite()
+            DirectReservationAttempt.Submitted
+        }
+        var opens = 0
+        val repository = ReservationCartRepositoryImpl(
+            database, database.reservationCartDao(), database.memberDao(), credentials,
+            object : ReservationGateway {
+                override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession =
+                    if (opens++ == 0) first else second
+            },
+            Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC),
+            operationGate = gate,
+        )
+
+        repository.reserveNow(ReservationTarget(null, member, "retry-write", "書名"), ReservationConfirmation("106", 1000))
+
+        assertEquals(1L, gate.currentWriteGeneration())
+        assertEquals(listOf(true, false), first.boundaryAssignments)
+        assertEquals(listOf(true, false), second.boundaryAssignments)
+        assertTrue(first.closed)
+    }
+
+    @Test
+    fun `再認証後も期限切れなら書込み世代を増加させない`() = runBlocking {
+        val member = addMember("再認証失敗", "retry-no-write")
+        val gate = ReservationOperationGate()
+        var opens = 0
+        val repository = ReservationCartRepositoryImpl(
+            database, database.reservationCartDao(), database.memberDao(), credentials,
+            object : ReservationGateway {
+                override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession =
+                    writeAwareSession { DirectReservationAttempt.SessionExpiredBeforeSubmit }.also { opens++ }
+            },
+            Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC),
+            operationGate = gate,
+        )
+
+        repository.reserveNow(ReservationTarget(null, member, "retry-no-write", "書名"), ReservationConfirmation("106", 1000))
+
+        assertEquals(2, opens)
+        assertEquals(0L, gate.currentWriteGeneration())
+    }
+
     private suspend fun addMember(name: String, card: String): Long {
         val id = database.memberDao().insert(MemberEntity(name = name, colorHex = "#000000", cardNumber = card, sortOrder = 0))
         credentials.savePassword(id, "pw")
@@ -602,6 +652,34 @@ class ReservationCartRepositoryTest {
         }
         override fun close() = Unit
     }
+
+    private class WriteAwareSession(
+        private val attempt: suspend ((() -> Unit)) -> DirectReservationAttempt,
+    ) : ReservationSession, ReservationWriteBoundaryAware {
+        private var beforeWrite: (() -> Unit)? = null
+        val boundaryAssignments = mutableListOf<Boolean>()
+        var closed = false
+
+        override fun setBeforeWriteBoundary(callback: (() -> Unit)?) {
+            boundaryAssignments += callback != null
+            beforeWrite = callback
+        }
+
+        override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt =
+            attempt(requireNotNull(beforeWrite))
+
+        override suspend fun fetchReservations(): List<Reservation> = listOf(
+            Reservation(0, "", "", "", LocalDate.of(2030, 1, 1), null, ReservationState.WAITING, null, "retry-write"),
+        )
+
+        override fun close() {
+            closed = true
+        }
+    }
+
+    private fun writeAwareSession(
+        attempt: suspend ((() -> Unit)) -> DirectReservationAttempt,
+    ) = WriteAwareSession(attempt)
 
     private class FakeGateway(private val attempts: Map<String, DirectReservationAttempt>) : ReservationGateway {
         var openCount = 0

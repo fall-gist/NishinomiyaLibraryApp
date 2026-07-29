@@ -11,6 +11,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationCancelAttempt
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSession
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationWriteBoundaryAware
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelOutcome
@@ -21,6 +22,7 @@ import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -193,6 +195,56 @@ class ReservationCancelRepositoryTest {
         assertEquals(ReservationCancelOutcome.Cancelled, result.members.single().itemResults.single().outcome)
     }
 
+    @Test
+    fun `再認証後の取消POSTは書込み世代を一度だけ増加させる`() = runBlocking {
+        val member = addMember("再認証取消", "retry-cancel-write")
+        val gate = ReservationOperationGate()
+        val first = writeAwareCancelSession { ReservationCancelAttempt.SessionExpiredBeforeSubmit }
+        val second = writeAwareCancelSession { beforeWrite ->
+            beforeWrite()
+            ReservationCancelAttempt.Cancelled
+        }
+        var opens = 0
+        val repository = ReservationCancelRepositoryImpl(
+            database.reservationDao(), database.memberDao(), credentials,
+            object : ReservationGateway {
+                override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession =
+                    if (opens++ == 0) first else second
+            },
+            gate,
+        )
+
+        repository.cancelReservations(listOf(target(member, "retry-cancel-write")))
+
+        assertEquals(1L, gate.currentWriteGeneration())
+        assertEquals(listOf(true, false), first.boundaryAssignments)
+        assertEquals(listOf(true, false), second.boundaryAssignments)
+        assertTrue(first.closed)
+    }
+
+    @Test
+    fun `再認証に失敗した取消は書込み世代を増加させない`() = runBlocking {
+        val member = addMember("再認証取消失敗", "retry-cancel-no-write")
+        val gate = ReservationOperationGate()
+        var opens = 0
+        val repository = ReservationCancelRepositoryImpl(
+            database.reservationDao(), database.memberDao(), credentials,
+            object : ReservationGateway {
+                override suspend fun openAuthenticatedSession(cardNumber: String, password: String): ReservationSession {
+                    opens++
+                    if (opens == 2) throw LibraryError.Auth(null)
+                    return writeAwareCancelSession { ReservationCancelAttempt.SessionExpiredBeforeSubmit }
+                }
+            },
+            gate,
+        )
+
+        repository.cancelReservations(listOf(target(member, "retry-cancel-no-write")))
+
+        assertEquals(2, opens)
+        assertEquals(0L, gate.currentWriteGeneration())
+    }
+
     private suspend fun addMember(name: String, cardNumber: String): Long {
         val id = database.memberDao().insert(MemberEntity(name = name, colorHex = "#000000", cardNumber = cardNumber, sortOrder = 0))
         credentials.savePassword(id, "password")
@@ -251,4 +303,36 @@ class ReservationCancelRepositoryTest {
             ): ReservationCancelAttempt = cancel(cancelCode, expectedTilcod)
             override fun close() = Unit
         }
+
+    private class WriteAwareCancelSession(
+        private val cancel: suspend ((() -> Unit)) -> ReservationCancelAttempt,
+    ) : ReservationSession, ReservationWriteBoundaryAware {
+        private var beforeWrite: (() -> Unit)? = null
+        val boundaryAssignments = mutableListOf<Boolean>()
+        var closed = false
+
+        override fun setBeforeWriteBoundary(callback: (() -> Unit)?) {
+            boundaryAssignments += callback != null
+            beforeWrite = callback
+        }
+
+        override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt =
+            error("このテストではdirectReserveを使用しません")
+
+        override suspend fun fetchReservations(): List<Reservation> =
+            error("このテストではfetchReservationsを使用しません")
+
+        override suspend fun cancelReservation(
+            cancelCode: String,
+            expectedTilcod: String,
+        ): ReservationCancelAttempt = cancel(requireNotNull(beforeWrite))
+
+        override fun close() {
+            closed = true
+        }
+    }
+
+    private fun writeAwareCancelSession(
+        cancel: suspend ((() -> Unit)) -> ReservationCancelAttempt,
+    ) = WriteAwareCancelSession(cancel)
 }

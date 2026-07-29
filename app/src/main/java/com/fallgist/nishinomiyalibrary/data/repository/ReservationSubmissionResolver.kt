@@ -7,6 +7,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationListSnapshot
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSession
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSnapshotSource
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationWriteBoundaryAware
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationItemResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationOutcome
@@ -27,6 +28,7 @@ internal class ReservationSubmissionResolver(
         password: String,
         targets: List<ReservationTarget>,
         pickupLibraryCode: String,
+        beforeWrite: () -> Unit = {},
     ): ReservationMemberSubmissionResult {
         var session: ReservationSession? = null
         val provisional = linkedMapOf<ReservationTarget, Provisional>()
@@ -47,6 +49,7 @@ internal class ReservationSubmissionResolver(
                 rethrowIfCancellation(exception)
                 return allFailure(targets, FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
             }
+            (session as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(beforeWrite)
 
             var index = 0
             while (index < targets.size) {
@@ -70,7 +73,9 @@ internal class ReservationSubmissionResolver(
                 postBoundaries[target] = attempt.postBoundary
                 when (attempt) {
                     DirectReservationAttempt.SessionExpiredBeforeSubmit -> {
-                        requireNotNull(session).close()
+                        val expiredSession = requireNotNull(session)
+                        (expiredSession as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(null)
+                        expiredSession.close()
                         val retrySession = try {
                             gateway.openAuthenticatedSession(cardNumber, password)
                         } catch (_: LibraryError.Auth) {
@@ -90,6 +95,7 @@ internal class ReservationSubmissionResolver(
                             failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
                             break
                         }
+                        (retrySession as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(beforeWrite)
                         session = retrySession
                         val retried = try {
                             retrySession.directReserve(target.tilcod, pickupLibraryCode)
@@ -163,6 +169,7 @@ internal class ReservationSubmissionResolver(
                 latestReservationSnapshot = latestSnapshot,
             )
         } finally {
+            (session as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(null)
             session?.close()
         }
     }
