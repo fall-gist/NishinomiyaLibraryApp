@@ -7,14 +7,9 @@ import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationCartDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationPickupSubmissionDao
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationCartItemEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationPickupSubmissionEntity
-import com.fallgist.nishinomiyalibrary.data.remote.licsxp.DirectReservationAttempt
-import com.fallgist.nishinomiyalibrary.data.remote.licsxp.InvalidPickupLibraryException
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.PICKUP_LIBRARY_CODES
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
-import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationListSnapshot
-import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSession
-import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSnapshotSource
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.MemberReservationResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult
@@ -22,13 +17,12 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartItem
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationItemResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationOutcome
-import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
-import com.fallgist.nishinomiyalibrary.domain.model.UnknownReason
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionOrigin
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Clock
@@ -49,6 +43,7 @@ class ReservationCartRepositoryImpl @Inject constructor(
     private val pickupSubmissionDao: ReservationPickupSubmissionDao = database.reservationPickupSubmissionDao(),
 ) : ReservationCartRepository {
     private val submissionMutex = Mutex()
+    private val submissionResolver = ReservationSubmissionResolver(gateway)
 
     override fun cartItems(): Flow<List<ReservationCartItem>> = cartDao.observeAll().map { items ->
         items.map(ReservationCartItemEntity::toDomain)
@@ -107,7 +102,7 @@ class ReservationCartRepositoryImpl @Inject constructor(
         }
         return ReservationExecution(
             result = ReservationBatchResult(members.map(ProcessMemberResult::result)),
-            postAttemptedTargets = members.flatMap { it.postAttemptedTargets }.toSet(),
+            submissions = members.flatMap { it.submissions },
         )
     }
 
@@ -126,244 +121,20 @@ class ReservationCartRepositoryImpl @Inject constructor(
         }
         val member = memberAndPassword?.first
         val password = memberAndPassword?.second
-        if (member == null || password.isNullOrBlank()) return ProcessMemberResult(allFailure(memberId, targets, FailureReason.AUTH))
+        if (member == null || password.isNullOrBlank()) {
+            return ProcessMemberResult(allFailure(memberId, targets, FailureReason.AUTH))
+        }
 
-        var session: ReservationSession? = null
-        val provisional = linkedMapOf<ReservationTarget, Provisional>()
-        try {
-            session = try {
-                gateway.openAuthenticatedSession(member.cardNumber, password)
-            } catch (_: LibraryError.Auth) {
-                return ProcessMemberResult(allFailure(memberId, targets, FailureReason.AUTH))
-            } catch (_: LibraryError.Parse) {
-                return ProcessMemberResult(allFailure(memberId, targets, FailureReason.SITE_RESPONSE_CHANGED))
-            } catch (_: LibraryError.Maintenance) {
-                return ProcessMemberResult(allFailure(memberId, targets, FailureReason.SITE_MAINTENANCE))
-            } catch (_: LibraryError.Network) {
-                return ProcessMemberResult(allFailure(memberId, targets, FailureReason.NETWORK))
-            } catch (exception: Exception) {
-                exception.rethrowIfCancellation()
-                return ProcessMemberResult(allFailure(memberId, targets, FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE))
-            }
-            var index = 0
-            while (index < targets.size) {
-                val target = targets[index]
-                val attempt = try {
-                    requireNotNull(session).directReserve(target.tilcod, confirmation.pickupLibraryCode)
-                } catch (_: InvalidPickupLibraryException) {
-                    // 共通の選択館なので、以降の同一メンバー項目にもPOSTしない。
-                    provisional[target] = Provisional.Failure(FailureReason.INVALID_PICKUP_LIBRARY)
-                    targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.INVALID_PICKUP_LIBRARY) }
-                    break
-                } catch (_: LibraryError.Parse) {
-                    failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_RESPONSE_CHANGED)
-                    break
-                } catch (_: LibraryError.Maintenance) {
-                    failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_MAINTENANCE)
-                    break
-                } catch (_: LibraryError.Network) {
-                    failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.NETWORK)
-                    break
-                }
-                when (attempt) {
-                    DirectReservationAttempt.Submitted -> provisional[target] = Provisional.Submitted
-                    DirectReservationAttempt.DuplicateDetected -> provisional[target] = Provisional.Duplicate
-                    DirectReservationAttempt.RejectedBeforeSubmit -> provisional[target] = Provisional.Failure(FailureReason.REJECTED_BY_SITE)
-                    is DirectReservationAttempt.LimitExceeded -> {
-                        // サイトが上限超過だと明示しているため、予約一覧との照合は行わない。
-                        // 資料区分ごとに上限が異なるため、同一メンバーの次の項目は中止せず続行する。
-                        provisional[target] = Provisional.Failure(FailureReason.RESERVATION_LIMIT_EXCEEDED, attempt.message)
-                    }
-                    DirectReservationAttempt.Registered -> {
-                        // サイトが成功と言っていても、成否判定の最終根拠は予約一覧照合のままにする
-                        // （成功時も失敗時と同じ確認画面が返るため、文言だけを信頼しない方針を維持する）。
-                        val canContinue = resolveStayedOnConfirmation(requireNotNull(session), target, targets, index, provisional)
-                        if (!canContinue) break
-                    }
-                    DirectReservationAttempt.StayedOnConfirmation -> {
-                        val canContinue = resolveStayedOnConfirmation(requireNotNull(session), target, targets, index, provisional)
-                        if (!canContinue) break
-                    }
-                    DirectReservationAttempt.IndeterminateAfterPost -> {
-                        // POSTは再送せず、同じセッションで一度だけ読み取り照合する。
-                        val reservedTilcods = try {
-                            requireNotNull(session).fetchReservations().map { it.tilcod }.filter(String::isNotBlank).toSet()
-                        } catch (exception: Exception) {
-                            exception.rethrowIfCancellation()
-                            null
-                        }
-                        if (reservedTilcods?.contains(target.tilcod) == true) {
-                            provisional[target] = Provisional.VerifiedSuccess
-                        } else {
-                            provisional[target] = Provisional.Indeterminate(
-                                if (reservedTilcods == null) UnknownReason.VERIFICATION_UNAVAILABLE else UnknownReason.POST_RESPONSE_UNEXPECTED,
-                            )
-                            targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
-                            break
-                        }
-                    }
-                    DirectReservationAttempt.SessionExpiredBeforeSubmit -> {
-                        requireNotNull(session).close()
-                        val retrySession = try {
-                            gateway.openAuthenticatedSession(member.cardNumber, password)
-                        } catch (_: LibraryError.Auth) {
-                            provisional[target] = Provisional.Failure(FailureReason.AUTH)
-                            targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.AUTH) }
-                            break
-                        } catch (_: LibraryError.Parse) {
-                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_RESPONSE_CHANGED)
-                            break
-                        } catch (_: LibraryError.Maintenance) {
-                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_MAINTENANCE)
-                            break
-                        } catch (_: LibraryError.Network) {
-                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.NETWORK)
-                            break
-                        } catch (exception: Exception) {
-                            exception.rethrowIfCancellation()
-                            provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
-                            targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
-                            break
-                        }
-                        session = retrySession
-                        val retried = try {
-                            retrySession.directReserve(target.tilcod, confirmation.pickupLibraryCode)
-                        } catch (_: InvalidPickupLibraryException) {
-                            provisional[target] = Provisional.Failure(FailureReason.INVALID_PICKUP_LIBRARY)
-                            targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.INVALID_PICKUP_LIBRARY) }
-                            break
-                        } catch (_: LibraryError.Parse) {
-                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_RESPONSE_CHANGED)
-                            break
-                        } catch (_: LibraryError.Maintenance) {
-                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.SITE_MAINTENANCE)
-                            break
-                        } catch (_: LibraryError.Network) {
-                            failCurrentAndAbortRemaining(provisional, targets, index, FailureReason.NETWORK)
-                            break
-                        }
-                        when (retried) {
-                            DirectReservationAttempt.Submitted -> provisional[target] = Provisional.Submitted
-                            DirectReservationAttempt.DuplicateDetected -> provisional[target] = Provisional.Duplicate
-                            is DirectReservationAttempt.LimitExceeded -> {
-                                provisional[target] = Provisional.Failure(FailureReason.RESERVATION_LIMIT_EXCEEDED, retried.message)
-                            }
-                            DirectReservationAttempt.Registered -> {
-                                val canContinue = resolveStayedOnConfirmation(retrySession, target, targets, index, provisional)
-                                if (!canContinue) break
-                            }
-                            DirectReservationAttempt.StayedOnConfirmation -> {
-                                val canContinue = resolveStayedOnConfirmation(retrySession, target, targets, index, provisional)
-                                if (!canContinue) break
-                            }
-                            DirectReservationAttempt.IndeterminateAfterPost -> {
-                                val reservedTilcods = try {
-                                    retrySession.fetchReservations().map { it.tilcod }.filter(String::isNotBlank).toSet()
-                                } catch (exception: Exception) {
-                                    exception.rethrowIfCancellation()
-                                    null
-                                }
-                                if (reservedTilcods?.contains(target.tilcod) == true) {
-                                    provisional[target] = Provisional.VerifiedSuccess
-                                } else {
-                                    provisional[target] = Provisional.Indeterminate(
-                                        if (reservedTilcods == null) UnknownReason.VERIFICATION_UNAVAILABLE else UnknownReason.POST_RESPONSE_UNEXPECTED,
-                                    )
-                                    targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
-                                    break
-                                }
-                            }
-                            DirectReservationAttempt.RejectedBeforeSubmit -> provisional[target] = Provisional.Failure(FailureReason.REJECTED_BY_SITE)
-                            DirectReservationAttempt.SessionExpiredBeforeSubmit -> {
-                                provisional[target] = Provisional.Failure(FailureReason.SESSION_EXPIRED_BEFORE_SUBMIT)
-                                targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.SESSION_EXPIRED_BEFORE_SUBMIT) }
-                                break
-                            }
-                        }
-                    }
-                }
-                index++
-            }
-            // 即時照合していない Submitted/Duplicate だけを、メンバー末尾で一回取得して解決する。
-            val requiresFinalVerification = provisional.values.any { it == Provisional.Submitted || it == Provisional.Duplicate }
-            val reservedTilcods = if (requiresFinalVerification) try {
-                requireNotNull(session).fetchReservations().map { it.tilcod }.filter(String::isNotBlank).toSet()
-            } catch (exception: Exception) {
-                exception.rethrowIfCancellation()
-                null
-            } else null
-            return ProcessMemberResult(
-                result = MemberReservationResult(memberId, targets.map { target ->
-                    ReservationItemResult(target, resolve(provisional[target], target.tilcod, reservedTilcods))
-                }),
-                postAttemptedTargets = provisional.filterValues(Provisional::crossedPostBoundary).keys,
-            )
-        } finally {
-            session?.close()
-        }
-    }
-
-    /**
-     * 確定POST後も確認画面のままだった場合の解決。サイトは業務的拒否（予約上限超過など）の理由を
-     * 表示せず確認画面を再表示するだけなので、予約一覧に対象があるかどうかで成否を判断する。
-     * ただし「一覧に対象が無い＝拒否」と断定できるのは、取得した一覧が完全だと確認できたときだけ。
-     * 予約上限20件・一覧が非ページングであることは現時点の実測に過ぎず、恒久的なサイト仕様として
-     * 保証されたものではない。将来サイトが変わり一覧がページングされた場合、成立しているのに
-     * 1ページ目に対象が無いだけで誤って「拒否」と断定してしまう恐れがあるため、完全性を確認できない
-     * ときは成否不明へ倒す（詳細は fetchReservationSnapshot と docs/handoff.md を参照）。
-     * 資料種別ごとの上限などで拒否された場合、同一メンバーの次の資料は成功し得るため、
-     * 一覧照合が完了した場合（成功・拒否のいずれでも）は残り項目の処理を継続する。
-     * 一覧取得自体に失敗した場合、および完全性を確認できない場合は成否を判断できないため、
-     * 残り項目を中止する。
-     * @return true なら残り項目の処理を継続してよい、false なら中止する。
-     */
-    private suspend fun resolveStayedOnConfirmation(
-        session: ReservationSession,
-        target: ReservationTarget,
-        targets: List<ReservationTarget>,
-        index: Int,
-        provisional: MutableMap<ReservationTarget, Provisional>,
-    ): Boolean {
-        val snapshot = try {
-            // ReservationSessionは公開APIのため、完全性判定は internal な ReservationSnapshotSource
-            // 側にだけ持たせている。実装していないセッション（テストのフェイクなど）に対しては、
-            // 完全性を確認できないものとして安全側（成否不明）に倒す。
-            (session as? ReservationSnapshotSource)?.fetchReservationSnapshot()
-                ?: ReservationListSnapshot(session.fetchReservations(), complete = false)
-        } catch (exception: Exception) {
-            exception.rethrowIfCancellation()
-            null
-        }
-        if (snapshot == null) {
-            provisional[target] = Provisional.Indeterminate(UnknownReason.VERIFICATION_UNAVAILABLE)
-            targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
-            return false
-        }
-        val reservedTilcods = snapshot.reservations.map { it.tilcod }.filter(String::isNotBlank).toSet()
-        if (target.tilcod in reservedTilcods) {
-            provisional[target] = Provisional.VerifiedSuccess
-            return true
-        }
-        if (snapshot.complete) {
-            provisional[target] = Provisional.Failure(FailureReason.REJECTED_BY_SITE)
-            return true
-        }
-        provisional[target] = Provisional.Indeterminate(UnknownReason.VERIFICATION_UNAVAILABLE)
-        targets.drop(index + 1).forEach { provisional[it] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE) }
-        return false
-    }
-
-    private fun resolve(provisional: Provisional?, tilcod: String, reservedTilcods: Set<String>?): ReservationOutcome = when (provisional) {
-        null -> ReservationOutcome.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
-        Provisional.VerifiedSuccess -> ReservationOutcome.Success
-        is Provisional.Failure -> ReservationOutcome.Failure(provisional.reason, provisional.siteMessage)
-        Provisional.Submitted, is Provisional.Indeterminate, Provisional.Duplicate -> when {
-            reservedTilcods == null -> ReservationOutcome.Unknown(UnknownReason.VERIFICATION_UNAVAILABLE)
-            tilcod in reservedTilcods && provisional == Provisional.Duplicate -> ReservationOutcome.AlreadyReserved
-            tilcod in reservedTilcods -> ReservationOutcome.Success
-            provisional is Provisional.Indeterminate -> ReservationOutcome.Unknown(provisional.reason)
-            else -> ReservationOutcome.Unknown(UnknownReason.POST_RESPONSE_UNEXPECTED)
-        }
+        val resolution = submissionResolver.resolveMember(
+            cardNumber = member.cardNumber,
+            password = password,
+            targets = targets,
+            pickupLibraryCode = confirmation.pickupLibraryCode,
+        )
+        return ProcessMemberResult(
+            result = MemberReservationResult(memberId, resolution.itemResults),
+            submissions = resolution.results,
+        )
     }
 
     private suspend fun deleteCompletedCartItems(result: ReservationBatchResult) {
@@ -376,25 +147,21 @@ class ReservationCartRepositoryImpl @Inject constructor(
     /**
      * サイト一覧の受取館表示が古い間も、アプリが送信した館を失わないように記録する。
      * 成功だけを確認済みとして残す。AlreadyReserved は今回の送信ではないため記録しない。
-     * Unknown はこのRepositoryでは確定POST後の照合不能だけから生成されるため、反映未確認として残す。
      */
     private suspend fun recordPickupSubmissions(execution: ReservationExecution, pickupLibraryCode: String) {
-        execution.result.members.flatMap { it.itemResults }.forEach { item ->
-            val origin = when (item.outcome) {
+        execution.submissions.forEach { submission ->
+            val origin = when (submission.outcome) {
                 ReservationOutcome.Success -> ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION
                 ReservationOutcome.AlreadyReserved -> null
-                // DuplicateDetected はPOST前に検出され、一覧照合失敗時も Unknown になり得る。
-                // 成否表示だけではPOST境界を復元できないため、実行中に保持した境界を確認する。
-                is ReservationOutcome.Unknown -> execution.postAttemptedTargets
-                    .contains(item.target)
-                    .takeIf { it }
+                is ReservationOutcome.Unknown -> submission.postBoundary
+                    .takeIf { it == ReservationPostBoundary.SENT_OR_UNKNOWN }
                     ?.let { ReservationPickupSubmissionOrigin.UNVERIFIED_SUBMISSION }
                 is ReservationOutcome.Failure -> null
             } ?: return@forEach
             pickupSubmissionDao.upsert(
                 ReservationPickupSubmissionEntity(
-                    memberId = item.target.memberId,
-                    tilcod = item.target.tilcod,
+                    memberId = submission.target.memberId,
+                    tilcod = submission.target.tilcod,
                     pickupLibraryCode = pickupLibraryCode,
                     origin = origin,
                 ),
@@ -404,18 +171,6 @@ class ReservationCartRepositoryImpl @Inject constructor(
 
     private fun allFailure(memberId: Long, targets: List<ReservationTarget>, reason: FailureReason) =
         MemberReservationResult(memberId, targets.map { ReservationItemResult(it, ReservationOutcome.Failure(reason)) })
-
-    private fun failCurrentAndAbortRemaining(
-        provisional: MutableMap<ReservationTarget, Provisional>,
-        targets: List<ReservationTarget>,
-        index: Int,
-        reason: FailureReason,
-    ) {
-        provisional[targets[index]] = Provisional.Failure(reason)
-        targets.drop(index + 1).forEach { target ->
-            provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
-        }
-    }
 
     private fun validateTarget(target: ReservationTarget, permitCartItemId: Boolean) {
         require(target.memberId > 0) { "memberIdが不正です" }
@@ -429,26 +184,14 @@ class ReservationCartRepositoryImpl @Inject constructor(
         require(confirmation.pickupLibraryCode in PICKUP_LIBRARY_CODES) { "受取館コードが不正です" }
     }
 
-    private sealed interface Provisional {
-        data object Submitted : Provisional
-        data object VerifiedSuccess : Provisional
-        data object Duplicate : Provisional
-        /** siteMessage は予約制限超過などでサイトが返した文言。無ければ null。 */
-        data class Failure(val reason: FailureReason, val siteMessage: String? = null) : Provisional
-        data class Indeterminate(val reason: UnknownReason) : Provisional
-
-        val crossedPostBoundary: Boolean
-            get() = this == Submitted || this == VerifiedSuccess || this is Indeterminate
-    }
-
     private data class ProcessMemberResult(
         val result: MemberReservationResult,
-        val postAttemptedTargets: Set<ReservationTarget> = emptySet(),
+        val submissions: List<ReservationSubmissionResult> = emptyList(),
     )
 
     private data class ReservationExecution(
         val result: ReservationBatchResult,
-        val postAttemptedTargets: Set<ReservationTarget>,
+        val submissions: List<ReservationSubmissionResult>,
     )
 }
 
