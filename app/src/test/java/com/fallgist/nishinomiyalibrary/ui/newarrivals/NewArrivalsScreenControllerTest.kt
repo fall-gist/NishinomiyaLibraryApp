@@ -2,11 +2,16 @@ package com.fallgist.nishinomiyalibrary.ui.newarrivals
 
 import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
+import com.fallgist.nishinomiyalibrary.data.repository.AutomaticReservationRunResult
+import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateResult
+import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateRunner
+import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateTrigger
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -25,12 +30,14 @@ class NewArrivalsScreenControllerTest {
             items = listOf(newArrival("1")),
             lastFetchedAtEpochMillis = now.minusMillis(Duration.ofHours(1).toMillis()).toEpochMilli(),
         )
-        val controller = NewArrivalsScreenController(repository, clock, dispatcher)
+        val updater = FakeUpdateRunner(repository, NewArrivalUpdateResult.FreshnessSkipped)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
 
         controller.onScreenLaunched()
         advanceUntilIdle()
 
         assertEquals(0, repository.refreshCallCount)
+        assertEquals(listOf(NewArrivalUpdateTrigger.SCREEN_AUTO), updater.triggers)
     }
 
     @Test
@@ -42,7 +49,8 @@ class NewArrivalsScreenControllerTest {
             items = listOf(newArrival("1")),
             lastFetchedAtEpochMillis = now.minusMillis(Duration.ofHours(13).toMillis()).toEpochMilli(),
         )
-        val controller = NewArrivalsScreenController(repository, clock, dispatcher)
+        val updater = FakeUpdateRunner(repository)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
 
         controller.onScreenLaunched()
         advanceUntilIdle()
@@ -59,7 +67,7 @@ class NewArrivalsScreenControllerTest {
             items = emptyList(),
             lastFetchedAtEpochMillis = now.minusMillis(Duration.ofMinutes(1).toMillis()).toEpochMilli(),
         )
-        val controller = NewArrivalsScreenController(repository, clock, dispatcher)
+        val controller = NewArrivalsScreenController(repository, FakeUpdateRunner(repository), dispatcher)
 
         controller.onScreenLaunched()
         advanceUntilIdle()
@@ -76,7 +84,8 @@ class NewArrivalsScreenControllerTest {
             items = listOf(newArrival("1")),
             lastFetchedAtEpochMillis = now.minusMillis(Duration.ofMinutes(1).toMillis()).toEpochMilli(),
         )
-        val controller = NewArrivalsScreenController(repository, clock, dispatcher)
+        val updater = FakeUpdateRunner(repository)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
 
         controller.refresh()
         advanceUntilIdle()
@@ -84,6 +93,34 @@ class NewArrivalsScreenControllerTest {
         advanceUntilIdle()
 
         assertEquals(2, repository.refreshCallCount)
+        assertEquals(listOf(NewArrivalUpdateTrigger.SCREEN_MANUAL, NewArrivalUpdateTrigger.SCREEN_MANUAL), updater.triggers)
+    }
+
+    @Test
+    fun `先発更新中のrefreshとscreen launchは表示状態を崩さず追加通信しない`() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(emptyList(), null)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val updater = FakeUpdateRunner(repository, beforeResult = {
+            entered.complete(Unit)
+            release.await()
+        })
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+
+        controller.refresh()
+        entered.await()
+        assertEquals(true, controller.state.value.refreshing)
+
+        controller.refresh()
+        controller.onScreenLaunched()
+        assertEquals(true, controller.state.value.refreshing)
+        assertEquals(listOf(NewArrivalUpdateTrigger.SCREEN_MANUAL), updater.triggers)
+
+        release.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(false, controller.state.value.refreshing)
+        assertEquals(1, repository.refreshCallCount)
     }
 
     private fun newArrival(tilcod: String) = NewArrival(
@@ -113,5 +150,19 @@ class NewArrivalsScreenControllerTest {
         override suspend fun lastFetchedAtEpochMillis(): Long? = lastFetchedAtEpochMillis
 
         override suspend fun hasCachedItems(): Boolean = items.isNotEmpty()
+    }
+
+    private class FakeUpdateRunner(
+        private val repository: FakeNewArrivalRepository,
+        private val result: NewArrivalUpdateResult = NewArrivalUpdateResult.Completed(AutomaticReservationRunResult.NoMatch),
+        private val beforeResult: suspend () -> Unit = {},
+    ) : NewArrivalUpdateRunner {
+        val triggers = mutableListOf<NewArrivalUpdateTrigger>()
+        override suspend fun refresh(trigger: NewArrivalUpdateTrigger): NewArrivalUpdateResult {
+            triggers += trigger
+            beforeResult()
+            if (result is NewArrivalUpdateResult.Completed) repository.refresh()
+            return result
+        }
     }
 }

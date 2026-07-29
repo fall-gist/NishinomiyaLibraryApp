@@ -19,6 +19,7 @@ import com.fallgist.nishinomiyalibrary.ui.diagnostics.DiagnosticLogScreenControl
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
+import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateRunner
 import com.fallgist.nishinomiyalibrary.ui.reading.ReadingRecordsScreenController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationCancelUiController
 import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenController
@@ -33,7 +34,6 @@ import dagger.Provides
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import java.time.Clock
 import javax.inject.Singleton
 
 @Module
@@ -155,10 +155,10 @@ object DebugUiProvisionModule {
     @Singleton
     fun provideNewArrivalsScreenController(
         newArrivalRepository: NewArrivalRepository,
-        clock: Clock,
+        updateCoordinator: NewArrivalUpdateRunner,
     ): NewArrivalsScreenController = NewArrivalsScreenController(
         newArrivalRepository = newArrivalRepository,
-        clock = clock,
+        updateCoordinator = updateCoordinator,
     )
 
     @Provides

@@ -29,6 +29,7 @@ import com.fallgist.nishinomiyalibrary.data.sync.SyncWorkerDecision
 import com.fallgist.nishinomiyalibrary.data.sync.createDailySyncWorkRequest
 import com.fallgist.nishinomiyalibrary.data.sync.nextScheduleDelay
 import com.fallgist.nishinomiyalibrary.data.sync.syncWorkerDecision
+import com.fallgist.nishinomiyalibrary.data.sync.executeScheduledSync
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.Holding
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
@@ -72,6 +73,27 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class RepositoryAndSyncTest {
+    @Test
+    fun `scheduled sync runs status before update only when auto is enabled`() = runBlocking {
+        val enabledEvents = mutableListOf<String>()
+        val enabled = executeScheduledSync(
+            autoReservationEnabled = true,
+            sync = { enabledEvents += "sync"; SyncResult.Completed(1, 0) },
+            update = { enabledEvents += "update"; NewArrivalUpdateResult.Completed(AutomaticReservationRunResult.NoMatch) },
+        )
+        assertEquals(listOf("sync", "update"), enabledEvents)
+        assertTrue(enabled.updateResult is NewArrivalUpdateResult.Completed)
+
+        val disabledEvents = mutableListOf<String>()
+        val disabled = executeScheduledSync(
+            autoReservationEnabled = false,
+            sync = { disabledEvents += "sync"; SyncResult.Completed(1, 0) },
+            update = { disabledEvents += "update"; NewArrivalUpdateResult.RefreshFailed },
+        )
+        assertEquals(listOf("sync"), disabledEvents)
+        assertNull(disabled.updateResult)
+    }
+
     private lateinit var context: Context
     private lateinit var database: AppDatabase
     private lateinit var credentialStore: CredentialStore
@@ -489,6 +511,24 @@ class RepositoryAndSyncTest {
         assertEquals(
             SyncWorkerDecision.SUCCESS,
             syncWorkerDecision(SyncResult.Completed(1, 0), 0),
+        )
+        assertEquals(SyncWorkerDecision.RETRY, syncWorkerDecision(failure, NewArrivalUpdateResult.RefreshFailed, 0))
+        assertEquals(SyncWorkerDecision.RETRY, syncWorkerDecision(failure, NewArrivalUpdateResult.RefreshFailed, 1))
+        assertEquals(SyncWorkerDecision.FAILURE, syncWorkerDecision(failure, NewArrivalUpdateResult.RefreshFailed, 2))
+        assertEquals(
+            SyncWorkerDecision.SUCCESS,
+            syncWorkerDecision(failure, NewArrivalUpdateResult.Completed(AutomaticReservationRunResult.Completed(emptyList(), preparedReached = true)), 0),
+        )
+        assertEquals(
+            SyncWorkerDecision.FAILURE,
+            syncWorkerDecision(failure, NewArrivalUpdateResult.AutomaticFailed(preparedReached = true), 0),
+        )
+        assertEquals(SyncWorkerDecision.FAILURE, syncWorkerDecision(failure, NewArrivalUpdateResult.AutomaticFailed(preparedReached = false), 0))
+        assertEquals(SyncWorkerDecision.SUCCESS, syncWorkerDecision(failure, NewArrivalUpdateResult.AlreadyRunning, 0))
+        assertEquals(SyncWorkerDecision.SUCCESS, syncWorkerDecision(failure, NewArrivalUpdateResult.FreshnessSkipped, 0))
+        assertEquals(
+            SyncWorkerDecision.SUCCESS,
+            syncWorkerDecision(failure, NewArrivalUpdateResult.Completed(AutomaticReservationRunResult.NoMatch), 0),
         )
 
         val jst = ZoneId.of("Asia/Tokyo")

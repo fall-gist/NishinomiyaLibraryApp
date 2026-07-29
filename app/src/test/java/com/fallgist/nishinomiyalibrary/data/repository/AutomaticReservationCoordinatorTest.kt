@@ -146,9 +146,10 @@ class AutomaticReservationCoordinatorTest {
         val controls = Controls(listOf(rule()), events)
         val gateway = BoundaryGateway(events)
 
-        coordinator(settings(true), controls, Arrivals(listOf(arrival())), Current(), gateway, Family(listOf(member)), credentials(member)).run()
+        val preparedResult = coordinator(settings(true), controls, Arrivals(listOf(arrival())), Current(), gateway, Family(listOf(member)), credentials(member)).run() as AutomaticReservationRunResult.Completed
 
         assertTrue(events.indexOf("PREPARED") in 0 until events.indexOf("POST"))
+        assertTrue(preparedResult.preparedReached)
         assertEquals(AutoReservationControlStatus.SUCCESS, controls.control("t")?.status)
         val loginFailureControls = Controls(listOf(rule()))
         coordinator(settings(true), loginFailureControls, Arrivals(listOf(arrival())), FailingCurrent(), BoundaryGateway(mutableListOf(), failLogin = true), Family(listOf(member)), credentials(member)).run()

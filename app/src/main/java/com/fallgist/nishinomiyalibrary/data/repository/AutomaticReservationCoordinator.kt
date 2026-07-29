@@ -41,10 +41,10 @@ class AutomaticReservationCoordinator @Inject constructor(
     private val gate: ReservationOperationGate,
     private val clock: Clock,
     private val snapshotStore: CurrentCirculationSnapshotStore,
-) {
+) : AutomaticReservationRunner {
     private val resolver = ReservationSubmissionResolver(reservationGateway)
 
-    suspend fun run(): AutomaticReservationRunResult {
+    override suspend fun run(onPreparedPersisted: () -> Unit): AutomaticReservationRunResult {
         val settings = settingsStore.settings.first()
         if (!settings.autoReservationEnabled) return AutomaticReservationRunResult.SkippedMasterOff
         val today = LocalDate.now(clock)
@@ -58,6 +58,7 @@ class AutomaticReservationCoordinator @Inject constructor(
 
         val sessions = mutableMapOf<Long, ReservationSession>()
         val history = mutableListOf<HistoryItem>()
+        var preparedReached = false
         var cached: Map<Long, MemberCirculation>? = null
         var generation = -1L
         var stop = false
@@ -136,6 +137,8 @@ class AutomaticReservationCoordinator @Inject constructor(
                                     throw MemberRemovedBeforeSubmitException()
                                 }
                                 saveControl(candidate.arrival.tilcod, today, AutoReservationControlStatus.PREPARED, member.id)
+                                preparedReached = true
+                                onPreparedPersisted()
                                 if (family.members().first().none { it.id == member.id }) {
                                     throw MemberRemovedBeforeSubmitException()
                                 }
@@ -216,7 +219,10 @@ class AutomaticReservationCoordinator @Inject constructor(
             sessions.values.forEach(::closeSession)
         }
         if (history.isNotEmpty()) saveLatest(history)
-        return AutomaticReservationRunResult.Completed(history.map { AutomaticReservationItemResult(it.candidate.arrival.tilcod, it.candidate.arrival.title, it.outcome) })
+        return AutomaticReservationRunResult.Completed(
+            history.map { AutomaticReservationItemResult(it.candidate.arrival.tilcod, it.candidate.arrival.title, it.outcome) },
+            preparedReached,
+        )
     }
 
     private suspend fun candidates(rules: List<AutoReservationRule>): List<Candidate> = arrivals.newArrivals().first().mapNotNull { arrival ->
@@ -362,5 +368,8 @@ sealed interface AutomaticReservationRunResult {
     data object SkippedMasterOff : AutomaticReservationRunResult
     data object SkippedNoEnabledRules : AutomaticReservationRunResult
     data object NoMatch : AutomaticReservationRunResult
-    data class Completed(val items: List<AutomaticReservationItemResult>) : AutomaticReservationRunResult
+    data class Completed(
+        val items: List<AutomaticReservationItemResult>,
+        val preparedReached: Boolean = false,
+    ) : AutomaticReservationRunResult
 }

@@ -2,9 +2,10 @@ package com.fallgist.nishinomiyalibrary.ui.newarrivals
 
 import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordTitleNormalizer
+import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateRunner
+import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateResult
+import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateTrigger
 import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
-import java.time.Clock
-import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -20,7 +21,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /** 新着資料一覧の1行。ジャンルは持たず、書誌の要点のみ表示する。 */
 data class NewArrivalRow(
@@ -94,7 +94,7 @@ object NewArrivalsLastFetchedTextBuilder {
  */
 class NewArrivalsScreenController(
     private val newArrivalRepository: NewArrivalRepository,
-    private val clock: Clock,
+    private val updateCoordinator: NewArrivalUpdateRunner,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -102,7 +102,7 @@ class NewArrivalsScreenController(
     val state: StateFlow<NewArrivalsUiState> = _state
 
     private val query = MutableStateFlow("")
-    private val refreshMutex = Mutex()
+    private val displayRefreshMutex = Mutex()
     private var refreshedThisSession = false
     private val observationJob: Job
 
@@ -125,38 +125,39 @@ class NewArrivalsScreenController(
         }
     }
 
-    /**
-     * 画面表示時に1回だけ裏で取得する。以降の明示更新は[refresh]。
-     * さらに、最終取得から[AUTO_REFRESH_FRESHNESS_THRESHOLD_MILLIS]以内であれば
-     * 巡回自体を省略する(28ジャンル巡回は約15秒かかり、予約処理等と並行して走ると負荷になるため)。
-     */
+    /** 画面表示時に1回だけSCREEN_AUTO更新を依頼する。鮮度判定は更新Coordinatorが行う。 */
     fun onScreenLaunched() {
         if (refreshedThisSession) return
         refreshedThisSession = true
         scope.launch {
-            if (!shouldAutoRefresh()) return@launch
-            performRefresh()
+            performRefresh(NewArrivalUpdateTrigger.SCREEN_AUTO)
         }
     }
 
     /** 「更新」操作。鮮度に関わらず必ず巡回する。取得に失敗した場合は次回また試せるようにする。 */
     fun refresh() {
-        scope.launch { performRefresh() }
+        scope.launch { performRefresh(NewArrivalUpdateTrigger.SCREEN_MANUAL) }
     }
 
-    private suspend fun shouldAutoRefresh(): Boolean {
-        // 新着資料が1件も保持されていない(初回起動など)場合は経過時間を問わず巡回する。
-        if (!newArrivalRepository.hasCachedItems()) return true
-        val lastFetchedAt = newArrivalRepository.lastFetchedAtEpochMillis() ?: return true
-        val elapsedMillis = clock.millis() - lastFetchedAt
-        return elapsedMillis >= AUTO_REFRESH_FRESHNESS_THRESHOLD_MILLIS
-    }
-
-    private suspend fun performRefresh() {
-        if (!refreshMutex.tryLock()) return
+    private suspend fun performRefresh(trigger: NewArrivalUpdateTrigger) {
+        if (!displayRefreshMutex.tryLock()) return
         try {
             _state.value = _state.value.copy(refreshing = true)
-            newArrivalRepository.refresh()
+            when (updateCoordinator.refresh(trigger)) {
+                NewArrivalUpdateResult.RefreshFailed -> {
+                    refreshedThisSession = false
+                    _state.value = _state.value.copy(refreshing = false, refreshFailed = true)
+                    return
+                }
+                NewArrivalUpdateResult.AlreadyRunning -> {
+                    _state.value = _state.value.copy(refreshing = false)
+                    return
+                }
+                is NewArrivalUpdateResult.Completed,
+                is NewArrivalUpdateResult.AutomaticFailed,
+                NewArrivalUpdateResult.FreshnessSkipped,
+                -> Unit
+            }
             _state.value = _state.value.copy(
                 refreshing = false,
                 refreshFailed = false,
@@ -168,7 +169,7 @@ class NewArrivalsScreenController(
             refreshedThisSession = false
             _state.value = _state.value.copy(refreshing = false, refreshFailed = true)
         } finally {
-            refreshMutex.unlock()
+            displayRefreshMutex.unlock()
         }
     }
 
@@ -181,8 +182,4 @@ class NewArrivalsScreenController(
         scope.coroutineContext[Job]?.cancel()
     }
 
-    companion object {
-        /** 画面表示時の自動巡回を省略してよい鮮度のしきい値。 */
-        val AUTO_REFRESH_FRESHNESS_THRESHOLD_MILLIS: Long = Duration.ofHours(12).toMillis()
-    }
 }
