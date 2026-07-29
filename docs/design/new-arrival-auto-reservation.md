@@ -1,7 +1,7 @@
 # 新着キーワード自動予約 技術設計
 
 最終更新: 2026-07-29  
-状態: 設計完了・段階1〜7完了・段階8以降未着手
+状態: 設計完了・段階1〜8完了・段階9以降未着手
 機能要件の正本: `docs/spec.md` §3.11
 レビュー裁定: `docs/design/new-arrival-auto-reservation-review.md`
 
@@ -9,13 +9,16 @@
 
 - Room v8、ルールドメイン・照合、制御記録・直近履歴、送信時受取館記録を実装済み
 - 通常同期の`usrrsv`までを厳密な接頭辞として共用する分離利用状況取得を実装済み
-- `ReservationSubmissionResolver`の単独抽出まで実装済み。共通書込ゲート、Coordinator、
-  通知・UI・Worker接続は未着手
-- 段階1〜5の単体テスト471件と、実v7相当DBからv8へのRoomスキーマ検証が成功
+- `ReservationSubmissionResolver`、共通書込ゲート、`AutomaticReservationCoordinator`、
+  最新利用状況のRoom反映を実装済み。通知・UI・Worker接続は未着手
+- 段階1〜8の単体テスト504件と、実v7相当DBからv8へのRoomスキーマ検証が成功
 - コミット`37c267f`のCI APKで、カート予約・即時予約とも実サイトで成立したことを
   所有者が2026-07-29に確認済み。段階7の実装へ進める
 - 共通`ReservationOperationGate`を手動カート予約・即時予約・予約取消へ接続済み。
   単体テスト477件で直列化、世代増分、再認証、POST前失敗、POST後接続断、Cancellationを確認
+- `AutomaticReservationCoordinator`でルール照合、既読・利用状況・制御記録による除外、
+  メンバー優先順のフォールバック、`PREPARED`境界、書込世代による再取得判定、
+  直近履歴の保存まで実装済み。独立したSolレビューで重大・中指摘がないことを確認
 
 ## 1. 目的と設計原則
 

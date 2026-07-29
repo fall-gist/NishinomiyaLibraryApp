@@ -411,6 +411,22 @@ class LocalDataTest {
     }
 
     @Test
+    fun `current circulation replacement replaces rows and preserves ready notification`() = runBlocking {
+        val memberId = 41L
+        database.loanDao().insert(loan(memberId, "old loan", LocalDate.of(2030, 1, 1)))
+        database.reservationDao().insert(reservation(memberId, "same", firstReadyNotifiedAt = 456L))
+        database.reservationDao().insert(reservation(memberId, "old reservation").copy(reservedDate = LocalDate.of(2030, 1, 2)))
+
+        database.replaceCurrentLoans(memberId, listOf(loan(memberId, "new loan", LocalDate.of(2030, 2, 1))))
+        database.replaceCurrentReservations(memberId, listOf(reservation(memberId, "same", firstReadyNotifiedAt = null)))
+
+        assertEquals(listOf("new loan"), database.loanDao().getAll().filter { it.memberId == memberId }.map { it.title })
+        val reservations = database.reservationDao().getForMember(memberId)
+        assertEquals(listOf("same"), reservations.map { it.title })
+        assertEquals(456L, reservations.single().firstReadyNotifiedAt)
+    }
+
+    @Test
     fun `Member DAOはCRUDを提供しFlowをsortOrder順に公開する`() = runBlocking {
         val laterId = database.memberDao().insert(member(name = "後", sortOrder = 2))
         val earlierId = database.memberDao().insert(member(name = "先", sortOrder = 1))

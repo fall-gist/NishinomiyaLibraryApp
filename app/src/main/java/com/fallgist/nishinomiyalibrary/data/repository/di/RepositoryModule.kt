@@ -19,6 +19,8 @@ import com.fallgist.nishinomiyalibrary.data.repository.StatusRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.ReservationCartRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.ReservationCancelRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.AutoReservationRepositoryImpl
+import com.fallgist.nishinomiyalibrary.data.repository.CurrentCirculationSnapshotStore
+import com.fallgist.nishinomiyalibrary.data.repository.RoomCurrentCirculationSnapshotStore
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpReservationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.data.sync.AndroidNotificationSink
@@ -84,6 +86,10 @@ abstract class RepositoryBindingModule {
     @Binds
     @Singleton
     abstract fun bindAutoReservationRepository(implementation: AutoReservationRepositoryImpl): AutoReservationRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindCurrentCirculationSnapshotStore(implementation: RoomCurrentCirculationSnapshotStore): CurrentCirculationSnapshotStore
 
     @Binds
     @Singleton

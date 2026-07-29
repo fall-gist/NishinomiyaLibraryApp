@@ -12,6 +12,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
 import com.fallgist.nishinomiyalibrary.domain.model.UnknownReason
 import java.time.LocalDate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -110,6 +111,36 @@ class ReservationSubmissionResolverTest {
         }
     }
 
+    @Test
+    fun `新規sessionでdirectReserve中にキャンセルされたら所有権移譲前に一度closeする`() = runBlocking {
+        val session = CancellingDirectSession()
+        val resolver = ReservationSubmissionResolver(FakeGateway(session))
+
+        try {
+            resolver.resolveMemberInSession(null, "card", "password", target(), "106")
+            throw AssertionError("CancellationExceptionが送出されませんでした")
+        } catch (_: CancellationException) {
+            // 期待どおり呼出側へ伝播する。
+        }
+
+        assertEquals(1, session.closeCalls)
+    }
+
+    @Test
+    fun `新規sessionで末尾snapshot取得中にキャンセルされたら所有権移譲前に一度closeする`() = runBlocking {
+        val session = CancellingSnapshotSession()
+        val resolver = ReservationSubmissionResolver(FakeGateway(session))
+
+        try {
+            resolver.resolveMemberInSession(null, "card", "password", target(), "106")
+            throw AssertionError("CancellationExceptionが送出されませんでした")
+        } catch (_: CancellationException) {
+            // 期待どおり呼出側へ伝播する。
+        }
+
+        assertEquals(1, session.closeCalls)
+    }
+
     private fun target() = ReservationTarget(null, 1, "tilcod", "資料")
 
     private class FakeGateway(private val session: ReservationSession) : ReservationGateway {
@@ -123,8 +154,9 @@ class ReservationSubmissionResolverTest {
         var directCalls = 0
         var fetchCalls = 0
         var closed = false
+        var closeCalls = 0
 
-        override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
+        override open suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
             directCalls++
             return attempt
         }
@@ -136,7 +168,20 @@ class ReservationSubmissionResolverTest {
 
         override fun close() {
             closed = true
+            closeCalls++
         }
+    }
+
+    private class CancellingDirectSession : FakeSession(DirectReservationAttempt.Submitted) {
+        override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
+            directCalls++
+            throw CancellationException("テスト用")
+        }
+    }
+
+    private class CancellingSnapshotSession : FakeSession(DirectReservationAttempt.Submitted), ReservationSnapshotSource {
+        override suspend fun fetchReservationSnapshot(): ReservationListSnapshot =
+            throw CancellationException("テスト用")
     }
 
     private class SnapshotSession(

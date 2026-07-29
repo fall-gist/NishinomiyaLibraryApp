@@ -165,6 +165,37 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 
+    /** 現在貸出だけを原子的に置換する。自動予約の利用状況取得からも利用する。 */
+    @Transaction
+    suspend fun replaceCurrentLoans(memberId: Long, loans: List<LoanEntity>) {
+        require(loans.all { it.memberId == memberId }) { "貸出データのmemberIdが一致しません" }
+        withTransaction {
+            loanDao().deleteForMember(memberId)
+            loanDao().insertAll(loans)
+        }
+    }
+
+    /** 完全な予約一覧だけを原子的に置換し、既存の通知済み時刻を引き継ぐ。 */
+    @Transaction
+    suspend fun replaceCurrentReservations(memberId: Long, reservations: List<ReservationEntity>) {
+        require(reservations.all { it.memberId == memberId }) { "予約データのmemberIdが一致しません" }
+        withTransaction {
+            val previousNotificationTimes = reservationDao()
+                .getForMember(memberId)
+                .groupBy { it.notificationKey() }
+                .mapValues { (_, matchingReservations) -> matchingReservations.map { it.firstReadyNotifiedAt } }
+            val indexes = mutableMapOf<ReservationNotificationKey, Int>()
+            val toInsert = reservations.map { reservation ->
+                val key = reservation.notificationKey()
+                val index = indexes[key] ?: 0
+                indexes[key] = index + 1
+                reservation.copy(firstReadyNotifiedAt = previousNotificationTimes[key]?.getOrNull(index) ?: reservation.firstReadyNotifiedAt)
+            }
+            reservationDao().deleteForMember(memberId)
+            reservationDao().insertAll(toInsert)
+        }
+    }
+
     /** 指定館の当日以降の休館日を、取得結果で置き換える。 */
     @Transaction
     suspend fun replaceFutureClosedDays(

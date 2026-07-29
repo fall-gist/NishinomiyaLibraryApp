@@ -14,6 +14,9 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
 import com.fallgist.nishinomiyalibrary.domain.model.UnknownReason
 
+/** 自動予約がPOST直前にメンバー削除を検知した場合だけ使う、送信を止める内部シグナル。 */
+internal class MemberRemovedBeforeSubmitException : RuntimeException()
+
 /**
  * 予約確定の応答を解決する内部実装。
  *
@@ -174,6 +177,144 @@ internal class ReservationSubmissionResolver(
         }
     }
 
+    /**
+     * 自動予約専用のセッション所有契約。返却sessionは呼出側が同一メンバーの次候補へ再利用し、
+     * 使い終わった時点でcloseする。既存の手動経路は[resolveMember]の所有権を変えない。
+     */
+    suspend fun resolveMemberInSession(
+        existingSession: ReservationSession?,
+        cardNumber: String,
+        password: String,
+        target: ReservationTarget,
+        pickupLibraryCode: String,
+        beforeWrite: () -> Unit = {},
+    ): ReservationSessionResolution {
+        var session = existingSession
+        // existingSessionは呼出側所有のまま扱う。一方、このメソッドで新規に開いたsessionは、
+        // 正常に返却して所有権を移すまで、例外時にここで必ず閉じる。
+        var resolverOwnsSession = session == null
+        var ownershipTransferred = false
+        val targets = listOf(target)
+        val provisional = linkedMapOf<ReservationTarget, Provisional>()
+        val boundaries = linkedMapOf<ReservationTarget, ReservationPostBoundary>()
+        var latestSnapshot: ReservationListSnapshot? = null
+        var memberRemovedBeforeSubmit = false
+
+        fun failure(reason: FailureReason) = ReservationSessionResolution(allFailure(targets, reason), session)
+        try {
+            if (session == null) {
+                session = try {
+                    gateway.openAuthenticatedSession(cardNumber, password)
+                } catch (_: LibraryError.Auth) {
+                    return failure(FailureReason.AUTH)
+                } catch (_: LibraryError.Parse) {
+                    return failure(FailureReason.SITE_RESPONSE_CHANGED)
+                } catch (_: LibraryError.Maintenance) {
+                    return failure(FailureReason.SITE_MAINTENANCE)
+                } catch (_: LibraryError.Network) {
+                    return failure(FailureReason.NETWORK)
+                } catch (exception: Exception) {
+                    rethrowIfCancellation(exception)
+                    return failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
+                }
+            }
+            (session as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(beforeWrite)
+
+            suspend fun reserve(active: ReservationSession): DirectReservationAttempt? = try {
+            active.directReserve(target.tilcod, pickupLibraryCode)
+        } catch (_: MemberRemovedBeforeSubmitException) {
+            memberRemovedBeforeSubmit = true
+            provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
+            null
+        } catch (_: InvalidPickupLibraryException) {
+            provisional[target] = Provisional.Failure(FailureReason.INVALID_PICKUP_LIBRARY)
+            null
+        } catch (_: LibraryError.Parse) {
+            provisional[target] = Provisional.Failure(FailureReason.SITE_RESPONSE_CHANGED)
+            null
+        } catch (_: LibraryError.Maintenance) {
+            provisional[target] = Provisional.Failure(FailureReason.SITE_MAINTENANCE)
+            null
+        } catch (_: LibraryError.Network) {
+            provisional[target] = Provisional.Failure(FailureReason.NETWORK)
+            null
+            }
+
+            var attempt = reserve(requireNotNull(session))
+            if (attempt == DirectReservationAttempt.SessionExpiredBeforeSubmit) {
+            val expired = requireNotNull(session)
+            (expired as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(null)
+            expired.close()
+            session = null
+            resolverOwnsSession = false
+            session = try {
+                gateway.openAuthenticatedSession(cardNumber, password)
+            } catch (_: LibraryError.Auth) {
+                provisional[target] = Provisional.Failure(FailureReason.AUTH); null
+            } catch (_: LibraryError.Parse) {
+                provisional[target] = Provisional.Failure(FailureReason.SITE_RESPONSE_CHANGED); null
+            } catch (_: LibraryError.Maintenance) {
+                provisional[target] = Provisional.Failure(FailureReason.SITE_MAINTENANCE); null
+            } catch (_: LibraryError.Network) {
+                provisional[target] = Provisional.Failure(FailureReason.NETWORK); null
+            } catch (exception: Exception) {
+                rethrowIfCancellation(exception)
+                provisional[target] = Provisional.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE); null
+            }
+            resolverOwnsSession = session != null
+            session?.let { retry ->
+                (retry as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(beforeWrite)
+                attempt = reserve(retry)
+                if (attempt == DirectReservationAttempt.SessionExpiredBeforeSubmit) {
+                    provisional[target] = Provisional.Failure(FailureReason.SESSION_EXPIRED_BEFORE_SUBMIT)
+                    attempt = null
+                }
+            }
+            }
+            attempt?.let { resolvedAttempt ->
+            boundaries[target] = resolvedAttempt.postBoundary
+                val handled = handleAttempt(
+                    resolvedAttempt,
+                    requireNotNull(session),
+                    target,
+                    targets,
+                    0,
+                    provisional,
+                    rethrowUnexpectedSnapshot = true,
+                )
+            latestSnapshot = handled.snapshot
+            }
+            val finalSnapshot = if (provisional[target] == Provisional.Submitted || provisional[target] == Provisional.Duplicate) {
+                fetchReservationSnapshot(requireNotNull(session), rethrowUnexpected = true)
+            } else null
+            latestSnapshot = finalSnapshot ?: latestSnapshot
+            val reservedTilcods = finalSnapshot?.reservations?.map { it.tilcod }?.filter(String::isNotBlank)?.toSet()
+            val outcome = resolve(provisional[target], target.tilcod, reservedTilcods)
+            val resolution = ReservationSessionResolution(
+                ReservationMemberSubmissionResult(
+                    listOf(ReservationSubmissionResult(
+                        target = target,
+                        outcome = outcome,
+                        postBoundary = boundaries[target] ?: ReservationPostBoundary.NOT_SENT,
+                        fallbackToNextMember = outcome.fallbackToNextMember(),
+                        sessionReusable = outcome.sessionReusable(),
+                        latestReservationSnapshot = latestSnapshot,
+                    )),
+                    latestSnapshot,
+                ),
+                session,
+                memberRemovedBeforeSubmit,
+            )
+            ownershipTransferred = true
+            return resolution
+        } finally {
+            if (!ownershipTransferred && resolverOwnsSession) {
+                (session as? ReservationWriteBoundaryAware)?.setBeforeWriteBoundary(null)
+                session?.close()
+            }
+        }
+    }
+
     private suspend fun handleAttempt(
         attempt: DirectReservationAttempt,
         session: ReservationSession,
@@ -181,6 +322,7 @@ internal class ReservationSubmissionResolver(
         targets: List<ReservationTarget>,
         index: Int,
         provisional: MutableMap<ReservationTarget, Provisional>,
+        rethrowUnexpectedSnapshot: Boolean = false,
     ): AttemptHandling = when (attempt) {
         DirectReservationAttempt.Submitted -> {
             provisional[target] = Provisional.Submitted
@@ -200,8 +342,9 @@ internal class ReservationSubmissionResolver(
         }
         DirectReservationAttempt.Registered,
         DirectReservationAttempt.StayedOnConfirmation,
-        -> resolveConfirmation(session, target, targets, index, provisional)
-        DirectReservationAttempt.IndeterminateAfterPost -> resolveIndeterminateAfterPost(session, target, targets, index, provisional)
+        -> resolveConfirmation(session, target, targets, index, provisional, rethrowUnexpectedSnapshot)
+        DirectReservationAttempt.IndeterminateAfterPost ->
+            resolveIndeterminateAfterPost(session, target, targets, index, provisional, rethrowUnexpectedSnapshot)
         DirectReservationAttempt.SessionExpiredBeforeSubmit -> error("再認証前に処理してはいけません")
     }
 
@@ -211,8 +354,9 @@ internal class ReservationSubmissionResolver(
         targets: List<ReservationTarget>,
         index: Int,
         provisional: MutableMap<ReservationTarget, Provisional>,
+        rethrowUnexpectedSnapshot: Boolean = false,
     ): AttemptHandling {
-        val snapshot = fetchSnapshotForConfirmation(session)
+        val snapshot = fetchSnapshotForConfirmation(session, rethrowUnexpectedSnapshot)
         if (snapshot == null) {
             abortAsIndeterminate(provisional, targets, index, UnknownReason.VERIFICATION_UNAVAILABLE)
             return AttemptHandling(canContinue = false)
@@ -236,8 +380,9 @@ internal class ReservationSubmissionResolver(
         targets: List<ReservationTarget>,
         index: Int,
         provisional: MutableMap<ReservationTarget, Provisional>,
+        rethrowUnexpectedSnapshot: Boolean = false,
     ): AttemptHandling {
-        val snapshot = fetchReservationSnapshot(session)
+        val snapshot = fetchReservationSnapshot(session, rethrowUnexpectedSnapshot)
         val reservedTilcods = snapshot?.reservations?.map { it.tilcod }?.filter(String::isNotBlank)?.toSet()
         if (reservedTilcods?.contains(target.tilcod) == true) {
             provisional[target] = Provisional.VerifiedSuccess
@@ -252,18 +397,24 @@ internal class ReservationSubmissionResolver(
         return AttemptHandling(canContinue = false, snapshot = snapshot)
     }
 
-    private suspend fun fetchSnapshotForConfirmation(session: ReservationSession): ReservationListSnapshot? =
-        fetchReservationSnapshot(session)
+    private suspend fun fetchSnapshotForConfirmation(
+        session: ReservationSession,
+        rethrowUnexpected: Boolean = false,
+    ): ReservationListSnapshot? = fetchReservationSnapshot(session, rethrowUnexpected)
 
     /**
      * スナップショット対応セッションでは完全性情報を失わないため、必ずそちらを優先する。
      * 未対応のテスト用・旧実装セッションだけは従来どおり不完全な一覧として扱う。
      */
-    private suspend fun fetchReservationSnapshot(session: ReservationSession): ReservationListSnapshot? = try {
+    private suspend fun fetchReservationSnapshot(
+        session: ReservationSession,
+        rethrowUnexpected: Boolean = false,
+    ): ReservationListSnapshot? = try {
         (session as? ReservationSnapshotSource)?.fetchReservationSnapshot()
             ?: ReservationListSnapshot(session.fetchReservations(), complete = false)
     } catch (exception: Exception) {
         rethrowIfCancellation(exception)
+        if (rethrowUnexpected && exception !is LibraryError) throw exception
         null
     }
 
@@ -361,6 +512,13 @@ internal data class ReservationMemberSubmissionResult(
     val itemResults: List<ReservationItemResult>
         get() = results.map { ReservationItemResult(it.target, it.outcome) }
 }
+
+/** 自動予約の呼出側が所有する、再利用可能な認証済みセッションを伴う解決結果。 */
+internal data class ReservationSessionResolution(
+    val result: ReservationMemberSubmissionResult,
+    val session: ReservationSession?,
+    val memberRemovedBeforeSubmit: Boolean = false,
+)
 
 private val DirectReservationAttempt.postBoundary: ReservationPostBoundary
     get() = when (this) {
