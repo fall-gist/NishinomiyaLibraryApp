@@ -16,6 +16,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationOutcome
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionOrigin
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
 import java.time.Clock
@@ -27,6 +28,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CancellationException
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -49,6 +51,25 @@ class ReservationCartRepositoryTest {
 
     @After
     fun tearDown() = database.close()
+
+    @Test
+    fun successfulReservationStoresConfirmedPickupSubmission() = runBlocking {
+        val memberId = addMember("送信館記録", "confirmed")
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) =
+                successfulSession("confirmed-tilcod")
+        })
+
+        val result = repository.reserveNow(
+            ReservationTarget(null, memberId, "confirmed-tilcod", "確認済み資料"),
+            ReservationConfirmation("106", 1000),
+        )
+
+        assertEquals(ReservationOutcome.Success, result.members.single().itemResults.single().outcome)
+        val submission = database.reservationPickupSubmissionDao().get(memberId, "confirmed-tilcod")
+        assertEquals("106", submission?.pickupLibraryCode)
+        assertEquals(ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION, submission?.origin)
+    }
 
     @Test
     fun `バッチはメンバー毎に一回認証照合し成功だけカートから削除する`() = runBlocking {
@@ -423,6 +444,32 @@ class ReservationCartRepositoryTest {
         val result = repository.confirmCart(ReservationConfirmation("106", 1000))
         assertEquals(ReservationOutcome.Unknown(com.fallgist.nishinomiyalibrary.domain.model.UnknownReason.VERIFICATION_UNAVAILABLE), result.members.single().itemResults.single().outcome)
         assertEquals(listOf("sent"), repository.cartItems().first().map { it.tilcod })
+        assertEquals(
+            com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionOrigin.UNVERIFIED_SUBMISSION,
+            database.reservationPickupSubmissionDao().get(member, "sent")?.origin,
+        )
+    }
+
+    @Test
+    fun `POST前の重複検出が照合不能でUnknownでも送信館記録は作らない`() = runBlocking {
+        val member = addMember("重複", "duplicate")
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = object : ReservationSession {
+                override suspend fun directReserve(tilcod: String, pickupLibraryCode: String) =
+                    DirectReservationAttempt.DuplicateDetected
+                override suspend fun fetchReservations(): List<Reservation> =
+                    throw IllegalStateException("offline")
+                override fun close() = Unit
+            }
+        })
+
+        val result = repository.reserveNow(
+            ReservationTarget(null, member, "duplicate", "重複資料"),
+            ReservationConfirmation("106", 1000),
+        )
+
+        assertTrue(result.members.single().itemResults.single().outcome is ReservationOutcome.Unknown)
+        assertNull(database.reservationPickupSubmissionDao().get(member, "duplicate"))
     }
 
     @Test

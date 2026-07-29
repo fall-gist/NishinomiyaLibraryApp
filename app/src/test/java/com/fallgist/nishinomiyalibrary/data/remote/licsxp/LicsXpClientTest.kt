@@ -220,6 +220,45 @@ class LicsXpClientTest {
     }
 
     @Test
+    fun `利用状況取得は通常同期のusrrsvまでの厳密な接頭辞だけを実行する`() = runBlocking {
+        server.enqueue(html("<html><body>温めページ</body></html>", setCookie = true))
+        server.enqueue(html(fixture("login_form.html")))
+        server.enqueue(html("<html><body>login</body></html>"))
+        server.enqueue(html(fixture("menu.html")))
+        server.enqueue(html(fixture("usrlend.html")))
+        server.enqueue(html(fixture("usrrsv.html")))
+
+        val snapshot = client().fetchCurrentCirculation(generatedCardNumber(), generatedPassword())
+
+        assertEquals(12, snapshot.loans.size)
+        assertEquals(19, snapshot.reservations.size)
+        assertTrue(snapshot.reservationListComplete)
+        assertEquals("/WOpacEsSchCmpdDispAction.do", takeRequest().requestUrl!!.encodedPath)
+        assertEquals("/OpacInitLoginAction.do", takeRequest().requestUrl!!.encodedPath)
+        assertEquals("/j_security_check", takeRequest().requestUrl!!.encodedPath)
+        assertEquals("/WOpacMnuTopInitAction.do", takeRequest().requestUrl!!.encodedPath)
+        assertUserPageRequest(takeRequest(), "usrlend", PageTokens("1249c619e529de0b66c5fb9d64dfb98392615089", "tiles.WUsrRsvList"))
+        assertUserPageRequest(takeRequest(), "usrrsv", PageTokens("1249c619e529de0b66c5fb9d64dfb98392615089", "tiles.WUsrLendList"))
+        assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun `利用状況取得の完全性は貸出ページの予約数を根拠にする`() = runBlocking {
+        server.enqueue(html("<html><body>温めページ</body></html>", setCookie = true))
+        server.enqueue(html(fixture("login_form.html")))
+        server.enqueue(html("<html><body>login</body></html>"))
+        // メニューの件数は意図的に壊し、usrlendのサマリだけを根拠にできることを確認する。
+        server.enqueue(html(fixture("menu.html").replace(
+            Regex("""(<a id="stat-resv"[\s\S]*?<span class="value"[^>]*>)19"""),
+            "$1" + "999",
+        )))
+        server.enqueue(html(fixture("usrlend.html")))
+        server.enqueue(html(fixture("usrrsv.html")))
+
+        assertTrue(client().fetchCurrentCirculation(generatedCardNumber(), generatedPassword()).reservationListComplete)
+    }
+
+    @Test
     fun `読書履歴の初回同期は全ページをGETで取得し削除操作を作らない`() = runBlocking {
         enqueueAuthenticatedUserData(
             usrReadPages = listOf(

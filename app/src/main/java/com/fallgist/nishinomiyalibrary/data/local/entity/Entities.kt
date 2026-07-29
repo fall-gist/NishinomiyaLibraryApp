@@ -5,6 +5,9 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationControlStatus
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationTermKind
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionOrigin
 import java.time.LocalDate
 
 @Entity(tableName = "members")
@@ -38,6 +41,93 @@ data class ReservationCartItemEntity(
     val writerLine: String?,
     val addedAtEpochMillis: Long,
 )
+
+@Entity(
+    tableName = "auto_reservation_rules",
+    indices = [Index(value = ["sortOrder"], unique = true)],
+)
+data class AutoReservationRuleEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val enabled: Boolean,
+    val sortOrder: Int,
+)
+
+@Entity(
+    tableName = "auto_reservation_terms",
+    primaryKeys = ["ruleId", "kind", "sortOrder"],
+    foreignKeys = [
+        ForeignKey(
+            entity = AutoReservationRuleEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["ruleId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["ruleId"])],
+)
+data class AutoReservationTermEntity(
+    val ruleId: Long,
+    val kind: AutoReservationTermKind,
+    val sortOrder: Int,
+    val original: String,
+    val normalized: String,
+)
+
+@Entity(tableName = "auto_reservation_controls")
+data class AutoReservationControlEntity(
+    @PrimaryKey
+    val tilcod: String,
+    val firstCandidateDate: LocalDate,
+    val expiresOn: LocalDate,
+    val status: AutoReservationControlStatus,
+    val preparedMemberId: Long?,
+)
+
+@Entity(tableName = "auto_reservation_latest_run")
+data class AutoReservationLatestRunEntity(
+    @PrimaryKey
+    val id: Int = LATEST_AUTO_RESERVATION_RUN_ID,
+    val runId: Long,
+    val completedAtEpochMillis: Long,
+    val summaryJson: String,
+    val acknowledged: Boolean,
+)
+
+@Entity(
+    tableName = "auto_reservation_latest_items",
+    primaryKeys = ["runId", "tilcod"],
+)
+data class AutoReservationLatestItemEntity(
+    val runId: Long,
+    val tilcod: String,
+    val title: String,
+    val matchedRulesJson: String,
+    val attemptedMembersJson: String,
+    val outcome: String,
+)
+
+@Entity(
+    tableName = "reservation_pickup_submissions",
+    primaryKeys = ["memberId", "tilcod"],
+    foreignKeys = [
+        ForeignKey(
+            entity = MemberEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["memberId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["memberId"])],
+)
+data class ReservationPickupSubmissionEntity(
+    val memberId: Long,
+    val tilcod: String,
+    val pickupLibraryCode: String,
+    val origin: ReservationPickupSubmissionOrigin,
+)
+
+const val LATEST_AUTO_RESERVATION_RUN_ID = 1
 
 @Entity(tableName = "loans")
 data class LoanEntity(

@@ -21,6 +21,8 @@ data class AppSettings(
     val returnReminderDaysBefore: Int = DEFAULT_RETURN_REMINDER_DAYS_BEFORE,
     /** 不具合調査用の通信診断ログを記録するかどうか。既定はオフ。 */
     val diagnosticLogEnabled: Boolean = DEFAULT_DIAGNOSTIC_LOG_ENABLED,
+    /** 新着キーワード自動予約のマスタースイッチ。初期値は必ずOFF。 */
+    val autoReservationEnabled: Boolean = DEFAULT_AUTO_RESERVATION_ENABLED,
 )
 
 class SettingsStore(private val dataStore: DataStore<Preferences>) {
@@ -34,6 +36,7 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
             returnReminderDaysBefore = preferences[RETURN_REMINDER_DAYS_BEFORE]
                 ?: DEFAULT_RETURN_REMINDER_DAYS_BEFORE,
             diagnosticLogEnabled = preferences[DIAGNOSTIC_LOG_ENABLED] ?: DEFAULT_DIAGNOSTIC_LOG_ENABLED,
+            autoReservationEnabled = preferences[AUTO_RESERVATION_ENABLED] ?: DEFAULT_AUTO_RESERVATION_ENABLED,
         )
     }
 
@@ -48,6 +51,7 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
             preferences[DEFAULT_CALENDAR_LIBRARY_KEY] = value.defaultCalendarLibrary
             preferences[RETURN_REMINDER_DAYS_BEFORE] = value.returnReminderDaysBefore
             preferences[DIAGNOSTIC_LOG_ENABLED] = value.diagnosticLogEnabled
+            preferences[AUTO_RESERVATION_ENABLED] = value.autoReservationEnabled
         }
     }
 
@@ -80,6 +84,10 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[DIAGNOSTIC_LOG_ENABLED] = enabled }
     }
 
+    suspend fun updateAutoReservationEnabled(enabled: Boolean) {
+        dataStore.edit { it[AUTO_RESERVATION_ENABLED] = enabled }
+    }
+
     /**
      * 新着資料の最終全置換取得時刻(epoch millis)。利用者設定ではなく内部状態のため、
      * [AppSettings]には含めず専用の読み書き関数として公開する。未取得ならnull。
@@ -109,6 +117,7 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
         val RETURN_REMINDER_DAYS_BEFORE = intPreferencesKey("return_reminder_days_before")
         val DIAGNOSTIC_LOG_ENABLED = booleanPreferencesKey("diagnostic_log_enabled")
         val LAST_NEW_ARRIVAL_FETCHED_AT = longPreferencesKey("last_new_arrival_fetched_at")
+        val AUTO_RESERVATION_ENABLED = booleanPreferencesKey("auto_reservation_enabled")
     }
 }
 
@@ -120,3 +129,4 @@ const val DEFAULT_CALENDAR_LIBRARY = "106"
 const val DEFAULT_RETURN_REMINDER_DAYS_BEFORE = 1
 val RETURN_REMINDER_DAYS_RANGE = 1..7
 const val DEFAULT_DIAGNOSTIC_LOG_ENABLED = false
+const val DEFAULT_AUTO_RESERVATION_ENABLED = false

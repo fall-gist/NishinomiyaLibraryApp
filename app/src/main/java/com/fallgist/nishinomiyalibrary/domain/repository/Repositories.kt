@@ -18,6 +18,9 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelBatchResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationControl
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationRule
 import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 
@@ -113,6 +116,20 @@ interface ReservationCartRepository {
  */
 interface ReservationCancelRepository {
     suspend fun cancelReservations(targets: List<ReservationCancelTarget>): ReservationCancelBatchResult
+}
+
+/** 自動予約の設定・制御記録・直近表示履歴を扱う内部ユースケース用の永続境界。 */
+interface AutoReservationRepository {
+    suspend fun rules(): List<AutoReservationRule>
+    suspend fun replaceRules(rules: List<AutoReservationRule>)
+    suspend fun removeExpiredControls(today: LocalDate): Int
+    /** 前回のPOST境界で停止した資料を、preparedMemberIdに依存せず安全側の終端へ倒す。 */
+    suspend fun markPreparedControlsUnknown(): Int
+    suspend fun control(tilcod: String): AutoReservationControl?
+    suspend fun saveControl(control: AutoReservationControl)
+    fun latestRun(): Flow<AutoReservationLatestRun?>
+    suspend fun replaceLatestRun(run: AutoReservationLatestRun)
+    suspend fun markLatestRunAcknowledged()
 }
 
 enum class SyncTrigger { MANUAL, SCHEDULED }

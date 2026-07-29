@@ -19,6 +19,8 @@ import com.fallgist.nishinomiyalibrary.data.local.dao.ReadingRecordDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfItemDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.SyncLogDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.UserSummaryDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.AutoReservationDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationPickupSubmissionDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -42,6 +44,7 @@ object LocalDataModule {
                 DatabaseMigrations.MIGRATION_4_5,
                 DatabaseMigrations.MIGRATION_5_6,
                 DatabaseMigrations.MIGRATION_6_7,
+                DatabaseMigrations.MIGRATION_7_8,
             )
             .build()
 
@@ -74,6 +77,12 @@ object LocalDataModule {
 
     @Provides
     fun provideNewArrivalDao(database: AppDatabase): NewArrivalDao = database.newArrivalDao()
+
+    @Provides
+    fun provideAutoReservationDao(database: AppDatabase): AutoReservationDao = database.autoReservationDao()
+
+    @Provides
+    fun provideReservationPickupSubmissionDao(database: AppDatabase): ReservationPickupSubmissionDao = database.reservationPickupSubmissionDao()
 
     @Provides
     @Singleton

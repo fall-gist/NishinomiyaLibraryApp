@@ -16,6 +16,13 @@ import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfItemDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.SyncLogDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.UserSummaryDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.AutoReservationDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationPickupSubmissionDao
+import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationControlEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationLatestItemEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationLatestRunEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationRuleEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationTermEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ClosedDayEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
@@ -28,6 +35,7 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.SyncLogEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.UserSummaryEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationPickupSubmissionEntity
 import java.time.LocalDate
 
 @Database(
@@ -44,8 +52,14 @@ import java.time.LocalDate
         ReadingHistoryCheckpointEntity::class,
         NewArrivalEntity::class,
         ReservationCartItemEntity::class,
+        AutoReservationRuleEntity::class,
+        AutoReservationTermEntity::class,
+        AutoReservationControlEntity::class,
+        AutoReservationLatestRunEntity::class,
+        AutoReservationLatestItemEntity::class,
+        ReservationPickupSubmissionEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 @TypeConverters(LocalDateConverters::class)
@@ -61,6 +75,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun syncLogDao(): SyncLogDao
     abstract fun userSummaryDao(): UserSummaryDao
     abstract fun newArrivalDao(): NewArrivalDao
+    abstract fun autoReservationDao(): AutoReservationDao
+    abstract fun reservationPickupSubmissionDao(): ReservationPickupSubmissionDao
 
     /**
      * 同期結果をメンバー単位で置き換える。予約の通知済み時刻だけは、
@@ -117,6 +133,19 @@ abstract class AppDatabase : RoomDatabase() {
 
             loanDao().insertAll(loans)
             reservationDao().insertAll(reservationsToInsert)
+            val activeTilcods = reservationsToInsert
+                .filter { it.state != com.fallgist.nishinomiyalibrary.domain.model.ReservationState.CANCELLED }
+                .filter { it.tilcod.isNotBlank() }
+                .map { it.tilcod }
+                .distinct()
+            // サマリ件数と取消以外の解析行数が一致するときだけ、陰性を送信館記録の削除根拠にする。
+            if (summary.reservationCount == reservationsToInsert.count { it.state != com.fallgist.nishinomiyalibrary.domain.model.ReservationState.CANCELLED }) {
+                if (activeTilcods.isEmpty()) {
+                    reservationPickupSubmissionDao().deleteForMember(memberId)
+                } else {
+                    reservationPickupSubmissionDao().deleteMissingFromCompleteSnapshot(memberId, activeTilcods)
+                }
+            }
             shelfDao().insertAll(shelves)
             shelfItemDao().insertAll(shelfItems)
             userSummaryDao().insert(summary)
@@ -162,6 +191,7 @@ abstract class AppDatabase : RoomDatabase() {
             userSummaryDao().deleteForMember(member.id)
             readingRecordDao().deleteForMember(member.id)
             readingRecordDao().deleteHistoryCheckpointsForMember(member.id)
+            reservationPickupSubmissionDao().deleteForMember(member.id)
             memberDao().delete(member)
         }
     }

@@ -1,8 +1,8 @@
 package com.fallgist.nishinomiyalibrary.domain.model
 
 import java.time.LocalDate
-import java.text.Normalizer
 import java.util.Locale
+import java.text.Normalizer
 
 data class Member(
     val id: Long,
@@ -28,10 +28,16 @@ data class Loan(
  * 読書記録の検索・保存で共通利用するタイトル正規化。
  * Unicode NFKCにより全角英数を半角へ寄せ、空白と大文字小文字の差を吸収する。
  */
-object ReadingRecordTitleNormalizer {
+/** 文字列照合で共通利用するUnicode正規化。 */
+object TextNormalizer {
     fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFKC)
         .filterNot(Char::isWhitespace)
         .lowercase(Locale.ROOT)
+}
+
+/** 読書記録の既存公開名を維持する互換アダプター。 */
+object ReadingRecordTitleNormalizer {
+    fun normalize(value: String): String = TextNormalizer.normalize(value)
 }
 
 /** サイトの読書履歴、および同期時に併合する現在貸出の永続記録。 */

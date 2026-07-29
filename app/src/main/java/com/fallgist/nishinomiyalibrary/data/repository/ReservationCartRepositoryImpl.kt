@@ -4,7 +4,9 @@ import com.fallgist.nishinomiyalibrary.data.local.AppDatabase
 import com.fallgist.nishinomiyalibrary.data.local.CredentialStore
 import com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationCartDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationPickupSubmissionDao
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationCartItemEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationPickupSubmissionEntity
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.DirectReservationAttempt
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.InvalidPickupLibraryException
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
@@ -22,6 +24,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationItemResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
 import com.fallgist.nishinomiyalibrary.domain.model.UnknownReason
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionOrigin
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -43,6 +46,7 @@ class ReservationCartRepositoryImpl @Inject constructor(
     private val credentialStore: CredentialStore,
     private val gateway: ReservationGateway,
     private val clock: Clock,
+    private val pickupSubmissionDao: ReservationPickupSubmissionDao = database.reservationPickupSubmissionDao(),
 ) : ReservationCartRepository {
     private val submissionMutex = Mutex()
 
@@ -75,7 +79,10 @@ class ReservationCartRepositoryImpl @Inject constructor(
             // 対象を通信前に固定する。以降の追加・削除は今回の送信対象を変えない。
             val items = cartDao.getAll()
             val targets = items.map { it.toTarget() }
-            execute(targets, confirmation).also { result -> deleteCompletedCartItems(result) }
+            val execution = execute(targets, confirmation)
+            recordPickupSubmissions(execution, confirmation.pickupLibraryCode)
+            deleteCompletedCartItems(execution.result)
+            execution.result
         }
 
     override suspend fun reserveNow(
@@ -84,36 +91,42 @@ class ReservationCartRepositoryImpl @Inject constructor(
     ): ReservationBatchResult = submissionMutex.withLock {
         validateConfirmation(confirmation)
         validateTarget(target, permitCartItemId = false)
-        execute(listOf(target), confirmation)
+        val execution = execute(listOf(target), confirmation)
+        recordPickupSubmissions(execution, confirmation.pickupLibraryCode)
+        execution.result
     }
 
     private suspend fun execute(
         targets: List<ReservationTarget>,
         confirmation: ReservationConfirmation,
-    ): ReservationBatchResult {
+    ): ReservationExecution {
         val grouped = linkedMapOf<Long, MutableList<ReservationTarget>>()
         targets.forEach { target -> grouped.getOrPut(target.memberId) { mutableListOf() } += target }
-        return ReservationBatchResult(grouped.map { (memberId, memberTargets) ->
+        val members = grouped.map { (memberId, memberTargets) ->
             processMember(memberId, memberTargets, confirmation)
-        })
+        }
+        return ReservationExecution(
+            result = ReservationBatchResult(members.map(ProcessMemberResult::result)),
+            postAttemptedTargets = members.flatMap { it.postAttemptedTargets }.toSet(),
+        )
     }
 
     private suspend fun processMember(
         memberId: Long,
         targets: List<ReservationTarget>,
         confirmation: ReservationConfirmation,
-    ): MemberReservationResult {
+    ): ProcessMemberResult {
         val memberAndPassword = try {
             memberDao.getById(memberId)?.let { member ->
                 credentialStore.getPassword(member.id)?.let { password -> member to password }
             }
         } catch (exception: Exception) {
             exception.rethrowIfCancellation()
-            return allFailure(memberId, targets, FailureReason.AUTH)
+            return ProcessMemberResult(allFailure(memberId, targets, FailureReason.AUTH))
         }
         val member = memberAndPassword?.first
         val password = memberAndPassword?.second
-        if (member == null || password.isNullOrBlank()) return allFailure(memberId, targets, FailureReason.AUTH)
+        if (member == null || password.isNullOrBlank()) return ProcessMemberResult(allFailure(memberId, targets, FailureReason.AUTH))
 
         var session: ReservationSession? = null
         val provisional = linkedMapOf<ReservationTarget, Provisional>()
@@ -121,16 +134,16 @@ class ReservationCartRepositoryImpl @Inject constructor(
             session = try {
                 gateway.openAuthenticatedSession(member.cardNumber, password)
             } catch (_: LibraryError.Auth) {
-                return allFailure(memberId, targets, FailureReason.AUTH)
+                return ProcessMemberResult(allFailure(memberId, targets, FailureReason.AUTH))
             } catch (_: LibraryError.Parse) {
-                return allFailure(memberId, targets, FailureReason.SITE_RESPONSE_CHANGED)
+                return ProcessMemberResult(allFailure(memberId, targets, FailureReason.SITE_RESPONSE_CHANGED))
             } catch (_: LibraryError.Maintenance) {
-                return allFailure(memberId, targets, FailureReason.SITE_MAINTENANCE)
+                return ProcessMemberResult(allFailure(memberId, targets, FailureReason.SITE_MAINTENANCE))
             } catch (_: LibraryError.Network) {
-                return allFailure(memberId, targets, FailureReason.NETWORK)
+                return ProcessMemberResult(allFailure(memberId, targets, FailureReason.NETWORK))
             } catch (exception: Exception) {
                 exception.rethrowIfCancellation()
-                return allFailure(memberId, targets, FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
+                return ProcessMemberResult(allFailure(memberId, targets, FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE))
             }
             var index = 0
             while (index < targets.size) {
@@ -279,9 +292,12 @@ class ReservationCartRepositoryImpl @Inject constructor(
                 exception.rethrowIfCancellation()
                 null
             } else null
-            return MemberReservationResult(memberId, targets.map { target ->
-                ReservationItemResult(target, resolve(provisional[target], target.tilcod, reservedTilcods))
-            })
+            return ProcessMemberResult(
+                result = MemberReservationResult(memberId, targets.map { target ->
+                    ReservationItemResult(target, resolve(provisional[target], target.tilcod, reservedTilcods))
+                }),
+                postAttemptedTargets = provisional.filterValues(Provisional::crossedPostBoundary).keys,
+            )
         } finally {
             session?.close()
         }
@@ -357,6 +373,35 @@ class ReservationCartRepositoryImpl @Inject constructor(
         database.deleteReservationCartItems(ids)
     }
 
+    /**
+     * サイト一覧の受取館表示が古い間も、アプリが送信した館を失わないように記録する。
+     * 成功だけを確認済みとして残す。AlreadyReserved は今回の送信ではないため記録しない。
+     * Unknown はこのRepositoryでは確定POST後の照合不能だけから生成されるため、反映未確認として残す。
+     */
+    private suspend fun recordPickupSubmissions(execution: ReservationExecution, pickupLibraryCode: String) {
+        execution.result.members.flatMap { it.itemResults }.forEach { item ->
+            val origin = when (item.outcome) {
+                ReservationOutcome.Success -> ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION
+                ReservationOutcome.AlreadyReserved -> null
+                // DuplicateDetected はPOST前に検出され、一覧照合失敗時も Unknown になり得る。
+                // 成否表示だけではPOST境界を復元できないため、実行中に保持した境界を確認する。
+                is ReservationOutcome.Unknown -> execution.postAttemptedTargets
+                    .contains(item.target)
+                    .takeIf { it }
+                    ?.let { ReservationPickupSubmissionOrigin.UNVERIFIED_SUBMISSION }
+                is ReservationOutcome.Failure -> null
+            } ?: return@forEach
+            pickupSubmissionDao.upsert(
+                ReservationPickupSubmissionEntity(
+                    memberId = item.target.memberId,
+                    tilcod = item.target.tilcod,
+                    pickupLibraryCode = pickupLibraryCode,
+                    origin = origin,
+                ),
+            )
+        }
+    }
+
     private fun allFailure(memberId: Long, targets: List<ReservationTarget>, reason: FailureReason) =
         MemberReservationResult(memberId, targets.map { ReservationItemResult(it, ReservationOutcome.Failure(reason)) })
 
@@ -391,7 +436,20 @@ class ReservationCartRepositoryImpl @Inject constructor(
         /** siteMessage は予約制限超過などでサイトが返した文言。無ければ null。 */
         data class Failure(val reason: FailureReason, val siteMessage: String? = null) : Provisional
         data class Indeterminate(val reason: UnknownReason) : Provisional
+
+        val crossedPostBoundary: Boolean
+            get() = this == Submitted || this == VerifiedSuccess || this is Indeterminate
     }
+
+    private data class ProcessMemberResult(
+        val result: MemberReservationResult,
+        val postAttemptedTargets: Set<ReservationTarget> = emptySet(),
+    )
+
+    private data class ReservationExecution(
+        val result: ReservationBatchResult,
+        val postAttemptedTargets: Set<ReservationTarget>,
+    )
 }
 
 private fun ReservationCartItemEntity.toDomain() = ReservationCartItem(id, memberId, tilcod, title, writerLine, addedAtEpochMillis)

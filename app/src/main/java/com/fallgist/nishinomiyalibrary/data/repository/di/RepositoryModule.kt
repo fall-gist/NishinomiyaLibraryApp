@@ -8,6 +8,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.openbd.BookMetadataGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpClient
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpSession
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryGateway
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.CurrentCirculationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.openbd.OpenBdClient
 import com.fallgist.nishinomiyalibrary.data.repository.CalendarRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.FamilyRepositoryImpl
@@ -17,6 +18,7 @@ import com.fallgist.nishinomiyalibrary.data.repository.ReadingRecordRepositoryIm
 import com.fallgist.nishinomiyalibrary.data.repository.StatusRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.ReservationCartRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.ReservationCancelRepositoryImpl
+import com.fallgist.nishinomiyalibrary.data.repository.AutoReservationRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpReservationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.data.sync.AndroidNotificationSink
@@ -31,6 +33,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCancelRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.AutoReservationRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -80,6 +83,10 @@ abstract class RepositoryBindingModule {
 
     @Binds
     @Singleton
+    abstract fun bindAutoReservationRepository(implementation: AutoReservationRepositoryImpl): AutoReservationRepository
+
+    @Binds
+    @Singleton
     abstract fun bindNotificationSink(implementation: AndroidNotificationSink): NotificationSink
 
     @Binds
@@ -105,6 +112,10 @@ object RepositoryProvisionModule {
     @Provides
     @Singleton
     fun provideLibraryGateway(session: LicsXpSession): LibraryGateway = LicsXpClient(session)
+
+    @Provides
+    @Singleton
+    fun provideCurrentCirculationGateway(session: LicsXpSession): CurrentCirculationGateway = LicsXpClient(session)
 
     @Provides
     @Singleton

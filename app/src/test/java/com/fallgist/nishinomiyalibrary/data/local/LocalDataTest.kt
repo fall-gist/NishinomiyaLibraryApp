@@ -1,9 +1,12 @@
 package com.fallgist.nishinomiyalibrary.data.local
 
 import android.content.Context
+import androidx.room.Database
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import com.fallgist.nishinomiyalibrary.data.local.entity.ClosedDayEntity
@@ -18,7 +21,21 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.SyncLogEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.UserSummaryEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationRuleEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationTermEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationControlEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationLatestItemEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationLatestRunEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationPickupSubmissionEntity
+import com.fallgist.nishinomiyalibrary.data.repository.AutoReservationRepositoryImpl
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationTermKind
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationControlStatus
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationControl
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestItem
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationRule
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionOrigin
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordTitleNormalizer
 import java.io.File
 import java.time.LocalDate
@@ -42,6 +59,295 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class LocalDataTest {
+    @Database(
+        entities = [
+            MemberEntity::class,
+            LoanEntity::class,
+            ReservationEntity::class,
+            ShelfItemEntity::class,
+            ShelfEntity::class,
+            ClosedDayEntity::class,
+            SyncLogEntity::class,
+            UserSummaryEntity::class,
+            ReadingRecordEntity::class,
+            ReadingHistoryCheckpointEntity::class,
+            NewArrivalEntity::class,
+            ReservationCartItemEntity::class,
+        ],
+        version = 7,
+        exportSchema = false,
+    )
+    @TypeConverters(LocalDateConverters::class)
+    abstract class V7Database : RoomDatabase() {
+        abstract fun memberDao(): com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
+        abstract fun reservationDao(): com.fallgist.nishinomiyalibrary.data.local.dao.ReservationDao
+    }
+
+    @Test
+    fun v7DatabaseMigratesToV8WithRoomValidationAndPreservesExistingRows() = runBlocking {
+        val databaseName = "migration-room-${UUID.randomUUID()}.db"
+        try {
+            // schema export は無効で MigrationTestHelper を利用できないため、コミット済みv7と
+            // 同じエンティティ集合のRoom DBを作成してから、実際のv8 Room DBで移行・検証する。
+            val v7Database = Room.databaseBuilder(context, V7Database::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            val memberId = try {
+                val id = v7Database.memberDao().insert(
+                    MemberEntity(name = "v7利用者", colorHex = "#000000", cardNumber = "v7-card", sortOrder = 0),
+                )
+                v7Database.reservationDao().insert(
+                    ReservationEntity(
+                        memberId = id,
+                        title = "v7予約資料",
+                        materialType = "図書",
+                        pickupLibrary = "中央図書館",
+                        reservedDate = LocalDate.of(2030, 1, 2),
+                        queuePosition = 3,
+                        state = ReservationState.WAITING,
+                        holdExpiryDate = null,
+                        firstReadyNotifiedAt = 123L,
+                        tilcod = "v7-tilcod",
+                        cancelCode = "v7-cancel-code",
+                    ),
+                )
+                id
+            } finally {
+                v7Database.close()
+            }
+
+            val v8Database = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
+                .addMigrations(DatabaseMigrations.MIGRATION_7_8)
+                .allowMainThreadQueries()
+                .build()
+            try {
+                // writableDatabase を開く時点でMigration実行後のRoomスキーマ検証が行われる。
+                v8Database.openHelper.writableDatabase
+                assertEquals("v7利用者", v8Database.memberDao().getById(memberId)?.name)
+                val reservation = v8Database.reservationDao().getForMember(memberId).single()
+                assertEquals("v7予約資料", reservation.title)
+                assertEquals("v7-tilcod", reservation.tilcod)
+                assertEquals("v7-cancel-code", reservation.cancelCode)
+            } finally {
+                v8Database.close()
+            }
+        } finally {
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
+    fun `v7からv8移行は自動予約と送信館記録の全表を作成する`() {
+        val databaseName = "migration-${UUID.randomUUID()}.db"
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                  .name(databaseName)
+                  .callback(object : SupportSQLiteOpenHelper.Callback(7) {
+                    override fun onCreate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        // v7の既存データは今回の追加テーブルで失ってはならない。
+                        database.execSQL("CREATE TABLE members (id INTEGER PRIMARY KEY NOT NULL, name TEXT NOT NULL)")
+                        database.execSQL("CREATE TABLE reservations (id INTEGER PRIMARY KEY NOT NULL, title TEXT NOT NULL)")
+                        database.execSQL("INSERT INTO members(id, name) VALUES (1, 'v7利用者')")
+                        database.execSQL("INSERT INTO reservations(id, title) VALUES (1, 'v7予約')")
+                    }
+                    override fun onUpgrade(database: androidx.sqlite.db.SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        try {
+            val sqlite = helper.writableDatabase
+            DatabaseMigrations.MIGRATION_7_8.migrate(sqlite)
+            val tables = sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table'").use { cursor ->
+                buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
+            }
+            assertTrue(
+                tables.containsAll(
+                    setOf(
+                        "auto_reservation_rules", "auto_reservation_terms", "auto_reservation_controls",
+                        "auto_reservation_latest_run", "auto_reservation_latest_items", "reservation_pickup_submissions",
+                    ),
+                ),
+            )
+            sqlite.query("SELECT name FROM members WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("v7利用者", cursor.getString(0))
+            }
+            sqlite.query("SELECT title FROM reservations WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("v7予約", cursor.getString(0))
+            }
+            val indexes = sqlite.query("SELECT name FROM sqlite_master WHERE type = 'index'").use { cursor ->
+                buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
+            }
+            assertTrue(indexes.contains("index_auto_reservation_rules_sortOrder"))
+            assertTrue(indexes.contains("index_auto_reservation_terms_ruleId"))
+            assertTrue(indexes.contains("index_reservation_pickup_submissions_memberId"))
+            sqlite.execSQL("PRAGMA foreign_keys=ON")
+            sqlite.execSQL("INSERT INTO auto_reservation_rules(id, enabled, sortOrder) VALUES (1, 1, 0)")
+            sqlite.execSQL("INSERT INTO auto_reservation_terms(ruleId, kind, sortOrder, original, normalized) VALUES (1, 'INCLUDE', 0, 'AI', 'ai')")
+            sqlite.execSQL("DELETE FROM auto_reservation_rules WHERE id = 1")
+            sqlite.query("SELECT COUNT(*) FROM auto_reservation_terms").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            sqlite.execSQL("INSERT INTO reservation_pickup_submissions(memberId, tilcod, pickupLibraryCode, origin) VALUES (1, 't', '106', 'CONFIRMED_SUBMISSION')")
+            sqlite.execSQL("DELETE FROM members WHERE id = 1")
+            sqlite.query("SELECT COUNT(*) FROM reservation_pickup_submissions").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
+    fun `自動予約ルールは削除時に語をCASCADEし完全な予約一覧だけが送信館記録を掃除する`() = runBlocking {
+        val ruleId = database.autoReservationDao().insertRule(AutoReservationRuleEntity(enabled = true, sortOrder = 0))
+        database.autoReservationDao().insertTerms(
+            listOf(AutoReservationTermEntity(ruleId, AutoReservationTermKind.INCLUDE, 0, "AI", "ai")),
+        )
+        database.autoReservationDao().deleteRule(ruleId)
+        assertTrue(database.autoReservationDao().getTerms(listOf(ruleId)).isEmpty())
+
+        val memberId = database.memberDao().insert(member("送信館", 0))
+        val submissions = database.reservationPickupSubmissionDao()
+        submissions.upsert(
+            ReservationPickupSubmissionEntity(memberId, "target", "106", ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION),
+        )
+        database.replaceMemberSnapshot(memberId, emptyList(), emptyList(), emptyList(), emptyList(), summary(memberId, 0).copy(reservationCount = 0))
+        assertNull(submissions.get(memberId, "target"))
+
+        submissions.upsert(
+            ReservationPickupSubmissionEntity(memberId, "incomplete", "106", ReservationPickupSubmissionOrigin.UNVERIFIED_SUBMISSION),
+        )
+        database.replaceMemberSnapshot(memberId, emptyList(), emptyList(), emptyList(), emptyList(), summary(memberId, 0).copy(reservationCount = 1))
+        assertEquals("106", submissions.get(memberId, "incomplete")?.pickupLibraryCode)
+    }
+
+    @Test
+    fun `取消済みだけの完全な予約一覧は送信館記録を削除する`() = runBlocking {
+        val memberId = database.memberDao().insert(member("取消", 0))
+        database.reservationPickupSubmissionDao().upsert(
+            ReservationPickupSubmissionEntity(memberId, "cancelled", "106", ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION),
+        )
+
+        database.replaceMemberSnapshot(
+            memberId, emptyList(),
+            listOf(reservation(memberId, "取消済み", ReservationState.CANCELLED).copy(tilcod = "cancelled")),
+            emptyList(), emptyList(), summary(memberId, 0).copy(reservationCount = 0),
+        )
+
+        assertNull(database.reservationPickupSubmissionDao().get(memberId, "cancelled"))
+    }
+
+    @Test
+    fun `自動予約の制御記録と直近履歴は期限遷移全置換確認を守る`() = runBlocking {
+        val dao = database.autoReservationDao()
+        val today = LocalDate.of(2030, 3, 1)
+        dao.upsertControl(AutoReservationControlEntity(
+            "prepared", today.minusMonths(1), today.plusMonths(1), AutoReservationControlStatus.PREPARED, 999,
+        ))
+        dao.upsertControl(AutoReservationControlEntity(
+            "fallback", today.minusMonths(1), today.plusMonths(1), AutoReservationControlStatus.MEMBER_FALLBACK_PENDING, 1,
+        ))
+        dao.upsertControl(AutoReservationControlEntity(
+            "expired", today.minusMonths(2), today, AutoReservationControlStatus.SUCCESS, null,
+        ))
+
+        assertEquals(1, dao.markPreparedControlsUnknown())
+        assertEquals(AutoReservationControlStatus.UNKNOWN_AFTER_POST, dao.getControl("prepared")!!.status)
+        assertNull(dao.getControl("prepared")!!.preparedMemberId)
+        assertEquals(AutoReservationControlStatus.MEMBER_FALLBACK_PENDING, dao.getControl("fallback")!!.status)
+        assertEquals(1, dao.deleteExpiredControls(today))
+        assertNull(dao.getControl("expired"))
+
+        val first = AutoReservationLatestRunEntity(runId = 1, completedAtEpochMillis = 1, summaryJson = "first", acknowledged = false)
+        dao.replaceLatestRun(first, listOf(latestItem(1, "one")))
+        dao.markLatestRunAcknowledged()
+        assertTrue(dao.getLatestRun()!!.acknowledged)
+        dao.replaceLatestRun(
+            AutoReservationLatestRunEntity(runId = 2, completedAtEpochMillis = 2, summaryJson = "second", acknowledged = false),
+            listOf(latestItem(2, "two")),
+        )
+        assertEquals(listOf("two"), dao.getLatestItems(2).map { it.tilcod })
+        assertTrue(dao.getLatestItems(1).isEmpty())
+    }
+
+    @Test
+    fun `直近履歴の置換はrunId一致とtilcod一意を要求する`() = runBlocking {
+        val dao = database.autoReservationDao()
+        val run = AutoReservationLatestRunEntity(runId = 7, completedAtEpochMillis = 7, summaryJson = "{}", acknowledged = false)
+        assertTrue(runCatching { dao.replaceLatestRun(run, listOf(latestItem(8, "x"))) }.isFailure)
+        assertTrue(runCatching { dao.replaceLatestRun(run, listOf(latestItem(7, "x"), latestItem(7, "x"))) }.isFailure)
+
+        val repository = AutoReservationRepositoryImpl(database, dao)
+        assertTrue(runCatching {
+            repository.replaceLatestRun(
+                AutoReservationLatestRun(7, 7, "{}", false, listOf(AutoReservationLatestItem(8, "x", "資料", "[]", "[]", "SUCCESS"))),
+            )
+        }.isFailure)
+        assertTrue(runCatching {
+            repository.replaceLatestRun(
+                AutoReservationLatestRun(
+                    7, 7, "{}", false,
+                    listOf(
+                        AutoReservationLatestItem(7, "x", "資料", "[]", "[]", "SUCCESS"),
+                        AutoReservationLatestItem(7, "x", "資料", "[]", "[]", "SUCCESS"),
+                    ),
+                ),
+            )
+        }.isFailure)
+    }
+
+    @Test
+    fun `Repositoryは制御記録の月跨ぎ期限と履歴のルールメンバー削除独立性を守る`() = runBlocking {
+        val repository = AutoReservationRepositoryImpl(database, database.autoReservationDao())
+        assertTrue(runCatching {
+            repository.replaceRules(
+                listOf(
+                    AutoReservationRule(enabled = true, sortOrder = 0, includeTerms = listOf("AI")),
+                    AutoReservationRule(enabled = true, sortOrder = 0, includeTerms = listOf("ML")),
+                ),
+            )
+        }.isFailure)
+        val firstCandidateDate = LocalDate.of(2032, 1, 31)
+        repository.saveControl(
+            AutoReservationControl(
+                "month-end", firstCandidateDate, LocalDate.of(2032, 3, 31),
+                AutoReservationControlStatus.MEMBER_FALLBACK_PENDING, 123,
+            ),
+        )
+        // 再試行はfirstCandidateDate/expiresOnを変えられず、期限日に削除対象となる。
+        assertTrue(runCatching {
+            repository.saveControl(
+                AutoReservationControl(
+                    "month-end", firstCandidateDate, LocalDate.of(2032, 4, 1),
+                    AutoReservationControlStatus.MEMBER_FALLBACK_PENDING, 456,
+                ),
+            )
+        }.isFailure)
+        assertEquals(1, repository.removeExpiredControls(LocalDate.of(2032, 3, 31)))
+
+        val memberId = database.memberDao().insert(member("履歴の元メンバー", 0))
+        repository.replaceRules(listOf(AutoReservationRule(enabled = true, sortOrder = 0, includeTerms = listOf("AI"))))
+        repository.replaceLatestRun(
+            AutoReservationLatestRun(
+                runId = 10, completedAtEpochMillis = 10, summaryJson = "{}",
+                acknowledged = false,
+                items = listOf(AutoReservationLatestItem(10, "history", "資料", "[1]", "[$memberId]", "SUCCESS")),
+            ),
+        )
+        repository.replaceRules(emptyList())
+        database.deleteMemberAndLocalData(requireNotNull(database.memberDao().getById(memberId)))
+
+        val latest = repository.latestRun().first()!!
+        assertEquals(listOf("history"), latest.items.map { it.tilcod })
+        assertEquals("[1]", latest.items.single().matchedRulesJson)
+        assertEquals("[$memberId]", latest.items.single().attemptedMembersJson)
+    }
+
     @Test
     fun `予約カートは重複を無視し追加順で公開しメンバー削除でCASCADEする`() = runBlocking {
         val memberId = database.memberDao().insert(member(name = "カート利用者", sortOrder = 0))
@@ -707,6 +1013,15 @@ class LocalDataTest {
         loanCount = loanCount,
         reservationCount = 1,
         cartCount = 0,
+    )
+
+    private fun latestItem(runId: Long, tilcod: String) = AutoReservationLatestItemEntity(
+        runId = runId,
+        tilcod = tilcod,
+        title = "資料",
+        matchedRulesJson = "[]",
+        attemptedMembersJson = "[]",
+        outcome = "SUCCESS",
     )
 
     private fun syncLog(startedAt: Long): SyncLogEntity = SyncLogEntity(

@@ -100,4 +100,44 @@ object DatabaseMigrations {
             database.execSQL("ALTER TABLE reservations ADD COLUMN cancelCode TEXT NOT NULL DEFAULT ''")
         }
     }
+
+    /** v8で新着キーワード自動予約の設定・制御・表示履歴と送信館記録を追加する。 */
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS auto_reservation_rules (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, enabled INTEGER NOT NULL, sortOrder INTEGER NOT NULL)",
+            )
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_auto_reservation_rules_sortOrder ON auto_reservation_rules(sortOrder)")
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS auto_reservation_terms (" +
+                    "ruleId INTEGER NOT NULL, kind TEXT NOT NULL, sortOrder INTEGER NOT NULL, original TEXT NOT NULL, normalized TEXT NOT NULL, " +
+                    "PRIMARY KEY(ruleId, kind, sortOrder), " +
+                    "FOREIGN KEY(ruleId) REFERENCES auto_reservation_rules(id) ON UPDATE NO ACTION ON DELETE CASCADE)",
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_auto_reservation_terms_ruleId ON auto_reservation_terms(ruleId)")
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS auto_reservation_controls (" +
+                    "tilcod TEXT NOT NULL, firstCandidateDate TEXT NOT NULL, expiresOn TEXT NOT NULL, status TEXT NOT NULL, preparedMemberId INTEGER, " +
+                    "PRIMARY KEY(tilcod))",
+            )
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS auto_reservation_latest_run (" +
+                    "id INTEGER NOT NULL, runId INTEGER NOT NULL, completedAtEpochMillis INTEGER NOT NULL, summaryJson TEXT NOT NULL, acknowledged INTEGER NOT NULL, " +
+                    "PRIMARY KEY(id))",
+            )
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS auto_reservation_latest_items (" +
+                    "runId INTEGER NOT NULL, tilcod TEXT NOT NULL, title TEXT NOT NULL, matchedRulesJson TEXT NOT NULL, attemptedMembersJson TEXT NOT NULL, outcome TEXT NOT NULL, " +
+                    "PRIMARY KEY(runId, tilcod))",
+            )
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS reservation_pickup_submissions (" +
+                    "memberId INTEGER NOT NULL, tilcod TEXT NOT NULL, pickupLibraryCode TEXT NOT NULL, origin TEXT NOT NULL, " +
+                    "PRIMARY KEY(memberId, tilcod), " +
+                    "FOREIGN KEY(memberId) REFERENCES members(id) ON UPDATE NO ACTION ON DELETE CASCADE)",
+            )
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_reservation_pickup_submissions_memberId ON reservation_pickup_submissions(memberId)")
+        }
+    }
 }

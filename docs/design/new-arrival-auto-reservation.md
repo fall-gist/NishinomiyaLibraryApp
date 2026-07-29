@@ -1,9 +1,16 @@
 # 新着キーワード自動予約 技術設計
 
 最終更新: 2026-07-29  
-状態: 設計完了・実装未着手  
+状態: 設計完了・段階1〜4実装済み・段階5以降未着手
 機能要件の正本: `docs/spec.md` §3.11
 レビュー裁定: `docs/design/new-arrival-auto-reservation-review.md`
+
+実装状況:
+
+- Room v8、ルールドメイン・照合、制御記録・直近履歴、送信時受取館記録を実装済み
+- 通常同期の`usrrsv`までを厳密な接頭辞として共用する分離利用状況取得を実装済み
+- `ReservationSubmissionResolver`抽出、共通書込ゲート、Coordinator、通知・UI・Worker接続は未着手
+- 段階1〜4の単体テスト467件と、実v7相当DBからv8へのRoomスキーマ検証が成功
 
 ## 1. 目的と設計原則
 

@@ -18,6 +18,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import java.time.LocalDate
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -28,7 +29,7 @@ import okhttp3.FormBody
 
 class LicsXpClient(
     private val session: LicsXpSession = LicsXpSession(),
-) : LibraryGateway {
+) : LibraryGateway, CurrentCirculationGateway {
     private val json = Json { ignoreUnknownKeys = true }
 
     /** 既存の具体クライアント呼出しとの互換用。 */
@@ -151,32 +152,8 @@ class LicsXpClient(
         password: String,
         knownReadingRecordKeys: Set<ReadingRecordKey>,
     ): UserData = mapErrors {
-        // 認証Cookieを公開検索などのセッションと共有しない。
-        val userSession = session.newIsolatedSession()
-        // 通常ページへのアクセスで、分離セッションのJSESSIONIDを有効化する。
-        userSession.get("WOpacEsSchCmpdDispAction.do")
-
-        val loginForm = userSession.get(
-            path = "OpacInitLoginAction.do",
-            query = mapOf("subSystemFlag" to "0"),
-        )
-        requireNotMaintenance(loginForm)
-
-        userSession.post(
-            path = "j_security_check",
-            query = mapOf("subSystemFlag" to "0"),
-            form = LoginFormParser.parse(loginForm).buildForm(cardNumber, password),
-        )
-
-        val menu = userSession.get(
-            path = "WOpacMnuTopInitAction.do",
-            query = mapOf("WebLinkFlag" to "1"),
-        )
-        classifyLoginMenu(menu)
-        userSession.updateTokens(menu)
-
-        val loansHtml = openUserPage(userSession, "usrlend")
-        val reservationsHtml = openUserPage(userSession, "usrrsv")
+        val prefix = openCurrentCirculationPrefix(cardNumber, password)
+        val userSession = prefix.session
         val shelfHtml = openUserPage(userSession, "mybooklist")
         val listedShelves = ShelfListParser.parse(shelfHtml)
         val currentShelf = ShelfParser.parse(shelfHtml)
@@ -211,9 +188,9 @@ class LicsXpClient(
         val readingRecords = fetchReadingRecords(userSession, knownReadingRecordKeys)
 
         UserData(
-            summary = SummaryParser.parse(loansHtml),
-            loans = LoanListParser.parse(loansHtml),
-            reservations = ReservationListParser.parse(reservationsHtml),
+            summary = SummaryParser.parse(prefix.loansHtml),
+            loans = prefix.loans,
+            reservations = prefix.reservations,
             shelves = listedShelves,
             shelfItems = listedShelves.flatMap { shelf ->
                 requireNotNull(parsedShelves[shelf.no]).items
@@ -221,6 +198,62 @@ class LicsXpClient(
             readingRecords = readingRecords,
         )
     }
+
+    /**
+     * 通常同期の要求列の厳密な接頭辞だけを実行する。ここで止める呼出しは本棚・読書履歴に触れない。
+     */
+    override suspend fun fetchCurrentCirculation(cardNumber: String, password: String): CurrentCirculationSnapshot = mapErrors {
+        val prefix = openCurrentCirculationPrefix(cardNumber, password)
+        CurrentCirculationSnapshot(
+            loans = prefix.loans,
+            reservations = prefix.reservations,
+            reservationListComplete = prefix.reservationListComplete,
+        )
+    }
+
+    private suspend fun openCurrentCirculationPrefix(cardNumber: String, password: String): AuthenticatedUserPrefix {
+        // 認証Cookieを公開検索などのセッションと共有しない。
+        val userSession = session.newIsolatedSession()
+        // 通常ページへのアクセスで、分離セッションのJSESSIONIDを有効化する。
+        userSession.get("WOpacEsSchCmpdDispAction.do")
+        val loginForm = userSession.get(
+            path = "OpacInitLoginAction.do",
+            query = mapOf("subSystemFlag" to "0"),
+        )
+        requireNotMaintenance(loginForm)
+        userSession.post(
+            path = "j_security_check",
+            query = mapOf("subSystemFlag" to "0"),
+            form = LoginFormParser.parse(loginForm).buildForm(cardNumber, password),
+        )
+        val menu = userSession.get(
+            path = "WOpacMnuTopInitAction.do",
+            query = mapOf("WebLinkFlag" to "1"),
+        )
+        classifyLoginMenu(menu)
+        userSession.updateTokens(menu)
+        val loansHtml = openUserPage(userSession, "usrlend")
+        val reservationsHtml = openUserPage(userSession, "usrrsv")
+        val reservations = ReservationListParser.parse(reservationsHtml)
+        // 予約数はメニューではなく、通常同期でUserSummaryにも使う貸出ページのサマリを正本にする。
+        val reservationCount = runCatching { SummaryParser.parse(loansHtml).reservationCount }.getOrNull()
+        return AuthenticatedUserPrefix(
+            session = userSession,
+            loansHtml = loansHtml,
+            loans = LoanListParser.parse(loansHtml),
+            reservations = reservations,
+            reservationListComplete = reservationCount != null &&
+                reservationCount == reservations.count { it.state != ReservationState.CANCELLED },
+        )
+    }
+
+    private data class AuthenticatedUserPrefix(
+        val session: LicsXpSession,
+        val loansHtml: String,
+        val loans: List<com.fallgist.nishinomiyalibrary.domain.model.Loan>,
+        val reservations: List<com.fallgist.nishinomiyalibrary.domain.model.Reservation>,
+        val reservationListComplete: Boolean,
+    )
 
     /**
      * 新しい履歴だけを返す。既知キーなしの初回は最終ページまで取得し、
