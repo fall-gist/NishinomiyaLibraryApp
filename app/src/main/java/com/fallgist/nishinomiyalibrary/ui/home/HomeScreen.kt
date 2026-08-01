@@ -217,9 +217,20 @@ private fun AutoReservationHistoryDialog(
 private fun AutoReservationHistoryOverlay(run: AutoReservationRunView?, onDismiss: () -> Unit, onOpenReservations: () -> Unit) {
     val colors = LocalAppColors.current
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(modifier = Modifier.fillMaxSize().background(colors.paper).verticalScroll(rememberScrollState())) {
+        Column(modifier = Modifier.fillMaxSize().background(colors.paper)) {
             ScreenTopBar(title = "最新の自動予約履歴", onOpenMenu = onDismiss)
-            Column(modifier = Modifier.padding(18.dp)) {
+            TextButton(
+                onClick = onOpenReservations,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+            ) {
+                Text("予約一覧を見る")
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(18.dp),
+            ) {
                 if (run == null) Text("まだ履歴はありません") else {
                     Text("${run.completedAtText}\n${run.summaryText}")
                     run.items.forEach { item ->
@@ -227,7 +238,6 @@ private fun AutoReservationHistoryOverlay(run: AutoReservationRunView?, onDismis
                         Text(item.outcomeText); Text(item.matchedTermsText, fontSize = 11.sp); Text(item.attemptsText, fontSize = 11.sp)
                     }
                 }
-                Text("予約一覧を見る", color = colors.green, modifier = Modifier.clickable(onClick = onOpenReservations).padding(vertical = 18.dp))
             }
         }
     }
