@@ -1,5 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui
 
+import android.content.Intent
+
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -32,6 +34,7 @@ import kotlinx.coroutines.launch
 /** Jetpack Composeでホーム画面を描画するランチャー。 */
 open class MainActivity : ComponentActivity() {
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val homeNavigationCommands = HomeNavigationCommandStore()
 
     private lateinit var controller: HomeScreenController
     private lateinit var syncUiController: SyncUiController
@@ -54,6 +57,7 @@ open class MainActivity : ComponentActivity() {
         // パスワード・カード番号をUIへ表示する箇所は無く(暗号化ストレージに保持し、画面には出していない)、
         // 表示されるのは家族の貸出・予約状況のみであり、仕様書・設計書にもFLAG_SECUREを要求する記述は無い。
         super.onCreate(savedInstanceState)
+        homeNavigationCommands.accept(intent)
         val entryPoint = EntryPointAccessors.fromApplication(
             applicationContext,
             MainActivityEntryPoint::class.java,
@@ -76,6 +80,7 @@ open class MainActivity : ComponentActivity() {
         setContent {
             val state by controller.state.collectAsState()
             val syncState by syncUiController.state.collectAsState()
+            val homeNavigationCommandId by homeNavigationCommands.commandId.collectAsState()
             NishinomiyaLibraryTheme {
                 LibraryApp(
                     state = state,
@@ -96,11 +101,19 @@ open class MainActivity : ComponentActivity() {
                     bookDetailController = bookDetailController,
                     reservationUiController = reservationUiController,
                     diagnosticLogScreenController = diagnosticLogScreenController,
+                    homeNavigationCommandId = homeNavigationCommandId,
+                    onConsumeHomeNavigationCommand = homeNavigationCommands::consume,
                 )
             }
         }
 
         uiScope.launch { controller.onScreenLaunched() }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        homeNavigationCommands.accept(intent)
     }
 
     override fun onDestroy() {

@@ -28,6 +28,9 @@ import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateRunner
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpReservationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.data.sync.AndroidNotificationSink
+import com.fallgist.nishinomiyalibrary.data.sync.AutoReservationCompletionNotifier
+import com.fallgist.nishinomiyalibrary.data.sync.AutoReservationNotificationService
+import com.fallgist.nishinomiyalibrary.data.sync.AutoReservationNotificationSink
 import com.fallgist.nishinomiyalibrary.data.sync.NotificationService
 import com.fallgist.nishinomiyalibrary.data.sync.NotificationSink
 import com.fallgist.nishinomiyalibrary.data.sync.PostSyncNotifier
@@ -106,6 +109,18 @@ abstract class RepositoryBindingModule {
     @Binds
     @Singleton
     abstract fun bindNotificationSink(implementation: AndroidNotificationSink): NotificationSink
+
+    @Binds
+    @Singleton
+    abstract fun bindAutoReservationNotificationSink(
+        implementation: AndroidNotificationSink,
+    ): AutoReservationNotificationSink
+
+    @Binds
+    @Singleton
+    abstract fun bindAutoReservationCompletionNotifier(
+        implementation: AutoReservationNotificationService,
+    ): AutoReservationCompletionNotifier
 
     @Binds
     @Singleton

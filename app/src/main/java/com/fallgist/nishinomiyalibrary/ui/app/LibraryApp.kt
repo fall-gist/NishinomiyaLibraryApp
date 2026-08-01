@@ -117,6 +117,8 @@ fun LibraryApp(
     bookDetailController: BookDetailController,
     reservationUiController: ReservationUiController,
     diagnosticLogScreenController: DiagnosticLogScreenController,
+    homeNavigationCommandId: Long? = null,
+    onConsumeHomeNavigationCommand: (Long) -> Unit = {},
 ) {
     val colors = LocalAppColors.current
     val context = LocalContext.current
@@ -130,6 +132,15 @@ fun LibraryApp(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val openMenu: () -> Unit = { scope.launch { drawerState.open() } }
+    LaunchedEffect(homeNavigationCommandId) {
+        homeNavigationCommandId?.let { commandId ->
+            currentName = Destination.HOME.name
+            bookDetailController.close()
+            diagnosticLogOpen = false
+            drawerState.close()
+            onConsumeHomeNavigationCommand(commandId)
+        }
+    }
     // 手動同期の結果(成功・一部失敗・失敗)をSnackbarへ通知する。開始時のメッセージは
     // SyncUiController側で流していないので、ここで表示するのは完了・失敗時のみ。
     val snackbarHostState = remember { SnackbarHostState() }

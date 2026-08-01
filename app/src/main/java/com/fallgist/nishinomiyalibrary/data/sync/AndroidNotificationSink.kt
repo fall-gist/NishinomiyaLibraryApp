@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import com.fallgist.nishinomiyalibrary.ui.AutoReservationNotificationNavigation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
@@ -17,7 +18,7 @@ import kotlinx.coroutines.CancellationException
 @Singleton
 class AndroidNotificationSink @Inject constructor(
     @ApplicationContext private val context: Context,
-) : NotificationSink {
+) : NotificationSink, AutoReservationNotificationSink {
     override suspend fun postReturnReminder(plan: ReturnReminderPlan): Boolean {
         return try {
             if (!canPost(CH_RETURN_REMINDER)) return false
@@ -67,6 +68,25 @@ class AndroidNotificationSink @Inject constructor(
         }
     }
 
+    override suspend fun postAutoReservation(summary: AutoReservationNotificationSummary): Boolean {
+        return try {
+            if (!canPost(CH_AUTO_RESERVATION)) return false
+            val notification = Notification.Builder(context, CH_AUTO_RESERVATION)
+                .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                .setContentTitle("自動予約が完了しました")
+                .setContentText(summary.body)
+                .setContentIntent(AutoReservationNotificationNavigation.pendingIntent(context))
+                .setAutoCancel(true)
+                .build()
+            notificationManager().notify(NOTIFICATION_ID_AUTO_RESERVATION, notification)
+            true
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun canPost(channelId: String): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -92,6 +112,11 @@ class AndroidNotificationSink @Inject constructor(
                     "予約受取可能",
                     NotificationManager.IMPORTANCE_DEFAULT,
                 ),
+                NotificationChannel(
+                    CH_AUTO_RESERVATION,
+                    "自動予約",
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ),
             ),
         )
     }
@@ -102,9 +127,11 @@ class AndroidNotificationSink @Inject constructor(
     companion object {
         const val CH_RETURN_REMINDER = "return_reminder"
         const val CH_PICKUP_READY = "pickup_ready"
+        const val CH_AUTO_RESERVATION = "auto_reservation"
 
         private const val NOTIFICATION_ID_RETURN_REMINDER = 1001
         private const val NOTIFICATION_ID_PICKUP_READY = 1002
+        const val NOTIFICATION_ID_AUTO_RESERVATION = 1003
         private val DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("M/d")
     }
 }

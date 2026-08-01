@@ -1,5 +1,7 @@
 package com.fallgist.nishinomiyalibrary.data.repository
 
+import com.fallgist.nishinomiyalibrary.data.sync.AutoReservationCompletionNotifier
+import com.fallgist.nishinomiyalibrary.data.sync.NoOpAutoReservationCompletionNotifier
 import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
 import java.time.Clock
 import java.time.Duration
@@ -31,6 +33,7 @@ class NewArrivalUpdateCoordinator @Inject constructor(
     private val newArrivals: NewArrivalRepository,
     private val automaticReservations: AutomaticReservationRunner,
     private val clock: Clock,
+    private val completionNotifier: AutoReservationCompletionNotifier = NoOpAutoReservationCompletionNotifier,
 ) : NewArrivalUpdateRunner {
     private val mutex = Mutex()
 
@@ -49,9 +52,15 @@ class NewArrivalUpdateCoordinator @Inject constructor(
             }
             var preparedReached = false
             return try {
-                NewArrivalUpdateResult.Completed(
-                    automaticReservations.run { preparedReached = true },
-                )
+                val automaticResult = automaticReservations.run { preparedReached = true }
+                try {
+                    completionNotifier.notifyCompletion(automaticResult)
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (_: Exception) {
+                    // 通知失敗は自動予約および更新の完了結果を変更しない。
+                }
+                NewArrivalUpdateResult.Completed(automaticResult)
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: Exception) {
