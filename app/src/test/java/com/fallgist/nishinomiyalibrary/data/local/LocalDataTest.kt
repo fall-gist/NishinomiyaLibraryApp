@@ -265,12 +265,16 @@ class LocalDataTest {
 
         val first = AutoReservationLatestRunEntity(runId = 1, completedAtEpochMillis = 1, summaryJson = "first", acknowledged = false)
         dao.replaceLatestRun(first, listOf(latestItem(1, "one")))
-        dao.markLatestRunAcknowledged()
+        assertEquals(1, dao.markLatestRunAcknowledged(expectedRunId = 1))
         assertTrue(dao.getLatestRun()!!.acknowledged)
         dao.replaceLatestRun(
             AutoReservationLatestRunEntity(runId = 2, completedAtEpochMillis = 2, summaryJson = "second", acknowledged = false),
             listOf(latestItem(2, "two")),
         )
+        assertEquals(0, dao.markLatestRunAcknowledged(expectedRunId = 1))
+        assertFalse(dao.getLatestRun()!!.acknowledged)
+        assertEquals(1, dao.markLatestRunAcknowledged(expectedRunId = 2))
+        assertTrue(dao.getLatestRun()!!.acknowledged)
         assertEquals(listOf("two"), dao.getLatestItems(2).map { it.tilcod })
         assertTrue(dao.getLatestItems(1).isEmpty())
     }

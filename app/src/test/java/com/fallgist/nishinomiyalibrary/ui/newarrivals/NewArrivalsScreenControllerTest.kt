@@ -22,6 +22,27 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class NewArrivalsScreenControllerTest {
     @Test
+    fun `自動予約ONと進捗を反映し完了時に消す`() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val enabled = MutableStateFlow(false)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val repository = FakeNewArrivalRepository(emptyList(), null)
+        val updater = object : NewArrivalUpdateRunner {
+            override suspend fun refresh(trigger: NewArrivalUpdateTrigger) = NewArrivalUpdateResult.Completed(AutomaticReservationRunResult.NoMatch)
+            override suspend fun refresh(trigger: NewArrivalUpdateTrigger, onPhaseChanged: (com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdatePhase) -> Unit): NewArrivalUpdateResult {
+                onPhaseChanged(com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdatePhase.FETCHING)
+                onPhaseChanged(com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdatePhase.AUTOMATIC_RESERVATION)
+                entered.complete(Unit); release.await(); return NewArrivalUpdateResult.Completed(AutomaticReservationRunResult.NoMatch)
+            }
+        }
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher, enabled)
+        enabled.value = true; advanceUntilIdle(); assertEquals(true, controller.state.value.autoReservationEnabled)
+        controller.refresh(); entered.await()
+        assertEquals(com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdatePhase.AUTOMATIC_RESERVATION, controller.state.value.updatePhase)
+        release.complete(Unit); advanceUntilIdle(); assertEquals(null, controller.state.value.updatePhase)
+    }
+    @Test
     fun `最終取得から12時間以内なら画面表示時に巡回しない`() = runTest {
         val dispatcher = UnconfinedTestDispatcher(testScheduler)
         val now = Instant.parse("2030-01-02T00:00:00Z")

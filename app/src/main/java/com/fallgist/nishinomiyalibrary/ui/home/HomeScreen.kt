@@ -20,9 +20,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +46,7 @@ import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import android.graphics.Color as AndroidColor
+import com.fallgist.nishinomiyalibrary.ui.autoreservation.AutoReservationRunView
 
 /** メンバー識別色の16進文字列を安全にComposeのColorへ変換する。 */
 private fun parseMemberColor(hex: String, fallback: Color): Color = runCatching {
@@ -53,6 +63,8 @@ fun HomeScreen(
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
+    onAcknowledgeAutoReservation: (Long) -> Unit,
+    onOpenReservations: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -61,7 +73,7 @@ fun HomeScreen(
         !state.initialized -> Box(modifier.background(colors.paper))
         // 認証済みメンバーが1人もいなければ、その場で完結する登録フォームだけを出す。
         state.members.isEmpty() -> MemberRegistrationForm(onRegister = onRegister, modifier = modifier)
-        else -> HomeContent(state, isRefreshing, onSelectMember, onManualSync, onRefresh, onOpenMenu, onOpenDetail, modifier)
+        else -> HomeContent(state, isRefreshing, onSelectMember, onManualSync, onRefresh, onOpenMenu, onOpenDetail, onAcknowledgeAutoReservation, onOpenReservations, modifier)
     }
 }
 
@@ -75,9 +87,12 @@ private fun HomeContent(
     onRefresh: () -> Unit,
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
+    onAcknowledgeAutoReservation: (Long) -> Unit,
+    onOpenReservations: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
+    var historyOpen by remember { mutableStateOf(false) }
     Column(modifier = modifier.background(colors.paper)) {
         // AppBarとメンバー絞り込みはプル対象の外に固定する。一緒に動くと落ち着かない見え方になるため。
         AppBar(
@@ -103,6 +118,7 @@ private fun HomeContent(
                     .verticalScroll(rememberScrollState())
                     .padding(bottom = 16.dp),
             ) {
+                AutoReservationSummary(state.latestAutoReservationRun, onOpenHistory = { historyOpen = true })
                 if (state.readyGroups.isNotEmpty()) {
                     SectionHeader("うけとれる予約")
                     Column(modifier = Modifier.padding(horizontal = 18.dp)) {
@@ -119,6 +135,99 @@ private fun HomeContent(
                         state.dueGroups.forEach { DueGroupView(it, onOpenDetail) }
                     }
                 }
+            }
+        }
+    }
+    if (state.showAutoReservationDialog) {
+        val run = state.latestAutoReservationRun
+        AutoReservationHistoryDialog(
+            run = run,
+            onDismiss = { run?.runId?.let(onAcknowledgeAutoReservation) },
+            onOpenReservations = {
+                run?.runId?.let(onAcknowledgeAutoReservation)
+                onOpenReservations()
+            },
+            onOpenHistory = {
+                run?.runId?.let(onAcknowledgeAutoReservation)
+                historyOpen = true
+            },
+        )
+    }
+    if (historyOpen) {
+        AutoReservationHistoryOverlay(
+            run = state.latestAutoReservationRun,
+            onDismiss = { historyOpen = false },
+            onOpenReservations = { historyOpen = false; onOpenReservations() },
+        )
+    }
+}
+
+@Composable
+private fun AutoReservationSummary(run: AutoReservationRunView?, onOpenHistory: () -> Unit) {
+    val colors = LocalAppColors.current
+    Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)) {
+        SectionHeader("新着資料の自動予約")
+        if (run == null) {
+            Text("まだ履歴はありません", color = colors.ink2, fontSize = 11.sp)
+            Text("最新履歴を見る", color = colors.ink2, fontSize = 12.sp, modifier = Modifier.padding(vertical = 5.dp))
+        } else {
+            Text("最終試行: ${run.completedAtText}", color = colors.ink2, fontSize = 11.sp)
+            Text(run.summaryText, color = colors.ink, fontSize = 12.sp)
+            Text("最新履歴を見る", color = colors.green, fontSize = 12.sp, modifier = Modifier.clickable(onClick = onOpenHistory).padding(vertical = 5.dp))
+        }
+    }
+}
+
+@Composable
+private fun AutoReservationHistoryDialog(
+    run: AutoReservationRunView?,
+    onDismiss: () -> Unit,
+    onOpenReservations: () -> Unit,
+    onOpenHistory: () -> Unit,
+    historyOnly: Boolean = false,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (historyOnly) "最新の自動予約履歴" else "自動予約の結果") },
+        text = {
+            Column(modifier = Modifier.height(360.dp).verticalScroll(rememberScrollState())) {
+                if (run == null) Text("履歴はありません") else {
+                    Text("${run.completedAtText}\n${run.summaryText}")
+                    run.items.forEach { item ->
+                        Spacer(Modifier.height(8.dp))
+                        Text(item.title, fontWeight = FontWeight.SemiBold)
+                        Text(item.outcomeText)
+                        Text(item.matchedTermsText, fontSize = 11.sp)
+                        Text(item.attemptsText, fontSize = 11.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onOpenReservations) { Text("予約一覧を見る") } },
+        dismissButton = {
+            Row {
+                if (!historyOnly) TextButton(onClick = onOpenHistory) { Text("最新履歴を見る") }
+                TextButton(onClick = onDismiss) { Text("閉じる") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun AutoReservationHistoryOverlay(run: AutoReservationRunView?, onDismiss: () -> Unit, onOpenReservations: () -> Unit) {
+    val colors = LocalAppColors.current
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(modifier = Modifier.fillMaxSize().background(colors.paper).verticalScroll(rememberScrollState())) {
+            ScreenTopBar(title = "最新の自動予約履歴", onOpenMenu = onDismiss)
+            Column(modifier = Modifier.padding(18.dp)) {
+                if (run == null) Text("まだ履歴はありません") else {
+                    Text("${run.completedAtText}\n${run.summaryText}")
+                    run.items.forEach { item ->
+                        Spacer(Modifier.height(12.dp)); Text(item.title, fontWeight = FontWeight.SemiBold)
+                        Text(item.outcomeText); Text(item.matchedTermsText, fontSize = 11.sp); Text(item.attemptsText, fontSize = 11.sp)
+                    }
+                }
+                Text("予約一覧を見る", color = colors.green, modifier = Modifier.clickable(onClick = onOpenReservations).padding(vertical = 18.dp))
             }
         }
     }

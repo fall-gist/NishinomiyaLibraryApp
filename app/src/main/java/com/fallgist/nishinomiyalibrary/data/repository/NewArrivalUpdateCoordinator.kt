@@ -12,8 +12,12 @@ import kotlinx.coroutines.sync.Mutex
 
 enum class NewArrivalUpdateTrigger { SCHEDULED, SCREEN_AUTO, SCREEN_MANUAL }
 
+/** 新着更新画面へ伝える進捗。Runner利用側は不要なら受け取らなくてよい。 */
+enum class NewArrivalUpdatePhase { FETCHING, AUTOMATIC_RESERVATION }
+
 interface NewArrivalUpdateRunner {
     suspend fun refresh(trigger: NewArrivalUpdateTrigger): NewArrivalUpdateResult
+    suspend fun refresh(trigger: NewArrivalUpdateTrigger, onPhaseChanged: (NewArrivalUpdatePhase) -> Unit): NewArrivalUpdateResult = refresh(trigger)
 }
 
 interface AutomaticReservationRunner {
@@ -37,13 +41,19 @@ class NewArrivalUpdateCoordinator @Inject constructor(
 ) : NewArrivalUpdateRunner {
     private val mutex = Mutex()
 
-    override suspend fun refresh(trigger: NewArrivalUpdateTrigger): NewArrivalUpdateResult {
+    override suspend fun refresh(trigger: NewArrivalUpdateTrigger): NewArrivalUpdateResult = refresh(trigger) {}
+
+    override suspend fun refresh(
+        trigger: NewArrivalUpdateTrigger,
+        onPhaseChanged: (NewArrivalUpdatePhase) -> Unit,
+    ): NewArrivalUpdateResult {
         if (!mutex.tryLock()) return NewArrivalUpdateResult.AlreadyRunning
         try {
             if (trigger == NewArrivalUpdateTrigger.SCREEN_AUTO && isFreshScreenCache()) {
                 return NewArrivalUpdateResult.FreshnessSkipped
             }
             try {
+                onPhaseChanged(NewArrivalUpdatePhase.FETCHING)
                 newArrivals.refresh()
             } catch (exception: CancellationException) {
                 throw exception
@@ -52,6 +62,7 @@ class NewArrivalUpdateCoordinator @Inject constructor(
             }
             var preparedReached = false
             return try {
+                onPhaseChanged(NewArrivalUpdatePhase.AUTOMATIC_RESERVATION)
                 val automaticResult = automaticReservations.run { preparedReached = true }
                 try {
                     completionNotifier.notifyCompletion(automaticResult)

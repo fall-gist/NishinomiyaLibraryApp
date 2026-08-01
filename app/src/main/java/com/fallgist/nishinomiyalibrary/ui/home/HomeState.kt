@@ -11,6 +11,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import com.fallgist.nishinomiyalibrary.ui.autoreservation.AutoReservationRunView
 
 /** ホーム画面の全表示状態。認証情報は一切保持しない。 */
 data class HomeUiState(
@@ -21,6 +22,9 @@ data class HomeUiState(
     val lastSyncFailed: Boolean = false,
     val readyGroups: List<ReadyGroup> = emptyList(),
     val dueGroups: List<DueGroup> = emptyList(),
+    val latestAutoReservationRun: AutoReservationRunView? = null,
+    val latestAutoReservationAcknowledged: Boolean = true,
+    val showAutoReservationDialog: Boolean = false,
 )
 
 /** 同期由来のデータだけで構成する、ホームの内容部分。 */

@@ -105,6 +105,9 @@ fun LibraryApp(
     onManualSync: () -> Unit,
     onConsumeSyncMessage: (Long) -> Unit,
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
+    onHomeVisible: () -> Unit,
+    onHomeHidden: () -> Unit,
+    onAcknowledgeAutoReservation: (Long) -> Unit,
     loansController: LoansScreenController,
     reservationsController: ReservationsScreenController,
     reservationCancelUiController: ReservationCancelUiController,
@@ -132,6 +135,9 @@ fun LibraryApp(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val openMenu: () -> Unit = { scope.launch { drawerState.open() } }
+    LaunchedEffect(current) {
+        if (current == Destination.HOME) onHomeVisible() else onHomeHidden()
+    }
     LaunchedEffect(homeNavigationCommandId) {
         homeNavigationCommandId?.let { commandId ->
             currentName = Destination.HOME.name
@@ -279,6 +285,11 @@ fun LibraryApp(
                                     hideReservationSectionAsAlreadyReservedOrOnLoan = true,
                                 )
                             },
+                            onAcknowledgeAutoReservation = onAcknowledgeAutoReservation,
+                            onOpenReservations = {
+                                currentName = Destination.RESERVATIONS.name
+                                bookDetailController.close()
+                            },
                             modifier = Modifier.fillMaxSize(),
                         )
 
@@ -413,6 +424,11 @@ fun LibraryApp(
                                 onSetDefaultCalendarLibrary = settingsController::setDefaultCalendarLibrary,
                                 onSetDiagnosticLogEnabled = settingsController::setDiagnosticLogEnabled,
                                 onOpenDiagnosticLog = { diagnosticLogOpen = true },
+                                onSetAutoReservationEnabled = settingsController::setAutoReservationEnabled,
+                                onSaveAutoReservationRule = settingsController::saveAutoReservationRule,
+                                onRemoveAutoReservationRule = settingsController::removeAutoReservationRule,
+                                onSetAutoReservationRuleEnabled = settingsController::setAutoReservationRuleEnabled,
+                                onMoveAutoReservationRule = settingsController::moveAutoReservationRule,
                                 onOpenMenu = openMenu,
                                 modifier = Modifier.fillMaxSize(),
                             )

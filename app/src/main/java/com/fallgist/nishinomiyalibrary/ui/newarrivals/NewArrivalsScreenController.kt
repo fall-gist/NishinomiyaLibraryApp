@@ -5,6 +5,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordTitleNormalizer
 import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateRunner
 import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateResult
 import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateTrigger
+import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdatePhase
 import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
 import java.time.Instant
 import java.time.ZoneId
@@ -19,6 +20,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
@@ -41,6 +45,8 @@ data class NewArrivalsUiState(
     val refreshFailed: Boolean = false,
     /** 最終取得時刻(epoch millis)。未取得ならnull。 */
     val lastFetchedAtEpochMillis: Long? = null,
+    val autoReservationEnabled: Boolean = false,
+    val updatePhase: NewArrivalUpdatePhase? = null,
 )
 
 /** 保持済みの新着資料に検索語で絞り込みをかけ、表示行へ整形する純関数。 */
@@ -96,6 +102,7 @@ class NewArrivalsScreenController(
     private val newArrivalRepository: NewArrivalRepository,
     private val updateCoordinator: NewArrivalUpdateRunner,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val autoReservationEnabled: Flow<Boolean> = flowOf(false),
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val _state = MutableStateFlow(NewArrivalsUiState())
@@ -123,6 +130,11 @@ class NewArrivalsScreenController(
         scope.launch {
             _state.value = _state.value.copy(lastFetchedAtEpochMillis = newArrivalRepository.lastFetchedAtEpochMillis())
         }
+        scope.launch {
+            autoReservationEnabled.collect { enabled ->
+                _state.value = _state.value.copy(autoReservationEnabled = enabled)
+            }
+        }
     }
 
     /** 画面表示時に1回だけSCREEN_AUTO更新を依頼する。鮮度判定は更新Coordinatorが行う。 */
@@ -142,15 +154,17 @@ class NewArrivalsScreenController(
     private suspend fun performRefresh(trigger: NewArrivalUpdateTrigger) {
         if (!displayRefreshMutex.tryLock()) return
         try {
-            _state.value = _state.value.copy(refreshing = true)
-            when (updateCoordinator.refresh(trigger)) {
+            _state.value = _state.value.copy(refreshing = true, updatePhase = null)
+            when (updateCoordinator.refresh(trigger) { phase ->
+                _state.value = _state.value.copy(updatePhase = phase)
+            }) {
                 NewArrivalUpdateResult.RefreshFailed -> {
                     refreshedThisSession = false
-                    _state.value = _state.value.copy(refreshing = false, refreshFailed = true)
+                    _state.value = _state.value.copy(refreshing = false, refreshFailed = true, updatePhase = null)
                     return
                 }
                 NewArrivalUpdateResult.AlreadyRunning -> {
-                    _state.value = _state.value.copy(refreshing = false)
+                    _state.value = _state.value.copy(refreshing = false, updatePhase = null)
                     return
                 }
                 is NewArrivalUpdateResult.Completed,
@@ -161,13 +175,14 @@ class NewArrivalsScreenController(
             _state.value = _state.value.copy(
                 refreshing = false,
                 refreshFailed = false,
+                updatePhase = null,
                 lastFetchedAtEpochMillis = newArrivalRepository.lastFetchedAtEpochMillis(),
             )
         } catch (exception: CancellationException) {
             throw exception
         } catch (_: Exception) {
             refreshedThisSession = false
-            _state.value = _state.value.copy(refreshing = false, refreshFailed = true)
+            _state.value = _state.value.copy(refreshing = false, refreshFailed = true, updatePhase = null)
         } finally {
             displayRefreshMutex.unlock()
         }

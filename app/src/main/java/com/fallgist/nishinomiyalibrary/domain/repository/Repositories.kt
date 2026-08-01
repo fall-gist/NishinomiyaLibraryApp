@@ -129,7 +129,8 @@ interface AutoReservationRepository {
     suspend fun saveControl(control: AutoReservationControl)
     fun latestRun(): Flow<AutoReservationLatestRun?>
     suspend fun replaceLatestRun(run: AutoReservationLatestRun)
-    suspend fun markLatestRunAcknowledged()
+    /** 指定した実行だけを確認済みにする。別実行へ更新済みの場合は false を返す。 */
+    suspend fun markLatestRunAcknowledged(runId: Long): Boolean
 }
 
 enum class SyncTrigger { MANUAL, SCHEDULED }

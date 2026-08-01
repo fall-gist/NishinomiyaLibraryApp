@@ -10,6 +10,9 @@ import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.AutoReservationRepository
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationMatcher
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationRule
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncLog
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
@@ -20,8 +23,10 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +35,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** 設定画面のメンバー一覧1行。 */
 data class SettingsMemberRow(
@@ -52,6 +59,9 @@ data class SettingsUiState(
     val diagnosticLogLineCount: Int = 0,
     val buildGitSha: String = "unknown",
     val buildTime: String = "unknown",
+    val autoReservationRules: List<AutoReservationRule> = emptyList(),
+    val autoReservationError: String? = null,
+    val autoReservationWarning: String? = null,
 )
 
 /** 設定画面の表示整形の純関数。 */
@@ -89,6 +99,7 @@ class SettingsScreenController(
     calendarRepository: CalendarRepository,
     private val scheduleStarter: SyncScheduleStarter,
     private val diagnosticLog: DiagnosticLog,
+    private val autoReservationRepository: AutoReservationRepository = NoOpSettingsAutoReservationRepository,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -103,6 +114,9 @@ class SettingsScreenController(
     val state: StateFlow<SettingsUiState> = _state
 
     private var members: List<Member> = emptyList()
+    private var rules: List<AutoReservationRule> = emptyList()
+    private val rulesMutex = Mutex()
+    private val initialRulesLoaded = CompletableDeferred<Boolean>(scope.coroutineContext[Job])
 
     init {
         scope.launch {
@@ -117,7 +131,9 @@ class SettingsScreenController(
                 members = combined.memberList
                 // 設定の diagnosticLogEnabled を記録可否の唯一の正とし、アプリ再起動時もここで反映する。
                 diagnosticLog.recording = combined.settings.diagnosticLogEnabled
-                _state.value = _state.value.copy(
+                val currentRules = rulesMutex.withLock { rules }
+                _state.value = buildState(
+                    _state.value.copy(
                     initialized = true,
                     memberRows = SettingsContentBuilder.memberRows(combined.memberList),
                     canAddMember = combined.memberList.size < MAX_MEMBERS,
@@ -126,9 +142,10 @@ class SettingsScreenController(
                     lastSyncFailed = combined.lastSync?.succeeded == false,
                     diagnosticLogEnabled = combined.settings.diagnosticLogEnabled,
                     diagnosticLogLineCount = combined.diagnosticEntries.size,
-                )
+                    ), combined.settings, combined.memberList, currentRules)
             }
         }
+        scope.launch { reloadRules() }
     }
 
     private data class SettingsCombinedState(
@@ -216,6 +233,106 @@ class SettingsScreenController(
         scope.launch { runCatching { settingsStore.updateDefaultCalendarLibrary(code) } }
     }
 
+    /** マスターON時だけ必要条件を検証し、不足なら保存せず理由を表示する。 */
+    fun setAutoReservationEnabled(enabled: Boolean) {
+        scope.launch {
+            if (enabled) {
+                if (!initialRulesLoaded.await()) return@launch
+                val reason = rulesMutex.withLock {
+                    autoReservationEnableReason(_state.value.settings, members, rules, _state.value.libraries)
+                }
+                if (reason != null) {
+                    _state.value = _state.value.copy(autoReservationError = reason)
+                    return@launch
+                }
+            }
+            try {
+                settingsStore.updateAutoReservationEnabled(enabled)
+                _state.value = _state.value.copy(autoReservationError = null)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(autoReservationError = "自動予約の設定を保存できませんでした")
+            }
+        }
+    }
+
+    /** ルール一覧を全置換で保存する。Repository側の検証にも従う。 */
+    fun saveAutoReservationRule(editingId: Long?, includeTerms: List<String>, excludeTerms: List<String>) {
+        mutateRules { snapshot ->
+            val editingIndex = editingId?.let { id -> snapshot.indexOfFirst { it.id == id } } ?: -1
+            if (editingIndex >= 0) {
+                val existing = snapshot[editingIndex]
+                snapshot.toMutableList().also { rules ->
+                    rules[editingIndex] = existing.copy(
+                        includeTerms = includeTerms,
+                        excludeTerms = excludeTerms,
+                    )
+                }
+            } else {
+                val id = (snapshot.maxOfOrNull { it.id } ?: 0L) + 1L
+                snapshot + AutoReservationRule(id, true, snapshot.size, includeTerms, excludeTerms)
+            }
+        }
+    }
+
+    fun removeAutoReservationRule(id: Long) = mutateRules { it.filterNot { rule -> rule.id == id }.mapIndexed { index, rule -> rule.copy(sortOrder = index) } }
+    fun setAutoReservationRuleEnabled(id: Long, enabled: Boolean) = mutateRules { it.map { rule -> if (rule.id == id) rule.copy(enabled = enabled) else rule } }
+    fun moveAutoReservationRule(id: Long, delta: Int) {
+        mutateRules { snapshot ->
+            val index = snapshot.indexOfFirst { it.id == id }; val target = index + delta
+            if (index !in snapshot.indices || target !in snapshot.indices) snapshot else snapshot.toMutableList().also { list -> val item = list.removeAt(index); list.add(target, item) }.mapIndexed { order, rule -> rule.copy(sortOrder = order) }
+        }
+    }
+
+    private fun mutateRules(transform: (List<AutoReservationRule>) -> List<AutoReservationRule>) {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            if (!initialRulesLoaded.await()) return@launch
+            rulesMutex.withLock {
+              try {
+                val next = transform(rules).mapIndexed { index, rule -> rule.copy(sortOrder = index) }
+                next.forEach(AutoReservationMatcher::validate)
+                autoReservationRepository.replaceRules(next)
+                rules = autoReservationRepository.rules().sortedBy { it.sortOrder }
+                _state.value = buildState(_state.value.copy(autoReservationRules = rules), _state.value.settings, members, rules)
+                _state.value = _state.value.copy(autoReservationError = null)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: IllegalArgumentException) {
+                _state.value = _state.value.copy(autoReservationError = exception.message ?: "ルールを保存できませんでした")
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(autoReservationError = "ルールを保存できませんでした")
+              }
+            }
+        }
+    }
+
+    private suspend fun reloadRules() {
+        try {
+            rulesMutex.withLock {
+                rules = autoReservationRepository.rules().sortedBy { it.sortOrder }
+                _state.value = buildState(_state.value.copy(autoReservationRules = rules), _state.value.settings, members, rules)
+                initialRulesLoaded.complete(true)
+            }
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (_: Exception) {
+            _state.value = _state.value.copy(autoReservationError = "ルールを読み込めませんでした")
+            initialRulesLoaded.complete(false)
+        }
+    }
+
+    private fun autoReservationEnableReason(settings: AppSettings, members: List<Member>, rules: List<AutoReservationRule>, libraries: List<Library>): String? = when {
+        rules.none { it.enabled } -> "有効なキーワードルールを1件以上登録してください"
+        members.isEmpty() -> "メンバーを1人以上登録してください"
+        libraries.none { it.code == settings.defaultCalendarLibrary } -> "既定受取館を有効な図書館から選択してください"
+        else -> null
+    }
+
+    private fun buildState(base: SettingsUiState, settings: AppSettings, members: List<Member>, rules: List<AutoReservationRule>): SettingsUiState = base.copy(
+        autoReservationWarning = if (settings.autoReservationEnabled && autoReservationEnableReason(settings, members, rules, base.libraries) != null) "自動予約はONのままですが、設定が不足しています。次の更新前に見直してください" else null,
+    )
+
     /** 設定への保存を唯一の正とする。反映はinitのcombine購読を通して行う。 */
     fun setDiagnosticLogEnabled(enabled: Boolean) {
         scope.launch { runCatching { settingsStore.updateDiagnosticLogEnabled(enabled) } }
@@ -252,4 +369,16 @@ class SettingsScreenController(
         /** spec §2: 家族5人分(拡張可能な設計)。 */
         const val MAX_MEMBERS = 5
     }
+}
+
+private object NoOpSettingsAutoReservationRepository : AutoReservationRepository {
+    override suspend fun rules() = emptyList<AutoReservationRule>()
+    override suspend fun replaceRules(rules: List<AutoReservationRule>) = Unit
+    override suspend fun removeExpiredControls(today: java.time.LocalDate) = 0
+    override suspend fun markPreparedControlsUnknown() = 0
+    override suspend fun control(tilcod: String) = null
+    override suspend fun saveControl(control: com.fallgist.nishinomiyalibrary.domain.model.AutoReservationControl) = Unit
+    override fun latestRun() = kotlinx.coroutines.flow.flowOf<com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun?>(null)
+    override suspend fun replaceLatestRun(run: com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun) = Unit
+    override suspend fun markLatestRunAcknowledged(runId: Long) = false
 }

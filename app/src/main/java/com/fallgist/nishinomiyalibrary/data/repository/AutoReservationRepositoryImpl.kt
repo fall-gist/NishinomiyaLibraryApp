@@ -104,7 +104,8 @@ class AutoReservationRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun markLatestRunAcknowledged() = dao.markLatestRunAcknowledged()
+    override suspend fun markLatestRunAcknowledged(runId: Long): Boolean =
+        dao.markLatestRunAcknowledged(expectedRunId = runId) == 1
 }
 
 private fun AutoReservationControlEntity.toDomain() = AutoReservationControl(

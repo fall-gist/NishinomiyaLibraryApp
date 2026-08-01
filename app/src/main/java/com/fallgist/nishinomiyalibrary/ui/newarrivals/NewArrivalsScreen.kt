@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
+import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdatePhase
 
 @Composable
 fun NewArrivalsScreen(
@@ -55,10 +56,10 @@ fun NewArrivalsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = if (state.refreshing) {
-                            "更新しています…"
-                        } else {
-                            "ジャンル横断でまとめた新着 ${state.totalCount}件"
+                        text = when (state.updatePhase) {
+                            NewArrivalUpdatePhase.FETCHING -> "新着資料を更新中"
+                            NewArrivalUpdatePhase.AUTOMATIC_RESERVATION -> "自動予約を判定・実行中"
+                            null -> "ジャンル横断でまとめた新着 ${state.totalCount}件"
                         },
                         color = colors.ink2,
                         fontSize = 11.sp,
@@ -83,6 +84,14 @@ fun NewArrivalsScreen(
             fontSize = 10.sp,
             modifier = Modifier.padding(horizontal = 18.dp),
         )
+        if (state.autoReservationEnabled) {
+            Text(
+                text = "自動予約がONです。更新後に自動予約を判定します",
+                color = colors.greenInk,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 3.dp),
+            )
+        }
         OutlinedTextField(
             value = queryText,
             onValueChange = {

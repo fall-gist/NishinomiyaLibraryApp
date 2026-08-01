@@ -12,6 +12,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCancelReposi
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.AutoReservationRepository
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
 import com.fallgist.nishinomiyalibrary.ui.debug.DebugScreenController
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
@@ -35,6 +36,7 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.map
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -67,10 +69,12 @@ object DebugUiProvisionModule {
         familyRepository: FamilyRepository,
         statusRepository: StatusRepository,
         scheduleStarter: SyncScheduleStarter,
+        autoReservationRepository: AutoReservationRepository,
     ): HomeScreenController = HomeScreenController(
         familyRepository = familyRepository,
         statusRepository = statusRepository,
         scheduleStarter = scheduleStarter,
+        autoReservationRepository = autoReservationRepository,
     )
 
     @Provides
@@ -156,9 +160,11 @@ object DebugUiProvisionModule {
     fun provideNewArrivalsScreenController(
         newArrivalRepository: NewArrivalRepository,
         updateCoordinator: NewArrivalUpdateRunner,
+        settingsStore: SettingsStore,
     ): NewArrivalsScreenController = NewArrivalsScreenController(
         newArrivalRepository = newArrivalRepository,
         updateCoordinator = updateCoordinator,
+        autoReservationEnabled = settingsStore.settings.map { it.autoReservationEnabled },
     )
 
     @Provides
@@ -196,6 +202,7 @@ object DebugUiProvisionModule {
         calendarRepository: CalendarRepository,
         scheduleStarter: SyncScheduleStarter,
         diagnosticLog: DiagnosticLog,
+        autoReservationRepository: AutoReservationRepository,
     ): SettingsScreenController = SettingsScreenController(
         familyRepository = familyRepository,
         statusRepository = statusRepository,
@@ -203,6 +210,7 @@ object DebugUiProvisionModule {
         calendarRepository = calendarRepository,
         scheduleStarter = scheduleStarter,
         diagnosticLog = diagnosticLog,
+        autoReservationRepository = autoReservationRepository,
     )
 
     @Provides

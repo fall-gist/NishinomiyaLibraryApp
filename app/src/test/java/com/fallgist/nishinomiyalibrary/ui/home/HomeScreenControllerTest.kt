@@ -11,9 +11,12 @@ import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncLog
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncResult
 import com.fallgist.nishinomiyalibrary.domain.repository.SyncTrigger
+import com.fallgist.nishinomiyalibrary.domain.repository.AutoReservationRepository
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
 import java.time.LocalDate
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +30,67 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeScreenControllerTest {
+    @Test fun `未確認履歴はホーム表示時だけ出し確認済みと置換を追随する`() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val history = FakeHistory(AutoReservationLatestRun(1, 0, "{\"success\":0,\"skipped\":0,\"error\":0}", false))
+        val controller = HomeScreenController(FakeFamilyRepository(MutableStateFlow(listOf(papa))), FakeStatusRepository(), FakeScheduleStarter(), history, dispatcher, { today })
+        advanceUntilIdle(); assertEquals(false, controller.state.value.showAutoReservationDialog)
+        controller.onHomeVisible(); assertEquals(true, controller.state.value.showAutoReservationDialog)
+        controller.acknowledgeLatestAutoReservationRun(1); advanceUntilIdle(); assertEquals(1, history.acks); assertEquals(false, controller.state.value.showAutoReservationDialog)
+        history.flow.value = history.flow.value!!.copy(runId = 2, acknowledged = false); advanceUntilIdle(); assertEquals(true, controller.state.value.showAutoReservationDialog)
+        history.flow.value = history.flow.value!!.copy(acknowledged = true); advanceUntilIdle(); assertEquals(false, controller.state.value.showAutoReservationDialog)
+    }
+    @Test
+    fun concurrentAcknowledgementKeepsNewRunVisible() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val history = FakeHistory(AutoReservationLatestRun(1, 0, "{\"success\":0,\"skipped\":0,\"error\":0}", false))
+        val acknowledgementGate = CompletableDeferred<Unit>()
+        history.acknowledgementGate = acknowledgementGate
+        val controller = HomeScreenController(FakeFamilyRepository(MutableStateFlow(listOf(papa))), FakeStatusRepository(), FakeScheduleStarter(), history, dispatcher, { today })
+
+        advanceUntilIdle()
+        controller.onHomeVisible()
+        controller.acknowledgeLatestAutoReservationRun(1)
+        assertEquals(listOf(1L), history.acknowledgedRunIds)
+        assertEquals(false, controller.state.value.showAutoReservationDialog)
+
+        history.flow.value = AutoReservationLatestRun(2, 0, "{\"success\":0,\"skipped\":0,\"error\":0}", false)
+        advanceUntilIdle()
+        assertEquals(2L, controller.state.value.latestAutoReservationRun!!.runId)
+        assertTrue(controller.state.value.showAutoReservationDialog)
+
+        acknowledgementGate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf(1L), history.acknowledgedRunIds)
+        assertEquals(2L, history.flow.value!!.runId)
+        assertEquals(false, history.flow.value!!.acknowledged)
+        assertTrue(controller.state.value.showAutoReservationDialog)
+        controller.close()
+    }
+
+    @Test
+    fun acknowledgingOldRunDoesNotHideNewRun() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val history = FakeHistory(AutoReservationLatestRun(1, 0, "{\"success\":0,\"skipped\":0,\"error\":0}", false))
+        val controller = HomeScreenController(FakeFamilyRepository(MutableStateFlow(listOf(papa))), FakeStatusRepository(), FakeScheduleStarter(), history, dispatcher, { today })
+
+        advanceUntilIdle()
+        controller.onHomeVisible()
+        history.flow.value = AutoReservationLatestRun(2, 0, "{\"success\":0,\"skipped\":0,\"error\":0}", false)
+        advanceUntilIdle()
+        assertEquals(2L, controller.state.value.latestAutoReservationRun!!.runId)
+        assertTrue(controller.state.value.showAutoReservationDialog)
+
+        controller.acknowledgeLatestAutoReservationRun(1)
+        advanceUntilIdle()
+
+        assertEquals(listOf(1L), history.acknowledgedRunIds)
+        assertEquals(2L, controller.state.value.latestAutoReservationRun!!.runId)
+        assertTrue(!controller.state.value.latestAutoReservationAcknowledged)
+        assertTrue(controller.state.value.showAutoReservationDialog)
+        controller.close()
+    }
+
     private val today = LocalDate.of(2026, 7, 20)
     private val papa = Member(id = 1, name = "パパ", colorHex = "#3D6DB5", cardNumber = "", sortOrder = 0)
     private val hana = Member(id = 2, name = "はな", colorHex = "#5FA05A", cardNumber = "", sortOrder = 1)
@@ -178,6 +242,26 @@ class HomeScreenControllerTest {
 
         override suspend fun scheduleFromSettings() {
             count++
+        }
+    }
+
+    private class FakeHistory(run: AutoReservationLatestRun?) : AutoReservationRepository {
+        val flow = MutableStateFlow(run)
+        val acknowledgedRunIds = mutableListOf<Long>()
+        var acknowledgementGate: CompletableDeferred<Unit>? = null
+        val acks: Int get() = acknowledgedRunIds.size
+        override suspend fun rules() = emptyList<com.fallgist.nishinomiyalibrary.domain.model.AutoReservationRule>()
+        override suspend fun replaceRules(rules: List<com.fallgist.nishinomiyalibrary.domain.model.AutoReservationRule>) = Unit
+        override suspend fun removeExpiredControls(today: java.time.LocalDate) = 0; override suspend fun markPreparedControlsUnknown() = 0
+        override suspend fun control(tilcod: String) = null; override suspend fun saveControl(control: com.fallgist.nishinomiyalibrary.domain.model.AutoReservationControl) = Unit
+        override fun latestRun() = flow; override suspend fun replaceLatestRun(run: AutoReservationLatestRun) = Unit
+        override suspend fun markLatestRunAcknowledged(runId: Long): Boolean {
+            acknowledgedRunIds += runId
+            acknowledgementGate?.await()
+            val latest = flow.value ?: return false
+            if (latest.runId != runId) return false
+            flow.value = latest.copy(acknowledged = true)
+            return true
         }
     }
 }

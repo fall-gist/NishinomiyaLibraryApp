@@ -45,6 +45,20 @@ class NewArrivalUpdateCoordinatorTest {
         assertEquals(1, unknownFreshness.refreshes)
     }
 
+    @Test fun `進捗は取得後に自動予約へ進み取得失敗と鮮度抑止では正しく止まる`() = runTest {
+        val phases = mutableListOf<NewArrivalUpdatePhase>()
+        NewArrivalUpdateCoordinator(Repository(), Automatic(), clock).refresh(NewArrivalUpdateTrigger.SCHEDULED) { phases += it }
+        assertEquals(listOf(NewArrivalUpdatePhase.FETCHING, NewArrivalUpdatePhase.AUTOMATIC_RESERVATION), phases)
+
+        val failed = mutableListOf<NewArrivalUpdatePhase>()
+        NewArrivalUpdateCoordinator(Repository(failure = IllegalStateException()), Automatic(), clock).refresh(NewArrivalUpdateTrigger.SCHEDULED) { failed += it }
+        assertEquals(listOf(NewArrivalUpdatePhase.FETCHING), failed)
+
+        val skipped = mutableListOf<NewArrivalUpdatePhase>()
+        NewArrivalUpdateCoordinator(Repository(hasCache = true, lastFetched = now.toEpochMilli()), Automatic(), clock).refresh(NewArrivalUpdateTrigger.SCREEN_AUTO) { skipped += it }
+        assertTrue(skipped.isEmpty())
+    }
+
     @Test fun `refresh成功後だけRoom置換の次にautoを実行する`() = runTest {
         val events = mutableListOf<String>()
         val repository = Repository(events = events)

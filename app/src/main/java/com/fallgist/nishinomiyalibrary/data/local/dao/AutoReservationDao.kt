@@ -68,8 +68,11 @@ interface AutoReservationDao {
     @Query("DELETE FROM auto_reservation_latest_items")
     suspend fun clearLatestItems()
 
-    @Query("UPDATE auto_reservation_latest_run SET acknowledged = 1 WHERE id = :id")
-    suspend fun markLatestRunAcknowledged(id: Int = LATEST_AUTO_RESERVATION_RUN_ID)
+    @Query("UPDATE auto_reservation_latest_run SET acknowledged = 1 WHERE id = :id AND runId = :expectedRunId")
+    suspend fun markLatestRunAcknowledged(
+        expectedRunId: Long,
+        id: Int = LATEST_AUTO_RESERVATION_RUN_ID,
+    ): Int
 
     @Transaction
     suspend fun replaceLatestRun(run: AutoReservationLatestRunEntity, items: List<AutoReservationLatestItemEntity>) {

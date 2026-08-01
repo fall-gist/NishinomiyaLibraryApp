@@ -3,6 +3,8 @@ package com.fallgist.nishinomiyalibrary.ui.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -42,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.data.local.RETURN_REMINDER_DAYS_RANGE
 import com.fallgist.nishinomiyalibrary.domain.model.Member
+import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationRule
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.components.parseMemberColor
@@ -72,12 +77,21 @@ fun SettingsScreen(
     onSetDefaultCalendarLibrary: (String) -> Unit,
     onSetDiagnosticLogEnabled: (Boolean) -> Unit,
     onOpenDiagnosticLog: () -> Unit,
+    onSetAutoReservationEnabled: (Boolean) -> Unit,
+    onSaveAutoReservationRule: (Long?, List<String>, List<String>) -> Unit,
+    onRemoveAutoReservationRule: (Long) -> Unit,
+    onSetAutoReservationRuleEnabled: (Long, Boolean) -> Unit,
+    onMoveAutoReservationRule: (Long, Int) -> Unit,
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
+    val dragThresholdPx = with(LocalDensity.current) { 48.dp.toPx() }
     var editorTarget by remember { mutableStateOf<EditorTarget?>(null) }
     var deleteTarget by remember { mutableStateOf<Member?>(null) }
+    var autoRuleEditor by remember { mutableStateOf<AutoReservationRule?>(null) }
+    var autoRuleDelete by remember { mutableStateOf<AutoReservationRule?>(null) }
+    var autoReservationDetail by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -247,6 +261,49 @@ fun SettingsScreen(
             }
         }
 
+        SectionTitle("新着資料の自動予約")
+        SectionCard {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("新着資料の自動予約", color = colors.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("新着更新後に一致した資料を確認なしで予約します", color = colors.ink2, fontSize = 11.sp)
+                }
+                Switch(checked = state.settings.autoReservationEnabled, onCheckedChange = onSetAutoReservationEnabled)
+            }
+            Text("詳細", color = colors.green, fontSize = 12.sp, modifier = Modifier.clickable { autoReservationDetail = true }.padding(vertical = 4.dp))
+            state.autoReservationError?.let { Text(it, color = colors.alert, fontSize = 11.sp) }
+            state.autoReservationWarning?.let { Text(it, color = colors.alert, fontSize = 11.sp) }
+            DividerLine()
+            state.autoReservationRules.forEachIndexed { index, rule ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    var dragDistance by remember(rule.id) { mutableStateOf(0f) }
+                    Text("⠿", color = colors.ink2, fontSize = 20.sp, modifier = Modifier.pointerInput(rule.id, dragThresholdPx) {
+                        detectDragGesturesAfterLongPress(onDragStart = { dragDistance = 0f }, onDrag = { change, amount ->
+                            change.consume()
+                            dragDistance += amount.y
+                            val steps = AutoReservationRuleDrag.steps(dragDistance, dragThresholdPx)
+                            if (steps != 0) {
+                                repeat(kotlin.math.abs(steps)) { onMoveAutoReservationRule(rule.id, if (steps > 0) 1 else -1) }
+                                dragDistance -= steps * dragThresholdPx
+                            }
+                        })
+                    }.padding(end = 6.dp))
+                    Column(modifier = Modifier.weight(1f).clickable { autoRuleEditor = rule }) {
+                        Text("含める語: ${rule.includeTerms.joinToString("・")}", color = colors.ink, fontSize = 12.sp)
+                        if (rule.excludeTerms.isNotEmpty()) Text("除外語: ${rule.excludeTerms.joinToString("・")}", color = colors.ink2, fontSize = 11.sp)
+                    }
+                    Switch(checked = rule.enabled, onCheckedChange = { onSetAutoReservationRuleEnabled(rule.id, it) })
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("↑", color = if (index > 0) colors.green else colors.ink2, modifier = Modifier.clickable(enabled = index > 0) { onMoveAutoReservationRule(rule.id, -1) })
+                    Text("↓", color = if (index < state.autoReservationRules.lastIndex) colors.green else colors.ink2, modifier = Modifier.clickable(enabled = index < state.autoReservationRules.lastIndex) { onMoveAutoReservationRule(rule.id, 1) })
+                    Text("削除", color = colors.alert, fontSize = 11.sp, modifier = Modifier.clickable { autoRuleDelete = rule })
+                }
+                if (index < state.autoReservationRules.lastIndex) DividerLine()
+            }
+            Text("+ ルールを追加", color = colors.green, fontSize = 12.sp, modifier = Modifier.clickable { autoRuleEditor = AutoReservationRule(0, true, state.autoReservationRules.size, emptyList()) }.padding(vertical = 6.dp))
+        }
+
         SectionTitle("診断")
         SectionCard {
             DiagnosticSection(
@@ -279,6 +336,48 @@ fun SettingsScreen(
                 TextButton(onClick = { deleteTarget = null }) { Text("キャンセル") }
             },
         )
+    }
+    autoRuleEditor?.let { rule ->
+        AutoReservationRuleEditor(
+            rule = rule,
+            onDismiss = { autoRuleEditor = null },
+            onSave = { includes, excludes -> onSaveAutoReservationRule(rule.id.takeIf { it != 0L }, includes, excludes); autoRuleEditor = null },
+        )
+    }
+    autoRuleDelete?.let { rule ->
+        AlertDialog(onDismissRequest = { autoRuleDelete = null }, title = { Text("ルールを削除しますか?") }, text = { Text("このルールは次回の新着更新から使われません。") }, confirmButton = { TextButton(onClick = { onRemoveAutoReservationRule(rule.id); autoRuleDelete = null }) { Text("削除する", color = colors.alert) } }, dismissButton = { TextButton(onClick = { autoRuleDelete = null }) { Text("キャンセル") } })
+    }
+    if (autoReservationDetail) {
+        AlertDialog(onDismissRequest = { autoReservationDetail = false }, title = { Text("自動予約について") }, text = { Text("一致した新着資料は確認なしで予約します。メンバーの優先順で試し、予約枠が一度に埋まる場合があります。不要な予約は予約一覧から手動で取り消し、キーワードを見直してください。端末通知がOFFでも処理は続きます。日次更新、画面表示時の自動更新、新着資料画面の更新が契機です。設定変更は次回更新から反映されます。") }, confirmButton = { TextButton(onClick = { autoReservationDetail = false }) { Text("閉じる") } })
+    }
+}
+
+@Composable
+private fun AutoReservationRuleEditor(rule: AutoReservationRule, onDismiss: () -> Unit, onSave: (List<String>, List<String>) -> Unit) {
+    var includes by remember { mutableStateOf(rule.includeTerms) }
+    var excludes by remember { mutableStateOf(rule.excludeTerms) }
+    var includeInput by remember { mutableStateOf("") }
+    var excludeInput by remember { mutableStateOf("") }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("キーワードルール") }, text = {
+        Column {
+            Text("含める語", fontSize = 12.sp)
+            RuleTags(includes) { includes = includes - it }
+            Row { OutlinedTextField(includeInput, { includeInput = it }, modifier = Modifier.weight(1f)); Text("追加", color = LocalAppColors.current.green, modifier = Modifier.clickable { includeInput.trim().takeIf(String::isNotEmpty)?.let { includes = includes + it; includeInput = "" } }.padding(8.dp)) }
+            Text("除外語", fontSize = 12.sp)
+            RuleTags(excludes) { excludes = excludes - it }
+            Row { OutlinedTextField(excludeInput, { excludeInput = it }, modifier = Modifier.weight(1f)); Text("追加", color = LocalAppColors.current.green, modifier = Modifier.clickable { excludeInput.trim().takeIf(String::isNotEmpty)?.let { excludes = excludes + it; excludeInput = "" } }.padding(8.dp)) }
+        }
+    }, confirmButton = { TextButton(onClick = { onSave(includes, excludes) }) { Text("保存") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } })
+}
+
+@Composable
+private fun RuleTags(values: List<String>, onRemove: (String) -> Unit) {
+    val colors = LocalAppColors.current
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        values.forEach { value -> Text("$value ×", color = colors.ink, fontSize = 11.sp, modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(colors.chipBg).clickable { onRemove(value) }.padding(horizontal = 8.dp, vertical = 4.dp)) }
     }
 }
 
