@@ -37,6 +37,19 @@ class LicsXpSession private constructor(
         const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; NishinomiyaLibraryApp) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36"
         private const val MAX_NETWORK_ATTEMPTS = 2
 
+        /**
+         * 図書館の公開書誌詳細を既定ブラウザで開くためのURLを、固定HTTPS originから組み立てる。
+         * ここでは通信せず、資料コードはクエリパラメータとしてエンコードする。
+         */
+        fun officialBookDetailUrl(tilcod: String): HttpUrl? {
+            if (tilcod.isBlank()) return null
+            return DEFAULT_BASE_URL.toHttpUrl().newBuilder()
+                .addPathSegment("WOpacTifTilListToTifTilDetailAction.do")
+                .addQueryParameter("urlNotFlag", "1")
+                .addQueryParameter("tilcod", tilcod)
+                .build()
+        }
+
         // Accept-Language はブラウザでも遷移種別（ナビゲーション / XHR）やリダイレクトの有無で
         // 値が変わらないため付与する。一方 Accept、Upgrade-Insecure-Requests、Sec-Fetch-*、
         // sec-ch-ua* はブラウザ実測に合わせて一度付与を試みたが、これらはブラウザ側でも

@@ -3,6 +3,7 @@ package com.fallgist.nishinomiyalibrary.ui.detail
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpSession
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
@@ -118,7 +119,59 @@ class BookDetailControllerTest {
         assertEquals(cancelTarget, controller.state.value.cancelTarget)
     }
 
-    private class FakeSearchRepository : SearchRepository {
+    @Test
+    fun `詳細取得成功時はサイトの予約数を表示用状態へ保持する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val controller = BookDetailController(
+            searchRepository = FakeSearchRepository(reservationCount = 0),
+            readingRecordRepository = FakeReadingRecordRepository(),
+            familyRepository = FakeFamilyRepository(),
+            dispatcher = dispatcher,
+        )
+
+        controller.open("1000001", "資料A")
+        advanceUntilIdle()
+
+        assertEquals(0, controller.state.value.reservationCount)
+    }
+
+    @Test
+    fun `詳細取得失敗時は予約数を表示用状態へ保持しない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val controller = BookDetailController(
+            searchRepository = FailingSearchRepository(),
+            readingRecordRepository = FakeReadingRecordRepository(),
+            familyRepository = FakeFamilyRepository(),
+            dispatcher = dispatcher,
+        )
+
+        controller.open("1000001", "資料A")
+        advanceUntilIdle()
+
+        assertNull(controller.state.value.reservationCount)
+        assertTrue(controller.state.value.errorMessage != null)
+    }
+
+    @Test
+    fun `公式書誌詳細URLは固定HTTPS originに特殊文字をクエリとしてエンコードする`() {
+        val url = requireNotNull(LicsXpSession.officialBookDetailUrl("A/B ?"))
+
+        assertEquals("https", url.scheme)
+        assertEquals("tosho.nishi.or.jp", url.host)
+        assertEquals("/licsxp-opac/WOpacTifTilListToTifTilDetailAction.do", url.encodedPath)
+        assertEquals("1", url.queryParameter("urlNotFlag"))
+        assertEquals("A/B ?", url.queryParameter("tilcod"))
+        assertTrue(url.encodedQuery.orEmpty().contains("tilcod=A%2FB%20%3F"))
+    }
+
+    @Test
+    fun `空の資料コードでは公式書誌詳細URLを生成しない`() {
+        assertNull(LicsXpSession.officialBookDetailUrl("   "))
+    }
+
+    private class FakeSearchRepository(
+        private val reservationCount: Int = 0,
+    ) : SearchRepository {
         override suspend fun search(keyword: String, page: Int) =
             throw UnsupportedOperationException("not used in this test")
 
@@ -133,8 +186,22 @@ class BookDetailControllerTest {
             holdings = emptyList(),
             holdingCount = 0,
             availableCount = 1,
-            reservationCount = 0,
+            reservationCount = reservationCount,
         )
+
+        override suspend fun coverUrl(isbn: String): String? = null
+    }
+
+    private class FailingSearchRepository : SearchRepository {
+        override suspend fun search(keyword: String, page: Int) =
+            throw UnsupportedOperationException("not used in this test")
+
+        override suspend fun autocomplete(keyword: String): List<String> = emptyList()
+
+        override suspend fun isLendable(tilcod: String): Boolean? = null
+
+        override suspend fun bookDetail(tilcod: String): BookDetail =
+            throw IllegalStateException("detail unavailable")
 
         override suspend fun coverUrl(isbn: String): String? = null
     }

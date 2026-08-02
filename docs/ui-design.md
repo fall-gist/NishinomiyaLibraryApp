@@ -35,7 +35,7 @@
 |---|---|---|---|---|
 | ホーム(家族統合) | 3.1 | [home.html](mockups/home.html) | **Compose実装済**(※きょうの図書館セクションのみ未) | `StatusRepository.loans() / reservations() / lastSync()`, `FamilyRepository.members()` |
 | 蔵書検索 | 3.2 | [search.html](mockups/search.html) | **Compose実装済**(`ui/search/`) | `SearchRepository.search() / autocomplete() / isLendable() / coverUrl()` |
-| 書誌詳細 | 3.2 | [search.html](mockups/search.html)(同ファイル内) | **Compose実装済**(`ui/detail/` の共通オーバーレイ。tilcodを持つ全画面=ホーム/本棚/貸出中/予約中/読書記録/新着資料/蔵書検索の行タップで開く) | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
+| 書誌詳細 | 3.2 | [search.html](mockups/search.html)(同ファイル内) | **Compose実装済**(`ui/detail/` の共通オーバーレイ。tilcodを持つ全画面=ホーム/本棚/貸出中/予約中/読書記録/新着資料/蔵書検索の行タップで開く。タイトル直下に公式サイト詳細リンクと予約順番待ち人数を表示) | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
 | 貸出中(下部タブ) | 3.3 | [loans.html](mockups/loans.html) | **Compose実装済** | `StatusRepository.loans()` |
 | 予約中(下部タブ) | 3.3 | [reservations.html](mockups/reservations.html) | **Compose実装済** | `StatusRepository.reservations()` |
 | 本棚(マイ本棚・下部タブ) | 3.4 | [bookshelf.html](mockups/bookshelf.html) | **Compose実装済**(みんなチップ+全員の本棚を横並び・本棚タイトル頭に識別色) | `StatusRepository.shelf(memberId)` |
@@ -52,6 +52,9 @@
 > tilcodを持つ行(ホーム/本棚/貸出中/予約中/読書記録/新着資料/蔵書検索)をタップすると、
 > どの画面の上にも重ねて開く。予約は詳細リンクが `hTilcod` にあるため、予約モデル/エンティティに
 > `tilcod` を追加した(DB v5マイグレーション)。tilcodが空の行(旧データ等)はタップ無効。
+> タイトル直下の「公式サイトで見る」は、固定HTTPS originから組み立てた同一`tilcod`の公開書誌詳細を
+> 端末の既定ブラウザで開く。「予約順番待ち：N人」は詳細取得に成功した場合だけ表示し、0人も表示する。
+> 読込中・取得失敗時は人数を表示しない。
 
 ## ナビゲーション構成(2026-07-20 改訂)
 

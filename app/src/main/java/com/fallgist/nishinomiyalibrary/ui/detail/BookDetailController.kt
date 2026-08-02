@@ -60,6 +60,8 @@ data class BookDetailUiState(
     val coverUrl: String? = null,
     /** 在庫数>0 を貸出可として表示する。 */
     val lendable: Boolean? = null,
+    /** 詳細取得に成功したときだけセットする、サイト上の予約順番待ち人数。 */
+    val reservationCount: Int? = null,
     val readRows: List<DetailReadRow> = emptyList(),
     val holdings: List<Holding> = emptyList(),
     /** 非nullのときだけ取消ボタンを表示する。予約中一覧(経路3)から開いたcancellableな行のみ設定される。 */
@@ -199,6 +201,7 @@ class BookDetailController(
                     fields = BookDetailContentBuilder.detailFields(detail.fields),
                     coverUrl = coverUrl,
                     lendable = detail.availableCount > 0,
+                    reservationCount = detail.reservationCount,
                     readRows = readRows,
                     holdings = detail.holdings,
                     cancelTarget = cancelTarget,

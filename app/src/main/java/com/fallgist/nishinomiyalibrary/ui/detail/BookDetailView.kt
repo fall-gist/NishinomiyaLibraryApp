@@ -58,6 +58,7 @@ fun BookDetailView(
     onSelectPickupLibrary: (String) -> Unit,
     onAddToCart: (ReservationTarget) -> Unit,
     onRequestReserveNow: (ReservationTarget) -> Unit,
+    onOpenOfficialBookDetail: (String) -> Unit,
     // 経路3: detail.cancelTargetが非nullのとき(予約中一覧から開いたcancellableな行)だけボタンを表示する。
     onRequestCancel: (BookDetailCancelTarget) -> Unit,
     modifier: Modifier = Modifier,
@@ -105,6 +106,25 @@ fun BookDetailView(
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                         )
+                        if (detail.tilcod.isNotBlank()) {
+                            Text(
+                                text = "公式サイトで見る",
+                                color = colors.greenInk,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .clickable { onOpenOfficialBookDetail(detail.tilcod) },
+                            )
+                        }
+                        detail.reservationCount?.let { reservationCount ->
+                            Text(
+                                text = "予約順番待ち：${reservationCount}人",
+                                color = colors.ink2,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
                         Spacer(Modifier.height(8.dp))
                         detail.lendable?.let { LendPill(it) }
                     }

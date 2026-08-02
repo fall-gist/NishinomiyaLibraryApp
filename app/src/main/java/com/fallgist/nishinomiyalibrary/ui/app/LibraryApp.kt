@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpSession
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreen
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
@@ -158,6 +159,19 @@ fun LibraryApp(
     }
     // tilcodを持つどの一覧からでも共通の書誌詳細を開く
     val openDetail: (String, String) -> Unit = bookDetailController::open
+    // 公開書誌詳細は、固定HTTPS originから組み立てたURLだけを既定ブラウザで開く。
+    val openOfficialBookDetail: (String) -> Unit = { tilcod ->
+        LicsXpSession.officialBookDetailUrl(tilcod)?.let { url ->
+            try {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(url.toString()))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            } catch (_: ActivityNotFoundException) {
+                // 対応するブラウザが端末に無い場合は何もしない(クラッシュさせない)
+            }
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -482,6 +496,7 @@ fun LibraryApp(
                                         onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
                                         onAddToCart = reservationUiController::addToCart,
                                         onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
+                                        onOpenOfficialBookDetail = openOfficialBookDetail,
                                         onRequestCancel = onRequestCancelFromDetail,
                                         modifier = Modifier.fillMaxSize(),
                                     )
@@ -496,6 +511,7 @@ fun LibraryApp(
                                 onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
                                 onAddToCart = reservationUiController::addToCart,
                                 onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
+                                onOpenOfficialBookDetail = openOfficialBookDetail,
                                 onRequestCancel = onRequestCancelFromDetail,
                                 modifier = Modifier.fillMaxSize().background(colors.paper),
                             )
