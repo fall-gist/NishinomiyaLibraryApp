@@ -303,7 +303,15 @@ private fun ReservationActions(
                 onClick = { target?.let(onRequestReserveNow) },
                 enabled = target != null && !reservation.processing && reservation.hasValidPickupLibrary,
                 modifier = Modifier.weight(1f),
-            ) { Text(if (reservation.processing) "処理中…" else "今すぐ予約") }
+            ) {
+                Text(
+                    when {
+                        reservation.waitingForAutomaticReservation -> "自動予約処理の完了待ち…"
+                        reservation.processing -> "処理中…"
+                        else -> "今すぐ予約"
+                    },
+                )
+            }
         }
         if (!reservation.hasValidPickupLibrary) {
             Text("受取館を選択してください", color = colors.alert, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))

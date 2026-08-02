@@ -1,5 +1,8 @@
 package com.fallgist.nishinomiyalibrary.ui.reservations
 
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationGate
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationGateState
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationType
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelBatchResult
@@ -16,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** 予約中一覧の1行を一意に特定するキー。チェック選択・取消確認対象の指定に使う。 */
@@ -71,6 +75,7 @@ data class ReservationCancelUiState(
     val selectedKeys: Set<ReservationCancelKey> = emptySet(),
     val pendingConfirmation: ReservationCancelConfirmationRequest? = null,
     val processing: Boolean = false,
+    val waitingForAutomaticReservation: Boolean = false,
     val resultOrigin: ReservationCancelResultOrigin? = null,
     val results: List<ReservationCancelResultRow> = emptyList(),
     val errorMessage: String? = null,
@@ -89,6 +94,7 @@ class ReservationCancelUiController(
     private val cancelRepository: ReservationCancelRepository,
     private val familyRepository: FamilyRepository,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val operationGate: ReservationOperationGate = ReservationOperationGate(),
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val _state = MutableStateFlow(ReservationCancelUiState())
@@ -96,6 +102,15 @@ class ReservationCancelUiController(
     private val membersJob: Job
 
     init {
+        scope.launch {
+            operationGate.state.collect { gateState ->
+                _state.update { state ->
+                    state.copy(
+                        waitingForAutomaticReservation = state.processing && gateState.isWaitingForAutomaticReservation(),
+                    )
+                }
+            }
+        }
         membersJob = scope.launch {
             familyRepository.members().collect { members ->
                 _state.value = _state.value.copy(initialized = true, members = members)
@@ -140,26 +155,27 @@ class ReservationCancelUiController(
             is ReservationCancelConfirmationRequest.Single -> ReservationCancelResultOrigin.SINGLE
             is ReservationCancelConfirmationRequest.Bulk -> ReservationCancelResultOrigin.BULK
         }
-        _state.value = state.value.copy(pendingConfirmation = null, processing = true)
+        updateProcessing(true)
+        _state.value = state.value.copy(pendingConfirmation = null)
         scope.launch {
             try {
                 val titleByTarget = request.candidates.associate { it.target to it.title }
                 val batchResult = cancelRepository.cancelReservations(request.candidates.map { it.target })
                 _state.value = _state.value.copy(
-                    processing = false,
                     // 取消成立行はローカルDBから即時削除され一覧から消えるため、選択状態を引きずらない。
                     selectedKeys = emptySet(),
                     resultOrigin = origin,
                     results = ReservationCancelContentBuilder.resultRows(batchResult, titleByTarget),
                 )
+                updateProcessing(false)
             } catch (exception: CancellationException) {
-                _state.value = _state.value.copy(processing = false)
+                updateProcessing(false)
                 throw exception
             } catch (_: Exception) {
                 _state.value = _state.value.copy(
-                    processing = false,
                     errorMessage = "取消処理を完了できませんでした。通信状態を確認して、残っている項目を再度お試しください。",
                 )
+                updateProcessing(false)
             }
         }
     }
@@ -176,7 +192,17 @@ class ReservationCancelUiController(
         membersJob.cancel()
         scope.coroutineContext[Job]?.cancel()
     }
+
+    private fun updateProcessing(processing: Boolean) {
+        _state.value = _state.value.copy(
+            processing = processing,
+            waitingForAutomaticReservation = processing && operationGate.state.value.isWaitingForAutomaticReservation(),
+        )
+    }
 }
+
+private fun ReservationOperationGateState.isWaitingForAutomaticReservation(): Boolean =
+    isWaitingFor(ReservationOperationType.MANUAL_CANCELLATION, ReservationOperationType.AUTOMATIC_RESERVATION)
 
 object ReservationCancelContentBuilder {
     fun resultRows(

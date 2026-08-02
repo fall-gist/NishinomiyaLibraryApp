@@ -1,6 +1,8 @@
 package com.fallgist.nishinomiyalibrary.ui.reservationcart
 
 import com.fallgist.nishinomiyalibrary.data.local.AppSettings
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationGate
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationType
 import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
 import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Member
@@ -18,9 +20,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -139,6 +143,38 @@ class ReservationUiControllerTest {
     }
 
     @Test
+    fun `自動予約の保持中に手動予約が待機すると待機表示をゲート状態から反映する`() = runTest {
+        val gate = ReservationOperationGate()
+        val automaticEntered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val releaseAutomatic = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val automatic = async {
+            gate.withOperation(ReservationOperationType.AUTOMATIC_RESERVATION) {
+                automaticEntered.complete(Unit)
+                releaseAutomatic.await()
+            }
+        }
+        runCurrent()
+        automaticEntered.await()
+        val cart = FakeCartRepository(operationGate = gate)
+        val controller = controller(cart, MutableStateFlow(AppSettings(defaultCalendarLibrary = "A")), StandardTestDispatcher(testScheduler), operationGate = gate)
+        advanceUntilIdle()
+
+        controller.requestImmediateConfirmation(ReservationTarget(null, father.id, "100", "資料"))
+        controller.confirmPending()
+        runCurrent()
+
+        assertTrue(controller.state.value.processing)
+        assertTrue(controller.state.value.waitingForAutomaticReservation)
+
+        releaseAutomatic.complete(Unit)
+        automatic.await()
+        advanceUntilIdle()
+        assertFalse(controller.state.value.processing)
+        assertFalse(controller.state.value.waitingForAutomaticReservation)
+        controller.close()
+    }
+
+    @Test
     fun `キャンセルは予約実行境界から再送出する`() = runTest {
         val cart = FakeCartRepository(cancelOnReserve = true)
         val controller = controller(cart, MutableStateFlow(AppSettings(defaultCalendarLibrary = "A")), StandardTestDispatcher(testScheduler))
@@ -211,6 +247,7 @@ class ReservationUiControllerTest {
         settings: Flow<AppSettings>,
         dispatcher: CoroutineDispatcher,
         calendarRepository: CalendarRepository = FakeCalendarRepository(),
+        operationGate: ReservationOperationGate = ReservationOperationGate(),
     ): ReservationUiController =
         ReservationUiController(
             cartRepository = cart,
@@ -219,6 +256,7 @@ class ReservationUiControllerTest {
             settings = settings,
             dispatcher = dispatcher,
             now = { 1L },
+            operationGate = operationGate,
         )
 
     private suspend fun assertCancellationPropagates(block: suspend () -> Unit) {
@@ -247,6 +285,7 @@ class ReservationUiControllerTest {
     private class FakeCartRepository(
         items: List<ReservationCartItem> = emptyList(),
         private val cancelOnReserve: Boolean = false,
+        private val operationGate: ReservationOperationGate? = null,
     ) : ReservationCartRepository {
         private val flow = MutableStateFlow(items)
         val added = mutableListOf<ReservationTarget>()
@@ -263,6 +302,11 @@ class ReservationUiControllerTest {
         }
         override suspend fun reserveNow(target: ReservationTarget, confirmation: ReservationConfirmation): ReservationBatchResult {
             reserveNowCalls++
+            operationGate?.let { gate ->
+                return gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) {
+                    result(listOf(target))
+                }
+            }
             if (cancelOnReserve) throw CancellationException("test")
             return result(listOf(target))
         }

@@ -65,7 +65,7 @@ class AutomaticReservationCoordinator @Inject constructor(
         try {
             for (candidate in candidates) {
                 if (stop) break
-                gate.withOperation {
+                gate.withOperation(ReservationOperationType.AUTOMATIC_RESERVATION) {
                     if (cached == null || currentWriteGeneration != generation) {
                         cached = fetchCirculation(members)
                         generation = currentWriteGeneration

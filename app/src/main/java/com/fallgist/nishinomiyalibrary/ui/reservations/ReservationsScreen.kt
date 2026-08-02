@@ -98,6 +98,14 @@ fun ReservationsScreen(
                         .padding(horizontal = 18.dp, vertical = 4.dp),
                 )
             }
+            if (cancelState.processing) {
+                Text(
+                    text = if (cancelState.waitingForAutomaticReservation) "自動予約処理の完了待ち…" else "取消を処理中…",
+                    color = colors.ink2,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
+                )
+            }
         }
         PullToRefreshBox(
             isRefreshing = isRefreshing,

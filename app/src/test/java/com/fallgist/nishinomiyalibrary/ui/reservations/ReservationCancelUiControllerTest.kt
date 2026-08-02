@@ -1,5 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui.reservations
 
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationGate
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationType
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.MemberReservationCancelResult
@@ -12,11 +14,13 @@ import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCancelRepository
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -232,13 +236,46 @@ class ReservationCancelUiControllerTest {
         controller.close()
     }
 
+    @Test
+    fun `自動予約の保持中に手動取消が待機すると待機表示をゲート状態から反映する`() = runTest {
+        val gate = ReservationOperationGate()
+        val automaticEntered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val releaseAutomatic = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val automatic = async {
+            gate.withOperation(ReservationOperationType.AUTOMATIC_RESERVATION) {
+                automaticEntered.complete(Unit)
+                releaseAutomatic.await()
+            }
+        }
+        runCurrent()
+        automaticEntered.await()
+        val controller = controller(FakeCancelRepository(operationGate = gate), StandardTestDispatcher(testScheduler), gate)
+        advanceUntilIdle()
+
+        controller.requestSingleCancelConfirmation(candidate(father.id, "100", "c1", "資料A"))
+        controller.confirmPending()
+        runCurrent()
+
+        assertTrue(controller.state.value.processing)
+        assertTrue(controller.state.value.waitingForAutomaticReservation)
+
+        releaseAutomatic.complete(Unit)
+        automatic.await()
+        advanceUntilIdle()
+        assertFalse(controller.state.value.processing)
+        assertFalse(controller.state.value.waitingForAutomaticReservation)
+        controller.close()
+    }
+
     private fun controller(
         repo: FakeCancelRepository,
         dispatcher: kotlinx.coroutines.CoroutineDispatcher,
+        operationGate: ReservationOperationGate = ReservationOperationGate(),
     ): ReservationCancelUiController = ReservationCancelUiController(
         cancelRepository = repo,
         familyRepository = FakeFamilyRepository(),
         dispatcher = dispatcher,
+        operationGate = operationGate,
     )
 
     private inner class FakeFamilyRepository : FamilyRepository {
@@ -252,10 +289,14 @@ class ReservationCancelUiControllerTest {
         private val result: ReservationCancelBatchResult = ReservationCancelBatchResult(emptyList()),
         private val cancelOnCall: Boolean = false,
         private val throwOnCall: Boolean = false,
+        private val operationGate: ReservationOperationGate? = null,
     ) : ReservationCancelRepository {
         var calls = 0
         override suspend fun cancelReservations(targets: List<ReservationCancelTarget>): ReservationCancelBatchResult {
             calls++
+            operationGate?.let { gate ->
+                return gate.withOperation(ReservationOperationType.MANUAL_CANCELLATION) { result }
+            }
             if (cancelOnCall) throw CancellationException("test")
             if (throwOnCall) throw IllegalStateException("network")
             return result

@@ -20,12 +20,15 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -116,7 +119,7 @@ class ReservationOperationGateTest {
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         val first = async {
-            gate.withOperation {
+            gate.withOperation(ReservationOperationType.AUTOMATIC_RESERVATION) {
                 entered.complete(Unit)
                 release.await()
             }
@@ -125,10 +128,178 @@ class ReservationOperationGateTest {
         first.cancel()
         runCatching { first.await() }
 
-        gate.withOperation { /* POST前失敗相当: markWriteStartedを呼ばない。 */ }
+        gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) { /* POST前失敗相当: markWriteStartedを呼ばない。 */ }
         assertEquals(0L, gate.currentWriteGeneration())
-        gate.withOperation { markWriteStarted() }
+        gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) { markWriteStarted() }
         assertEquals(1L, gate.currentWriteGeneration())
+    }
+
+    @Test
+    fun `自動予約の保持中は複数の手動予約と手動取消を待機先付きで観測する`() = runBlocking {
+        val gate = ReservationOperationGate()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val automatic = async {
+            gate.withOperation(ReservationOperationType.AUTOMATIC_RESERVATION) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+
+        val reservation = async { gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) { } }
+        awaitGateState(gate) { it.waitingOperations.size == 1 }
+        val cancellation = async { gate.withOperation(ReservationOperationType.MANUAL_CANCELLATION) { } }
+        val waiting = awaitGateState(gate) { it.waitingOperations.size == 2 }
+
+        assertEquals(ReservationOperationType.AUTOMATIC_RESERVATION, waiting.activeOperation)
+        assertEquals(
+            listOf(
+                ReservationOperationWait(ReservationOperationType.MANUAL_RESERVATION, ReservationOperationType.AUTOMATIC_RESERVATION),
+                ReservationOperationWait(ReservationOperationType.MANUAL_CANCELLATION, ReservationOperationType.AUTOMATIC_RESERVATION),
+            ),
+            waiting.waitingOperations,
+        )
+
+        release.complete(Unit)
+        automatic.await()
+        reservation.await()
+        cancellation.await()
+        assertEquals(ReservationOperationGateState(), gate.state.value)
+    }
+
+    @Test
+    fun `手動操作同士の待機は自動予約待ちとして観測しない`() = runBlocking {
+        val gate = ReservationOperationGate()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val reservation = async {
+            gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+        val cancellation = async { gate.withOperation(ReservationOperationType.MANUAL_CANCELLATION) { } }
+
+        val waiting = awaitGateState(gate) { it.waitingOperations.isNotEmpty() }
+        assertEquals(
+            listOf(ReservationOperationWait(ReservationOperationType.MANUAL_CANCELLATION, ReservationOperationType.MANUAL_RESERVATION)),
+            waiting.waitingOperations,
+        )
+        assertTrue(
+            "手動取消は自動予約ではなく手動予約を待機している",
+            !waiting.isWaitingFor(ReservationOperationType.MANUAL_CANCELLATION, ReservationOperationType.AUTOMATIC_RESERVATION),
+        )
+
+        release.complete(Unit)
+        reservation.await()
+        cancellation.await()
+    }
+
+    @Test
+    fun `待機中と実行中のキャンセル後に観測状態を残さず後続操作を完了できる`() = runBlocking {
+        val gate = ReservationOperationGate()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val automatic = async {
+            gate.withOperation(ReservationOperationType.AUTOMATIC_RESERVATION) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+        val waitingReservation = async { gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) { } }
+        awaitGateState(gate) { it.waitingOperations.isNotEmpty() }
+        waitingReservation.cancel()
+        runCatching { waitingReservation.await() }
+        assertEquals(
+            ReservationOperationGateState(activeOperation = ReservationOperationType.AUTOMATIC_RESERVATION),
+            awaitGateState(gate) { it.waitingOperations.isEmpty() },
+        )
+
+        automatic.cancel()
+        runCatching { automatic.await() }
+        assertEquals(ReservationOperationGateState(), awaitGateState(gate) { it.activeOperation == null })
+
+        // キャンセルされた処理がMutexを保持したままになっていないことまで確認する。
+        withTimeout(1_000) {
+            gate.withOperation(ReservationOperationType.MANUAL_CANCELLATION) { markWriteStarted() }
+        }
+        assertEquals(ReservationOperationGateState(), gate.state.value)
+        assertEquals(1L, gate.currentWriteGeneration())
+    }
+
+    @Test
+    fun `取得前のキャンセル後に観測状態を残さず後続操作を完了できる`() = runBlocking {
+        val gate = ReservationOperationGate()
+        val beforeAcquire = async(start = CoroutineStart.LAZY) {
+            gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) { markWriteStarted() }
+        }
+
+        beforeAcquire.cancel()
+        runCatching { beforeAcquire.await() }
+
+        assertGateReleasedAndAllowsNext(gate)
+    }
+
+    @Test
+    fun `取得直後のblock開始時キャンセル後に観測状態を残さず後続操作を完了できる`() = runBlocking {
+        val gate = ReservationOperationGate()
+        val blockStarted = CompletableDeferred<Unit>()
+        val operation = async {
+            gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) {
+                blockStarted.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        blockStarted.await()
+
+        operation.cancel()
+        runCatching { operation.await() }
+
+        assertGateReleasedAndAllowsNext(gate)
+    }
+
+    @Test
+    fun `block実行中のキャンセルと例外後に観測状態を残さず後続操作を完了できる`() = runBlocking {
+        val gate = ReservationOperationGate()
+        val workStarted = CompletableDeferred<Unit>()
+        val keepWorking = CompletableDeferred<Unit>()
+        val operation = async {
+            gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) {
+                workStarted.complete(Unit)
+                keepWorking.await()
+            }
+        }
+        workStarted.await()
+
+        operation.cancel()
+        runCatching { operation.await() }
+        assertGateReleasedAndAllowsNext(gate)
+
+        runCatching {
+            gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) {
+                throw IllegalStateException("テスト例外")
+            }
+        }
+        assertGateReleasedAndAllowsNext(gate)
+    }
+
+    private suspend fun awaitGateState(
+        gate: ReservationOperationGate,
+        condition: (ReservationOperationGateState) -> Boolean,
+    ): ReservationOperationGateState = withTimeout(1_000) {
+        while (!condition(gate.state.value)) delay(1)
+        gate.state.value
+    }
+
+    private suspend fun assertGateReleasedAndAllowsNext(gate: ReservationOperationGate) {
+        assertEquals(ReservationOperationGateState(), awaitGateState(gate) { it == ReservationOperationGateState() })
+        withTimeout(1_000) {
+            gate.withOperation(ReservationOperationType.MANUAL_CANCELLATION) { markWriteStarted() }
+        }
+        assertEquals(ReservationOperationGateState(), gate.state.value)
     }
 
     private suspend fun addMember(name: String, cardNumber: String): Long {

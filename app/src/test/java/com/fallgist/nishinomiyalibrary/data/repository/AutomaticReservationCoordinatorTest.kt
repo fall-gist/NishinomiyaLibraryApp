@@ -381,7 +381,7 @@ class AutomaticReservationCoordinatorTest {
 
         val run = async { coordinator.run() }
         firstFetchStarted.await()
-        val externalWrite = async { gate.withOperation { markWriteStarted() } }
+        val externalWrite = async { gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) { markWriteStarted() } }
         yield()
         releaseFirstFetch.complete(Unit)
         externalWrite.await()

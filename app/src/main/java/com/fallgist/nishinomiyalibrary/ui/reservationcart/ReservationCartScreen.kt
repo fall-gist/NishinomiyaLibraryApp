@@ -69,7 +69,11 @@ fun ReservationCartScreen(
                 ) {
                     CircularProgressIndicator(modifier = Modifier.width(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
-                    Text("予約を処理中…", color = colors.ink2, fontSize = 12.sp)
+                    Text(
+                        if (state.waitingForAutomaticReservation) "自動予約処理の完了待ち…" else "予約を処理中…",
+                        color = colors.ink2,
+                        fontSize = 12.sp,
+                    )
                 }
             }
         } else {
@@ -122,7 +126,7 @@ fun ReservationCartScreen(
                 if (state.processing) {
                     CircularProgressIndicator(modifier = Modifier.width(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
-                    Text("予約を処理中…")
+                    Text(if (state.waitingForAutomaticReservation) "自動予約処理の完了待ち…" else "予約を処理中…")
                 } else {
                     Text("${state.cartItemCount}件を予約確定へ")
                 }

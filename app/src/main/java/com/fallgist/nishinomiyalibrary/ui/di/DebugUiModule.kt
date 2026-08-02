@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.di
 
 import com.fallgist.nishinomiyalibrary.data.diagnostics.DiagnosticLog
 import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationGate
 import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.data.sync.WorkManagerSyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
@@ -108,9 +109,11 @@ object DebugUiProvisionModule {
     fun provideReservationCancelUiController(
         cancelRepository: ReservationCancelRepository,
         familyRepository: FamilyRepository,
+        operationGate: ReservationOperationGate,
     ): ReservationCancelUiController = ReservationCancelUiController(
         cancelRepository = cancelRepository,
         familyRepository = familyRepository,
+        operationGate = operationGate,
     )
 
     @Provides
@@ -186,11 +189,13 @@ object DebugUiProvisionModule {
         familyRepository: FamilyRepository,
         calendarRepository: CalendarRepository,
         settingsStore: SettingsStore,
+        operationGate: ReservationOperationGate,
     ): ReservationUiController = ReservationUiController(
         cartRepository = cartRepository,
         familyRepository = familyRepository,
         calendarRepository = calendarRepository,
         settings = settingsStore.settings,
+        operationGate = operationGate,
     )
 
     @Provides

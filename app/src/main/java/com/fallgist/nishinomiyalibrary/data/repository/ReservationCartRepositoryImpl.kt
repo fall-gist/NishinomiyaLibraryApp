@@ -67,7 +67,7 @@ class ReservationCartRepositoryImpl @Inject constructor(
     }
 
     override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult =
-        operationGate.withOperation {
+        operationGate.withOperation(ReservationOperationType.MANUAL_RESERVATION) {
             validateConfirmation(confirmation)
             // 対象を通信前に固定する。以降の追加・削除は今回の送信対象を変えない。
             val items = cartDao.getAll()
@@ -81,7 +81,7 @@ class ReservationCartRepositoryImpl @Inject constructor(
     override suspend fun reserveNow(
         target: ReservationTarget,
         confirmation: ReservationConfirmation,
-    ): ReservationBatchResult = operationGate.withOperation {
+    ): ReservationBatchResult = operationGate.withOperation(ReservationOperationType.MANUAL_RESERVATION) {
         validateConfirmation(confirmation)
         validateTarget(target, permitCartItemId = false)
         val execution = execute(listOf(target), confirmation, ::markWriteStarted)

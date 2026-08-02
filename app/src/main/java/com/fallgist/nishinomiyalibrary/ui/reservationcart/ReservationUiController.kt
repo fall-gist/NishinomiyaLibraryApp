@@ -1,6 +1,9 @@
 package com.fallgist.nishinomiyalibrary.ui.reservationcart
 
 import com.fallgist.nishinomiyalibrary.data.local.AppSettings
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationGate
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationGateState
+import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationType
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Member
@@ -24,6 +27,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class ReservationCartMemberGroup(
@@ -67,6 +71,7 @@ data class ReservationUiState(
     val selectedMemberId: Long? = null,
     val pendingConfirmation: ReservationConfirmationRequest? = null,
     val processing: Boolean = false,
+    val waitingForAutomaticReservation: Boolean = false,
     val feedback: ReservationFeedback? = null,
 ) {
     val cartItemCount: Int get() = cartGroups.sumOf { it.items.size }
@@ -82,12 +87,22 @@ class ReservationUiController(
     private val settings: Flow<AppSettings>,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val now: () -> Long = System::currentTimeMillis,
+    private val operationGate: ReservationOperationGate = ReservationOperationGate(),
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val _state = MutableStateFlow(ReservationUiState(libraries = calendarRepository.libraries))
     val state: StateFlow<ReservationUiState> = _state
 
     init {
+        scope.launch {
+            operationGate.state.collect { gateState ->
+                _state.update { state ->
+                    state.copy(
+                        waitingForAutomaticReservation = state.processing && gateState.isWaitingForAutomaticReservation(),
+                    )
+                }
+            }
+        }
         scope.launch {
             combine(
                 cartRepository.cartItems(),
@@ -200,22 +215,23 @@ class ReservationUiController(
             return
         }
         val confirmation = ReservationConfirmation(state.value.pickupLibraryCode, now())
-        _state.value = _state.value.copy(pendingConfirmation = null, processing = true)
+        updateProcessing(true)
+        _state.value = _state.value.copy(pendingConfirmation = null)
         scope.launch {
             try {
                 val result = executeReservation(request, confirmation)
                 _state.value = _state.value.copy(
-                    processing = false,
                     feedback = request.feedback(results = ReservationCartContentBuilder.resultRows(result)),
                 )
+                updateProcessing(false)
             } catch (exception: CancellationException) {
-                _state.value = _state.value.copy(processing = false)
+                updateProcessing(false)
                 throw exception
             } catch (_: Exception) {
                 _state.value = _state.value.copy(
-                    processing = false,
                     feedback = request.feedback(errorMessage = "予約処理を完了できませんでした。通信状態を確認して、残っている項目を再度お試しください。"),
                 )
+                updateProcessing(false)
             }
         }
     }
@@ -241,7 +257,17 @@ class ReservationUiController(
     private fun validLibraryCode(code: String): String =
         calendarRepository.libraries.firstOrNull { it.code == code }?.code
             ?: calendarRepository.libraries.firstOrNull()?.code.orEmpty()
+
+    private fun updateProcessing(processing: Boolean) {
+        _state.value = _state.value.copy(
+            processing = processing,
+            waitingForAutomaticReservation = processing && operationGate.state.value.isWaitingForAutomaticReservation(),
+        )
+    }
 }
+
+private fun ReservationOperationGateState.isWaitingForAutomaticReservation(): Boolean =
+    isWaitingFor(ReservationOperationType.MANUAL_RESERVATION, ReservationOperationType.AUTOMATIC_RESERVATION)
 
 object ReservationCartContentBuilder {
     fun groups(items: List<ReservationCartItem>, members: List<Member>): List<ReservationCartMemberGroup> =

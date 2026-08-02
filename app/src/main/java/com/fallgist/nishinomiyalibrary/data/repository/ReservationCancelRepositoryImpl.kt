@@ -37,7 +37,7 @@ class ReservationCancelRepositoryImpl @Inject constructor(
     private val operationGate: ReservationOperationGate = ReservationOperationGate(),
 ) : ReservationCancelRepository {
     override suspend fun cancelReservations(targets: List<ReservationCancelTarget>): ReservationCancelBatchResult =
-        operationGate.withOperation {
+        operationGate.withOperation(ReservationOperationType.MANUAL_CANCELLATION) {
             val grouped = linkedMapOf<Long, MutableList<ReservationCancelTarget>>()
             targets.forEach { target ->
                 require(target.memberId > 0) { "memberIdが不正です" }
