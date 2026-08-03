@@ -379,7 +379,8 @@ fun ReservationCancelResultsDialog(state: ReservationCancelUiState, onClose: () 
                 // 内訳は一斉取消(経路2)のときだけ出す(docs/ui-design.md「方針: 予約取消の導線」)。
                 if (state.resultOrigin == ReservationCancelResultOrigin.BULK) {
                     Text(
-                        text = "${summary.cancelledCount}件取消／${summary.unknownCount}件確認できず／${summary.failedCount}件失敗",
+                        text = "${summary.cancelledCount}件取消／${summary.unknownCount}件確認できず／${summary.failedCount}件失敗" +
+                            "／一覧整理の警告${summary.cleanupWarningCount}件",
                         color = colors.ink,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,

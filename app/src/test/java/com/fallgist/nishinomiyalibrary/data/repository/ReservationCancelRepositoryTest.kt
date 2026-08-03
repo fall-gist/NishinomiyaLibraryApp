@@ -13,6 +13,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationSession
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationWriteBoundaryAware
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
+import com.fallgist.nishinomiyalibrary.domain.model.HideFailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
@@ -220,6 +221,54 @@ class ReservationCancelRepositoryTest {
         assertEquals(listOf(true, false), first.boundaryAssignments)
         assertEquals(listOf(true, false), second.boundaryAssignments)
         assertTrue(first.closed)
+    }
+
+    @Test
+    fun `非表示警告でも取消成功として削除し状態不安定なら同一メンバー残件を中止する`() = runBlocking {
+        val member = addMember("一覧整理警告", "cleanup-warning")
+        database.reservationDao().insert(reservation(member, "first"))
+        database.reservationDao().insert(reservation(member, "second"))
+        val repository = repository(
+            fakeGateway(
+                mapOf(
+                    "first" to ReservationCancelAttempt.CancelledHideUnknown,
+                    "second" to ReservationCancelAttempt.Cancelled,
+                ),
+            ),
+        )
+
+        val result = repository.cancelReservations(listOf(target(member, "first"), target(member, "second")))
+
+        assertEquals(ReservationCancelOutcome.CancelledHideUnknown, result.members.single().itemResults[0].outcome)
+        assertEquals(
+            ReservationCancelOutcome.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE),
+            result.members.single().itemResults[1].outcome,
+        )
+        assertEquals(listOf("second"), database.reservationDao().getForMember(member).map { it.cancelCode })
+    }
+
+    @Test
+    fun `明示的な非表示拒否は警告にして同一メンバーの次件を続行する`() = runBlocking {
+        val member = addMember("明示拒否", "cleanup-rejected")
+        database.reservationDao().insert(reservation(member, "first"))
+        database.reservationDao().insert(reservation(member, "second"))
+        val repository = repository(
+            fakeGateway(
+                mapOf(
+                    "first" to ReservationCancelAttempt.CancelledHideNotCompleted(HideFailureReason.REJECTED_BY_SITE),
+                    "second" to ReservationCancelAttempt.CancelledAndHidden,
+                ),
+            ),
+        )
+
+        val result = repository.cancelReservations(listOf(target(member, "first"), target(member, "second")))
+
+        assertEquals(
+            ReservationCancelOutcome.CancelledHideNotCompleted(HideFailureReason.REJECTED_BY_SITE),
+            result.members.single().itemResults[0].outcome,
+        )
+        assertEquals(ReservationCancelOutcome.CancelledAndHidden, result.members.single().itemResults[1].outcome)
+        assertEquals(emptyList<String>(), database.reservationDao().getForMember(member).map { it.cancelCode })
     }
 
     @Test

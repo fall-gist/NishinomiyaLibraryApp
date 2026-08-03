@@ -3,6 +3,7 @@ package com.fallgist.nishinomiyalibrary.ui.reservations
 import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationGate
 import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationType
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
+import com.fallgist.nishinomiyalibrary.domain.model.HideFailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.MemberReservationCancelResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelBatchResult
@@ -135,6 +136,14 @@ class ReservationCancelUiControllerTest {
                             ReservationCancelItemResult(ReservationCancelTarget(father.id, "100", "c1"), ReservationCancelOutcome.Cancelled),
                             ReservationCancelItemResult(ReservationCancelTarget(father.id, "101", "c2"), ReservationCancelOutcome.CancelledAndHidden),
                             ReservationCancelItemResult(
+                                ReservationCancelTarget(father.id, "106", "c7"),
+                                ReservationCancelOutcome.CancelledHideNotCompleted(HideFailureReason.FORM_CHANGED),
+                            ),
+                            ReservationCancelItemResult(
+                                ReservationCancelTarget(father.id, "107", "c8"),
+                                ReservationCancelOutcome.CancelledHideUnknown,
+                            ),
+                            ReservationCancelItemResult(
                                 ReservationCancelTarget(father.id, "102", "c3"),
                                 ReservationCancelOutcome.Unknown(UnknownReason.VERIFICATION_UNAVAILABLE),
                             ),
@@ -160,6 +169,8 @@ class ReservationCancelUiControllerTest {
         val candidates = listOf(
             candidate(father.id, "100", "c1", "資料A"),
             candidate(father.id, "101", "c2", "資料B"),
+            candidate(father.id, "106", "c7", "資料G"),
+            candidate(father.id, "107", "c8", "資料H"),
             candidate(father.id, "102", "c3", "資料C"),
             candidate(father.id, "103", "c4", "資料D"),
             candidate(father.id, "104", "c5", "資料E"),
@@ -171,32 +182,40 @@ class ReservationCancelUiControllerTest {
         advanceUntilIdle()
 
         val results = controller.state.value.results
-        assertEquals(6, results.size)
+        assertEquals(8, results.size)
         // Cancelled/CancelledAndHiddenは区別せず同じ表示・成功扱い
         assertEquals("取り消しました", results[0].outcomeLabel)
         assertTrue(results[0].completed)
         assertEquals("取り消しました", results[1].outcomeLabel)
         assertTrue(results[1].completed)
-        // Unknownは成否不明であり成功扱いにしてはならない(最優先要件)
-        assertEquals("取り消せたか確認できません", results[2].outcomeLabel)
-        assertEquals("予約状況を再同期して確認してください", results[2].detail)
-        assertFalse(results[2].completed)
-        assertEquals(ReservationCancelResultCategory.UNKNOWN, results[2].category)
-        // Failure
-        assertEquals("取り消せませんでした", results[3].outcomeLabel)
-        assertFalse(results[3].completed)
-        // ConfirmationRequired
-        assertEquals("取り消せませんでした（確認画面が返りました）", results[4].outcomeLabel)
+        // 一覧整理の警告は取消成功に含めるが、警告件数は別集計する。
+        assertTrue(results[2].completed)
+        assertTrue(results[2].cleanupWarning)
+        assertEquals("公式サイトの一覧整理は完了できませんでした", results[2].detail)
+        assertTrue(results[3].completed)
+        assertTrue(results[3].cleanupWarning)
+        assertEquals("公式サイトの一覧から非表示にできたか確認できません", results[3].detail)
+        // Unknownは取消成否不明であり成功扱いにしてはならない(最優先要件)
+        assertEquals("取り消せたか確認できません", results[4].outcomeLabel)
+        assertEquals("予約状況を再同期して確認してください", results[4].detail)
         assertFalse(results[4].completed)
-        // Rejected
+        assertEquals(ReservationCancelResultCategory.UNKNOWN, results[4].category)
+        // Failure
         assertEquals("取り消せませんでした", results[5].outcomeLabel)
-        assertEquals("拒否", results[5].detail)
         assertFalse(results[5].completed)
+        // ConfirmationRequired
+        assertEquals("取り消せませんでした（確認画面が返りました）", results[6].outcomeLabel)
+        assertFalse(results[6].completed)
+        // Rejected
+        assertEquals("取り消せませんでした", results[7].outcomeLabel)
+        assertEquals("拒否", results[7].detail)
+        assertFalse(results[7].completed)
 
         val summary = controller.state.value.summary
-        assertEquals(2, summary.cancelledCount)
+        assertEquals(4, summary.cancelledCount)
         assertEquals(1, summary.unknownCount)
         assertEquals(3, summary.failedCount)
+        assertEquals(2, summary.cleanupWarningCount)
         assertEquals(ReservationCancelResultOrigin.BULK, controller.state.value.resultOrigin)
         controller.close()
     }

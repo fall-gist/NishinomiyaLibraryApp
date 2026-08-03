@@ -614,8 +614,29 @@ class ParsersTest {
         assertEquals(ReservationState.CANCELLED, row.reservation.state)
         assertEquals("", row.reservation.cancelCode)
         assertTrue(row.hideButtonPresent)
+        assertEquals("1013099999", row.hideCode)
         // parse()の戻り値・挙動はこのメソッドの結果をmapしているだけで変わらない。
         assertEquals(listOf(row.reservation), ReservationListParser.parse(html))
+    }
+
+    @Test
+    fun `非表示候補が無い行はhideCodeを持たず通常一覧解析を維持する`() {
+        val row = ReservationListParser.parseRows(reservationListWithAction("")).single()
+
+        assertFalse(row.hideButtonPresent)
+        assertEquals(null, row.hideCode)
+        assertEquals(ReservationState.CANCELLED, row.reservation.state)
+    }
+
+    @Test
+    fun `非表示候補が複数または非数字または未知構文なら一覧解析を停止する`() {
+        listOf(
+            "<input onclick=\"yoykHihyoji('101')\"><input onclick=\"yoykHihyoji('102')\">",
+            "<input onclick=\"yoykHihyoji('abc')\">",
+            "<input onclick=\"yoykHihyoji('101'); unexpected()\">",
+        ).forEach { buttons ->
+            assertParseError("reservation_list") { ReservationListParser.parseRows(reservationListWithAction(buttons)) }
+        }
     }
 
     @Test
@@ -873,6 +894,15 @@ class ParsersTest {
     private fun emptyReservationList(): String = """
         <h1>予約状況一覧</h1>
         <table summary='予約状況一覧表'><thead><tr><th>資料名</th><th>書誌種別</th><th>受取館</th><th>予約日</th><th>順位</th><th>予約状態</th><th>取置期限</th></tr></thead><tbody></tbody></table>
+    """.trimIndent()
+
+    private fun reservationListWithAction(buttons: String): String = """
+        <h1>予約状況一覧</h1>
+        <table summary='予約状況一覧表'><thead><tr><th>資料名</th><th>書誌種別</th><th>受取館</th><th>予約日</th><th>順位</th><th>予約状態</th><th>取置期限</th></tr></thead>
+        <tbody><tr>
+            <td><a href='?hTilcod=1000000000097'>資料</a></td>
+            <td>一般</td><td>本館</td><td>26/07/01</td><td></td><td>取消</td><td></td><td>$buttons</td>
+        </tr></tbody></table>
     """.trimIndent()
 
     private fun emptySummary(): String = """

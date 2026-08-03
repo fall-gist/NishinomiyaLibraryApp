@@ -15,6 +15,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.HideConfirmatio
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListRow
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
+import com.fallgist.nishinomiyalibrary.domain.model.HideFailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import kotlinx.coroutines.CancellationException
@@ -182,6 +183,10 @@ sealed interface ReservationCancelAttempt {
      * 確認できた。既に非表示化されたのか、サイトが別の理由で即時に一覧から消したのかは区別しない。
      */
     data object CancelledAndHidden : ReservationCancelAttempt
+    /** 取消は成立したが、非表示は送信前停止または明示的拒否により完了しなかった。 */
+    data class CancelledHideNotCompleted(val reason: HideFailureReason) : ReservationCancelAttempt
+    /** 取消は成立したが、非表示POST後の成否を確定できない。再送はしない。 */
+    data object CancelledHideUnknown : ReservationCancelAttempt
     data object SessionExpiredBeforeSubmit : ReservationCancelAttempt
     data object IndeterminateAfterPost : ReservationCancelAttempt
     /**
@@ -380,7 +385,8 @@ internal class LicsXpReservationSession(
     override suspend fun fetchReservations(): List<Reservation> = fetchReservationSnapshot().reservations
 
     /**
-     * Stage 15専用の単発ライブ診断。HTML actionは一切採用せず、固定先へのPOSTは最大1回だけ行う。
+     * Stage 15専用の二段階ライブ診断。HTML actionは一切採用せず、固定先への各段階POSTを
+     * それぞれ1回だけ（no-retry）行う。
      */
     override suspend fun hideCancelledReservationForDiagnostic(expectedTilcod: String): ReservationHideDiagnosticResult {
         if (expectedTilcod.isBlank()) return ReservationHideDiagnosticResult.TARGET_NOT_FOUND
@@ -596,8 +602,9 @@ internal class LicsXpReservationSession(
             // 同一tilcodの行が複数になり得る（普通の運用操作であり実運用で必ず起きる）。tilcodだけでは
             // 行の同一性を追えないサイト仕様のため、一意性は「取消可能な行（cancelCodeが非空）」の
             // 中で判定する。取消可能な行が同一tilcodに2つある本当に曖昧なケースは従来どおり停止する。
-            val (targetTilcod, cancelledBeforeCount) = try {
-                val reservations = ReservationListParser.parse(listHtml)
+            val cancelBaseline = try {
+                val rows = ReservationListParser.parseRows(listHtml)
+                val reservations = rows.map { it.reservation }
                 val target = reservations.filter { it.cancelCode == cancelCode }.singleOrNull()
                     ?: throw ParseException("reservation-cancel", "取消コードに対応する予約行を一意に特定できません")
                 if (target.tilcod.isBlank()) {
@@ -613,7 +620,14 @@ internal class LicsXpReservationSession(
                 val cancelledBeforeCount = reservations.count {
                     it.tilcod == target.tilcod && it.state == ReservationState.CANCELLED
                 }
-                target.tilcod to cancelledBeforeCount
+                CancelBaseline(
+                    targetTilcod = target.tilcod,
+                    cancelledBeforeCount = cancelledBeforeCount,
+                    hideCodes = rows.mapNotNull { it.hideCode }.toSet(),
+                    // 非表示対象の差分を確定するため、取消送信前の一覧も完全であることを記録する。
+                    complete = runCatching { SummaryParser.parse(menu).reservationCount }.getOrNull() ==
+                        rows.count { it.reservation.state != ReservationState.CANCELLED },
+                )
             } catch (exception: ParseException) {
                 session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
                 throw LibraryError.Parse(exception.screen, exception.reason)
@@ -642,7 +656,7 @@ internal class LicsXpReservationSession(
             val stageInspection = inspectCancelConfirmationStage(
                 html = stage1Html,
                 cancelCode = cancelCode,
-                targetTilcod = targetTilcod,
+                targetTilcod = cancelBaseline.targetTilcod,
                 signatureInspection = signatureInspection,
             )
             session.noteDiagnostic("cancel-reservation-stage", stageInspection.diagnosticSummary())
@@ -672,7 +686,7 @@ internal class LicsXpReservationSession(
             // 2段階目は状態変更POSTである。JSの一般的な到達可能性は推定せず、直前に利用者が指定した
             // cancelCode/tilcodを含む一覧と、実測済みの取消確認プロトコル署名が両方そろう場合だけ送る。
             if (!stageInspection.matched) {
-                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, cancelledBeforeCount, ::listForm)
+                return@withExclusiveRequestSequence resolveCancelAndHide(session, cancelBaseline, ::listForm)
             }
             val confirmationForm = try {
                 ReservationCancelConfirmationFormParser.parse(
@@ -681,7 +695,7 @@ internal class LicsXpReservationSession(
                 )
             } catch (exception: ParseException) {
                 session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
-                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, cancelledBeforeCount, ::listForm)
+                return@withExclusiveRequestSequence resolveCancelAndHide(session, cancelBaseline, ::listForm)
             }
             // actionが省略されている場合（実測(2026-07-28)どおりの実サイト相当）は、HTML標準どおり
             // 「現在のドキュメントURL」＝1段階目に実際に送ったURL(stage1Page.url、クエリ付き)を使う。
@@ -690,7 +704,7 @@ internal class LicsXpReservationSession(
                 session.resolveReservationCancelAction(confirmationForm.action, stage1Page.url)
             } catch (exception: ParseException) {
                 session.noteDiagnostic("cancel-reservation", "${exception.screen}: ${exception.reason}")
-                return@withExclusiveRequestSequence resolveCancelByListDiff(session, targetTilcod, cancelledBeforeCount, ::listForm)
+                return@withExclusiveRequestSequence resolveCancelAndHide(session, cancelBaseline, ::listForm)
             }
             session.noteDiagnostic("cancel-reservation", "対象一致の取消確認プロトコル署名と再送フォームを検出し2段階目を送信")
             writeBoundaryMarked = markWriteBoundaryOnce(writeBoundaryMarked)
@@ -706,7 +720,7 @@ internal class LicsXpReservationSession(
             requireNotMaintenance(stage2Response) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
             // 2段階目の応答に確認文言が残っていても、文字列だけで未完了とは断定しない。
             // 成否は完全な取消後一覧で固定済みtilcodを照合して決める。
-            resolveCancelByListDiff(session, targetTilcod, cancelledBeforeCount, ::listForm)
+            resolveCancelAndHide(session, cancelBaseline, ::listForm)
         }
     }
 
@@ -769,101 +783,116 @@ internal class LicsXpReservationSession(
     }
 }
 
-/**
- * 取消後一覧照合の結果。[resolveCancelByListDiff]内だけで使う中間状態で、外部には公開しない。
- * `null`（完全性を確認できない・解析できない・ログインフォームが返った等）は
- * [ReservationCancelAttempt.IndeterminateAfterPost]へ倒す。
- * 1段階目のみで確認ダイアログが出なかった場合と、2段階目送信後に確認ダイアログが出なかった場合の
- * 両方から呼ばれる共通ロジックであり、cancelReservationから重複を避けるために切り出した。
- */
-private enum class CancelListDiffOutcome {
-    /**
-     * 対象tilcodの行が1つも無い。13回目のライブ観測(2026-07-28)で判明したとおり、同一tilcodに
-     * 取消済み行が併存し得るサイトだが、対象tilcodの行が全て消えている状態は、並行操作（他端末等）が
-     * 無い限り「取消＋非表示」以外では起きない。そのためこのケースだけは基準値による場合分けをしない。
-     */
-    REMOVED_FROM_LIST,
-    /**
-     * 「取消」状態(CANCELLED)かつ非表示ボタン(yoykHihyoji)ありの行数が、送信前に記録した基準値
-     * （対象tilcodのうち送信前から取消済みだった行数）+1になり、かつ取消可能な行(cancelCodeが非空)が
-     * 0になった。「取消済み行が1つ増えた」だけでなく「取消可能な行が無くなった」も同時に要求するのは、
-     * 確証がなければ成否不明へ倒す既存方針のためである。
-     */
-    CANCELLED_COUNT_INCREMENTED,
-    /** 上記以外（増分が0や2以上、取消可能な行が残っている、状態とボタンの片方だけ一致 等）。 */
-    STILL_PRESENT_OTHERWISE,
-}
+private data class CancelBaseline(
+    val targetTilcod: String,
+    val cancelledBeforeCount: Int,
+    val hideCodes: Set<String>,
+    val complete: Boolean,
+)
+
+private data class CompleteReservationList(
+    val page: LicsXpReservationListPage,
+    val rows: List<ReservationListRow>,
+)
 
 /**
- * 取消後のメニューと一覧を各1回だけ再取得し、対象tilcodの行の変化から成否を判定する。
- *
- * 13回目のライブ観測(2026-07-28)実測どおり、取消済み行を非表示にせず同じ書誌を再予約すると同一tilcod
- * の行が複数になり得る（普通の運用操作であり実運用で必ず起きる）。tilcodだけでは行の同一性を追えない
- * サイト仕様のため、単純な行の消失ではなく「取消可能な行の消失」＋「取消済み行の増分」で判定する。
- * [cancelledBeforeCount]は送信前一覧における対象tilcod・state=CANCELLEDの行数（基準値）。
+ * 取消後の完全一覧で取消成立を確認し、今回新たに現れた非表示コードだけを後続処理へ渡す。
+ * 同一tilcodの既存取消済み行は、送信前後のhideCode集合差分から厳密に除外する。
  */
-private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveCancelByListDiff(
+private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveCancelAndHide(
     session: LicsXpSession,
-    targetTilcod: String,
-    cancelledBeforeCount: Int,
+    baseline: CancelBaseline,
     listForm: () -> FormBody,
 ): ReservationCancelAttempt {
-    val outcome = try {
+    val afterCancel = fetchCompleteReservationListForCancellation(session, listForm)
+        ?: return ReservationCancelAttempt.IndeterminateAfterPost
+    val matches = afterCancel.rows.filter { it.reservation.tilcod == baseline.targetTilcod }
+    if (matches.isEmpty()) return ReservationCancelAttempt.CancelledAndHidden
+    val cancelledWithHideButtonCount = matches.count {
+        it.reservation.state == ReservationState.CANCELLED && it.hideButtonPresent
+    }
+    if (matches.any { it.reservation.cancelCode.isNotBlank() } ||
+        cancelledWithHideButtonCount != baseline.cancelledBeforeCount + 1
+    ) return ReservationCancelAttempt.IndeterminateAfterPost
+
+    // 取消はここまでで確定済み。送信前一覧が完全でなければ非表示の対象差分だけを安全に固定できない。
+    if (!baseline.complete) return ReservationCancelAttempt.CancelledHideNotCompleted(HideFailureReason.LIST_INCOMPLETE)
+    return hideNewlyCancelledReservation(session, baseline, afterCancel, listForm)
+}
+
+private suspend fun LicsXpSession.ExclusiveRequestSequence.hideNewlyCancelledReservation(
+    session: LicsXpSession,
+    baseline: CancelBaseline,
+    afterCancel: CompleteReservationList,
+    listForm: () -> FormBody,
+): ReservationCancelAttempt {
+    val newHideCodes = afterCancel.rows.mapNotNull { it.hideCode }.toSet() - baseline.hideCodes
+    val hideCode = newHideCodes.singleOrNull()
+        ?: return ReservationCancelAttempt.CancelledHideNotCompleted(HideFailureReason.TARGET_NOT_UNIQUE)
+    val targetRows = afterCancel.rows.filter { it.hideCode == hideCode }
+    if (targetRows.size != 1 || targetRows.single().reservation.tilcod != baseline.targetTilcod ||
+        targetRows.single().reservation.state != ReservationState.CANCELLED
+    ) return ReservationCancelAttempt.CancelledHideNotCompleted(HideFailureReason.TARGET_NOT_UNIQUE)
+
+    val form = try {
+        ReservationHideFormParser.parse(afterCancel.page.html).buildForm(hideCode)
+    } catch (_: ParseException) {
+        return ReservationCancelAttempt.CancelledHideNotCompleted(HideFailureReason.FORM_CHANGED)
+    }
+    val stagePage = try {
+        postReservationHideExactlyOnce(form, afterCancel.page)
+    } catch (_: LibraryError.Network) {
+        return ReservationCancelAttempt.CancelledHideUnknown
+    }
+    val confirmation = try {
+        ReservationHideConfirmationFormParser.parse(
+            stagePage.html,
+            buildList {
+                add(HideConfirmationField("mngFlg2_handan", "1"))
+                for (index in 0 until form.size) add(HideConfirmationField(form.name(index), form.value(index)))
+            },
+        ).buildForm()
+    } catch (_: ParseException) {
+        return ReservationCancelAttempt.CancelledHideNotCompleted(HideFailureReason.FORM_CHANGED)
+    }
+    try {
+        // Stage 2の応答は古い一覧を返し得るため、内容では成否を判定しない。
+        postReservationHideConfirmationExactlyOnce(confirmation, stagePage)
+    } catch (_: LibraryError.Network) {
+        return ReservationCancelAttempt.CancelledHideUnknown
+    }
+    val afterHide = fetchCompleteReservationListForCancellation(session, listForm)
+        ?: return ReservationCancelAttempt.CancelledHideUnknown
+    return if (afterHide.rows.none { it.hideCode == hideCode }) {
+        ReservationCancelAttempt.CancelledAndHidden
+    } else {
+        // 明示的拒否の確定根拠は現時点で無いため、残存を推測して拒否扱いにはしない。
+        ReservationCancelAttempt.CancelledHideUnknown
+    }
+}
+
+/** 完全性が確認できた予約一覧だけを返す。ログイン・メンテナンス・解析不能は null として安全側へ倒す。 */
+private suspend fun LicsXpSession.ExclusiveRequestSequence.fetchCompleteReservationListForCancellation(
+    session: LicsXpSession,
+    listForm: () -> FormBody,
+): CompleteReservationList? {
+    return try {
         val menu = get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
         requireNotMaintenance(menu) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
-        if (isLoginForm(Jsoup.parse(menu))) {
-            session.noteDiagnostic("cancel-reservation", "取消後のメニュー取得でログインフォームが返った")
-            return ReservationCancelAttempt.IndeterminateAfterPost
-        }
+        if (isLoginForm(Jsoup.parse(menu))) return null
         session.updateTokens(menu)
         val summaryReservationCount = runCatching { SummaryParser.parse(menu).reservationCount }.getOrNull()
-        val refetched = postReservationList("WOpacMnuTopToPwdLibraryAction.do", mapOf("gamen" to "usrrsv"), listForm())
-        if (isLoginForm(Jsoup.parse(refetched.html))) {
-            session.noteDiagnostic("cancel-reservation", "取消後の一覧取得でログインフォームが返った")
-            null
-        } else {
-            requireNotMaintenance(refetched.html) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
-            val rows = ReservationListParser.parseRows(refetched.html)
-            // 12回目のライブ取消＋一覧観測(2026-07-28)の実測どおり、サマリの予約中件数は取消済み行
-            // （state=CANCELLED）だけを数えない。提供可能(READY)・移送中(IN_TRANSIT)は数えられている
-            // （実測内訳: 予約中15+提供可能3+移送中1+取消1=20行、サマリ19）。移送中を除外してはならない。
-            val activeRowCount = rows.count { it.reservation.state != ReservationState.CANCELLED }
-            if (summaryReservationCount == null || summaryReservationCount != activeRowCount) {
-                session.noteDiagnostic(
-                    "cancel-reservation",
-                    "取消後一覧の完全性を確認できない " +
-                        "(summary=${summaryReservationCount?.toString() ?: "取得不可"}, " +
-                        "active=$activeRowCount, parsed=${rows.size})",
-                )
-                null
-            } else {
-                val matches = rows.filter { it.reservation.tilcod == targetTilcod }
-                when {
-                    matches.isEmpty() -> CancelListDiffOutcome.REMOVED_FROM_LIST
-                    else -> {
-                        val hasCancellableRow = matches.any { it.reservation.cancelCode.isNotBlank() }
-                        val cancelledWithHideButtonCount = matches.count {
-                            it.reservation.state == ReservationState.CANCELLED && it.hideButtonPresent
-                        }
-                        if (!hasCancellableRow && cancelledWithHideButtonCount == cancelledBeforeCount + 1) {
-                            CancelListDiffOutcome.CANCELLED_COUNT_INCREMENTED
-                        } else {
-                            CancelListDiffOutcome.STILL_PRESENT_OTHERWISE
-                        }
-                    }
-                }
-            }
-        }
+        val page = postReservationList("WOpacMnuTopToPwdLibraryAction.do", mapOf("gamen" to "usrrsv"), listForm())
+        requireNotMaintenance(page.html) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+        if (isLoginForm(Jsoup.parse(page.html))) return null
+        val rows = ReservationListParser.parseRows(page.html)
+        val activeRowCount = rows.count { it.reservation.state != ReservationState.CANCELLED }
+        if (summaryReservationCount == null || summaryReservationCount != activeRowCount) null
+        else CompleteReservationList(page, rows)
     } catch (exception: CancellationException) {
         throw exception
-    } catch (exception: Exception) {
-        session.noteDiagnostic("cancel-reservation", "取消後の一覧を解析できなかった")
+    } catch (_: Exception) {
         null
-    }
-    return when (outcome) {
-        CancelListDiffOutcome.REMOVED_FROM_LIST -> ReservationCancelAttempt.CancelledAndHidden
-        CancelListDiffOutcome.CANCELLED_COUNT_INCREMENTED -> ReservationCancelAttempt.Cancelled
-        CancelListDiffOutcome.STILL_PRESENT_OTHERWISE, null -> ReservationCancelAttempt.IndeterminateAfterPost
     }
 }
 

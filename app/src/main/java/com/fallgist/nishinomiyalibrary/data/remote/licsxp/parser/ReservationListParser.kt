@@ -95,15 +95,16 @@ object ReservationListParser {
     private val CANCEL_CODE_REGEX = Regex("""yoykCancel\('(\d+)'\)""")
 
     /**
-     * 行内の非表示ボタン(onclick="javascript:yoykHihyoji('コード')")の有無。
-     * 12回目のライブ実測(2026-07-28)どおり、取消後は取消ボタンがこのボタンへ置き換わる。
-     * コード値そのものは判定に不要（非表示機能の実装は未依頼）のため保持せず、有無だけを返す。
+     * 完全一致する `yoykHihyoji('<数字>')` だけを許可する。
+     * 候補が存在するのに一意でない、または未知構文なら、hideCode集合の差分を安全に確定できないため
+     * 通常一覧解析も含めてフェイルクローズする。候補が本当に無い行だけ null を返す。
      */
-    /** 完全一致する `yoykHihyoji('<数字>')` だけを許可する。曖昧なonclickは安全側で除外する。 */
     private fun hideCodeOf(row: org.jsoup.nodes.Element): String? {
         val buttons = row.select("input[onclick*=yoykHihyoji]")
-        if (buttons.size != 1) return null
+        if (buttons.isEmpty()) return null
+        if (buttons.size != 1) throw ParseException(screen, "非表示ボタンを一意に特定できません")
         return HIDE_CODE_REGEX.matchEntire(buttons.single().attr("onclick"))?.groupValues?.get(1)
+            ?: throw ParseException(screen, "非表示ボタンの形式が不正です")
     }
 
     private val HIDE_CODE_REGEX = Regex("""\s*(?:javascript:\s*)?yoykHihyoji\('(\d+)'\)\s*;?\s*""")

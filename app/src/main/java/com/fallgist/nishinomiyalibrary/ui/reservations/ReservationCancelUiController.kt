@@ -58,6 +58,8 @@ data class ReservationCancelResultRow(
     val outcomeLabel: String,
     val detail: String?,
     val category: ReservationCancelResultCategory,
+    /** 取消は成立したが、公式サイト一覧の非表示処理について注意が必要な行。 */
+    val cleanupWarning: Boolean = false,
 ) {
     /** 成功扱いは[ReservationCancelResultCategory.CANCELLED]だけ。Unknownを成功と混ぜないための唯一の判定点。 */
     val completed: Boolean get() = category == ReservationCancelResultCategory.CANCELLED
@@ -67,6 +69,7 @@ data class ReservationCancelSummary(
     val cancelledCount: Int,
     val unknownCount: Int,
     val failedCount: Int,
+    val cleanupWarningCount: Int,
 )
 
 data class ReservationCancelUiState(
@@ -216,6 +219,7 @@ object ReservationCancelContentBuilder {
         cancelledCount = rows.count { it.category == ReservationCancelResultCategory.CANCELLED },
         unknownCount = rows.count { it.category == ReservationCancelResultCategory.UNKNOWN },
         failedCount = rows.count { it.category == ReservationCancelResultCategory.FAILED },
+        cleanupWarningCount = rows.count { it.cleanupWarning },
     )
 }
 
@@ -224,6 +228,16 @@ private fun ReservationCancelItemResult.toResultRow(memberId: Long, title: Strin
         ReservationCancelOutcome.Cancelled, ReservationCancelOutcome.CancelledAndHidden ->
             // Cancelled/CancelledAndHiddenは利用者に区別して見せない(docs/ui-design.md「方針: 予約取消の導線」)。
             ReservationCancelResultRow(memberId, title, "取り消しました", null, ReservationCancelResultCategory.CANCELLED)
+        is ReservationCancelOutcome.CancelledHideNotCompleted ->
+            ReservationCancelResultRow(
+                memberId, title, "取り消しました", "公式サイトの一覧整理は完了できませんでした",
+                ReservationCancelResultCategory.CANCELLED, cleanupWarning = true,
+            )
+        ReservationCancelOutcome.CancelledHideUnknown ->
+            ReservationCancelResultRow(
+                memberId, title, "取り消しました", "公式サイトの一覧から非表示にできたか確認できません",
+                ReservationCancelResultCategory.CANCELLED, cleanupWarning = true,
+            )
         is ReservationCancelOutcome.Unknown ->
             // 成否不明を成功と混ぜないことが最優先の要件。理由の内訳は出さず固定文言にする(設計書の表どおり)。
             ReservationCancelResultRow(

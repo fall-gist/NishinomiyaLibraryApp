@@ -113,17 +113,36 @@ class ReservationCancelRepositoryImpl @Inject constructor(
                     // 12回目のライブ実測(2026-07-28)どおり、取消後も対象行は一覧に残り得る（Cancelled）か、
                     // 一覧から消える（CancelledAndHidden）かのいずれかであり、いずれも取消は成立している。
                     // ローカルDBからの即時削除もローカルUI向けの結果も、両方とも成功として同じ扱いにする。
-                    ReservationCancelAttempt.Cancelled, ReservationCancelAttempt.CancelledAndHidden -> {
+                    ReservationCancelAttempt.Cancelled,
+                    ReservationCancelAttempt.CancelledAndHidden,
+                    is ReservationCancelAttempt.CancelledHideNotCompleted,
+                    ReservationCancelAttempt.CancelledHideUnknown,
+                    -> {
                         // 取消成功を確認できた予約は、次回の全置換同期を待たずローカルからも即時削除する。
                         // (同期は予約一覧を全置換するため、ここで消し忘れても次回同期で自己修復する。)
                         reservationDao.deleteByTarget(memberId, target.tilcod, target.cancelCode)
-                        val outcome = if (attempt == ReservationCancelAttempt.Cancelled) {
-                            ReservationCancelOutcome.Cancelled
-                        } else {
-                            ReservationCancelOutcome.CancelledAndHidden
+                        val outcome = when (attempt) {
+                            ReservationCancelAttempt.Cancelled -> ReservationCancelOutcome.Cancelled
+                            ReservationCancelAttempt.CancelledAndHidden -> ReservationCancelOutcome.CancelledAndHidden
+                            is ReservationCancelAttempt.CancelledHideNotCompleted ->
+                                ReservationCancelOutcome.CancelledHideNotCompleted(attempt.reason)
+                            ReservationCancelAttempt.CancelledHideUnknown -> ReservationCancelOutcome.CancelledHideUnknown
+                            else -> error("取消成功結果ではありません")
                         }
                         results += ReservationCancelItemResult(target, outcome)
                         index++
+                        // 一覧の構造変化・対象不定・POST後不明は同じ会員の次件へ進む根拠を失わせる。
+                        // 明示的拒否だけは、完全な一覧と正常応答で安全に確定できた場合の継続結果として扱う。
+                        val mustAbortRemaining = when (attempt) {
+                            is ReservationCancelAttempt.CancelledHideNotCompleted ->
+                                attempt.reason != com.fallgist.nishinomiyalibrary.domain.model.HideFailureReason.REJECTED_BY_SITE
+                            ReservationCancelAttempt.CancelledHideUnknown -> true
+                            else -> false
+                        }
+                        if (mustAbortRemaining) {
+                            abortRemaining(results, targets, index, FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
+                            break
+                        }
                     }
                     is ReservationCancelAttempt.Rejected -> {
                         results += ReservationCancelItemResult(target, ReservationCancelOutcome.Rejected(attempt.message))

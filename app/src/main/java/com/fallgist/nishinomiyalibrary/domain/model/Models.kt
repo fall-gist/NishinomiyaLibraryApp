@@ -255,6 +255,16 @@ sealed interface ReservationCancelOutcome {
      * 可能性を見込んで[Cancelled]とは別の結果型にしている。
      */
     data object CancelledAndHidden : ReservationCancelOutcome
+    /**
+     * 取消は成立したが、一覧整理の非表示はPOST前に安全側で停止したか、明示的に拒否された。
+     * 非表示の未完了は取消失敗ではないため、取消成功としてローカル行は削除する。
+     */
+    data class CancelledHideNotCompleted(val reason: HideFailureReason) : ReservationCancelOutcome
+    /**
+     * 取消は成立したが、非表示POST後の通信断・一覧不完全などにより成否を確定できない。
+     * 再送はしない。
+     */
+    data object CancelledHideUnknown : ReservationCancelOutcome
     /** 現在は生成されない。一般語による拒否判定が誤検出を招くことが実測(2026-07-27)で判明したため。 */
     data class Rejected(val siteMessage: String) : ReservationCancelOutcome
     /**
@@ -264,6 +274,14 @@ sealed interface ReservationCancelOutcome {
     data class ConfirmationRequired(val siteMessage: String) : ReservationCancelOutcome
     data class Failure(val reason: FailureReason) : ReservationCancelOutcome
     data class Unknown(val reason: UnknownReason) : ReservationCancelOutcome
+}
+
+/** 取消後の一覧整理を完了できなかった理由。値やサイト文言は保持しない。 */
+enum class HideFailureReason {
+    TARGET_NOT_UNIQUE,
+    FORM_CHANGED,
+    LIST_INCOMPLETE,
+    REJECTED_BY_SITE,
 }
 
 data class ReservationCancelItemResult(

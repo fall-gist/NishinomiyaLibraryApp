@@ -18,6 +18,7 @@ import org.jsoup.Jsoup
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationHideFormParser
+import com.fallgist.nishinomiyalibrary.domain.model.HideFailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -860,22 +861,178 @@ class ReservationGatewayTest {
     // 状態文字列とボタンの両方が一致した場合だけCancelled、片方だけの一致はIndeterminateAfterPostへ倒す。
 
     @Test
-    fun `取消後に対象行が取消状態かつ非表示ボタンありならCancelledになる`() = runBlocking {
+    fun `取消後に対象行が取消状態かつ非表示ボタンありなら二段階非表示後にCancelledAndHiddenになる`() = runBlocking {
+        val cancelled = cancelledFirstRowUsrrsvHtml()
+        val hidden = withoutHideRow(cancelled, "1013074729")
         server.enqueue(page(fixture("menu.html")))
         server.enqueue(page(fixture("usrrsv.html")))
         server.enqueue(page("<html>取消受付</html>"))
         // cancelledFirstRowUsrrsvHtmlは19行中1行を取消状態にする。サマリの予約中件数は取消済み行を
         // 数えないため18(=19-1)になる。
         server.enqueue(page(menuWithReservationCount(18)))
-        server.enqueue(page(cancelledFirstRowUsrrsvHtml()))
+        server.enqueue(page(cancelled))
+        server.enqueue(page(hideConfirmationStage(cancelled, "1013074729")))
+        server.enqueue(page("<html>非表示完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(hidden))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
         val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
-        assertEquals(ReservationCancelAttempt.Cancelled, result)
-        assertEquals(5, server.requestCount)
-        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(9, server.requestCount)
+        val requests = List(9) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    @Test
+    fun `取消成立後の非表示stage1通信断は再送せずCancelledHideUnknownになる`() = runBlocking {
+        val cancelled = cancelledFirstRowUsrrsvHtml()
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(cancelled))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(ReservationCancelAttempt.CancelledHideUnknown, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    @Test
+    fun `取消成立後の非表示確認署名不一致はstage2を送らず一覧整理警告になる`() = runBlocking {
+        val cancelled = cancelledFirstRowUsrrsvHtml()
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(cancelled))
+        server.enqueue(page("<html>確認フォームなし</html>"))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(
+            ReservationCancelAttempt.CancelledHideNotCompleted(HideFailureReason.FORM_CHANGED),
+            session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD),
+        )
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    @Test
+    fun `取消後一覧の非表示ボタン構文が異常なら非表示POSTを送らない`() = runBlocking {
+        val malformed = cancelledFirstRowUsrrsvHtml()
+            .replace("yoykHihyoji('1013074729')", "yoykHihyoji('not-a-number')")
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(malformed))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(0, requests.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    @Test
+    fun `取消成立後の非表示stage2通信断は再送せずCancelledHideUnknownになる`() = runBlocking {
+        val cancelled = cancelledFirstRowUsrrsvHtml()
+        enqueueCancelThenCancelledList(cancelled)
+        server.enqueue(page(hideConfirmationStage(cancelled, "1013074729")))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(ReservationCancelAttempt.CancelledHideUnknown, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+        val requests = List(7) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    @Test
+    fun `取消成立後の非表示後一覧不完全はCancelledHideUnknownになる`() = runBlocking {
+        val cancelled = cancelledFirstRowUsrrsvHtml()
+        enqueueCancelThenCancelledList(cancelled)
+        server.enqueue(page(hideConfirmationStage(cancelled, "1013074729")))
+        server.enqueue(page("<html>非表示完了</html>"))
+        // 非表示後の再取得ではサマリと非取消行数が一致しないため、対象消失を断定しない。
+        server.enqueue(page(menuWithReservationCount(19)))
+        server.enqueue(page(cancelled))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(ReservationCancelAttempt.CancelledHideUnknown, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+        val requests = List(9) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    @Test
+    fun `取消後hideCode差分が0件なら非表示POSTせず一覧整理警告になる`() = runBlocking {
+        val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074730", "555")
+        val after = cancelledRowAsHideButton(before, "1013074729", "555")
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(before))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(menuWithReservationCount(17)))
+        server.enqueue(page(after))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(
+            ReservationCancelAttempt.CancelledHideNotCompleted(HideFailureReason.TARGET_NOT_UNIQUE),
+            session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD),
+        )
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(0, requests.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    @Test
+    fun `送信前一覧不完全でも取消成立済みなら非表示せず一覧整理警告になる`() = runBlocking {
+        val cancelled = cancelledFirstRowUsrrsvHtml()
+        // 取消送信前だけ完全性を満たさない。取消後は既存の完全一覧照合で取消成立を確認する。
+        server.enqueue(page(menuWithReservationCount(20)))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(cancelled))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(
+            ReservationCancelAttempt.CancelledHideNotCompleted(HideFailureReason.LIST_INCOMPLETE),
+            session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD),
+        )
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(0, requests.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    @Test
+    fun `非表示後に対象hideCodeが残存した場合はCancelledHideUnknownになる`() = runBlocking {
+        val cancelled = cancelledFirstRowUsrrsvHtml()
+        enqueueCancelThenCancelledList(cancelled)
+        server.enqueue(page(hideConfirmationStage(cancelled, "1013074729")))
+        server.enqueue(page("<html>非表示完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(cancelled))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+
+        assertEquals(ReservationCancelAttempt.CancelledHideUnknown, session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD))
+        val requests = List(9) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    private fun enqueueCancelThenCancelledList(cancelled: String) {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page("<html>取消受付</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(cancelled))
     }
 
     @Test
@@ -992,7 +1149,7 @@ class ReservationGatewayTest {
     // 一意性で対象を特定し、送信後は「取消可能な行の消失」＋「取消済み行の増分(基準値+1)」で判定する。
 
     @Test
-    fun `同一tilcodに取消済み行が併存していても送信前に一意特定でき2段階目まで進みCancelledになる`() = runBlocking {
+    fun `同一tilcodに既存取消済み行があっても差分hideCodeだけを二段階非表示する`() = runBlocking {
         val beforeHtml = usrrsvHtmlWithCancelledDuplicateOfTarget()
         // 基準値(送信前の取消済み行数)は1。送信後に取消済み行が2(基準値+1)・取消可能な行が0になる。
         val afterHtml = withFirstRowCancelledAndHidden(beforeHtml)
@@ -1011,15 +1168,22 @@ class ReservationGatewayTest {
         // サマリの予約中件数は18。
         server.enqueue(page(menuWithReservationCount(18)))
         server.enqueue(page(afterHtml))
+        server.enqueue(page(hideConfirmationStage(afterHtml, "1013074729")))
+        server.enqueue(page("<html>非表示完了</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutHideRow(afterHtml, "1013074729")))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
         val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
 
         // 送信前の一意特定(取消可能な行の一意性)を通過し、2段階目まで進んだことはPOST数で確認できる。
-        assertEquals(ReservationCancelAttempt.Cancelled, result)
-        assertEquals(6, server.requestCount)
-        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(10, server.requestCount)
+        val requests = List(10) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
         assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+        val hideRequests = requests.filter { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true }
+        assertEquals(2, hideRequests.size)
+        assertEquals("1013074729", decodeForm(hideRequests.first().body.readUtf8())["yoycod"]?.single())
     }
 
     @Test
@@ -2103,7 +2267,7 @@ class ReservationGatewayTest {
         )
 
     @Test
-    fun `取消済み1件の非表示診断は固定先へ一回だけPOSTし消失を確認する`() = runBlocking {
+    fun `取消済み1件の非表示診断は固定先へ二段階POSTし消失を確認する`() = runBlocking {
         val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074729", "555")
         val after = withoutHideRow(before, "555")
         val beforeRows = ReservationListParser.parseRows(before)
@@ -2293,8 +2457,8 @@ class ReservationGatewayTest {
         return document.outerHtml()
     }
 
-    private fun hideConfirmationStage(listHtml: String): String {
-        val form = ReservationHideFormParser.parse(listHtml).buildForm("555")
+    private fun hideConfirmationStage(listHtml: String, hideCode: String = "555"): String {
+        val form = ReservationHideFormParser.parse(listHtml).buildForm(hideCode)
         val fields = buildList {
             add("mngFlg2_handan" to "1")
             for (index in 0 until form.size) add(form.name(index) to form.value(index))
