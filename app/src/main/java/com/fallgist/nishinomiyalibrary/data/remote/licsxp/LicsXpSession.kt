@@ -338,17 +338,32 @@ class LicsXpSession private constructor(
         suspend fun postReservationHideExactlyOnce(
             form: FormBody,
             listPage: LicsXpReservationListPage,
-        ): String {
+        ): LicsXpReservationHideStagePage {
             require(listPage.url.hasSameOriginAs(baseUrl)) { "予約一覧ページのoriginが不正です" }
             val path = "WOpacUsrRsvHiddenAction.do"
             val query = mapOf("mngFlg2_handan" to "1")
-            return executeInExclusiveSequence(
+            val html = executeInExclusiveSequence(
                 Request.Builder()
                     .url(endpointUrl(path, query))
                     .header("Referer", listPage.url.toString())
                     .header("Origin", baseUrl.origin())
                     .post(form)
                     .build(),
+                noRetryClient,
+                retryOnIOException = false,
+            )
+            return LicsXpReservationHideStagePage(html, endpointUrl(path, query))
+        }
+
+        suspend fun postReservationHideConfirmationExactlyOnce(
+            form: FormBody,
+            stagePage: LicsXpReservationHideStagePage,
+        ): String {
+            require(stagePage.url.hasSameOriginAs(baseUrl)) { "非表示確認ページのoriginが不正です" }
+            val path = "WOpacUsrRsvHiddenAction.do"
+            return executeInExclusiveSequence(
+                Request.Builder().url(endpointUrl(path, emptyMap()))
+                    .header("Referer", stagePage.url.toString()).header("Origin", baseUrl.origin()).post(form).build(),
                 noRetryClient,
                 retryOnIOException = false,
             )
@@ -613,6 +628,11 @@ internal class LicsXpReservationListPage internal constructor(
 
 /** 予約取消1段階目の応答ページ。2段階目POSTのRefererにだけ使う。 */
 internal class LicsXpReservationCancelStagePage internal constructor(
+    val html: String,
+    internal val url: HttpUrl,
+)
+
+internal class LicsXpReservationHideStagePage internal constructor(
     val html: String,
     internal val url: HttpUrl,
 )

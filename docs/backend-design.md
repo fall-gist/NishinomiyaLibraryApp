@@ -883,3 +883,6 @@ POST直前に`PREPARED`を永続化し、結果未確定のままプロセスが
 実装前に、所有者が非表示してよい取消済み1件でブラウザまたは明示承認付き診断の成功通信を採取し、
 method、完全URL、全フォーム項目、Referer/Origin/Cookie、redirect、確認段階、応答、送信後一覧消失を
 確定する。fixtureのJavaScriptだけを根拠に実サイトへPOSTしてはならない。
+# Stage 15 非表示ライブ診断
+
+診断専用internal capabilityは、取消済みかつ一意な対象だけに対して二段階の非表示POSTを行う。通常API、Room、UI、永続化には接続しない。各POSTはno-retryで、確認フォームまたは署名の不一致時は第2段階を送らない。

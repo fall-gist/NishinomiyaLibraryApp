@@ -10,6 +10,8 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCanc
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelConfirmationField
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelConfirmationFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationHideFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationHideConfirmationFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.HideConfirmationField
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListRow
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
@@ -402,10 +404,26 @@ internal class LicsXpReservationSession(
             } catch (_: ParseException) {
                 return@withExclusiveRequestSequence ReservationHideDiagnosticResult.FORM_CHANGED
             }
-            try {
+            val stagePage = try {
                 postReservationHideExactlyOnce(form, before.page)
             } catch (_: LibraryError.Network) {
                 // 送信開始後の通信失敗は再送せず、成否不明として終了する。
+                return@withExclusiveRequestSequence ReservationHideDiagnosticResult.INDETERMINATE_AFTER_POST
+            }
+            val confirmation = try {
+                ReservationHideConfirmationFormParser.parse(
+                    stagePage.html,
+                    buildList {
+                        add(HideConfirmationField("mngFlg2_handan", "1"))
+                        for (index in 0 until form.size) add(HideConfirmationField(form.name(index), form.value(index)))
+                    },
+                ).buildForm()
+            } catch (_: ParseException) {
+                return@withExclusiveRequestSequence ReservationHideDiagnosticResult.FORM_CHANGED
+            }
+            try {
+                postReservationHideConfirmationExactlyOnce(confirmation, stagePage)
+            } catch (_: LibraryError.Network) {
                 return@withExclusiveRequestSequence ReservationHideDiagnosticResult.INDETERMINATE_AFTER_POST
             }
             val after = fetchDiagnosticReservationList()

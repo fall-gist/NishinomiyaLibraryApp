@@ -914,3 +914,6 @@
   cancelCode値は引き続き出さない）。`targetRowPresentAfter`も「対象tilcodの行が1行以上あるか」
   （`isNotEmpty()`相当）の意味に改めた。`ReservationListInspector`未対応セッション向けの
   フォールバック経路も件数ベースへ揃えた。
+# 非表示診断 HAR確認（Stage 15）
+
+取消済み予約の非表示は二段階POSTであることを確認した。第1段階は確認ページを返し、`prevRequestForm` と確認用コードを含むスクリプトを検証する。第2段階は固定同一originの非表示pathへqueryなしで送信し、第1段階URLをRefererにする。第2段階応答は成否に使用せず、完全な予約一覧を再取得して対象行と非表示コードの消失を確認する。HTML本文・認証情報・予約識別子は記録しない。

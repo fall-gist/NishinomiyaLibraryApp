@@ -186,3 +186,6 @@ UIは詳細な内部構造を表示せず、診断とテストでだけ理由を
 - 対応するparser、MockWebServer、Repository、UI content builderテストを追加する。
 
 Room Entity、DAO、DB version、同期Repository、自動予約処理は変更しない。
+# HAR確定: 非表示診断の二段階送信
+
+非表示診断は取消処理の確認プロトコルを流用しない。第1段階の固定query付きPOST後、`prevRequestForm`、stage1フィールド多重集合、確認スクリプト、固定actionを検証できた場合だけ第2段階を一度だけ送る。第2段階応答は古い一覧を返し得るため、完全一覧の再取得でのみ成功を判定する。

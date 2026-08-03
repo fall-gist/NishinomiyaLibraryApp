@@ -1531,7 +1531,7 @@ highlight[1]: tilcod=1000002035525 stateText=取消 state=CANCELLED cancelCodePr
   `LiveReservationCancelDiagnostic`が対象行の検索に`singleOrNull`を使っており、**該当が2件以上あると
   nullを返す**ためである。重複対応を入れた際に診断側だけ取り残されていた。成否判定は
   `resolveCancelByListDiff`が別経路で正しく行うため実害は無かったが、診断ログが事実と食い違うため修正した。
-- **残る未着手**: 「非表示」ボタン(`yoykHihyoji`)の送信実装、予約取消UI。
+- **残る未着手**: 予約取消UI。`yoykHihyoji`の診断用二段階送信はStage 15で実装済み。最新114件成功後に追加した到達性検証差分は未実行。
 
 #### 予約取消UIの導線方針（2026-07-28、所有者決定。未設計・未実装）
 
@@ -1652,3 +1652,6 @@ highlight[1]: tilcod=1000002035525 stateText=取消 state=CANCELLED cancelCodePr
 4. ローカルの`testDebugUnitTest`／`assembleDebug`とCIを確認した後、所有者承認の指定1件だけで
    アプリ実装のライブ取消を検証する。実行前後のHEAD SHA、対象`tilcod`、一覧件数、対象行の有無を残す。
 5. ライブ成功を確認するまで、予約取消は「バックエンド実装中・UI未接続・実サイト成功未検証」と扱う。
+# Stage 15 HAR二段階非表示診断
+
+HAR実測により非表示は二段階POSTと確定した。実装は専用確認パーサーでprevRequestFormの多重集合と固定確認署名を検証してから第2段階を送る。確認scriptは単一inline script・字句安全・到達性付き二重loopに限定済みで、到達性修正後の対象テスト114件は失敗・エラー・スキップ0。Sol最終レビューは重大・中・低の新規指摘なし。

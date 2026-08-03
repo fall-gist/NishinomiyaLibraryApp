@@ -17,6 +17,7 @@ import okhttp3.mockwebserver.SocketPolicy
 import org.jsoup.Jsoup
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationHideFormParser
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -2113,20 +2114,26 @@ class ReservationGatewayTest {
         val activeCount = beforeRows.count { it.reservation.state != ReservationState.CANCELLED }
         server.enqueue(page(menuWithReservationCount(activeCount)))
         server.enqueue(page(before))
-        server.enqueue(page("<html>ok</html>"))
+        server.enqueue(page(hideConfirmationStage(before)))
+        server.enqueue(page("<html>stage2</html>"))
         server.enqueue(page(menuWithReservationCount(activeCount)))
         server.enqueue(page(after))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
         assertEquals(ReservationHideDiagnosticResult.HIDDEN, session.hideCancelledReservationForDiagnostic(targetTilcod))
 
-        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
-        val hide = requests.single { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true }
-        assertEquals("/WOpacUsrRsvHiddenAction.do?mngFlg2_handan=1", hide.path)
-        assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
-        assertEquals(server.url("/WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv").toString(), hide.getHeader("Referer"))
-        assertEquals("${server.url("/").scheme}://${server.url("/").host}:${server.url("/").port}", hide.getHeader("Origin"))
-        assertEquals("555", decodeForm(hide.body.readUtf8())["yoycod"]?.single())
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        val hides = requests.filter { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true }
+        assertEquals(2, hides.size)
+        assertEquals("/WOpacUsrRsvHiddenAction.do?mngFlg2_handan=1", hides[0].path)
+        assertEquals("/WOpacUsrRsvHiddenAction.do", hides[1].path)
+        assertEquals(server.url("/WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv").toString(), hides[0].getHeader("Referer"))
+        assertEquals(server.url("/WOpacUsrRsvHiddenAction.do?mngFlg2_handan=1").toString(), hides[1].getHeader("Referer"))
+        assertEquals("${server.url("/").scheme}://${server.url("/").host}:${server.url("/").port}", hides[0].getHeader("Origin"))
+        assertEquals("555", decodeForm(hides[0].body.readUtf8())["yoycod"]?.single())
+        val stage2Fields = decodeFormFields(hides[1].body.readUtf8())
+        assertEquals("mngFlg2_handan", stage2Fields.first().first)
+        assertEquals("okCodes", stage2Fields.last().first)
     }
 
     @Test
@@ -2167,6 +2174,20 @@ class ReservationGatewayTest {
     }
 
     @Test
+    fun `非表示stage2通信断は再送せず成否不明になる`() = runBlocking {
+        val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074729", "555")
+        val rows = ReservationListParser.parseRows(before)
+        val target = requireNotNull(rows.singleOrNull { it.hideCode == "555" })
+        enqueueList(before, rows)
+        server.enqueue(page(hideConfirmationStage(before)))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY))
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        assertEquals(ReservationHideDiagnosticResult.INDETERMINATE_AFTER_POST, session.hideCancelledReservationForDiagnostic(target.reservation.tilcod))
+        assertEquals(4, server.requestCount)
+        assertEquals(2, List(4) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    @Test
     fun `送信後に取消行残存またはUNKNOWNなら成功扱いしない`() = runBlocking {
         val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074729", "555")
         val stillCancelled = withoutHideButton(before)
@@ -2180,6 +2201,40 @@ class ReservationGatewayTest {
         val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074729", "555")
         val after = withoutHideButton(stateOfHideRow(before, "予約中"))
         assertHideAfter(before, after, ReservationHideDiagnosticResult.HIDDEN)
+    }
+
+    @Test
+    fun `非表示確認ページのHAR署名逸脱ではstage2を送らない`() = runBlocking {
+        val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074729", "555")
+        val valid = hideConfirmationStage(before)
+        val invalidPages = listOf(
+            "<html></html>",
+            valid + valid,
+            valid.replace("OPACUSR423", "OTHER"),
+            valid.replace("okArray[okArray.length] = 'OPACUSR423';", "okArray[okArray.length] = 'OPACUSR423'; okArray[0] = 'OPACUSR423';"),
+            valid.replace("OK_CODES_NAME = 'okCodes'", "OK_CODES_NAME = ''"),
+            valid.replace("/licsxp-opac/WOpacUsrRsvHiddenAction.do", "/other"),
+            valid.replace("/licsxp-opac/WOpacUsrRsvHiddenAction.do", "https://example.invalid/x"),
+            valid.replace("/licsxp-opac/WOpacUsrRsvHiddenAction.do", "/licsxp-opac/WOpacUsrRsvHiddenAction.do?x=1"),
+            valid.replace("document.prevRequestForm.submit();", "document.prevRequestForm.action = '/licsxp-opac/WOpacUsrRsvHiddenAction.do'; document.prevRequestForm.submit();"),
+            valid.replace("document.prevRequestForm.submit();", ""),
+        )
+        invalidPages.forEach { stage ->
+            server.shutdown()
+            server = MockWebServer().also { it.start() }
+            assertHideStage1Stops(before, stage)
+        }
+    }
+
+    private suspend fun assertHideStage1Stops(before: String, stage: String) {
+        val rows = ReservationListParser.parseRows(before)
+        val target = requireNotNull(rows.singleOrNull { it.hideCode == "555" })
+        enqueueList(before, rows)
+        server.enqueue(page(stage))
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        assertEquals(ReservationHideDiagnosticResult.FORM_CHANGED, session.hideCancelledReservationForDiagnostic(target.reservation.tilcod))
+        assertEquals(3, server.requestCount)
+        assertEquals(1, List(3) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }.count { it.path == "/WOpacUsrRsvHiddenAction.do?mngFlg2_handan=1" })
     }
 
     private suspend fun assertHideStopsBeforePost(before: String, expected: ReservationHideDiagnosticResult, summaryOffset: Int = 0) {
@@ -2200,7 +2255,8 @@ class ReservationGatewayTest {
         val rows = ReservationListParser.parseRows(before)
         val target = requireNotNull(rows.singleOrNull { it.hideCode == "555" })
         enqueueList(before, rows)
-        server.enqueue(page("<html>ok</html>"))
+        server.enqueue(page(hideConfirmationStage(before)))
+        server.enqueue(page("<html>stage2</html>"))
         val afterRows = ReservationListParser.parseRows(after)
         enqueueList(after, afterRows)
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
@@ -2235,6 +2291,44 @@ class ReservationGatewayTest {
         val document = Jsoup.parse(html)
         requireNotNull(document.selectFirst("input[onclick*=yoykHihyoji][onclick*='555']")).attr("onclick", "noop()")
         return document.outerHtml()
+    }
+
+    private fun hideConfirmationStage(listHtml: String): String {
+        val form = ReservationHideFormParser.parse(listHtml).buildForm("555")
+        val fields = buildList {
+            add("mngFlg2_handan" to "1")
+            for (index in 0 until form.size) add(form.name(index) to form.value(index))
+        }.joinToString("") { (name, value) -> "<input type='hidden' name='$name' value='$value'>" }
+        return """
+            <form name='prevRequestForm' method='post'>$fields</form>
+            <script>
+              var OK_CODES_NAME = 'okCodes'; var CANCEL_CODES_NAME = 'cancelCodes';
+              function createConfirmDialog() {
+              if (window.onload) { rest = true; }
+              var okArray = new Array(); var cancelArray = new Array();
+              var shouldAbort = false; if (shouldAbort) { return cancelDialog(); }
+              if (rest) { okArray[okArray.length] = 'OPACUSR423'; submitFlg = false; } else { return cancelDialog(); }
+              for (var i = 0; i < okArray.length; i++) {
+                var newHidden = document.createElement('input');
+                newHidden.type = 'hidden';
+                newHidden.name = OK_CODES_NAME;
+                newHidden.value = okArray[i];
+                document.prevRequestForm.appendChild(newHidden);
+              }
+              for (var i = 0; i < cancelArray.length; i++) {
+                var newHidden = document.createElement('input');
+                newHidden.type = 'hidden';
+                newHidden.name = CANCEL_CODES_NAME;
+                newHidden.value = cancelArray[i];
+                document.prevRequestForm.appendChild(newHidden);
+              }
+              document.prevRequestForm.action = '/licsxp-opac/WOpacUsrRsvHiddenAction.do';
+              document.prevRequestForm.submit();
+              }
+              function cancelDialog() { return false; }
+              window.onload = createConfirmDialog;
+            </script>
+        """.trimIndent()
     }
 
     private fun cancelledRowAsHideButton(html: String, cancelCode: String, hideCode: String): String {
