@@ -334,6 +334,26 @@ class LicsXpSession private constructor(
             return LicsXpReservationCancelStagePage(html, url)
         }
 
+        /** ライブ非表示診断専用。送信先はHTML actionに依存せず固定する。 */
+        suspend fun postReservationHideExactlyOnce(
+            form: FormBody,
+            listPage: LicsXpReservationListPage,
+        ): String {
+            require(listPage.url.hasSameOriginAs(baseUrl)) { "予約一覧ページのoriginが不正です" }
+            val path = "WOpacUsrRsvHiddenAction.do"
+            val query = mapOf("mngFlg2_handan" to "1")
+            return executeInExclusiveSequence(
+                Request.Builder()
+                    .url(endpointUrl(path, query))
+                    .header("Referer", listPage.url.toString())
+                    .header("Origin", baseUrl.origin())
+                    .post(form)
+                    .build(),
+                noRetryClient,
+                retryOnIOException = false,
+            )
+        }
+
         /** 予約取消1段階目の応答ページ由来のReferer/Originを持つ、2段階目専用の一回限りPOST。 */
         suspend fun postReservationExactlyOnce(
             path: String,

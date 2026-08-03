@@ -114,6 +114,7 @@ dependencies {
 val liveReservationDiagnosticClass = "**/LiveReservationDiagnosticTest.class"
 val liveReservationInspectionClass = "**/LiveReservationInspectionTest.class"
 val liveReservationCancelDiagnosticClass = "**/LiveReservationCancelDiagnosticTest.class"
+val liveReservationHideDiagnosticClass = "**/LiveReservationHideDiagnosticTest.class"
 val liveReservationListInspectionClass = "**/LiveReservationListInspectionTest.class"
 
 // 通常の unit test / CI は本番通信を行う診断クラスを発見対象から除外する。
@@ -126,6 +127,9 @@ tasks.withType<Test>().configureEach {
     }
     if (name != "liveReservationCancelDiagnostic") {
         exclude(liveReservationCancelDiagnosticClass)
+    }
+    if (name != "liveReservationHideDiagnostic") {
+        exclude(liveReservationHideDiagnosticClass)
     }
     if (name != "liveReservationListInspect") {
         exclude(liveReservationListInspectionClass)
@@ -218,6 +222,31 @@ tasks.register<Test>("liveReservationCancelDiagnostic") {
         check(invalid.isEmpty()) {
             "ライブ予約取消診断を開始しません。不足または不正な明示環境変数: ${invalid.joinToString()}"
         }
+    }
+}
+
+// 明示承認済みの取消済み1行だけを非表示にする、通常test/CIから隔離したライブ診断。
+tasks.register<Test>("liveReservationHideDiagnostic") {
+    group = "verification"
+    description = "明示承認済みの取消済み予約1件について、非表示POSTと送信後消失だけを診断します。"
+    val debugUnitTest = tasks.named<Test>("testDebugUnitTest")
+    testClassesDirs = debugUnitTest.get().testClassesDirs
+    classpath = debugUnitTest.get().classpath
+    include(liveReservationHideDiagnosticClass)
+    testLogging { showStandardStreams = true }
+    doFirst {
+        val required = mapOf(
+            "LICSXP_LIVE_RESERVATION" to "YES_I_UNDERSTAND",
+            "LICSXP_LIVE_HIDE_CONFIRM" to "HIDE_ON_PRODUCTION",
+            "LICSXP_CARD_NUMBER" to null,
+            "LICSXP_PASSWORD" to null,
+            "LICSXP_HIDE_TILCOD" to null,
+        )
+        val invalid = required.filter { (name, expected) ->
+            val value = System.getenv(name)
+            value.isNullOrBlank() || (expected != null && value != expected)
+        }.keys
+        check(invalid.isEmpty()) { "ライブ非表示診断を開始できません。不足または不正な環境変数: ${invalid.joinToString()}" }
     }
 }
 

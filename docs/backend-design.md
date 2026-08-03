@@ -860,3 +860,26 @@ POST直前に`PREPARED`を永続化し、結果未確定のままプロセスが
 
 予約送信時の受取館は`memberId + tilcod`で別テーブルへ保持する。`Success`由来とPOST後不明由来を
 区別し、後者は予約一覧に非取消行がある場合だけ「反映未確認」として補完表示する。
+
+### 11.11 予約取消後の自動非表示
+
+機能要件は`docs/spec.md`§3.10、通信・対象固定・結果分類を含む詳細設計は
+[`docs/design/reservation-cancel-auto-hide.md`](design/reservation-cancel-auto-hide.md)を正とする。
+2026-08-03時点では設計と明示承認付き1件ライブ診断基盤まで実装済み、自動非表示本体は未実装であり、
+実サイトの成功通信は未実測である。診断は通常テスト・CIから除外した専用Gradleタスク
+`liveReservationHideDiagnostic`からだけ起動できる。
+
+汎用の非表示RepositoryやUI操作は追加せず、既存`ReservationSession.cancelReservation`の内部で、
+取消成立を完全一覧から確認できた場合だけ後続の非表示へ進む。取消後一覧の送信前・送信後差分から
+今回増えた`hideCode`を一意に固定し、専用フォームパーサと一回限りPOSTで処理する。同一`tilcod`の
+既存取消済み行は対象にしない。既に対象行が無い`CancelledAndHidden`では追加POSTを送らない。
+一斉取消では選択対象を従来どおり順次処理し、各対象の取消成立確認から非表示後照合までを完結してから
+次へ進む。正常系では、取消成立した選択行すべてへ行ごとに非表示POSTを1回送る。
+
+`hideCode`は`ReservationListRow`の通信内部値として処理中だけ保持し、`Reservation` EntityやRoomへ
+永続化しない。したがってDBマイグレーション、再起動後の再開、後日の自動再試行は行わない。
+取消成立後の非表示失敗・成否不明は取消成功と分けた結果型にし、ローカル予約行は従来どおり削除する。
+
+実装前に、所有者が非表示してよい取消済み1件でブラウザまたは明示承認付き診断の成功通信を採取し、
+method、完全URL、全フォーム項目、Referer/Origin/Cookie、redirect、確認段階、応答、送信後一覧消失を
+確定する。fixtureのJavaScriptだけを根拠に実サイトへPOSTしてはならない。

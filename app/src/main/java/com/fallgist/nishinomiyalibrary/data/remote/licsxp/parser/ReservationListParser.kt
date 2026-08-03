@@ -51,7 +51,13 @@ object ReservationListParser {
                 holdExpiryDate = expiryText.takeIf { it.isNotEmpty() }
                     ?.let { ParserSupport.parseShortDateWithYear(it, allocated ?: reserved, screen, "取置期限") },
             )
-            ReservationListRow(reservation, hideButtonPresent = hideButtonOf(row))
+            val hideCode = hideCodeOf(row)
+            ReservationListRow(
+                reservation = reservation,
+                hideButtonPresent = hideCode != null,
+                // この値はライブ診断の送信直前比較にだけ使う。ログ・Room・公開parse結果へは出さない。
+                hideCode = hideCode,
+            )
         }
     }
 
@@ -93,8 +99,14 @@ object ReservationListParser {
      * 12回目のライブ実測(2026-07-28)どおり、取消後は取消ボタンがこのボタンへ置き換わる。
      * コード値そのものは判定に不要（非表示機能の実装は未依頼）のため保持せず、有無だけを返す。
      */
-    private fun hideButtonOf(row: org.jsoup.nodes.Element): Boolean =
-        row.selectFirst("input[onclick*=yoykHihyoji]") != null
+    /** 完全一致する `yoykHihyoji('<数字>')` だけを許可する。曖昧なonclickは安全側で除外する。 */
+    private fun hideCodeOf(row: org.jsoup.nodes.Element): String? {
+        val buttons = row.select("input[onclick*=yoykHihyoji]")
+        if (buttons.size != 1) return null
+        return HIDE_CODE_REGEX.matchEntire(buttons.single().attr("onclick"))?.groupValues?.get(1)
+    }
+
+    private val HIDE_CODE_REGEX = Regex("""\s*(?:javascript:\s*)?yoykHihyoji\('(\d+)'\)\s*;?\s*""")
 
     private fun parseReservationDates(value: String): List<LocalDate> =
         shortDateRegex.findAll(value).map { match ->
@@ -115,6 +127,8 @@ object ReservationListParser {
  */
 internal data class ReservationListRow(
     val reservation: Reservation,
-    /** 非表示ボタン(yoykHihyoji)の有無。コード値は保持しない。 */
+    /** 非表示ボタン(yoykHihyoji)の有無。コード値はライブ診断内部だけで保持する。 */
     val hideButtonPresent: Boolean,
+    /** 非表示コード。ライブ診断内部専用で、永続化・ログ出力は禁止。 */
+    val hideCode: String?,
 )

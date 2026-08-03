@@ -9,7 +9,9 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelConfirmationField
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelConfirmationFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationHideFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListRow
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
@@ -102,6 +104,26 @@ internal data class ReservationListInspection(
  */
 internal interface ReservationListInspector {
     suspend fun inspectReservationList(): ReservationListInspection
+}
+
+/** 通常機能へ公開しない、明示承認済みライブ非表示診断の内部入口。 */
+internal interface ReservationHideDiagnosticCapability {
+    suspend fun hideCancelledReservationForDiagnostic(expectedTilcod: String): ReservationHideDiagnosticResult
+}
+
+/** 秘密値・HTML・資料名を含まないライブ非表示診断の結果。 */
+internal enum class ReservationHideDiagnosticResult {
+    HIDDEN,
+    TARGET_NOT_FOUND,
+    TARGET_NOT_UNIQUE,
+    TARGET_NOT_CANCELLED,
+    HIDE_BUTTON_MISSING,
+    LIST_INCOMPLETE_BEFORE_POST,
+    FORM_CHANGED,
+    SESSION_EXPIRED_BEFORE_POST,
+    INDETERMINATE_AFTER_POST,
+    STILL_PRESENT_AFTER_POST,
+    LIST_INCOMPLETE_AFTER_POST,
 }
 
 sealed interface DirectReservationAttempt {
@@ -277,7 +299,7 @@ class LicsXpReservationGateway private constructor(
 internal class LicsXpReservationSession(
     private val session: LicsXpSession,
     private val sequenceHooks: ReservationSequenceHooks,
-) : ReservationSession, ReservationConfirmationInspector, ReservationSnapshotSource, ReservationListInspector, ReservationWriteBoundaryAware {
+) : ReservationSession, ReservationConfirmationInspector, ReservationSnapshotSource, ReservationListInspector, ReservationWriteBoundaryAware, ReservationHideDiagnosticCapability {
     private var beforeWriteBoundary: (() -> Unit)? = null
 
     override fun setBeforeWriteBoundary(callback: (() -> Unit)?) {
@@ -354,6 +376,83 @@ internal class LicsXpReservationSession(
     }
 
     override suspend fun fetchReservations(): List<Reservation> = fetchReservationSnapshot().reservations
+
+    /**
+     * Stage 15専用の単発ライブ診断。HTML actionは一切採用せず、固定先へのPOSTは最大1回だけ行う。
+     */
+    override suspend fun hideCancelledReservationForDiagnostic(expectedTilcod: String): ReservationHideDiagnosticResult {
+        if (expectedTilcod.isBlank()) return ReservationHideDiagnosticResult.TARGET_NOT_FOUND
+        return session.withExclusiveRequestSequence {
+            val before = fetchDiagnosticReservationList()
+                ?: return@withExclusiveRequestSequence ReservationHideDiagnosticResult.SESSION_EXPIRED_BEFORE_POST
+            if (!before.complete) return@withExclusiveRequestSequence ReservationHideDiagnosticResult.LIST_INCOMPLETE_BEFORE_POST
+            val sameTilcod = before.rows.filter { it.reservation.tilcod == expectedTilcod }
+            if (sameTilcod.isEmpty()) return@withExclusiveRequestSequence ReservationHideDiagnosticResult.TARGET_NOT_FOUND
+            val cancelled = sameTilcod.filter { it.reservation.state == ReservationState.CANCELLED }
+            if (cancelled.isEmpty()) return@withExclusiveRequestSequence ReservationHideDiagnosticResult.TARGET_NOT_CANCELLED
+            if (cancelled.size != 1) return@withExclusiveRequestSequence ReservationHideDiagnosticResult.TARGET_NOT_UNIQUE
+            val target = cancelled.single()
+            val hideCode = target.hideCode ?: return@withExclusiveRequestSequence ReservationHideDiagnosticResult.HIDE_BUTTON_MISSING
+            // 同じコードが複数行に現れる場合、送信後の消失を対象行へ帰属できない。
+            if (before.rows.count { it.hideCode == hideCode } != 1) {
+                return@withExclusiveRequestSequence ReservationHideDiagnosticResult.TARGET_NOT_UNIQUE
+            }
+            val form = try {
+                ReservationHideFormParser.parse(before.page.html).buildForm(hideCode)
+            } catch (_: ParseException) {
+                return@withExclusiveRequestSequence ReservationHideDiagnosticResult.FORM_CHANGED
+            }
+            try {
+                postReservationHideExactlyOnce(form, before.page)
+            } catch (_: LibraryError.Network) {
+                // 送信開始後の通信失敗は再送せず、成否不明として終了する。
+                return@withExclusiveRequestSequence ReservationHideDiagnosticResult.INDETERMINATE_AFTER_POST
+            }
+            val after = fetchDiagnosticReservationList()
+                ?: return@withExclusiveRequestSequence ReservationHideDiagnosticResult.INDETERMINATE_AFTER_POST
+            if (!after.complete) return@withExclusiveRequestSequence ReservationHideDiagnosticResult.LIST_INCOMPLETE_AFTER_POST
+            val sameTilcodAfter = after.rows.filter { it.reservation.tilcod == expectedTilcod }
+            if (after.rows.any { it.hideCode == hideCode } ||
+                sameTilcodAfter.any { it.reservation.state == ReservationState.CANCELLED }
+            ) {
+                ReservationHideDiagnosticResult.STILL_PRESENT_AFTER_POST
+            } else if (sameTilcodAfter.any { it.reservation.state == ReservationState.UNKNOWN }) {
+                ReservationHideDiagnosticResult.INDETERMINATE_AFTER_POST
+            } else {
+                // 同一tilcodに取消前からあった非取消行だけが残る場合、対象取消行の消失と両立する。
+                ReservationHideDiagnosticResult.HIDDEN
+            }
+        }
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.fetchDiagnosticReservationList(): DiagnosticReservationList? {
+        val menu = get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
+        requireNotMaintenance(menu) { session.noteDiagnostic("reservation-hide-diagnostic", "メンテナンス") }
+        if (isLoginForm(Jsoup.parse(menu))) return null
+        session.updateTokens(menu)
+        val summaryCount = runCatching { SummaryParser.parse(menu).reservationCount }.getOrNull()
+        val tokens = session.requireTokens()
+        val page = postReservationList(
+            "WOpacMnuTopToPwdLibraryAction.do",
+            mapOf("gamen" to "usrrsv"),
+            FormBody.Builder().add("hash", tokens.hash).add("gamenid", tokens.gamenId).build(),
+        )
+        requireNotMaintenance(page.html) { session.noteDiagnostic("reservation-hide-diagnostic", "メンテナンス") }
+        if (isLoginForm(Jsoup.parse(page.html))) return null
+        val rows = try {
+            ReservationListParser.parseRows(page.html)
+        } catch (exception: ParseException) {
+            throw LibraryError.Parse(exception.screen, exception.reason)
+        }
+        val activeCount = rows.count { it.reservation.state != ReservationState.CANCELLED }
+        return DiagnosticReservationList(page, rows, summaryCount != null && summaryCount == activeCount)
+    }
+
+    private data class DiagnosticReservationList(
+        val page: LicsXpReservationListPage,
+        val rows: List<ReservationListRow>,
+        val complete: Boolean,
+    )
 
     /**
      * 予約一覧と、その一覧が完全だと確認できたかどうかを返す。

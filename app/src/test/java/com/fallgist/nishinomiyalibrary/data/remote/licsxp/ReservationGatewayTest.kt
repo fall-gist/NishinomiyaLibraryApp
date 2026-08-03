@@ -16,6 +16,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import org.jsoup.Jsoup
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationCancelFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListParser
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -2099,6 +2100,158 @@ class ReservationGatewayTest {
             "<input type=\"hidden\" name=\"hash\" value=\"confirm-hash\" />",
             "<input type=\"hidden\" name=\"hash\" value=\"\" />",
         )
+
+    @Test
+    fun `取消済み1件の非表示診断は固定先へ一回だけPOSTし消失を確認する`() = runBlocking {
+        val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074729", "555")
+        val after = withoutHideRow(before, "555")
+        val beforeRows = ReservationListParser.parseRows(before)
+        val target = requireNotNull(beforeRows.singleOrNull { it.hideCode == "555" })
+        require(target.reservation.tilcod.isNotBlank()) { "非表示対象のtilcodがありません" }
+        require(target.reservation.state == ReservationState.CANCELLED) { "非表示対象が取消済みではありません" }
+        val targetTilcod = target.reservation.tilcod
+        val activeCount = beforeRows.count { it.reservation.state != ReservationState.CANCELLED }
+        server.enqueue(page(menuWithReservationCount(activeCount)))
+        server.enqueue(page(before))
+        server.enqueue(page("<html>ok</html>"))
+        server.enqueue(page(menuWithReservationCount(activeCount)))
+        server.enqueue(page(after))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        assertEquals(ReservationHideDiagnosticResult.HIDDEN, session.hideCancelledReservationForDiagnostic(targetTilcod))
+
+        val requests = List(5) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        val hide = requests.single { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true }
+        assertEquals("/WOpacUsrRsvHiddenAction.do?mngFlg2_handan=1", hide.path)
+        assertEquals(1, requests.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+        assertEquals(server.url("/WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv").toString(), hide.getHeader("Referer"))
+        assertEquals("${server.url("/").scheme}://${server.url("/").host}:${server.url("/").port}", hide.getHeader("Origin"))
+        assertEquals("555", decodeForm(hide.body.readUtf8())["yoycod"]?.single())
+    }
+
+    @Test
+    fun `非表示候補が同一tilcodで複数ならPOSTしない`() = runBlocking {
+        val before = duplicateCancelledHideRows(fixture("usrrsv.html"))
+        assertHideStopsBeforePost(before, ReservationHideDiagnosticResult.TARGET_NOT_UNIQUE)
+    }
+
+    @Test
+    fun `対象が取消済みでないならPOSTしない`() = runBlocking {
+        val waiting = fixture("usrrsv.html")
+        assertHideStopsBeforePost(waiting, ReservationHideDiagnosticResult.TARGET_NOT_CANCELLED)
+    }
+
+    @Test
+    fun `一覧不完全ならPOSTしない`() = runBlocking {
+        val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074729", "555")
+        assertHideStopsBeforePost(before, ReservationHideDiagnosticResult.LIST_INCOMPLETE_BEFORE_POST, summaryOffset = 1)
+    }
+
+    @Test
+    fun `非表示フォーム不一致ならPOSTしない`() = runBlocking {
+        val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074729", "555")
+            .replace("tiles.WUsrRsvList", "unexpected", ignoreCase = false)
+        assertHideStopsBeforePost(before, ReservationHideDiagnosticResult.FORM_CHANGED)
+    }
+
+    @Test
+    fun `非表示POST通信断は一回だけで成否不明になる`() = runBlocking {
+        val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074729", "555")
+        val rows = ReservationListParser.parseRows(before)
+        val target = requireNotNull(rows.singleOrNull { it.hideCode == "555" })
+        enqueueList(before, rows)
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY))
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        assertEquals(ReservationHideDiagnosticResult.INDETERMINATE_AFTER_POST, session.hideCancelledReservationForDiagnostic(target.reservation.tilcod))
+        assertEquals(1, drainRequests().count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    @Test
+    fun `送信後に取消行残存またはUNKNOWNなら成功扱いしない`() = runBlocking {
+        val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074729", "555")
+        val stillCancelled = withoutHideButton(before)
+        assertHideAfter(before, stillCancelled, ReservationHideDiagnosticResult.STILL_PRESENT_AFTER_POST)
+        val unknown = withoutHideButton(stateOfHideRow(before, "不明"))
+        assertHideAfter(before, unknown, ReservationHideDiagnosticResult.INDETERMINATE_AFTER_POST)
+    }
+
+    @Test
+    fun `同一tilcodの既存WAITINGだけが残るときは成功`() = runBlocking {
+        val before = cancelledRowAsHideButton(fixture("usrrsv.html"), "1013074729", "555")
+        val after = withoutHideButton(stateOfHideRow(before, "予約中"))
+        assertHideAfter(before, after, ReservationHideDiagnosticResult.HIDDEN)
+    }
+
+    private suspend fun assertHideStopsBeforePost(before: String, expected: ReservationHideDiagnosticResult, summaryOffset: Int = 0) {
+        val rows = ReservationListParser.parseRows(before)
+        val targetTilcod = requireNotNull(
+            rows.firstOrNull { it.reservation.cancelCode == "1013074729" || it.hideCode != null }?.reservation?.tilcod,
+        )
+        val activeCount = rows.count { it.reservation.state != ReservationState.CANCELLED }
+        server.enqueue(page(menuWithReservationCount(activeCount + summaryOffset)))
+        server.enqueue(page(before))
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        assertEquals(expected, session.hideCancelledReservationForDiagnostic(targetTilcod))
+        assertEquals(2, server.requestCount)
+        assertEquals(0, List(2) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }.count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
+    }
+
+    private suspend fun assertHideAfter(before: String, after: String, expected: ReservationHideDiagnosticResult) {
+        val rows = ReservationListParser.parseRows(before)
+        val target = requireNotNull(rows.singleOrNull { it.hideCode == "555" })
+        enqueueList(before, rows)
+        server.enqueue(page("<html>ok</html>"))
+        val afterRows = ReservationListParser.parseRows(after)
+        enqueueList(after, afterRows)
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        assertEquals(expected, session.hideCancelledReservationForDiagnostic(target.reservation.tilcod))
+    }
+
+    private fun enqueueList(html: String, rows: List<com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ReservationListRow>) {
+        server.enqueue(page(menuWithReservationCount(rows.count { it.reservation.state != ReservationState.CANCELLED })))
+        server.enqueue(page(html))
+    }
+
+    private fun drainRequests(): List<RecordedRequest> = List(server.requestCount) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+
+    private fun duplicateCancelledHideRows(html: String): String {
+        val first = cancelledRowAsHideButton(html, "1013074729", "555")
+        val document = Jsoup.parse(first)
+        val row = requireNotNull(document.selectFirst("input[onclick*=yoykHihyoji][onclick*='555']")?.closest("tr"))
+        val duplicate = row.clone()
+        requireNotNull(duplicate.selectFirst("input[onclick*=yoykHihyoji]")).attr("onclick", "javascript:yoykHihyoji('556')")
+        row.after(duplicate)
+        return document.outerHtml()
+    }
+
+    private fun stateOfHideRow(html: String, state: String): String {
+        val document = Jsoup.parse(html)
+        val row = requireNotNull(document.selectFirst("input[onclick*=yoykHihyoji][onclick*='555']")?.closest("tr"))
+        requireNotNull(row.selectFirst("td[id~=ItemDeta0105i]")).text(state)
+        return document.outerHtml()
+    }
+
+    private fun withoutHideButton(html: String): String {
+        val document = Jsoup.parse(html)
+        requireNotNull(document.selectFirst("input[onclick*=yoykHihyoji][onclick*='555']")).attr("onclick", "noop()")
+        return document.outerHtml()
+    }
+
+    private fun cancelledRowAsHideButton(html: String, cancelCode: String, hideCode: String): String {
+        val document = Jsoup.parse(html)
+        val button = requireNotNull(document.selectFirst("input[onclick*=yoykCancel][onclick*='$cancelCode']"))
+        val row = requireNotNull(button.closest("tr"))
+        button.attr("onclick", "javascript:yoykHihyoji('$hideCode')")
+        val stateCell = requireNotNull(row.selectFirst("td[id~=ItemDeta0105i]")) { "予約状態セルがありません" }
+        stateCell.text("取消")
+        return document.outerHtml()
+    }
+
+    private fun withoutHideRow(html: String, hideCode: String): String {
+        val document = Jsoup.parse(html)
+        requireNotNull(document.selectFirst("input[onclick*=yoykHihyoji][onclick*='$hideCode']")?.closest("tr")).remove()
+        return document.outerHtml()
+    }
 
     private fun page(body: String, cookie: Boolean = false): MockResponse = MockResponse().setBody(body).apply {
         if (cookie) addHeader("Set-Cookie", "JSESSIONID=fixture; Path=/")
