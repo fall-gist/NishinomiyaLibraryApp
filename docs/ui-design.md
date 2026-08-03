@@ -249,7 +249,8 @@ spec §2 のとおり識別色は**登録時にメンバーごとに選ぶ**。�
 
 予約取消のバックエンドは実サイトで検証済み(`docs/backend-design.md`§11.9、
 `docs/handoff.md`の12回目・13回目のライブ検証)。3経路すべてが同じ`ReservationCancelRepository`を使い、
-最終確認後の`cancelReservation`内部でStage 15 HARどおりの自動非表示まで処理する。実サイトでの一連成功は未実施。
+最終確認後の`cancelReservation`内部でStage 15 HARどおりの自動非表示まで処理する。実サイトでの一連成功は
+2026-08-04に所有者が確認済み(`docs/handoff.md`「実サイト一連確認」参照)。
 
 ### 経路1: 予約中一覧の各行から1件取消
 
