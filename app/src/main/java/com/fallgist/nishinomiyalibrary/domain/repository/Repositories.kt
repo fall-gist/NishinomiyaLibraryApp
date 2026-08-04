@@ -18,6 +18,8 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelBatchResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
+import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionOutcome
+import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionTarget
 import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationControl
 import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun
 import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationRule
@@ -116,6 +118,15 @@ interface ReservationCartRepository {
  */
 interface ReservationCancelRepository {
     suspend fun cancelReservations(targets: List<ReservationCancelTarget>): ReservationCancelBatchResult
+}
+
+/**
+ * 貸出延長の公開API。1件ずつ処理する(`docs/design/loan-extension.md` §9.1)。
+ * 呼出し元が貸出中一覧であることを前提にせず、画面種別に依存する引数・分岐を持たない。
+ * 延長は利用者の明示操作からのみ呼ぶこと。自動処理・同期からは絶対に呼ばないこと。
+ */
+interface LoanExtensionRepository {
+    suspend fun extendLoan(target: LoanExtensionTarget): LoanExtensionOutcome
 }
 
 /** 自動予約の設定・制御記録・直近表示履歴を扱う内部ユースケース用の永続境界。 */

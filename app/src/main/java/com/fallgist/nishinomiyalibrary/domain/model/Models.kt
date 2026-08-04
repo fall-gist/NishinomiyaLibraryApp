@@ -305,6 +305,22 @@ data class ReservationCancelBatchResult(
 )
 
 /**
+ * 貸出延長の依頼単位。memberIdと対象資料のtilcodだけで対象を固定する。
+ * `renewalCode`はここに含めない。UI層が延長コードを保持して渡す設計にしないため
+ * (`docs/design/loan-extension.md` §9.1)、renewalCodeはRepository/Gateway層より内側で
+ * 延長実行のたびに取得し直す。
+ */
+data class LoanExtensionTarget(
+    val memberId: Long,
+    val tilcod: String,
+) {
+    init {
+        require(memberId > 0) { "memberIdが不正です" }
+        require(tilcod.isNotBlank()) { "tilcodが空です" }
+    }
+}
+
+/**
  * 貸出延長1回の試みの結果。画面に依存しない(`docs/design/loan-extension.md` §6・§9.1)。
  * 表示文言はUI層で組み立てる。
  */

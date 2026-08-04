@@ -18,6 +18,7 @@ import com.fallgist.nishinomiyalibrary.data.repository.ReadingRecordRepositoryIm
 import com.fallgist.nishinomiyalibrary.data.repository.StatusRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.ReservationCartRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.ReservationCancelRepositoryImpl
+import com.fallgist.nishinomiyalibrary.data.repository.LoanExtensionRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.AutoReservationRepositoryImpl
 import com.fallgist.nishinomiyalibrary.data.repository.CurrentCirculationSnapshotStore
 import com.fallgist.nishinomiyalibrary.data.repository.RoomCurrentCirculationSnapshotStore
@@ -27,6 +28,8 @@ import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateCoordinat
 import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateRunner
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpReservationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpLoanExtensionGateway
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LoanExtensionGateway
 import com.fallgist.nishinomiyalibrary.data.sync.AndroidNotificationSink
 import com.fallgist.nishinomiyalibrary.data.sync.AutoReservationCompletionNotifier
 import com.fallgist.nishinomiyalibrary.data.sync.AutoReservationNotificationService
@@ -42,6 +45,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCancelRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.LoanExtensionRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.AutoReservationRepository
 import dagger.Binds
 import dagger.Module
@@ -89,6 +93,10 @@ abstract class RepositoryBindingModule {
     @Binds
     @Singleton
     abstract fun bindReservationCancelRepository(implementation: ReservationCancelRepositoryImpl): ReservationCancelRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindLoanExtensionRepository(implementation: LoanExtensionRepositoryImpl): LoanExtensionRepository
 
     @Binds
     @Singleton
@@ -153,6 +161,10 @@ object RepositoryProvisionModule {
     @Provides
     @Singleton
     fun provideReservationGateway(session: LicsXpSession): ReservationGateway = LicsXpReservationGateway(session)
+
+    @Provides
+    @Singleton
+    fun provideLoanExtensionGateway(session: LicsXpSession): LoanExtensionGateway = LicsXpLoanExtensionGateway(session)
 
     @Provides
     @Singleton
