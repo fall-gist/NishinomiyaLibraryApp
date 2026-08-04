@@ -22,6 +22,12 @@ data class Loan(
     val status: String,
     /** 貸出一覧の書誌詳細リンクから取得するタイトルコード。旧データは空文字列。 */
     val tilcod: String = "",
+    /**
+     * 貸出中一覧に延長ボタンが表示されているかどうか（同期のたびに`LoanListParser`が算出）。
+     * 表示用の可否フラグに過ぎず、送信に使う延長コード（renewalCode）は持たない。
+     * 送信コードは延長実行時に取得し直した一覧からのみ得る(`docs/design/loan-extension.md` §4.1)。
+     */
+    val extendable: Boolean = false,
 )
 
 /**

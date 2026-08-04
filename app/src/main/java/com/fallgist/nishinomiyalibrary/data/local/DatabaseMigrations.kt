@@ -140,4 +140,15 @@ object DatabaseMigrations {
             database.execSQL("CREATE INDEX IF NOT EXISTS index_reservation_pickup_submissions_memberId ON reservation_pickup_submissions(memberId)")
         }
     }
+
+    /**
+     * v9で貸出延長の表示用可否フラグ`extendable`を追加する。
+     * 送信に使う延長コード(renewalCode)はRoomへ保存しない(`docs/design/loan-extension.md` §4.1)。
+     * 既存インストールは次回同期で実値が入るため、既定はfalseでよい(`tilcod`追加時と同じ流儀)。
+     */
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE loans ADD COLUMN extendable INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 }

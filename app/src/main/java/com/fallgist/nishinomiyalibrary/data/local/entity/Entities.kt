@@ -142,6 +142,8 @@ data class LoanEntity(
     val status: String,
     /** 貸出一覧の書誌詳細リンクから取得するタイトルコード。旧データは空文字列。 */
     val tilcod: String = "",
+    /** 延長ボタンの有無から算出した表示用フラグ。v8→v9で追加(既定false)。 */
+    val extendable: Boolean = false,
 )
 
 @Entity(

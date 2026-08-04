@@ -508,6 +508,10 @@ class ParsersTest {
         assertEquals(LocalDate.of(2026, 7, 18), result.first().dueDate)
         assertEquals("貸出中", result.first().status)
         assertEquals("1000000817183", result.first().tilcod)
+        // フィクスチャは延長ボタンあり7件・なし5件が混在する(2026-08-04所有者提供HARの構造と一致)。
+        assertEquals(7, result.count { it.extendable })
+        assertTrue(result.first().extendable)
+        assertFalse(result[6].extendable)
     }
 
     @Test
@@ -558,6 +562,27 @@ class ParsersTest {
     fun `貸出一覧の不正HTMLはParseExceptionになる`() = assertParseError("loan_list") {
         LoanListParser.parse("<h1>貸出状況一覧</h1>")
     }
+
+    @Test
+    fun `貸出一覧の延長可否は行内の延長ボタン有無だけで判定する`() {
+        val withButton = LoanListParser.parse(
+            loanListRow(extraCell = "<input type=\"button\" class=\"button exec\" value=\"延長\" onclick='javascript:extend(\"123456789\")'>"),
+        )
+        assertTrue(withButton.single().extendable)
+
+        val withoutButton = LoanListParser.parse(loanListRow(extraCell = ""))
+        assertFalse(withoutButton.single().extendable)
+    }
+
+    private fun loanListRow(extraCell: String): String = """
+        <h1>貸出状況一覧</h1>
+        <table summary='貸出状況一覧表'><thead><tr><th>資料名</th><th>書誌種別</th><th>貸出館</th><th>貸出日</th><th>返却期日</th><th>状態</th></tr></thead>
+        <tbody><tr>
+            <td><a href='?para=1000000000001'>資料</a></td>
+            <td>図書</td><td>本館</td><td>2026/07/01</td><td>2026/07/15</td><td>貸出中</td>
+            <td>$extraCell</td>
+        </tr></tbody></table>
+    """.trimIndent()
 
     @Test
     fun `予約一覧フィクスチャをパースできる`() {

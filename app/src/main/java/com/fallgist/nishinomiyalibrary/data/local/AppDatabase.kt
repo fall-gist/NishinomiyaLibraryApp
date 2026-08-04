@@ -59,7 +59,7 @@ import java.time.LocalDate
         AutoReservationLatestItemEntity::class,
         ReservationPickupSubmissionEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 @TypeConverters(LocalDateConverters::class)

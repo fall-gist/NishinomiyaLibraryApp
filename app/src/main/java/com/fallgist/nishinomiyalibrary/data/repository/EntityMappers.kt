@@ -61,6 +61,7 @@ internal fun LoanEntity.toDomain(): Loan = Loan(
     dueDate,
     status,
     tilcod,
+    extendable,
 )
 
 internal fun Loan.toEntity(memberId: Long): LoanEntity = LoanEntity(
@@ -72,6 +73,7 @@ internal fun Loan.toEntity(memberId: Long): LoanEntity = LoanEntity(
     dueDate = dueDate,
     status = status,
     tilcod = tilcod,
+    extendable = extendable,
 )
 
 internal fun ReadingRecordEntity.toDomain(): ReadingRecord = ReadingRecord(

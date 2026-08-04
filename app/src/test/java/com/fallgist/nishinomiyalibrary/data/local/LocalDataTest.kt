@@ -2,6 +2,11 @@ package com.fallgist.nishinomiyalibrary.data.local
 
 import android.content.Context
 import androidx.room.Database
+import androidx.room.Dao
+import androidx.room.Entity
+import androidx.room.Insert
+import androidx.room.PrimaryKey
+import androidx.room.Query
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.room.Room
@@ -59,10 +64,38 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class LocalDataTest {
+    /**
+     * v9で`extendable`列を追加する前のloansテーブル形状。
+     * 本物のLoanEntity(main)はv9で`extendable`を持つため、v7/v8を模したRoom DBでは
+     * この凍結済みの形状を使わないと、移行前から列が存在してしまいMIGRATION_8_9のテストが成立しない。
+     */
+    @Entity(tableName = "loans")
+    data class LegacyLoanEntity(
+        @PrimaryKey(autoGenerate = true)
+        val id: Long = 0,
+        val memberId: Long,
+        val title: String,
+        val materialType: String,
+        val lendingLibrary: String,
+        val loanDate: LocalDate,
+        val dueDate: LocalDate,
+        val status: String,
+        val tilcod: String = "",
+    )
+
+    @Dao
+    interface LegacyLoanDao {
+        @Insert
+        suspend fun insert(loan: LegacyLoanEntity)
+
+        @Query("SELECT * FROM loans")
+        suspend fun getAll(): List<LegacyLoanEntity>
+    }
+
     @Database(
         entities = [
             MemberEntity::class,
-            LoanEntity::class,
+            LegacyLoanEntity::class,
             ReservationEntity::class,
             ShelfItemEntity::class,
             ShelfEntity::class,
@@ -81,6 +114,37 @@ class LocalDataTest {
     abstract class V7Database : RoomDatabase() {
         abstract fun memberDao(): com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
         abstract fun reservationDao(): com.fallgist.nishinomiyalibrary.data.local.dao.ReservationDao
+    }
+
+    /** v9で`extendable`が追加される直前(v8)のフルスキーマ。MIGRATION_8_9単独のRoom検証に使う。 */
+    @Database(
+        entities = [
+            MemberEntity::class,
+            LegacyLoanEntity::class,
+            ReservationEntity::class,
+            ShelfItemEntity::class,
+            ShelfEntity::class,
+            ClosedDayEntity::class,
+            SyncLogEntity::class,
+            UserSummaryEntity::class,
+            ReadingRecordEntity::class,
+            ReadingHistoryCheckpointEntity::class,
+            NewArrivalEntity::class,
+            ReservationCartItemEntity::class,
+            AutoReservationRuleEntity::class,
+            AutoReservationTermEntity::class,
+            AutoReservationControlEntity::class,
+            AutoReservationLatestRunEntity::class,
+            AutoReservationLatestItemEntity::class,
+            ReservationPickupSubmissionEntity::class,
+        ],
+        version = 8,
+        exportSchema = false,
+    )
+    @TypeConverters(LocalDateConverters::class)
+    abstract class V8Database : RoomDatabase() {
+        abstract fun memberDao(): com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
+        abstract fun legacyLoanDao(): LegacyLoanDao
     }
 
     @Test
@@ -117,7 +181,7 @@ class LocalDataTest {
             }
 
             val v8Database = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
-                .addMigrations(DatabaseMigrations.MIGRATION_7_8)
+                .addMigrations(DatabaseMigrations.MIGRATION_7_8, DatabaseMigrations.MIGRATION_8_9)
                 .allowMainThreadQueries()
                 .build()
             try {
@@ -198,6 +262,57 @@ class LocalDataTest {
             }
         } finally {
             helper.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
+    fun `v8からv9移行は延長可否列を既定falseで追加し既存の貸出行を保持する`() = runBlocking {
+        val databaseName = "migration-loan-extendable-${UUID.randomUUID()}.db"
+        try {
+            // schema export は無効で MigrationTestHelper を利用できないため、コミット済みv8と
+            // 同じエンティティ集合のRoom DBを作成してから、実際のv9 Room DBで移行・検証する。
+            val v8Database = Room.databaseBuilder(context, V8Database::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            val memberId = try {
+                val id = v8Database.memberDao().insert(
+                    MemberEntity(name = "v8利用者", colorHex = "#000000", cardNumber = "v8-card", sortOrder = 0),
+                )
+                v8Database.legacyLoanDao().insert(
+                    LegacyLoanEntity(
+                        memberId = id,
+                        title = "v8貸出資料",
+                        materialType = "図書",
+                        lendingLibrary = "本館",
+                        loanDate = LocalDate.of(2026, 7, 1),
+                        dueDate = LocalDate.of(2026, 7, 15),
+                        status = "貸出中",
+                        tilcod = "v8-tilcod",
+                    ),
+                )
+                id
+            } finally {
+                v8Database.close()
+            }
+
+            // Room自身にv8→v9のMIGRATION_8_9を適用させ、ALTER後のスキーマが現行LoanEntityと
+            // 完全一致することを実際のRoom検証(openHelper.writableDatabase)で確かめる。
+            val v9Database = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
+                .addMigrations(DatabaseMigrations.MIGRATION_8_9)
+                .allowMainThreadQueries()
+                .build()
+            try {
+                v9Database.openHelper.writableDatabase
+                val loan = v9Database.loanDao().getAll().single()
+                assertEquals(memberId, loan.memberId)
+                assertEquals("v8貸出資料", loan.title)
+                assertEquals("v8-tilcod", loan.tilcod)
+                assertFalse(loan.extendable)
+            } finally {
+                v9Database.close()
+            }
+        } finally {
             context.deleteDatabase(databaseName)
         }
     }

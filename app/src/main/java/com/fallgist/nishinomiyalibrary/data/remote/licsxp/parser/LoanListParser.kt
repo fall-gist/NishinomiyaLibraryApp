@@ -29,6 +29,7 @@ object LoanListParser {
                 tilcod = row.selectFirst("a[href*=para], a[href*=tilcod]")
                     ?.let(::titleCodeFromLink)
                     .orEmpty(),
+                extendable = hasExtendButton(row),
             )
         }
     }
@@ -39,5 +40,13 @@ object LoanListParser {
         return TITLE_CODE_REGEX.find(value)?.groupValues?.get(1).orEmpty()
     }
 
+    /**
+     * 延長可否は行内に延長ボタン(`extend(mngcod)`)があるかだけを見る、表示専用の緩い判定。
+     * 送信に使う`mngcod`実値の厳格な抽出は`LoanExtensionListParser`が別途行う(§4.1・§4.2)。
+     */
+    private fun hasExtendButton(row: org.jsoup.nodes.Element): Boolean =
+        row.select("input[type=button]").any { EXTEND_ONCLICK_REGEX.containsMatchIn(it.attr("onclick")) }
+
     private val TITLE_CODE_REGEX = Regex("(?:[?&](?:para|tilcod)=|toDetail\\(\\\")(\\d+)")
+    private val EXTEND_ONCLICK_REGEX = Regex("""extend\(\s*["']\d+["']\s*\)""")
 }
