@@ -14,7 +14,13 @@ class LoansContentBuilderTest {
     private val hana = Member(id = 2, name = "はな", colorHex = "#5FA05A", cardNumber = "", sortOrder = 1)
     private val members = listOf(papa, hana)
 
-    private fun loan(memberId: Long, title: String, dueDate: LocalDate) = Loan(
+    private fun loan(
+        memberId: Long,
+        title: String,
+        dueDate: LocalDate,
+        tilcod: String = "T-$title",
+        extendable: Boolean = false,
+    ) = Loan(
         memberId = memberId,
         title = title,
         materialType = "本",
@@ -22,7 +28,8 @@ class LoansContentBuilderTest {
         loanDate = today.minusDays(14),
         dueDate = dueDate,
         status = "貸出中",
-        tilcod = "T-$title",
+        tilcod = tilcod,
+        extendable = extendable,
     )
 
     @Test
@@ -90,5 +97,44 @@ class LoansContentBuilderTest {
 
         assertEquals(mapOf(papa.id to 1), counts)
         assertFalse(counts.containsKey(hana.id))
+    }
+
+    // ------------------------------------------------------------------
+    // 貸出延長(段階5): memberId・extendable・canExtendの算出
+    // (`docs/design/loan-extension.md` §6・§9.1、設計§10「除外」項目)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun rows_carryMemberIdAndExtendableFromLoan() {
+        val rows = LoansContentBuilder.build(
+            members,
+            listOf(loan(papa.id, "本A", today.plusDays(1), tilcod = "T-本A", extendable = true)),
+            selectedMemberId = null,
+            today = today,
+        )
+
+        val row = rows.single()
+        assertEquals(papa.id, row.memberId)
+        assertTrue(row.extendable)
+    }
+
+    @Test
+    fun canExtend_isTrueOnlyWhenExtendableAndTilcodPresent() {
+        val rows = LoansContentBuilder.build(
+            members,
+            listOf(
+                loan(papa.id, "延長可", today.plusDays(1), tilcod = "T-延長可", extendable = true),
+                loan(papa.id, "延長不可フラグ", today.plusDays(1), tilcod = "T-延長不可フラグ", extendable = false),
+                // extendable=trueでもtilcodが空なら延長ボタンを起動できてはならない(設計§10「除外」項目)。
+                loan(papa.id, "延長可だがtilcod無し", today.plusDays(1), tilcod = "", extendable = true),
+            ),
+            selectedMemberId = null,
+            today = today,
+        )
+
+        val byTitle = rows.associateBy { it.title }
+        assertTrue(byTitle.getValue("延長可").canExtend)
+        assertFalse(byTitle.getValue("延長不可フラグ").canExtend)
+        assertFalse(byTitle.getValue("延長可だがtilcod無し").canExtend)
     }
 }

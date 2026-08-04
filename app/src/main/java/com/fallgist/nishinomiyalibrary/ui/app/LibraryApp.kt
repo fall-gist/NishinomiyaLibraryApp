@@ -52,6 +52,7 @@ import com.fallgist.nishinomiyalibrary.ui.diagnostics.DiagnosticLogScreen
 import com.fallgist.nishinomiyalibrary.ui.diagnostics.DiagnosticLogScreenController
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreen
 import com.fallgist.nishinomiyalibrary.ui.home.HomeUiState
+import com.fallgist.nishinomiyalibrary.ui.loans.LoanExtensionUiController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreen
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
@@ -110,6 +111,7 @@ fun LibraryApp(
     onHomeHidden: () -> Unit,
     onAcknowledgeAutoReservation: (Long) -> Unit,
     loansController: LoansScreenController,
+    loanExtensionUiController: LoanExtensionUiController,
     reservationsController: ReservationsScreenController,
     reservationCancelUiController: ReservationCancelUiController,
     readingRecordsController: ReadingRecordsScreenController,
@@ -309,8 +311,10 @@ fun LibraryApp(
 
                         Destination.LOANS -> {
                             val loansState by loansController.state.collectAsState()
+                            val extensionState by loanExtensionUiController.state.collectAsState()
                             LoansScreen(
                                 state = loansState,
+                                extensionState = extensionState,
                                 isRefreshing = syncState.isSyncing,
                                 onRefresh = onManualSync,
                                 onSelectMember = loansController::selectMember,
@@ -324,6 +328,11 @@ fun LibraryApp(
                                         hideReservationSectionAsAlreadyReservedOrOnLoan = true,
                                     )
                                 },
+                                onRequestExtend = loanExtensionUiController::requestConfirmation,
+                                onConfirmExtend = loanExtensionUiController::confirmPending,
+                                onDismissExtendConfirmation = loanExtensionUiController::dismissConfirmation,
+                                onClearExtendResult = loanExtensionUiController::clearResult,
+                                onClearExtendError = loanExtensionUiController::clearError,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }

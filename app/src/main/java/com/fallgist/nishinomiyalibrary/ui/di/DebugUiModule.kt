@@ -9,6 +9,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.LoanExtensionRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCancelRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
@@ -19,6 +20,7 @@ import com.fallgist.nishinomiyalibrary.ui.debug.DebugScreenController
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
 import com.fallgist.nishinomiyalibrary.ui.diagnostics.DiagnosticLogScreenController
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
+import com.fallgist.nishinomiyalibrary.ui.loans.LoanExtensionUiController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
 import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdateRunner
@@ -92,6 +94,14 @@ object DebugUiProvisionModule {
     ): LoansScreenController = LoansScreenController(
         familyRepository = familyRepository,
         statusRepository = statusRepository,
+    )
+
+    @Provides
+    @Singleton
+    fun provideLoanExtensionUiController(
+        extensionRepository: LoanExtensionRepository,
+    ): LoanExtensionUiController = LoanExtensionUiController(
+        extensionRepository = extensionRepository,
     )
 
     @Provides
@@ -236,6 +246,8 @@ interface MainActivityEntryPoint {
     fun syncUiController(): SyncUiController
 
     fun loansScreenController(): LoansScreenController
+
+    fun loanExtensionUiController(): LoanExtensionUiController
 
     fun reservationsScreenController(): ReservationsScreenController
 

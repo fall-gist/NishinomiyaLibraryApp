@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.fallgist.nishinomiyalibrary.data.local.AppDatabase
 import com.fallgist.nishinomiyalibrary.data.local.CredentialStore
+import com.fallgist.nishinomiyalibrary.data.local.entity.LoanEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.MemberEntity
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LoanExtensionGateway
@@ -201,6 +202,87 @@ class LoanExtensionRepositoryTest {
     }
 
     // ------------------------------------------------------------------
+    // §6.1: 延長成功後のローカル反映
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `Extendedのとき対象行のdueDateとextendableを更新する`() = runBlocking {
+        val member = addMember("ローカル反映", "local-1")
+        val oldDueDate = LocalDate.of(2026, 8, 5)
+        val newDueDate = LocalDate.of(2026, 8, 19)
+        database.loanDao().insert(loanEntity(member, "tilcod-local", oldDueDate, extendable = true))
+        val repository = repository(fakeGateway { LoanExtensionOutcome.Extended(newDueDate) })
+
+        repository.extendLoan(LoanExtensionTarget(member, "tilcod-local"))
+
+        val updated = database.loanDao().getAll().single { it.tilcod == "tilcod-local" }
+        assertEquals(newDueDate, updated.dueDate)
+        assertEquals(false, updated.extendable)
+    }
+
+    @Test
+    fun `対象行が1件でなければExtendedでも更新しない`() = runBlocking {
+        val member = addMember("重複行", "local-2")
+        val oldDueDate = LocalDate.of(2026, 8, 5)
+        val newDueDate = LocalDate.of(2026, 8, 19)
+        database.loanDao().insert(loanEntity(member, "tilcod-dup", oldDueDate, extendable = true))
+        database.loanDao().insert(loanEntity(member, "tilcod-dup", oldDueDate, extendable = true))
+        val repository = repository(fakeGateway { LoanExtensionOutcome.Extended(newDueDate) })
+
+        repository.extendLoan(LoanExtensionTarget(member, "tilcod-dup"))
+
+        val rows = database.loanDao().getAll().filter { it.tilcod == "tilcod-dup" }
+        assertEquals(2, rows.size)
+        assertTrue(rows.all { it.dueDate == oldDueDate })
+        assertTrue(rows.all { it.extendable })
+    }
+
+    @Test
+    fun `Unknownでは対象行を一切更新しない`() = runBlocking {
+        val member = addMember("Unknown反映無し", "local-3")
+        val oldDueDate = LocalDate.of(2026, 8, 5)
+        database.loanDao().insert(loanEntity(member, "tilcod-unknown", oldDueDate, extendable = true))
+        val repository = repository(fakeGateway { LoanExtensionOutcome.Unknown })
+
+        repository.extendLoan(LoanExtensionTarget(member, "tilcod-unknown"))
+
+        val row = database.loanDao().getAll().single { it.tilcod == "tilcod-unknown" }
+        assertEquals(oldDueDate, row.dueDate)
+        assertTrue(row.extendable)
+    }
+
+    @Test
+    fun `Failureでは対象行を一切更新しない`() = runBlocking {
+        val member = addMember("Failure反映無し", "local-4")
+        val oldDueDate = LocalDate.of(2026, 8, 5)
+        database.loanDao().insert(loanEntity(member, "tilcod-failure", oldDueDate, extendable = true))
+        val repository = repository(
+            object : LoanExtensionGateway {
+                override suspend fun openAuthenticatedSession(cardNumber: String, password: String): LoanExtensionSession =
+                    throw LibraryError.Maintenance()
+            },
+        )
+
+        repository.extendLoan(LoanExtensionTarget(member, "tilcod-failure"))
+
+        val row = database.loanDao().getAll().single { it.tilcod == "tilcod-failure" }
+        assertEquals(oldDueDate, row.dueDate)
+        assertTrue(row.extendable)
+    }
+
+    private fun loanEntity(memberId: Long, tilcod: String, dueDate: LocalDate, extendable: Boolean) = LoanEntity(
+        memberId = memberId,
+        title = "資料-$tilcod",
+        materialType = "本",
+        lendingLibrary = "本館",
+        loanDate = dueDate.minusDays(14),
+        dueDate = dueDate,
+        status = "貸出中",
+        tilcod = tilcod,
+        extendable = extendable,
+    )
+
+    // ------------------------------------------------------------------
     // 層分離(設計 §9.1)の構造テスト
     // ------------------------------------------------------------------
 
@@ -235,7 +317,7 @@ class LoanExtensionRepositoryTest {
     }
 
     private fun repository(gateway: LoanExtensionGateway) =
-        LoanExtensionRepositoryImpl(database.memberDao(), credentials, gateway)
+        LoanExtensionRepositoryImpl(database.memberDao(), credentials, gateway, database.loanDao())
 
     private fun fakeGateway(extend: suspend (tilcod: String) -> LoanExtensionOutcome): LoanExtensionGateway =
         object : LoanExtensionGateway {

@@ -21,16 +21,26 @@ import kotlinx.coroutines.launch
 
 /** 貸出中一覧の1行。 */
 data class LoanRow(
+    val memberId: Long,
     val memberName: String,
     val memberColorHex: String,
     val title: String,
     val library: String,
+    val dueDate: LocalDate,
     val dueLabel: String,
     val overdue: Boolean,
     val dueSoon: Boolean,
     /** 書誌詳細リンク用。空文字列のときは遷移しない。 */
     val tilcod: String = "",
-)
+    /**
+     * 同期時にサイトの延長ボタンの有無から算出した表示用フラグ(`Loan.extendable`をそのまま転記)。
+     * 延長ボタンの出し分けには[canExtend]を使うこと([tilcod]が空の行では単独では出し分けられないため)。
+     */
+    val extendable: Boolean = false,
+) {
+    /** 延長ボタンを表示してよいか(`docs/design/loan-extension.md` §6・§9.1)。 */
+    val canExtend: Boolean get() = extendable && tilcod.isNotBlank()
+}
 
 data class LoansUiState(
     val initialized: Boolean = false,
@@ -66,14 +76,17 @@ object LoansContentBuilder {
                 val overdue = loan.dueDate.isBefore(today)
                 val daysUntil = ChronoUnit.DAYS.between(today, loan.dueDate)
                 LoanRow(
+                    memberId = loan.memberId,
                     memberName = nameOf[loan.memberId] ?: "?",
                     memberColorHex = colorOf[loan.memberId]?.takeIf { it.isNotBlank() } ?: FALLBACK_COLOR,
                     title = loan.title,
                     library = loan.lendingLibrary,
+                    dueDate = loan.dueDate,
                     dueLabel = dueLabel(loan.dueDate, today),
                     overdue = overdue,
                     dueSoon = !overdue && daysUntil <= DUE_SOON_DAYS,
                     tilcod = loan.tilcod,
+                    extendable = loan.extendable,
                 )
             }
     }

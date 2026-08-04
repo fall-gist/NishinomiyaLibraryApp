@@ -12,6 +12,7 @@ import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
 import com.fallgist.nishinomiyalibrary.ui.diagnostics.DiagnosticLogScreenController
 import com.fallgist.nishinomiyalibrary.ui.di.MainActivityEntryPoint
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
+import com.fallgist.nishinomiyalibrary.ui.loans.LoanExtensionUiController
 import com.fallgist.nishinomiyalibrary.ui.loans.LoansScreenController
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
 import com.fallgist.nishinomiyalibrary.ui.newarrivals.NewArrivalsScreenController
@@ -39,6 +40,7 @@ open class MainActivity : ComponentActivity() {
     private lateinit var controller: HomeScreenController
     private lateinit var syncUiController: SyncUiController
     private lateinit var loansController: LoansScreenController
+    private lateinit var loanExtensionUiController: LoanExtensionUiController
     private lateinit var reservationsController: ReservationsScreenController
     private lateinit var reservationCancelUiController: ReservationCancelUiController
     private lateinit var readingRecordsController: ReadingRecordsScreenController
@@ -65,6 +67,7 @@ open class MainActivity : ComponentActivity() {
         controller = resolveController(entryPoint)
         syncUiController = entryPoint.syncUiController()
         loansController = entryPoint.loansScreenController()
+        loanExtensionUiController = entryPoint.loanExtensionUiController()
         reservationsController = entryPoint.reservationsScreenController()
         reservationCancelUiController = entryPoint.reservationCancelUiController()
         readingRecordsController = entryPoint.readingRecordsScreenController()
@@ -93,6 +96,7 @@ open class MainActivity : ComponentActivity() {
                     onHomeHidden = controller::onHomeHidden,
                     onAcknowledgeAutoReservation = controller::acknowledgeLatestAutoReservationRun,
                     loansController = loansController,
+                    loanExtensionUiController = loanExtensionUiController,
                     reservationsController = reservationsController,
                     reservationCancelUiController = reservationCancelUiController,
                     readingRecordsController = readingRecordsController,

@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.data.repository
 
 import com.fallgist.nishinomiyalibrary.data.local.CredentialStore
+import com.fallgist.nishinomiyalibrary.data.local.dao.LoanDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LoanExtensionGateway
@@ -31,40 +32,45 @@ class LoanExtensionRepositoryImpl @Inject constructor(
     private val memberDao: MemberDao,
     private val credentialStore: CredentialStore,
     private val gateway: LoanExtensionGateway,
+    private val loanDao: LoanDao,
 ) : LoanExtensionRepository {
     private val submissionMutex = Mutex()
 
     override suspend fun extendLoan(target: LoanExtensionTarget): LoanExtensionOutcome = submissionMutex.withLock {
+        extendLoanLocked(target)
+    }
+
+    private suspend fun extendLoanLocked(target: LoanExtensionTarget): LoanExtensionOutcome {
         val member = try {
             memberDao.getById(target.memberId)
         } catch (exception: Exception) {
             exception.rethrowIfCancellation()
-            return@withLock LoanExtensionOutcome.Failure(FailureReason.AUTH)
-        } ?: return@withLock LoanExtensionOutcome.Failure(FailureReason.AUTH)
+            return LoanExtensionOutcome.Failure(FailureReason.AUTH)
+        } ?: return LoanExtensionOutcome.Failure(FailureReason.AUTH)
 
         val password = try {
             credentialStore.getPassword(member.id)
         } catch (exception: Exception) {
             exception.rethrowIfCancellation()
-            return@withLock LoanExtensionOutcome.Failure(FailureReason.AUTH)
+            return LoanExtensionOutcome.Failure(FailureReason.AUTH)
         }
-        if (password.isNullOrBlank()) return@withLock LoanExtensionOutcome.Failure(FailureReason.AUTH)
+        if (password.isNullOrBlank()) return LoanExtensionOutcome.Failure(FailureReason.AUTH)
 
         var session: LoanExtensionSession? = null
-        try {
+        val outcome = try {
             session = try {
                 gateway.openAuthenticatedSession(member.cardNumber, password)
             } catch (_: LibraryError.Auth) {
-                return@withLock LoanExtensionOutcome.Failure(FailureReason.AUTH)
+                return LoanExtensionOutcome.Failure(FailureReason.AUTH)
             } catch (_: LibraryError.Parse) {
-                return@withLock LoanExtensionOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED)
+                return LoanExtensionOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED)
             } catch (_: LibraryError.Maintenance) {
-                return@withLock LoanExtensionOutcome.Failure(FailureReason.SITE_MAINTENANCE)
+                return LoanExtensionOutcome.Failure(FailureReason.SITE_MAINTENANCE)
             } catch (_: LibraryError.Network) {
-                return@withLock LoanExtensionOutcome.Failure(FailureReason.NETWORK)
+                return LoanExtensionOutcome.Failure(FailureReason.NETWORK)
             } catch (exception: Exception) {
                 exception.rethrowIfCancellation()
-                return@withLock LoanExtensionOutcome.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
+                return LoanExtensionOutcome.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
             }
 
             try {
@@ -82,6 +88,18 @@ class LoanExtensionRepositoryImpl @Inject constructor(
         } finally {
             session?.close()
         }
+
+        // 成功時だけローカルへ反映する(`docs/design/loan-extension.md` §6.1)。
+        // Unknown/Failureでは一切書き換えない。ローカル反映の失敗は延長そのものの成否を変えない
+        // (サイト側では既に延長済みのため、Room書込み失敗を理由にFailureへ落とさない)。
+        if (outcome is LoanExtensionOutcome.Extended) {
+            try {
+                loanDao.applyExtensionResult(target.memberId, target.tilcod, outcome.newDueDate)
+            } catch (exception: Exception) {
+                exception.rethrowIfCancellation()
+            }
+        }
+        return outcome
     }
 }
 
