@@ -39,7 +39,9 @@ internal object LoanExtensionConfirmationFormParser {
         val form = forms.single()
 
         // action属性は実サイトに存在しないため検証条件にしない。送信先はJS代入から抽出し検証する(fail-close)。
-        extractPrevRequestFormAction(document)
+        // 段階3への申し送り(設計 §5.1)どおり、ここで検証した送信先をそのままGatewayへ渡す。
+        // Gateway側に送信先の文字列定数は置かず、この戻り値だけを送信に使う。
+        val action = extractPrevRequestFormAction(document)
 
         val fields = form.select("input[name]:not([disabled]), select[name]:not([disabled]), textarea[name]:not([disabled])")
             .mapNotNull(::toSuccessfulField)
@@ -51,7 +53,7 @@ internal object LoanExtensionConfirmationFormParser {
         if (fields.any { it.name == okCodesFieldName }) {
             throw ParseException(SCREEN, "OK_CODES_NAMEがprevRequestFormの既存項目と衝突しています")
         }
-        return LoanExtensionConfirmationForm(fields, okCodesFieldName)
+        return LoanExtensionConfirmationForm(action, fields, okCodesFieldName)
     }
 
     /** OK_CODES_NAME代入値の抽出。予約取消と同じ字句走査(コメント・文字列・template literal・正規表現の内部は候補にしない)。 */
@@ -322,7 +324,13 @@ internal object LoanExtensionConfirmationFormParser {
     private val STANDARD_JAVASCRIPT_MIME_TYPES = setOf("text/javascript", "application/javascript", "text/ecmascript", "application/ecmascript")
 }
 
+/**
+ * [action] は[LoanExtensionConfirmationFormParser.parse]が固定origin・固定path・クエリ無しの
+ * 完全一致まで検証済みの送信先(絶対パス文字列)である。Gatewayはこの値をそのまま使って送信し、
+ * 自前の送信先定数を持たない(設計 §5.1 段階3への申し送り)。
+ */
 internal class LoanExtensionConfirmationForm(
+    val action: String,
     private val fields: List<LoanExtensionConfirmationField>,
     private val okCodesFieldName: String,
 ) {

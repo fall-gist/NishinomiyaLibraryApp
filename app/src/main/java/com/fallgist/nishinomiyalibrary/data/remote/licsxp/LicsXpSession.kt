@@ -369,6 +369,74 @@ class LicsXpSession private constructor(
             )
         }
 
+        /**
+         * 貸出状況一覧(usrlend)POSTのURLを、直後の貸出延長1段階目POSTのRefererにだけ使う。
+         * 一覧取得自体は読み取り専用の位置づけであり、[postReservationList]と同じ流儀。
+         */
+        suspend fun postLoanList(
+            path: String,
+            query: Map<String, String> = emptyMap(),
+            form: FormBody,
+        ): LicsXpLoanListPage {
+            val url = endpointUrl(path, query)
+            val html = executeInExclusiveSequence(
+                Request.Builder().url(url).post(form).build(),
+                client,
+                retryOnIOException = true,
+            )
+            return LicsXpLoanListPage(html, url)
+        }
+
+        /**
+         * 貸出状況一覧ページ由来のReferer/Originを持つ、貸出延長1段階目専用の一回限りPOST。
+         * この応答自体は確認ダイアログを表示させるための再描画であり、そのURLを2段階目の
+         * Refererに使う必要があるため、戻り値はHTMLとURLの組で返す(`docs/design/loan-extension.md` §5.1)。
+         */
+        suspend fun postLoanExtensionStage1ExactlyOnce(
+            path: String,
+            query: Map<String, String> = emptyMap(),
+            form: FormBody,
+            listPage: LicsXpLoanListPage,
+        ): LicsXpLoanExtensionStagePage {
+            require(listPage.url.hasSameOriginAs(baseUrl)) { "貸出状況一覧ページのoriginが不正です" }
+            val url = endpointUrl(path, query)
+            val html = executeInExclusiveSequence(
+                Request.Builder()
+                    .url(url)
+                    .header("Referer", listPage.url.toString())
+                    .header("Origin", baseUrl.origin())
+                    .post(form)
+                    .build(),
+                noRetryClient,
+                retryOnIOException = false,
+            )
+            return LicsXpLoanExtensionStagePage(html, url)
+        }
+
+        /**
+         * stage1 HTMLの`prevRequestForm`から抽出・検証済みのactionを送信先とする、貸出延長2段階目
+         * 専用の一回限りPOST。予約取消の`actionUrl`版と同じ形だが、貸出延長の送信先は常に明示指定
+         * である(`docs/site-research.md` §10)。
+         */
+        suspend fun postLoanExtensionStage2ExactlyOnce(
+            actionUrl: HttpUrl,
+            form: FormBody,
+            stage1Page: LicsXpLoanExtensionStagePage,
+        ): String {
+            require(stage1Page.url.hasSameOriginAs(baseUrl)) { "貸出延長1段階目応答ページのoriginが不正です" }
+            require(actionUrl.hasSameOriginAs(baseUrl)) { "貸出延長確認フォームの送信先originが不正です" }
+            return executeInExclusiveSequence(
+                Request.Builder()
+                    .url(actionUrl)
+                    .header("Referer", stage1Page.url.toString())
+                    .header("Origin", baseUrl.origin())
+                    .post(form)
+                    .build(),
+                noRetryClient,
+                retryOnIOException = false,
+            )
+        }
+
         /** 予約取消1段階目の応答ページ由来のReferer/Originを持つ、2段階目専用の一回限りPOST。 */
         suspend fun postReservationExactlyOnce(
             path: String,
@@ -633,6 +701,18 @@ internal class LicsXpReservationCancelStagePage internal constructor(
 )
 
 internal class LicsXpReservationHideStagePage internal constructor(
+    val html: String,
+    internal val url: HttpUrl,
+)
+
+/** 貸出状況一覧(usrlend)POSTから内部生成したURLとHTMLの組。貸出延長1段階目POSTのRefererにだけ使う。 */
+internal class LicsXpLoanListPage internal constructor(
+    val html: String,
+    internal val url: HttpUrl,
+)
+
+/** 貸出延長1段階目の応答ページ。2段階目POSTのRefererにだけ使う。 */
+internal class LicsXpLoanExtensionStagePage internal constructor(
     val html: String,
     internal val url: HttpUrl,
 )

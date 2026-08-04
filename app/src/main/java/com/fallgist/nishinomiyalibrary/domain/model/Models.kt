@@ -303,3 +303,19 @@ data class MemberReservationCancelResult(
 data class ReservationCancelBatchResult(
     val members: List<MemberReservationCancelResult>,
 )
+
+/**
+ * 貸出延長1回の試みの結果。画面に依存しない(`docs/design/loan-extension.md` §6・§9.1)。
+ * 表示文言はUI層で組み立てる。
+ */
+sealed interface LoanExtensionOutcome {
+    /** 延長が成立した。返却期限が送信前より後ろへ変化したことを一覧照合で確認済み。 */
+    data class Extended(val newDueDate: LocalDate) : LoanExtensionOutcome
+    /**
+     * POST後の完全な照合ができなかった(対象消失・複数化・返却期限を解析できない・通信断等)。
+     * 自動再送はしない(§5.2・§9.2)。拒否理由の細分類は未実測のため設けない。
+     */
+    data object Unknown : LoanExtensionOutcome
+    /** POST前に確定した失敗(対象不在、フォーム不一致、認証・通信・メンテナンス等)。既存のFailureReasonを再利用する。 */
+    data class Failure(val reason: FailureReason) : LoanExtensionOutcome
+}
