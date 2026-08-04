@@ -116,6 +116,7 @@ val liveReservationInspectionClass = "**/LiveReservationInspectionTest.class"
 val liveReservationCancelDiagnosticClass = "**/LiveReservationCancelDiagnosticTest.class"
 val liveReservationHideDiagnosticClass = "**/LiveReservationHideDiagnosticTest.class"
 val liveReservationListInspectionClass = "**/LiveReservationListInspectionTest.class"
+val liveLoanExtensionDiagnosticClass = "**/LiveLoanExtensionDiagnosticTest.class"
 
 // 通常の unit test / CI は本番通信を行う診断クラスを発見対象から除外する。
 tasks.withType<Test>().configureEach {
@@ -133,6 +134,9 @@ tasks.withType<Test>().configureEach {
     }
     if (name != "liveReservationListInspect") {
         exclude(liveReservationListInspectionClass)
+    }
+    if (name != "liveLoanExtensionDiagnostic") {
+        exclude(liveLoanExtensionDiagnosticClass)
     }
 }
 
@@ -277,6 +281,36 @@ tasks.register<Test>("liveReservationListInspect") {
         }.keys
         check(invalid.isEmpty()) {
             "予約状況一覧の読み取り専用観測を開始しません。不足または不正な明示環境変数: ${invalid.joinToString()}"
+        }
+    }
+}
+
+// このタスクだけが本番サイトで貸出延長POSTを1件だけ実行し得る(`docs/design/loan-extension.md` §8・§11-6)。
+// 対象1件について1回だけ実行し、成否不明でも再送しない(既存のexactly-once実装をそのまま使う)。
+tasks.register<Test>("liveLoanExtensionDiagnostic") {
+    group = "verification"
+    description = "明示同意済みの場合だけ本番サイトで貸出延長を一度だけ実行する（外部副作用あり）"
+    val debugUnitTest = tasks.named<Test>("testDebugUnitTest")
+    testClassesDirs = debugUnitTest.get().testClassesDirs
+    classpath = debugUnitTest.get().classpath
+    include(liveLoanExtensionDiagnosticClass)
+    testLogging {
+        showStandardStreams = true
+    }
+    doFirst {
+        val required = mapOf(
+            "LICSXP_LIVE_RESERVATION" to "YES_I_UNDERSTAND",
+            "LICSXP_LIVE_EXTEND_CONFIRM" to "EXTEND_ON_PRODUCTION",
+            "LICSXP_CARD_NUMBER" to null,
+            "LICSXP_PASSWORD" to null,
+            "LICSXP_TILCOD" to null,
+        )
+        val invalid = required.filter { (name, expected) ->
+            val value = System.getenv(name)
+            value.isNullOrBlank() || (expected != null && value != expected)
+        }.keys
+        check(invalid.isEmpty()) {
+            "ライブ貸出延長診断を開始しません。不足または不正な明示環境変数: ${invalid.joinToString()}"
         }
     }
 }
