@@ -228,15 +228,18 @@ fun LoanExtensionConfirmDialog(
 @Composable
 fun LoanExtensionResultDialog(result: LoanExtensionResultMessage, onClose: () -> Unit) {
     val colors = LocalAppColors.current
+    // タイトル・本文色はLoanExtensionContentBuilder.resultMessageが確定した種別(kind)だけで出し分ける。
+    // succeeded(2値)から失敗を断定すると、Unknown(成否不明)がFailure(失敗)と混同される(`docs/handoff.md`進行指示15)。
+    val textColor = when (result.kind) {
+        LoanExtensionResultKind.EXTENDED -> colors.ink
+        // 成否不明は成功(green系)・失敗(alert)のどちらとも混同しない専用トーン(予約取消Unknownと同じ流儀)。
+        LoanExtensionResultKind.UNKNOWN -> colors.cautionInk
+        LoanExtensionResultKind.FAILED -> colors.alert
+    }
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text(if (result.succeeded) "延長しました" else "延長できませんでした") },
-        text = {
-            Text(
-                text = result.message,
-                color = if (result.succeeded) colors.ink else colors.alert,
-            )
-        },
+        title = { Text(result.title) },
+        text = { Text(text = result.message, color = textColor) },
         confirmButton = { Button(onClick = onClose) { Text("閉じる") } },
     )
 }

@@ -32,12 +32,27 @@ data class LoanExtensionCandidate(
     val key: LoanExtensionKey get() = LoanExtensionKey(target.memberId, target.tilcod)
 }
 
-/** 確定操作1回分の結果表示。表示文言はUI層(ここ)で組み立てる(§6・§9.1)。 */
+/**
+ * [LoanExtensionOutcome]の3値をUI表示の種別として保持する。
+ * `succeeded: Boolean`のような2値へ潰すと、Unknown(成否不明)がFailure(失敗の断定)と
+ * 区別できなくなる(`docs/handoff.md`進行指示15、`docs/design/loan-extension.md`§5.2・§6)。
+ */
+enum class LoanExtensionResultKind { EXTENDED, UNKNOWN, FAILED }
+
+/** 確定操作1回分の結果表示。表示文言・タイトルはUI層(ここ)で組み立てる(§6・§9.1)。 */
 data class LoanExtensionResultMessage(
+    val title: String,
     val message: String,
-    /** Unknownを成功として扱わないための唯一の判定点(§6.1・進行指示15と同じ考え方)。 */
-    val succeeded: Boolean,
-)
+    val kind: LoanExtensionResultKind,
+) {
+    /**
+     * 成功扱いは[LoanExtensionResultKind.EXTENDED]だけ。Unknownを成功として集計しないための
+     * 唯一の判定点(§6.1・進行指示15と同じ考え方)。
+     * **注意**: これがfalseであることは「失敗」を意味しない(Unknownもfalseになる)。
+     * 「延長できませんでした」等、失敗を断定する表示には使わないこと。[kind]で分岐すること。
+     */
+    val succeeded: Boolean get() = kind == LoanExtensionResultKind.EXTENDED
+}
 
 data class LoanExtensionUiState(
     val pendingConfirmation: LoanExtensionCandidate? = null,
@@ -116,16 +131,34 @@ object LoanExtensionContentBuilder {
     fun formatDueDate(date: LocalDate): String = dateFormatter.format(date)
 
     /**
-     * [LoanExtensionOutcome]を画面表示文言へ変換する(`docs/design/loan-extension.md` §6)。
-     * Unknownを成功として扱わない([LoanExtensionResultMessage.succeeded]が唯一の判定点)。
+     * [LoanExtensionOutcome]を画面表示文言(タイトル・本文・種別)へ変換する
+     * (`docs/design/loan-extension.md` §6)。
+     * Unknownを成功として扱わない([LoanExtensionResultMessage.succeeded]が唯一の判定点)一方、
+     * Unknownのタイトルは「延長できませんでした」のような失敗の断定にしない(進行指示15)。
+     * タイトルをここ(Android非依存)へ置くのは、Composable内でsucceededから2値へ潰す経路を
+     * 構造的に無くすため。
      */
     fun resultMessage(outcome: LoanExtensionOutcome): LoanExtensionResultMessage = when (outcome) {
         is LoanExtensionOutcome.Extended ->
-            LoanExtensionResultMessage("返却期限を延長しました（新しい期限: ${formatDueDate(outcome.newDueDate)}）", succeeded = true)
+            LoanExtensionResultMessage(
+                title = "延長しました",
+                message = "返却期限を延長しました（新しい期限: ${formatDueDate(outcome.newDueDate)}）",
+                kind = LoanExtensionResultKind.EXTENDED,
+            )
         LoanExtensionOutcome.Unknown ->
-            LoanExtensionResultMessage("延長できたか確認できません。しばらくしてから貸出状況をご確認ください", succeeded = false)
+            // 延長が成立している可能性があるため、「延長できませんでした」等の失敗断定文言にしない。
+            // 「再度お試しください」も促さない(既に成立している延長を再送させないため)。
+            LoanExtensionResultMessage(
+                title = "延長の結果を確認できません",
+                message = "延長できたか確認できません。しばらくしてから貸出状況をご確認ください",
+                kind = LoanExtensionResultKind.UNKNOWN,
+            )
         is LoanExtensionOutcome.Failure ->
-            LoanExtensionResultMessage(outcome.reason.extensionLabel(), succeeded = false)
+            LoanExtensionResultMessage(
+                title = "延長できませんでした",
+                message = outcome.reason.extensionLabel(),
+                kind = LoanExtensionResultKind.FAILED,
+            )
     }
 }
 
