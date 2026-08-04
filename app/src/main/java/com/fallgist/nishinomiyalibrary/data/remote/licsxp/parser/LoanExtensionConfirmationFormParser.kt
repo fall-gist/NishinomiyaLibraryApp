@@ -24,6 +24,13 @@ internal object LoanExtensionConfirmationFormParser {
     private const val EXPECTED_ACTION = "/licsxp-opac/WOpacUsrLendListExtendAction.do"
 
     /**
+     * 確認コードの想定値(HARで実測済み、`docs/design/loan-extension.md` §5.1)。値そのものは都度
+     * `okArray[okArray.length] = "...";`というJS代入から抽出し、この定数とは**照合にのみ**使う。
+     * ハードコードした値を無条件に送るのではなく、抽出値がこの値と一致しない場合はfail-closeする。
+     */
+    private const val EXPECTED_CONFIRMATION_CODE = "OPACUSR005"
+
+    /**
      * @param expectedStage1Fields 1段階目の**queryとbodyを合わせた**全パラメータ(DOM順・同名重複込み)。
      *   `prevRequestForm`の項目はbodyだけでなくqueryも含めた多重集合と一致する
      *   (`mngFlg1_handan`はqueryだが`prevRequestForm`には含まれる。`docs/site-research.md` §10参照)。
@@ -53,7 +60,9 @@ internal object LoanExtensionConfirmationFormParser {
         if (fields.any { it.name == okCodesFieldName }) {
             throw ParseException(SCREEN, "OK_CODES_NAMEがprevRequestFormの既存項目と衝突しています")
         }
-        return LoanExtensionConfirmationForm(action, fields, okCodesFieldName)
+        // 確認コードもOK_CODES_NAME・actionと同じ字句走査で都度抽出する(§5.1)。ハードコードしない。
+        val confirmationCode = extractConfirmationCode(document)
+        return LoanExtensionConfirmationForm(action, fields, okCodesFieldName, confirmationCode)
     }
 
     /** OK_CODES_NAME代入値の抽出。予約取消と同じ字句走査(コメント・文字列・template literal・正規表現の内部は候補にしない)。 */
@@ -80,6 +89,23 @@ internal object LoanExtensionConfirmationFormParser {
             throw ParseException(SCREEN, "prevRequestFormのaction代入が想定外です")
         }
         return action
+    }
+
+    /**
+     * `okArray[okArray.length] = "OPACUSR005";`という配列要素代入から確認コードを抽出する
+     * (`OK_CODES_NAME`・action抽出と同じ字句走査基盤)。抽出値が1件でない、または想定値と
+     * 一致しない場合はfail-closeする(§5.1)。
+     */
+    private fun extractConfirmationCode(document: org.jsoup.nodes.Document): String {
+        val values = document.select("script")
+            .filter(::isInlineJavaScript)
+            .flatMap { extractConfirmationCodeAssignments(it.data()) }
+        if (values.size != 1) throw ParseException(SCREEN, "確認コードを一意に特定できません")
+        val value = values.single()
+        if (value != EXPECTED_CONFIRMATION_CODE) {
+            throw ParseException(SCREEN, "確認コードが想定外です")
+        }
+        return value
     }
 
     private fun isInlineJavaScript(script: Element): Boolean {
@@ -118,6 +144,53 @@ internal object LoanExtensionConfirmationFormParser {
             }
         }
         return if (completed) values else emptyList()
+    }
+
+    /**
+     * `okArray[<添字>] = "VALUE";`という配列要素代入を検出する。`OK_CODES_NAME`・action抽出と
+     * 同じ字句走査基盤(`scanJavaScriptIdentifiers`)の上に、`[`〜対応する`]`のスキップだけを追加する。
+     * 添字の中身(`okArray.length`等)は検証しない。コメント・文字列・template literal・正規表現の
+     * 内部は候補にならない(走査基盤側で除外済み)。
+     */
+    private fun extractConfirmationCodeAssignments(source: String): List<String> {
+        val values = mutableListOf<String>()
+        val completed = scanJavaScriptIdentifiers(source) { token ->
+            if (token.name == "okArray" && !token.precededByDot) {
+                parseArrayElementAssignment(source, token.end)?.let(values::add)
+            }
+        }
+        return if (completed) values else emptyList()
+    }
+
+    /** `token.end`(識別子直後)から`[...]`をスキップし、続く`= "VALUE";`を[parseSimpleAssignment]で読む。 */
+    private fun parseArrayElementAssignment(source: String, afterName: Int): String? {
+        var index = skipTrivia(source, afterName) ?: return null
+        if (source.getOrNull(index) != '[') return null
+        index = skipMatchingBracket(source, index) ?: return null
+        return parseSimpleAssignment(source, index, SAFE_FIELD_NAME)
+    }
+
+    /** `[`(startIndexが指す位置)から対応する`]`の直後まで読み進める。内部の文字列は[skipString]で無視する。 */
+    private fun skipMatchingBracket(source: String, startIndex: Int): Int? {
+        var depth = 0
+        var index = startIndex
+        while (index < source.length) {
+            when (source[index]) {
+                '[' -> {
+                    depth += 1
+                    index += 1
+                }
+                ']' -> {
+                    depth -= 1
+                    index += 1
+                    if (depth == 0) return index
+                }
+                '\'', '"' -> index = skipString(source, index) ?: return null
+                '`' -> return null
+                else -> index += 1
+            }
+        }
+        return null
     }
 
     /** [scanJavaScriptIdentifiers]が通知する識別子トークン。`precededByDot`は直前の意味のある文字が`.`だったか。 */
@@ -333,16 +406,14 @@ internal class LoanExtensionConfirmationForm(
     val action: String,
     private val fields: List<LoanExtensionConfirmationField>,
     private val okCodesFieldName: String,
+    private val confirmationCode: String,
 ) {
     fun buildForm(): FormBody = FormBody.Builder().apply {
         fields.forEach { field -> add(field.name, field.value) }
-        add(okCodesFieldName, OK_CODE)
+        add(okCodesFieldName, confirmationCode)
     }.build()
 }
 
 internal data class LoanExtensionConfirmationField(val name: String, val value: String)
-
-/** HARで実測済みの固定確認コード(`docs/site-research.md` §10)。okCodesの値として常にこれを送る。 */
-private const val OK_CODE = "OPACUSR005"
 
 private fun Char.isJavaScriptIdentifierPart(): Boolean = isLetterOrDigit() || this == '_' || this == '$'

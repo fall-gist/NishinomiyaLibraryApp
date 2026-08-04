@@ -258,7 +258,9 @@ class LoanExtensionGatewayTest {
     }
 
     @Test
-    fun `OK_CODES_NAMEを抽出できない1段階目応答は2段階目を送らずUnknownになる`() = runBlocking {
+    fun `OK_CODES_NAMEを抽出できない1段階目応答は2段階目を送らず返却期日不変でFailureになる`() = runBlocking {
+        // 設計 §5.3(2026-08-05所有者裁定)により、2段階目を送っていないと確定できる場合は
+        // Unknownではなく Failure(SITE_RESPONSE_CHANGED) になる。
         enqueueLogin()
         // 1回目はopenAuthenticatedSession自身のメニュー取得、2回目はextendLoan開始時の再取得
         // (ReservationGateway.cancelReservationと同じく、状態変更前に毎回hash/gamenidを取り直す)。
@@ -284,11 +286,95 @@ class LoanExtensionGatewayTest {
             .openAuthenticatedSession("1234", "secret")
         val outcome = session.extendLoan(TARGET_TILCOD)
 
-        assertEquals(LoanExtensionOutcome.Unknown, outcome)
+        assertEquals(LoanExtensionOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED), outcome)
         // 2段階目(WOpacUsrLendListExtendAction.doへのクエリ無しPOST)は送らない。
         assertEquals(9, server.requestCount)
         assertTrue(
             List(9) { server.takeRequest() }
+                .none { it.path == "/licsxp-opac/WOpacUsrLendListExtendAction.do" },
+        )
+    }
+
+    @Test
+    fun `送信先actionが想定外の1段階目応答は2段階目を送らず返却期日不変でFailureになる`() = runBlocking {
+        // 設計 §10「送信先(action)の検証失敗経路」。document.prevRequestForm.actionの代入値が
+        // 固定origin・固定pathと一致しない場合、2段階目を送らずに停止すること。
+        val stage1Form = LoanExtensionRequestFormParser.parse(
+            loanListFixture(TARGET_TILCOD, TARGET_RENEWAL_CODE, "2026/07/18"),
+        ).buildForm(TARGET_RENEWAL_CODE)
+        enqueueLogin()
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(loanListFixture(TARGET_TILCOD, TARGET_RENEWAL_CODE, "2026/07/18")))
+        server.enqueue(
+            page(stage1ResponseHtml(stage1Form, actionPath = "/licsxp-opac/WOpacUsrRsvCancelAction.do")),
+        )
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(loanListFixture(TARGET_TILCOD, TARGET_RENEWAL_CODE, "2026/07/18")))
+
+        val session = LicsXpLoanExtensionGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+        val outcome = session.extendLoan(TARGET_TILCOD)
+
+        assertEquals(LoanExtensionOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED), outcome)
+        assertEquals(9, server.requestCount)
+        assertTrue(
+            List(9) { server.takeRequest() }
+                .none { it.path == "/licsxp-opac/WOpacUsrLendListExtendAction.do" },
+        )
+    }
+
+    @Test
+    fun `確認コードのokArray代入が想定外の1段階目応答は2段階目を送らず返却期日不変でFailureになる`() = runBlocking {
+        // 修正1(確認コードの抽出方式化)に対応。okArrayへの代入が無い・複数・想定値と異なる場合、
+        // 「表示されていない問い」へ盲目的にOKを返さないよう2段階目を送らずに停止すること。
+        val stage1Form = LoanExtensionRequestFormParser.parse(
+            loanListFixture(TARGET_TILCOD, TARGET_RENEWAL_CODE, "2026/07/18"),
+        ).buildForm(TARGET_RENEWAL_CODE)
+        enqueueLogin()
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(loanListFixture(TARGET_TILCOD, TARGET_RENEWAL_CODE, "2026/07/18")))
+        // OK_CODES_NAME・actionは正常だが、確認コードのokArray代入が想定外の値になっている応答。
+        server.enqueue(
+            page(stage1ResponseHtmlWithConfirmationCode(stage1Form, confirmationCode = "OPACUSR999")),
+        )
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(loanListFixture(TARGET_TILCOD, TARGET_RENEWAL_CODE, "2026/07/18")))
+
+        val session = LicsXpLoanExtensionGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+        val outcome = session.extendLoan(TARGET_TILCOD)
+
+        assertEquals(LoanExtensionOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED), outcome)
+        assertEquals(9, server.requestCount)
+        assertTrue(
+            List(9) { server.takeRequest() }
+                .none { it.path == "/licsxp-opac/WOpacUsrLendListExtendAction.do" },
+        )
+    }
+
+    @Test
+    fun `1段階目応答がメンテナンス画面ならFailureではなくUnknownになる`() = runBlocking {
+        // 修正2に対応。旧実装はrequireNotMaintenance(stage1Page.html)がtryの外にあり、
+        // LibraryError.Maintenanceが素通しされてFailure(SITE_MAINTENANCE)になっていた。
+        // 1段階目は既にPOST済みのため、§5.3の3分岐(再取得もメンテナンスで失敗しUnknownへ倒れる)で扱う。
+        enqueueLogin()
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(loanListFixture(TARGET_TILCOD, TARGET_RENEWAL_CODE, "2026/07/18")))
+        server.enqueue(page("<html>ただいまメンテナンス中です</html>"))
+        server.enqueue(page("<html>ただいまメンテナンス中です</html>"))
+
+        val session = LicsXpLoanExtensionGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
+            .openAuthenticatedSession("1234", "secret")
+        val outcome = session.extendLoan(TARGET_TILCOD)
+
+        assertEquals(LoanExtensionOutcome.Unknown, outcome)
+        // 2段階目は送らない。
+        assertEquals(8, server.requestCount)
+        assertTrue(
+            List(8) { server.takeRequest() }
                 .none { it.path == "/licsxp-opac/WOpacUsrLendListExtendAction.do" },
         )
     }
@@ -371,6 +457,19 @@ class LoanExtensionGatewayTest {
         stage1Form: FormBody,
         actionPath: String = "/licsxp-opac/WOpacUsrLendListExtendAction.do",
         okCodesName: String = "okCodes",
+        confirmationCode: String = "OPACUSR005",
+    ): String = stage1ResponseHtmlWithConfirmationCode(stage1Form, actionPath, okCodesName, confirmationCode)
+
+    /**
+     * [stage1ResponseHtml]と同じだが、確認コードの想定値検証(修正1)を単独でテストできるよう
+     * 引数名を明示した別名。実サイトの確認コードは`okArray[okArray.length] = "...";`という
+     * 配列要素代入で現れる(`usrlend_extend_confirm.html`105行目付近)ため、その構造を模す。
+     */
+    private fun stage1ResponseHtmlWithConfirmationCode(
+        stage1Form: FormBody,
+        actionPath: String = "/licsxp-opac/WOpacUsrLendListExtendAction.do",
+        okCodesName: String = "okCodes",
+        confirmationCode: String = "OPACUSR005",
     ): String {
         val hiddenInputs = buildString {
             append("<input type=\"hidden\" name=\"mngFlg1_handan\" value=\"1\">\n")
@@ -385,6 +484,10 @@ class LoanExtensionGatewayTest {
           </form>
           <script>var OK_CODES_NAME = "$okCodesName";</script>
           <script>document.prevRequestForm.action = "$actionPath";</script>
+          <script>
+            var okArray = new Array();
+            okArray[okArray.length] = "$confirmationCode";
+          </script>
         </body></html>
         """.trimIndent()
     }

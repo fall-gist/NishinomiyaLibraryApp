@@ -129,7 +129,13 @@ internal class LicsXpLoanExtensionSession(
                 // 送信開始後の通信断は再送しない。
                 return@withExclusiveRequestSequence LoanExtensionOutcome.Unknown
             }
-            requireNotMaintenance(stage1Page.html)
+            // 1段階目POST直後の全ての検証(メンテナンス検知・確認フォーム解析・送信先解決)は、
+            // 「状態変更POST(=2段階目)をまだ送っていない」場合の3分岐(§5.3)へ一律で倒す。
+            // ここで例外を外へ投げてFailure(SITE_MAINTENANCE)へ倒す(旧実装の欠陥)と、
+            // 同じstage1応答に対する他の検証(確認フォーム解析失敗等)と非対称になる。
+            if (isMaintenancePage(stage1Page.html)) {
+                return@withExclusiveRequestSequence resolveExtensionBeforeStage2Sent(session, tilcod, beforeDueDate)
+            }
 
             // prevRequestFormの多重集合は1段階目の「query + body」全体と一致する
             // (mngFlg1_handanはqueryだがprevRequestFormには含まれる。`docs/site-research.md` §10)。
@@ -142,13 +148,13 @@ internal class LicsXpLoanExtensionSession(
             val confirmationForm = try {
                 LoanExtensionConfirmationFormParser.parse(stage1Page.html, expectedStage1Fields)
             } catch (_: ParseException) {
-                // OK_CODES_NAME・送信先を抽出できなければ2段階目を送らず送信前に停止する(§5.1)。
-                // 1段階目は実測どおり延長を確定させない再描画であるため(§2・§5.2)、状態変更POSTは
-                // まだ行っていないが、既にネットワークへ1回送っているため成否は一覧照合で確定させる。
-                return@withExclusiveRequestSequence resolveExtension(session, tilcod, beforeDueDate)
+                // 確認コード・OK_CODES_NAME・送信先を抽出できなければ2段階目を送らず送信前に停止する(§5.1)。
+                // 1段階目は実測どおり延長を確定させない再描画であるため(§2・§5.2)、状態変更POST(2段階目)は
+                // まだ行っていない。§5.3の3分岐で成否を確定させる。
+                return@withExclusiveRequestSequence resolveExtensionBeforeStage2Sent(session, tilcod, beforeDueDate)
             }
             val actionUrl = session.baseUrl.resolve(confirmationForm.action)
-                ?: return@withExclusiveRequestSequence resolveExtension(session, tilcod, beforeDueDate)
+                ?: return@withExclusiveRequestSequence resolveExtensionBeforeStage2Sent(session, tilcod, beforeDueDate)
 
             try {
                 postLoanExtensionStage2ExactlyOnce(actionUrl, confirmationForm.buildForm(), stage1Page)
@@ -156,7 +162,9 @@ internal class LicsXpLoanExtensionSession(
                 return@withExclusiveRequestSequence LoanExtensionOutcome.Unknown
             }
 
-            resolveExtension(session, tilcod, beforeDueDate)
+            // 2段階目(状態変更POST)を送信済みのため、§5.2どおり進捗なしは常にUnknownとする
+            // (サイトの拒否と通信の取りこぼしを区別できないため。§5.3の裁定で変わらない)。
+            resolveExtensionAfterStage2Sent(session, tilcod, beforeDueDate)
         }
     }
 
@@ -164,23 +172,26 @@ internal class LicsXpLoanExtensionSession(
 }
 
 /**
- * 貸出延長POST後の一覧を再取得し、対象tilcodの返却期日の変化で成否を判定する(§5.2)。
+ * 貸出延長POST後の一覧を再取得し、対象tilcodの返却期日の変化を判定する共通処理(§5.2・§5.3)。
  *
  * 対象行は必ずtilcodで探す(並び順が変わり対象行が末尾へ移動することを実測済み)。送信後の一覧は
  * 延長ボタンの有無に関わらず全行を保持して照合する([LoanExtensionListParser]は元々ボタンの無い行も
- * 含めて返すため、ここで絞り込みは行わない)。POST後の照合に失敗する経路(対象消失・複数化・
- * 返却期限が解析できない・通信断・メンテナンス・ログインフォーム)は、既に状態変更POSTを送信済み
- * であるため、Failureにはせず全てUnknownへ倒す。
+ * 含めて返すため、ここで絞り込みは行わない)。
+ *
+ * 「返却期日が進んでいない」ことと「進んだかどうか確定できない」ことを区別する
+ * ([LoanExtensionRefetchResult]参照)。この区別を、2段階目(状態変更POST)を送ったかどうかで
+ * 呼び出し側([resolveExtensionBeforeStage2Sent]・[resolveExtensionAfterStage2Sent])が
+ * 別々の結果へ変換する。
  */
-private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveExtension(
+private suspend fun LicsXpSession.ExclusiveRequestSequence.refetchAndCompareDueDate(
     session: LicsXpSession,
     tilcod: String,
     beforeDueDate: LocalDate,
-): LoanExtensionOutcome = try {
+): LoanExtensionRefetchResult = try {
     val menu = get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
     requireNotMaintenance(menu)
     if (isLoginForm(menu)) {
-        LoanExtensionOutcome.Unknown
+        LoanExtensionRefetchResult.Indeterminate
     } else {
         session.updateTokens(menu)
         val tokens = session.requireTokens()
@@ -191,30 +202,71 @@ private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveExtension(
         )
         requireNotMaintenance(afterListPage.html)
         if (isLoginForm(afterListPage.html)) {
-            LoanExtensionOutcome.Unknown
+            LoanExtensionRefetchResult.Indeterminate
         } else {
             val afterRows = LoanExtensionListParser.parse(afterListPage.html)
             val afterMatches = afterRows.filter { it.tilcod == tilcod }
             val afterDueDate = afterMatches.singleOrNull()?.dueDate
-            if (afterDueDate != null && afterDueDate.isAfter(beforeDueDate)) {
-                LoanExtensionOutcome.Extended(afterDueDate)
-            } else {
-                LoanExtensionOutcome.Unknown
+            when {
+                afterDueDate == null -> LoanExtensionRefetchResult.Indeterminate
+                afterDueDate.isAfter(beforeDueDate) -> LoanExtensionRefetchResult.Progressed(afterDueDate)
+                else -> LoanExtensionRefetchResult.NotProgressed
             }
         }
     }
 } catch (exception: CancellationException) {
     throw exception
 } catch (_: Exception) {
-    LoanExtensionOutcome.Unknown
+    LoanExtensionRefetchResult.Indeterminate
+}
+
+/** [refetchAndCompareDueDate]の結果。「進捗なしと確定できる」ことと「確定できない」ことを型で区別する。 */
+private sealed interface LoanExtensionRefetchResult {
+    data class Progressed(val newDueDate: LocalDate) : LoanExtensionRefetchResult
+    data object NotProgressed : LoanExtensionRefetchResult
+    data object Indeterminate : LoanExtensionRefetchResult
+}
+
+/**
+ * 1段階目POST後、2段階目(状態変更POST)を送っていない状態からの成否解決(§5.3、2026-08-05所有者裁定)。
+ *
+ * 1. 返却期日が進んでいれば`Extended`(1段階目に副作用が無いことは未実測のため、進んでいたら正直に成功とする)
+ * 2. 再取得・解析に成功し進んでいなければ`Failure(SITE_RESPONSE_CHANGED)`(2段階目を送っていないと確定できるため)
+ * 3. 再取得できない・対象を一意特定できない・返却期日を解析できない場合は`Unknown`
+ *    (メンテナンス画面を検知した場合は再取得も失敗するため、自動的にここへ倒れる)
+ */
+private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveExtensionBeforeStage2Sent(
+    session: LicsXpSession,
+    tilcod: String,
+    beforeDueDate: LocalDate,
+): LoanExtensionOutcome = when (val result = refetchAndCompareDueDate(session, tilcod, beforeDueDate)) {
+    is LoanExtensionRefetchResult.Progressed -> LoanExtensionOutcome.Extended(result.newDueDate)
+    LoanExtensionRefetchResult.NotProgressed -> LoanExtensionOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED)
+    LoanExtensionRefetchResult.Indeterminate -> LoanExtensionOutcome.Unknown
+}
+
+/**
+ * 2段階目(状態変更POST)を送信済みの状態からの成否解決(§5.2)。
+ * サイトの拒否と通信の取りこぼしを区別できないため、進捗なしは`NotProgressed`・`Indeterminate`の
+ * いずれであっても一律`Unknown`とする(§5.3の裁定でもこの意味論は変わらない)。
+ */
+private suspend fun LicsXpSession.ExclusiveRequestSequence.resolveExtensionAfterStage2Sent(
+    session: LicsXpSession,
+    tilcod: String,
+    beforeDueDate: LocalDate,
+): LoanExtensionOutcome = when (val result = refetchAndCompareDueDate(session, tilcod, beforeDueDate)) {
+    is LoanExtensionRefetchResult.Progressed -> LoanExtensionOutcome.Extended(result.newDueDate)
+    LoanExtensionRefetchResult.NotProgressed, LoanExtensionRefetchResult.Indeterminate -> LoanExtensionOutcome.Unknown
 }
 
 private fun isLoginForm(html: String): Boolean =
     Jsoup.parse(html).selectFirst("input[name=j_password], input[name=j_username], form[action*=j_security_check]") != null
 
 private fun requireNotMaintenance(html: String) {
-    if (LOAN_EXTENSION_MAINTENANCE_MARKERS.any(html::contains)) throw LibraryError.Maintenance()
+    if (isMaintenancePage(html)) throw LibraryError.Maintenance()
 }
+
+private fun isMaintenancePage(html: String): Boolean = LOAN_EXTENSION_MAINTENANCE_MARKERS.any(html::contains)
 
 private val LOAN_EXTENSION_MAINTENANCE_MARKERS =
     listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")

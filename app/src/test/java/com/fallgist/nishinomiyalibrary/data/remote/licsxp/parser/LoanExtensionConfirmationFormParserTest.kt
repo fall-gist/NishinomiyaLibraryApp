@@ -144,6 +144,43 @@ class LoanExtensionConfirmationFormParserTest {
     }
 
     @Test
+    fun `確認コードのokArray代入が無ければ拒否する`() = assertParseError {
+        LoanExtensionConfirmationFormParser.parse(
+            html = confirmationHtml(includeConfirmationCodeAssignment = false),
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+    }
+
+    @Test
+    fun `確認コードのokArray代入が複数あれば拒否する`() = assertParseError {
+        LoanExtensionConfirmationFormParser.parse(
+            html = confirmationHtml() +
+                "<script>okArray[okArray.length] = \"OPACUSR005\";</script>",
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+    }
+
+    @Test
+    fun `確認コードのokArray代入値が想定値OPACUSR005と異なれば拒否する`() = assertParseError {
+        LoanExtensionConfirmationFormParser.parse(
+            html = confirmationHtml(confirmationCodeAssignmentValue = "OPACUSR999"),
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+    }
+
+    @Test
+    fun `正規表現内の偽okArray代入は抽出しない`() = assertParseError {
+        // 本物のokArray代入がコメント内に隠れており、抽出できないため拒否される
+        // (ハードコードなら偶然通ってしまう欠陥をこのテストで検出する)。
+        LoanExtensionConfirmationFormParser.parse(
+            html = confirmationHtml(includeConfirmationCodeAssignment = false) +
+                "<script>if (true) /okArray[okArray.length] = \"OPACUSR005\";/;</script>" +
+                "<script>// okArray[okArray.length] = \"OPACUSR005\";</script>",
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+    }
+
+    @Test
     fun `OK_CODES_NAMEが既存prevRequestForm項目名と衝突すれば拒否する`() = assertParseError {
         LoanExtensionConfirmationFormParser.parse(
             html = confirmationHtml(fields = listOf("first" to "1", "okCodes" to "existing")),
@@ -161,9 +198,23 @@ class LoanExtensionConfirmationFormParserTest {
         okCodesName: String = "okCodes",
         includeActionAssignment: Boolean = true,
         actionAssignmentValue: String = "/licsxp-opac/WOpacUsrLendListExtendAction.do",
+        includeConfirmationCodeAssignment: Boolean = true,
+        confirmationCodeAssignmentValue: String = "OPACUSR005",
     ): String {
         val actionAssignmentScript = if (includeActionAssignment) {
             "<script>document.prevRequestForm.action = \"$actionAssignmentValue\";</script>"
+        } else {
+            ""
+        }
+        // 実サイトの確認コードは`okArray[okArray.length] = "OPACUSR005";`という配列要素代入で現れる
+        // (usrlend_extend_confirm.html 105行目付近)。テスト用HTMLもこの構造を模す。
+        val confirmationCodeScript = if (includeConfirmationCodeAssignment) {
+            """
+            <script>
+              var okArray = new Array();
+              okArray[okArray.length] = "$confirmationCodeAssignmentValue";
+            </script>
+            """.trimIndent()
         } else {
             ""
         }
@@ -174,6 +225,7 @@ class LoanExtensionConfirmationFormParserTest {
           </form>
           <script>const OK_CODES_NAME = "$okCodesName";</script>
           $actionAssignmentScript
+          $confirmationCodeScript
         </body></html>
         """.trimIndent()
     }
