@@ -1,8 +1,8 @@
 # 貸出延長 技術設計
 
 最終更新: 2026-08-04
-状態: 設計中（所有者確認待ちの論点あり）
-機能要件の正本: `docs/spec.md` §3.12（本設計と同時に追加）
+状態: **設計確定・実装未着手**（§9の論点3件は2026-08-04に所有者が裁定済み）
+機能要件の正本: `docs/spec.md` §3.12
 一次情報: `docs/site-research.md` §10（所有者提供HARによる実測）
 
 ## 1. 目的と設計原則
@@ -60,26 +60,38 @@ successful controls送信、fail-closedなフォーム一意特定といった�
 
 ### 4.1 `Loan`domain modelの拡張
 
+**表示用の可否フラグと、送信用のコードを分離する。**
+
 ```kotlin
 data class Loan(
     ...
-    val renewalCode: String = "",  // extend(mngcod) の mngcod。延長ボタンが無い行は空文字列
+    val extendable: Boolean = false,  // 同期時に延長ボタンの有無から算出。Roomへ保存する
 )
 ```
 
-Room `LoanEntity`・DAO・DBバージョンは変更しない。`renewalCode`は`cancelCode`と同じ扱いとし、
-**通信内部でだけ使い、Roomへ永続化しない**（延長可否は毎回の同期・取得で変わり得るため、
-古い値を保存する意味がない。既存の`cancelCode`が同様の理由でRoom保存されているのとは事情が異なる
-点に注意 — `cancelCode`は予約一覧画面と同じ通信経路で完結するため保存されているが、`renewalCode`は
-延長専用の分離取得（後述）でのみ必要なため、`LoanListParser`の通常経路には出力せず、
-延長専用のパーサ・スナップショットに閉じ込める）。
+- `extendable`（**Roomへ保存する**）: 貸出中一覧で延長ボタンを出し分けるためだけに使う。
+  `LoanListParser`が延長ボタンの有無から算出し、同期のたびに更新される。
+  Room v8→v9マイグレーション（`ALTER TABLE loans ADD COLUMN extendable INTEGER NOT NULL DEFAULT 0`）を
+  追加する。既存インストールでは次回同期で実値が入る（`tilcod`追加時と同じ流儀）。
+- `renewalCode`（**Roomへ保存しない**）: 実際の送信に使う`extend(mngcod)`の引数。
+  延長実行時に取得し直した貸出状況一覧からのみ得る。`Loan`ドメインモデルにも持たせず、
+  §4.2の延長専用パーサが返す`LoanExtensionRow`に閉じ込める。
 
-### 4.2 `LoanExtensionListParser`（新規）
+分離する理由は、**古いコードで送信する事故を構造的に防ぐ**ためである。`renewalCode`をRoomへ
+保存すると、同期から時間が経ってサイト側の状態が変わった後でも、アプリは古いコードを送信できて
+しまう。可否フラグだけを保存し、送信コードは常に直前取得のものを使うことで、この経路自体を無くす。
 
-貸出状況一覧HTMLから、各行の`tilcod`・返却期限日・`renewalCode`（`extend(mngcod)`のonclickから
-正規表現で抽出）を持つ`LoanExtensionRow`のリストを返す。抽出は完全一致の
-`extend\('(\d+)'\)`のみを許可し、空値・複数候補・未知構文はパース失敗として停止する
-（`ReservationHideFormParser`の`hideCodeRegex`と同じ方針）。
+`extendable`が`true`でも実行時に`renewalCode`を取得できない場合は、送信前に停止する
+（フェイルクローズ）。同期後にサイト側で延長不可へ変わった場合に起こり得る。
+
+### 4.2 パーサの分担
+
+- `LoanListParser`（既存を拡張）: 通常同期で使う。行に延長ボタンがあるかだけを見て
+  `Loan.extendable`を算出する。`renewalCode`の値は出力しない。
+- `LoanExtensionListParser`（新規）: 延長実行時にだけ使う。各行の`tilcod`・返却期限日・
+  `renewalCode`（`extend(mngcod)`のonclickから抽出）を持つ`LoanExtensionRow`のリストを返す。
+  抽出は完全一致の`extend\('(\d+)'\)`のみを許可し、空値・複数候補・未知構文はパース失敗として
+  停止する（`ReservationHideFormParser`の`hideCodeRegex`と同じ方針）。
 
 `para`が延長以外の用途（`toDetail(tilcod)`）にも使われる共通フィールドであるため、対象行の
 `LBForm`固定は、延長ボタンのonclick文字列から直接`mngcod`を取り出す方式とし、`LBForm`のPOST時点の
@@ -136,18 +148,22 @@ sealed interface LoanExtensionOutcome {
 }
 ```
 
-### UI（案。§9で所有者確認を求める点あり）
+この型は画面に依存しない。表示文言はUI層で組み立てる（§9.1）。
 
-- 貸出中一覧の各行のうち、`renewalCode`が取得できた資料にだけ「延長」ボタンを表示する。
+### UI（§9.1で所有者が承認した範囲）
+
+- 貸出中一覧の各行のうち、延長可能と判定できた資料にだけ「延長」ボタンを表示する。
 - タップでアプリ独自の確認ダイアログ（資料名・現在の返却期限・「延長しますか？」）を表示する。
   サイトの確認文言は転記しない（文言未確認のため、かつ既存方針との整合のため）。
 - 確定後、結果を次のように表示する。
   - `Extended`: 「返却期限を延長しました（新しい期限: yyyy/MM/dd）」
   - `Unknown`: 「延長できたか確認できません。しばらくしてから貸出状況をご確認ください」
   - `Failure`: 既存の予約系と同じ文言方針（認証失敗、通信失敗等）
-- 一斉延長・複数選択は設けない（1件ずつの明示操作。予約の「一斉取消」に相当する機能は今回スコープ外）。
-- 書誌詳細オーバーレイからの延長導線は設けない（貸出中一覧からの1経路のみ。予約取消が複数経路を
-  持つのは後から追加されたためであり、初期スコープは最小にする）。
+- 一斉延長・複数選択・書誌詳細からの導線は今回のスコープ外。ただし§9.1のとおり、**後から
+  追加できる層構造を保つことが実装上の必須要件**であり、「スコープ外だから作り込む」ことも
+  「スコープ外だからUIへ通信ロジックを寄せる」ことも認めない。
+
+ボタンの出し分けには`Loan.extendable`（Room保存、§4.1）を使う。UI層は`renewalCode`を一切持たない。
 
 ## 7. 失敗・境界・排他・永続化
 
@@ -169,32 +185,80 @@ sealed interface LoanExtensionOutcome {
   一覧完全性だけを記録する。
 - 固定origin・許可path（`WOpacUsrLendListExtendAction.do`、クエリ有無ごとに区別）だけを許可する。
 
-## 9. 所有者確認が必要な論点
+## 9. 所有者の裁定（2026-08-04、確定）
 
-設計を実装に進める前に、次を確認したい。
+3件とも所有者が裁定した。以下を実装の前提とする。
 
-1. **UI導線はこの案（貸出中一覧の各行、1件ずつ、他経路なし）でよいか。** 予約取消は後から
-   複数経路・一斉取消が追加された経緯があるため、最初から複数経路を求めるなら設計を広げる。
-2. **拒否理由を`Failure`ではなく暫定的に`Unknown`へ丸める初期実装でよいか。** 拒否時の実サイト応答が
-   未実測のため、区別を持たせると未検証の推測実装になる。区別が必要な場合は、拒否例のHAR/診断を
-   先に採取する。
-3. **`ReservationOperationGate`へ参加させない判断でよいか。** 現状、貸出と予約データは独立しており
-   競合が無いと判断したが、将来「貸出延長も自動化する」構想が既にある場合はゲート統一を検討したほうが
-   よい可能性がある。
+### 9.1 UI導線は貸出中一覧の各行・1件ずつのみ（承認）
+
+**所有者の判断**: 「ひとまず良いとする。バックエンドの通信部分とUIの延長ボタンを分けておけば、
+後で追加したくなっても容易なはず。」
+
+したがって、これは**単なるスコープ限定ではなく、構造上の要件**である。
+
+- `LoanExtensionGateway` / `LoanExtensionRepository` は、**呼出し元が貸出中一覧であることを前提に
+  しない**。引数は「延長対象1件を特定する情報（`memberId` と対象資料）」だけを受け取り、
+  UI経路・画面種別に依存する引数や分岐を持たせない
+- 対象の`renewalCode`はRepository層より内側で毎回取得する。UI層が`renewalCode`を保持して
+  渡す設計にしない（UI層が通信内部値を知ると、経路追加のたびに取得責務が複製される）
+- 結果型`LoanExtensionOutcome`も画面非依存とし、表示文言はUI層で組み立てる
+- 将来「書誌詳細から延長」「複数選択で一斉延長」を追加する場合、**変更はUI層と、複数件を順に
+  回すRepository側のループ追加だけで済む**状態を保つ。Gateway（1件の二段階POSTと照合）は不変とする
+
+### 9.2 拒否理由を区別しない初期実装で進める（承認）
+
+`Extended` / `Unknown` / `Failure`（POST前に確定した失敗のみ）の3値とし、サイトが延長を拒否した
+場合の細分類は設けない。拒否例のHARまたは診断が採取できた時点で`FailureReason`を追加する。
+**未実測の拒否理由を推測して分類を作らない。**
+
+### 9.3 `ReservationOperationGate`へは参加させない（承認）
+
+貸出延長は予約データに触れず、手動予約・自動予約・予約取消との業務上の競合が無いため、
+共通書込ゲートには参加させない。二重タップ防止のための専用`Mutex`のみを持つ。
+
+**ただし将来の注意点として記録する**: 「貸出延長も自動化する」構想が出た場合、および
+「延長すると予約待ちの資料に影響する」ことが判明した場合は、この判断を再評価すること。
+現時点でその根拠は無い。
 
 ## 10. 実装時のテスト計画
 
-- パーサ: `renewalCode`の正常抽出、0件、重複、未知構文、行と`tilcod`の対応。
+- Room: `MIGRATION_8_9`（既存データ保持、`extendable`既定`false`）、`LoanEntity`往復。
+- パーサ: `LoanListParser`の`extendable`算出（ボタン有無）、`LoanExtensionListParser`の
+  `renewalCode`正常抽出・0件・重複・未知構文・行と`tilcod`の対応。
+  既存フィクスチャ`app/src/test/resources/fixtures/usrlend.html`に延長ボタン有無の両方の行が
+  含まれていることを確認済みであり、そのまま使える。
 - フォーム: 1段階目LBFormのDOM順・重複込み送信、`para`だけの上書き、2段階目`prevRequestForm`の
   DOM順保持、`OK_CODES_NAME`抽出、確認コード追加、action検証（固定origin・固定path・クエリ無し）。
 - 通信: 実測どおりのpath/query/body/Referer/Origin、POST 2回、no-retry、500ms制御。
 - 成否: 返却期限が進んだ場合の`Extended`、対象消失・複数化・解析不能時の`Unknown`、
   POST前失敗の`Failure`。
-- 除外: 延長ボタンの無い行に対して延長操作を起動できないこと。
+- 層分離（§9.1）: Gateway/Repositoryが画面種別に依存する引数・分岐を持たないこと。
+  UI層が`renewalCode`を保持しないこと。
+- 除外: 延長ボタンの無い行に対して延長操作を起動できないこと。`extendable=true`でも実行時に
+  `renewalCode`を取得できなければ送信前に停止すること。
 - セキュリティ: 診断ログに認証情報・個人情報・コード値・HTML本文が含まれないこと。
 - CIからの実サイトPOSTは行わない。ライブ確認は所有者承認のうえ、対象資料を指定して1回だけ行う。
 
-## 11. 実サイト一連確認の受入条件（実装後）
+## 11. 実装順序
+
+段階ごとにコミットし、各段階で`:app:testDebugUnitTest`と`:app:assembleDebug`が通る状態を保つ。
+
+1. Room v8→v9（`MIGRATION_8_9`、`LoanEntity.extendable`）と`Loan`ドメイン、`LoanListParser`の
+   `extendable`算出。**この段階では延長機能そのものは無く、フラグが同期で入るだけ。**
+2. `LoanExtensionListParser`（`renewalCode`抽出）と、1段階目/2段階目のフォームパーサ。
+   純粋なパース層のみで、通信は行わない。
+3. `LoanExtensionGateway`（二段階POST＋返却期限照合）。MockWebServerでプロトコルを固定する。
+   **実サイトへは一切送らない。**
+4. `LoanExtensionRepository`と結果型。§9.1の層分離要件を満たすことをテストで固定する。
+5. UI（貸出中一覧の延長ボタン、確認ダイアログ、結果表示）。
+6. ライブ診断タスク`liveLoanExtensionDiagnostic`（通常テスト・CIから除外、専用同意フラグ
+   `LICSXP_LIVE_EXTEND_CONFIRM`を要求）。既存の`liveReservationHideDiagnostic`と同じ流儀。
+7. §12の実サイト一連確認（所有者承認のうえ1件）。
+
+段階1は既存の同期処理に触れるため、単独コミットとし、既存の貸出同期テストが回帰しないことを
+確認してから段階2へ進む（`ReservationSubmissionResolver`抽出時と同じ関門の考え方）。
+
+## 12. 実サイト一連確認の受入条件（実装後）
 
 `docs/design/reservation-cancel-auto-hide.md` §9と同型。所有者が延長してよい貸出資料1件を指定し、
 アプリの通常操作（貸出中一覧の「延長」ボタン→アプリの確認ダイアログ→確定）を1回実行し、
