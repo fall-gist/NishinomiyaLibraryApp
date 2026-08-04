@@ -89,9 +89,16 @@ data class Loan(
 - `LoanListParser`（既存を拡張）: 通常同期で使う。行に延長ボタンがあるかだけを見て
   `Loan.extendable`を算出する。`renewalCode`の値は出力しない。
 - `LoanExtensionListParser`（新規）: 延長実行時にだけ使う。各行の`tilcod`・返却期限日・
-  `renewalCode`（`extend(mngcod)`のonclickから抽出）を持つ`LoanExtensionRow`のリストを返す。
-  抽出は完全一致の`extend\('(\d+)'\)`のみを許可し、空値・複数候補・未知構文はパース失敗として
+  `renewalCode`を持つ`LoanExtensionRow`のリストを返す。
+  抽出は完全一致の`extend\("(\d+)"\)`のみを許可し、空値・複数候補・未知構文はパース失敗として
   停止する（`ReservationHideFormParser`の`hideCodeRegex`と同じ方針）。
+  引数がダブルクォートであることは`docs/site-research.md`§10とフィクスチャで実測済み。
+
+  **`renewalCode`は`String?`（nullable）とし、延長ボタンの無い行も結果に含めること。**
+  延長に成功すると対象行はボタンを失う（`docs/site-research.md`§10「延長成功時の一覧の変化」で
+  実測）。ボタンのある行だけを返すと、**成功したときに限って送信後の照合で対象行を見失い、
+  常に成否不明になる**。既存の`Reservation.cancelCode`が取消不可の行で空になりつつ行自体は
+  保持されているのと同じ形にする。送信対象の選択時だけ`renewalCode != null`で絞り込む。
 
 `para`が延長以外の用途（`toDetail(tilcod)`）にも使われる共通フィールドであるため、対象行の
 `LBForm`固定は、延長ボタンのonclick文字列から直接`mngcod`を取り出す方式とし、`LBForm`のPOST時点の
@@ -113,12 +120,21 @@ data class Loan(
   既存の`BookDetailReservationFormParser`と同じ「ホワイトリストにしない・DOM順全送信」方針を踏襲する。
 - 1段階目応答から`prevRequestForm`を一意に特定し、`gamenid=tiles.WUsrLendList`・
   `para==対象renewalCode`であることを確認する。
+  **`prevRequestForm`の項目の多重集合は、1段階目の「query + body」と一致する**
+  （`mngFlg1_handan`はqueryで送るためbodyには無いが`prevRequestForm`には含まれる。
+  `docs/site-research.md`§10で実測・訂正済み）。bodyだけと突き合わせると必ず不一致になる。
 - `OK_CODES_NAME`変数と確認コード値（実測`OPACUSR005`）は、予約取消の`OK_CODES_NAME`抽出と同じ
   字句走査で都度抽出する。値をハードコードせず、抽出できない場合は送信前に停止する
   （`docs/handoff.md`の「未確認事項を推測で補完して実サイトへPOSTしてはならない」を踏襲）。
 - 2段階目: `prevRequestForm`のDOM順controls＋末尾に`OK_CODES_NAME`＝抽出した確認コードを追加して
-  送信する。actionは`prevRequestForm`側の明示指定（`WOpacUsrLendListExtendAction.do`、クエリ無し、
-  固定origin）だけを許可し、それ以外のactionが指定されていた場合は送信前に停止する。
+  送信する。
+  **送信先はHTMLの`action`属性からは取得できない。** 実サイトの`prevRequestForm`に`action`属性は
+  存在せず、ページ内スクリプトが`document.prevRequestForm.action = "..."`と実行時に代入する
+  （`docs/site-research.md`§10で実測・訂正済み）。したがって送信先は`OK_CODES_NAME`と同じ字句走査で
+  **このJS代入から抽出**し、固定origin・許可path（`/licsxp-opac/WOpacUsrLendListExtendAction.do`、
+  クエリ無し）と一致する場合だけ送信する。一致しない・抽出できない場合は送信前に停止する。
+  **`action`属性の存在を必須条件にしてはならない**（実サイトで必ず停止するため。予約取消の
+  10回目ライブ診断で同じ誤りを踏んでいる）。
 - 各POSTは自動再試行しない`noRetryClient`を使い、既存のリクエスト間500ms制御を維持する。
 
 ### 5.2 成否照合
@@ -127,8 +143,16 @@ data class Loan(
 
 1. **主判定**: 送信直前に取得した対象行の返却期限日と、送信後に再取得した同じ`tilcod`行の
    返却期限日を比較する。**日付が送信前より後へ変化していれば`Extended`**とする。
+   実データで機能することを確認済み（`docs/site-research.md`§10）。
 2. **補助情報**: 送信後の対象行に延長ボタンが残っているか（`renewalCode`の有無）を記録する。
-   判定には使わないが、延長後に再度延長可能かの実態が未確認であるため、診断・履歴として残す。
+   実測では成功時にボタンは消えるが、これを判定条件にはしない（拒否時の挙動が未実測のため）。
+
+**照合時の必須事項**（いずれも実測に基づく。`docs/site-research.md`§10参照）:
+
+- 対象行は**必ず`tilcod`で探す。行の位置で追ってはならない**。延長すると一覧の並び順が変わり、
+  対象行が末尾へ移動することを実測している。
+- 送信後の一覧は**延長ボタンの有無に関わらず全行を保持して**照合する。成功すると対象行は
+  ボタンを失うため、ボタンのある行だけに絞ると成功時に限って対象を見失う。
 
 送信後に対象`tilcod`の行が1件でない（消えた、増えた）場合や、返却期限日を解析できない場合は
 `Unknown`とする。明示的な拒否応答の構造が未確認であるため、**初期実装では`NotExtended(reason)`の
@@ -227,6 +251,11 @@ sealed interface LoanExtensionOutcome {
   `renewalCode`正常抽出・0件・重複・未知構文・行と`tilcod`の対応。
   既存フィクスチャ`app/src/test/resources/fixtures/usrlend.html`に延長ボタン有無の両方の行が
   含まれていることを確認済みであり、そのまま使える。
+  **ボタンの無い行も`renewalCode=null`として結果に含まれることを必ずテストで固定する。**
+- **2段階目の確認ページのテストは、実サイト構造に忠実なフィクスチャで行う。** 自作HTMLだけで
+  テストすると、`action`属性の有無のような実サイトとの差異を検出できない（実際に初回実装で
+  この見落としが起きた）。フィクスチャは値をマスクし、`action`属性を持たない`<form>`タグ、
+  JS代入によるaction設定、`OK_CODES_NAME`の定義、18項目のhiddenを実構造どおりに含めること。
 - フォーム: 1段階目LBFormのDOM順・重複込み送信、`para`だけの上書き、2段階目`prevRequestForm`の
   DOM順保持、`OK_CODES_NAME`抽出、確認コード追加、action検証（固定origin・固定path・クエリ無し）。
 - 通信: 実測どおりのpath/query/body/Referer/Origin、POST 2回、no-retry、500ms制御。
