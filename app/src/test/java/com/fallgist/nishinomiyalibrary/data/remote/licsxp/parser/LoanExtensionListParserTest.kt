@@ -6,27 +6,41 @@ import org.junit.Test
 
 class LoanExtensionListParserTest {
     @Test
-    fun `貸出一覧フィクスチャから延長ボタンのある行だけをtilcod・返却期日・延長コード付きで抽出する`() {
+    fun `貸出一覧フィクスチャから全行をtilcod・返却期日付きで抽出し延長ボタンの無い行はrenewalCode nullになる`() {
         val rows = LoanExtensionListParser.parse(fixture("usrlend.html"))
 
         // usrlend.htmlは延長ボタンあり7件・なし5件(計12件)。実測どおりドキュメント順で並ぶ。
-        assertEquals(7, rows.size)
+        // 延長ボタンの無い行も送信後の照合に必要なため、結果から除外してはならない(修正B)。
+        assertEquals(12, rows.size)
         assertEquals(
             listOf(
                 "1000000817183", "1001000252300", "1000000114178", "1001000381992",
-                "1000000375113", "1000001556048", "1000001396511",
+                "1000000375113", "1000001556048", "1000001559709", "1000001990541",
+                "1000001396511", "1000001684487", "1000001990533", "1000001246421",
             ),
             rows.map { it.tilcod },
         )
         assertEquals(
-            listOf("222057515", "426047783", "323176487", "221291099", "222093130", "426110003", "125411678"),
+            listOf(
+                "222057515", "426047783", "323176487", "221291099", "222093130", "426110003", null, null,
+                "125411678", null, null, null,
+            ),
             rows.map { it.renewalCode },
         )
-        assertTrue(rows.map { it.renewalCode }.toSet().size == rows.size)
+        val nonNullCodes = rows.mapNotNull { it.renewalCode }
+        assertEquals(7, nonNullCodes.size)
+        assertTrue(nonNullCodes.toSet().size == nonNullCodes.size)
     }
 
     @Test
-    fun `延長ボタンの無い一覧は0件になる`() {
+    fun `延長ボタンの無い一覧はrenewalCodeが全てnullの行として抽出される`() {
+        val rows = LoanExtensionListParser.parse(loanExtensionHtml(listOf("", "")))
+        assertEquals(2, rows.size)
+        assertTrue(rows.all { it.renewalCode == null })
+    }
+
+    @Test
+    fun `行が無い一覧は0件になる`() {
         assertTrue(LoanExtensionListParser.parse(loanExtensionHtml(emptyList())).isEmpty())
     }
 

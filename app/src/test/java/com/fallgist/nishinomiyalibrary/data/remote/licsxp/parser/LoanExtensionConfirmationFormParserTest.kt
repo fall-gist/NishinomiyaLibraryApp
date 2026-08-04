@@ -22,20 +22,75 @@ class LoanExtensionConfirmationFormParserTest {
     }
 
     @Test
-    fun `固定actionと一致しないprevRequestFormは拒否する`() = assertParseError {
+    fun `action属性を持たないprevRequestFormでもJS代入から送信先を抽出できれば受理する`() {
+        // 実サイトのprevRequestFormにaction属性は存在しない(docs/site-research.md §10)。
+        // これが実サイトの正常な構造であり、action属性の有無を検証条件にしてはならない。
+        val form = LoanExtensionConfirmationFormParser.parse(
+            html = confirmationHtml(),
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+        assertEquals("OPACUSR005", form.buildForm().value(form.buildForm().size - 1))
+    }
+
+    @Test
+    fun `document_prevRequestForm_actionのJS代入が想定外のpathなら拒否する`() = assertParseError {
         LoanExtensionConfirmationFormParser.parse(
-            html = confirmationHtml(action = "/licsxp-opac/WOpacUsrRsvCancelAction.do"),
+            html = confirmationHtml(actionAssignmentValue = "/licsxp-opac/WOpacUsrRsvCancelAction.do"),
             expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
         )
     }
 
     @Test
-    fun `action属性が省略されたprevRequestFormは拒否する`() = assertParseError {
-        // 予約取消と異なり、貸出延長は「action省略時は現在のドキュメントURル」という曖昧さを許容しない。
+    fun `document_prevRequestForm_actionのJS代入が無ければ拒否する`() = assertParseError {
         LoanExtensionConfirmationFormParser.parse(
-            html = confirmationHtml(action = null),
+            html = confirmationHtml(includeActionAssignment = false),
             expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
         )
+    }
+
+    @Test
+    fun `document_prevRequestForm_actionのJS代入が複数あれば拒否する`() = assertParseError {
+        LoanExtensionConfirmationFormParser.parse(
+            html = confirmationHtml() +
+                "<script>document.prevRequestForm.action = \"/licsxp-opac/WOpacUsrLendListExtendAction.do\";</script>",
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+    }
+
+    @Test
+    fun `実サイト構造フィクスチャ(usrlend_extend_confirm_html)を正しくパースできる`() {
+        // 実サイトのHARから起こした1段階目応答フィクスチャ(値はマスク済み)。action属性が無いこと、
+        // hiddenが18項目(mngFlg1_handan先頭・btnflgとcheckflagが各2回)、同一ページに存在する
+        // LBFormMF・LBFormからprevRequestFormを一意特定できることを併せて確認する。
+        val fields = listOf(
+            "mngFlg1_handan" to "1",
+            "schkflg" to "",
+            "allschkflg" to "",
+            "hash" to "0000000000000000000000000000000000000000",
+            "islogin" to "1",
+            "btnflg" to "0",
+            "btnflg" to "0",
+            "checkflag" to "0",
+            "checkflag" to "0",
+            "booklistvalue" to "0",
+            "commntvalue" to "メモ（任意）",
+            "returnid" to "https://tosho.nishi.or.jp/?v=PC",
+            "gamenid" to "tiles.WUsrLendList",
+            "para" to "999999999",
+            "mngFlg1" to "1",
+            "sortkeyvalue" to "",
+            "sortDefKey" to "0",
+            "booklist" to "0",
+        ).map(::field)
+
+        val form = LoanExtensionConfirmationFormParser.parse(
+            html = fixture("usrlend_extend_confirm.html"),
+            expectedStage1Fields = fields,
+        )
+
+        val body = form.buildForm()
+        assertEquals(19, body.size)
+        assertEquals("okCodes" to "OPACUSR005", body.name(body.size - 1) to body.value(body.size - 1))
     }
 
     @Test
@@ -96,24 +151,38 @@ class LoanExtensionConfirmationFormParserTest {
         )
     }
 
+    /**
+     * 実サイト構造を模したprevRequestFormを生成する。実サイトと同じく`action`属性は持たせず、
+     * 送信先は`document.prevRequestForm.action = "..."`というJS代入で表現する
+     * (`includeActionAssignment`でその代入自体の有無を、`actionAssignmentValue`で代入値を制御する)。
+     */
     private fun confirmationHtml(
         fields: List<Pair<String, String>> = listOf("first" to "1", "second" to "2"),
         okCodesName: String = "okCodes",
-        action: String? = "/licsxp-opac/WOpacUsrLendListExtendAction.do",
+        includeActionAssignment: Boolean = true,
+        actionAssignmentValue: String = "/licsxp-opac/WOpacUsrLendListExtendAction.do",
     ): String {
-        val actionAttribute = if (action == null) "" else " action=\"$action\""
+        val actionAssignmentScript = if (includeActionAssignment) {
+            "<script>document.prevRequestForm.action = \"$actionAssignmentValue\";</script>"
+        } else {
+            ""
+        }
         return """
         <html><body>
-          <form name="prevRequestForm" method="post"$actionAttribute>
+          <form name="prevRequestForm" method="post">
             ${fields.joinToString("\n") { (name, value) -> "<input type=\"hidden\" name=\"$name\" value=\"$value\">" }}
           </form>
           <script>const OK_CODES_NAME = "$okCodesName";</script>
+          $actionAssignmentScript
         </body></html>
         """.trimIndent()
     }
 
     private fun confirmationFormOnly(): String =
-        "<form name=\"prevRequestForm\" method=\"post\" action=\"/licsxp-opac/WOpacUsrLendListExtendAction.do\"></form>"
+        "<form name=\"prevRequestForm\" method=\"post\"></form>"
+
+    private fun fixture(name: String): String =
+        requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
 
     private fun assertParseError(block: () -> Unit) {
         val error = try {

@@ -1,0 +1,163 @@
+<!--
+  貸出延長 1段階目POST(WOpacUsrLendListExtendAction.do?mngFlg1_handan=1)の応答の構造を、
+  実サイトのHAR実測(docs/site-research.md §10)から起こしたフィクスチャ。
+
+  値はすべてマスクしてある(hash・para・資料コードはダミー)。構造だけが実サイト由来である。
+  実サイトで確認した重要な構造:
+
+    1. form name="prevRequestForm" に action 属性が「無い」。送信先はページ内スクリプトが
+       document.prevRequestForm.action = "..." と実行時に代入する。
+       Jsoupで form.attr("action") を読んでも空文字列にしかならない。
+    2. 同じページに LBFormMF と LBForm も存在する(いずれも action 属性を持たない)。
+    3. prevRequestForm の hidden は18項目で、btnflg と checkflag が各2回出現する。
+       これは1段階目の query(mngFlg1_handan) + body(17項目) の全パラメータに一致する。
+    4. 確認コードは okArray へ "OPACUSR005" を積む形で現れ、hidden の名前は
+       var OK_CODES_NAME = "okCodes" で定義される。
+
+  実際の応答は貸出状況一覧の全体(usrlend.html 相当の一覧表)も含むが、確認フォームの
+  パーサ検証に不要な部分は省いてある。一覧表の構造は usrlend.html を参照すること。
+
+  日本語のダイアログ文言はHARの文字コード破損により実測できていないため、
+  プレースホルダを置いてある(パーサは文言に依存しない)。
+-->
+<html>
+<head><title>貸出状況一覧：蔵書検索システム</title></head>
+<body>
+
+<div id="messages" style="display:none">
+<ul>
+</ul>
+</div>
+
+<form name="LBFormMF" method="post">
+<input type="hidden" name="mfFlag" value="0">
+</form>
+
+<form name="LBForm" method="post">
+<input type="hidden" name="schkflg" id="schkflg" value="">
+<input type="hidden" name="allschkflg" id="allschkflg" value="">
+<input type="hidden" name="hash" value="0000000000000000000000000000000000000000">
+<input type="hidden" name="islogin" value="1" >
+<input type="hidden" name="btnflg" value='0'></input>
+<input type="hidden" name="checkflag" value=''></input>
+<input type="hidden" name="booklistvalue" value='0'></input>
+<input type="hidden" name="commntvalue" value='メモ（任意）'></input>
+<input type="hidden" name="btnflg" value='0'></input>
+<input type="hidden" name="checkflag" value=''></input>
+<input type="hidden" name="returnid" value="https://tosho.nishi.or.jp/?v=PC">
+<input type="hidden" name="gamenid" value="tiles.WUsrLendList">
+<input type="hidden" name="para" value="999999999"/>
+<input type="hidden" name="mngFlg1" value="1"/>
+<input type="hidden" name="sortkeyvalue" value=""/>
+<input type="hidden" name="sortDefKey" value="0"/>
+<input type="hidden" name="booklist" value="0"/>
+</form>
+
+<script language="javascript">
+<!--
+// OKボタンが押されたメッセージコードをリクエストパラメータに格納するための名前
+var OK_CODES_NAME = "okCodes";
+
+// キャンセルボタンが押されたメッセージコードをリクエストパラメータに格納するための名前
+var CANCEL_CODES_NAME = "cancelCodes";
+
+// window.onloadイベント
+var windowOnload = window.onload;
+	var IS_EXPLORER_11 = false;
+	var browser = "";
+	var trim_Version = "";
+	if(!!window.ActiveXObject || "ActiveXObject" in window){
+		IS_EXPLORER_11 = true;
+		browser = "Netscape";
+		trim_Version = "Trident/7.0";
+	}
+	var isEdge = navigator.appName=="Netscape" && navigator.appVersion.indexOf("Edg") > -1;
+
+function createConfirmDialog() {
+		if (windowOnload) {
+		windowOnload();
+	}
+	var okArray = new Array();
+	var cancelArray = new Array();
+	var shouldAbort = false;
+		if (shouldAbort) {
+		return cancelDialog();
+	}
+		var rest;
+	if (document.all || IS_EXPLORER_11 || isEdge) {// IE
+		if (0 != 1) {
+			if (0 == 1) {
+				rest = confirm("（実測できていない確認文言）", "");
+			} else {
+				rest = lbConfirm("（実測できていない確認文言）", "", "#F1F1FF");
+			}
+		} else {
+			if (0 == 1) {
+				rest = confirm("（実測できていない確認文言）", "");
+			} else {
+				rest = lbConfirm1("（実測できていない確認文言）", "", "#F1F1FF");
+			}
+		}
+	} else {//MF
+		rest = window.confirm("（実測できていない確認文言）");
+	}
+	if (rest) {
+		okArray[okArray.length] = "OPACUSR005";
+		submitFlg = false;
+	} else {
+		return cancelDialog();
+	}
+
+	// OKボタンのメッセージコードを hidden へ格納する
+	for (var i = 0; i < okArray.length; i++) {
+		var newHidden = document.createElement("input");
+		newHidden.type = "hidden";
+		newHidden.name = OK_CODES_NAME;
+		newHidden.value = okArray[i];
+		document.prevRequestForm.appendChild(newHidden);
+	}
+	// キャンセルボタンのメッセージコードを hidden へ格納する
+	for (var i = 0; i < cancelArray.length; i++) {
+		var newHidden = document.createElement("input");
+		newHidden.type = "hidden";
+		newHidden.name = CANCEL_CODES_NAME;
+		newHidden.value = cancelArray[i];
+		document.prevRequestForm.appendChild(newHidden);
+	}
+
+	document.prevRequestForm.action = "/licsxp-opac/WOpacUsrLendListExtendAction.do";
+	document.prevRequestForm.submit();
+}
+
+function cancelDialog() {
+		return false;
+}
+
+window.onload = createConfirmDialog;
+//-->
+</script>
+
+<!-- 直前のリクエストのパラメータを格納したフォーム -->
+<form name="prevRequestForm" method="post">
+			<input type="hidden" name="mngFlg1_handan" value="1"/>
+				<input type="hidden" name="schkflg" value=""/>
+				<input type="hidden" name="allschkflg" value=""/>
+				<input type="hidden" name="hash" value="0000000000000000000000000000000000000000"/>
+				<input type="hidden" name="islogin" value="1"/>
+				<input type="hidden" name="btnflg" value="0"/>
+		<input type="hidden" name="btnflg" value="0"/>
+				<input type="hidden" name="checkflag" value="0"/>
+		<input type="hidden" name="checkflag" value="0"/>
+				<input type="hidden" name="booklistvalue" value="0"/>
+				<input type="hidden" name="commntvalue" value="&#12513;&#12514;&#65288;&#20219;&#24847;&#65289;"/>
+				<input type="hidden" name="returnid" value="https://tosho.nishi.or.jp/?v=PC"/>
+				<input type="hidden" name="gamenid" value="tiles.WUsrLendList"/>
+				<input type="hidden" name="para" value="999999999"/>
+				<input type="hidden" name="mngFlg1" value="1"/>
+				<input type="hidden" name="sortkeyvalue" value=""/>
+				<input type="hidden" name="sortDefKey" value="0"/>
+				<input type="hidden" name="booklist" value="0"/>
+		</form>
+
+</body>
+</html>

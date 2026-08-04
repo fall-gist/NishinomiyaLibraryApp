@@ -10,7 +10,13 @@ import org.jsoup.nodes.Element
  *
  * 各行の`tilcod`・返却期限日・延長ボタン(`extend(mngcod)`)由来の`renewalCode`を持つ
  * [LoanExtensionRow]のリストを返す。`renewalCode`はRoomへ保存せず、この結果はここでしか使わない。
- * 延長ボタンが無い行はそもそも送信対象になり得ないため、結果に含めない。
+ *
+ * `renewalCode`は`String?`（nullable）で、**延長ボタンの無い行も結果に含める**。延長に成功すると
+ * 対象行はボタンを失う（`docs/site-research.md` §10「延長成功時の一覧の変化」で実測済み）ため、
+ * ボタンのある行だけを返すと送信後の照合で「成功したときに限って」対象行を見失う。既存の
+ * `Reservation.cancelCode`が取消不可の行で空になりつつ行自体は保持されているのと同じ形にする。
+ * 送信対象の選択はこの結果を`renewalCode != null`で絞り込んで行う（絞り込み自体は呼び出し側＝
+ * 段階3のGatewayの責務であり、このパーサでは行わない）。
  */
 internal object LoanExtensionListParser {
     private const val SCREEN = "loan_extension_list"
@@ -30,15 +36,16 @@ internal object LoanExtensionListParser {
         val headers = ParserSupport.headers(table)
         val dueDateIndex = ParserSupport.requireHeader(headers, SCREEN, "返却期日")
 
-        val rows = table.select("tbody > tr").mapNotNull { row ->
+        val rows = table.select("tbody > tr").map { row ->
             val buttons = row.select("input[type=button]").filter { it.attr("onclick").contains("extend(") }
-            if (buttons.isEmpty()) return@mapNotNull null
             if (buttons.size > 1) throw ParseException(SCREEN, "延長ボタンを一意に特定できません")
-            val renewalCode = EXTEND_CODE_REGEX.matchEntire(buttons.single().attr("onclick"))
-                ?.groupValues
-                ?.get(1)
-                ?.takeIf { it.isNotBlank() }
-                ?: throw ParseException(SCREEN, "延長ボタンの形式が不正です")
+            val renewalCode = buttons.singleOrNull()?.let { button ->
+                EXTEND_CODE_REGEX.matchEntire(button.attr("onclick"))
+                    ?.groupValues
+                    ?.get(1)
+                    ?.takeIf { it.isNotBlank() }
+                    ?: throw ParseException(SCREEN, "延長ボタンの形式が不正です")
+            }
             val tilcod = row.selectFirst("a[href*=para], a[href*=tilcod]")
                 ?.let(::titleCodeFromLink)
                 ?.takeIf { it.isNotBlank() }
@@ -47,7 +54,8 @@ internal object LoanExtensionListParser {
             LoanExtensionRow(tilcod = tilcod, dueDate = dueDate, renewalCode = renewalCode)
         }
 
-        val duplicatedCodes = rows.groupingBy { it.renewalCode }.eachCount().filterValues { it > 1 }
+        // renewalCodeが無い(延長ボタンの無い)行が複数あるのは正常なため、重複検査は非nullだけを対象にする。
+        val duplicatedCodes = rows.mapNotNull { it.renewalCode }.groupingBy { it }.eachCount().filterValues { it > 1 }
         if (duplicatedCodes.isNotEmpty()) throw ParseException(SCREEN, "延長コードが重複しています")
 
         return rows
@@ -62,9 +70,12 @@ internal object LoanExtensionListParser {
     private val TITLE_CODE_REGEX = Regex("(?:[?&](?:para|tilcod)=|toDetail\\(\\\")(\\d+)")
 }
 
-/** 延長実行時にだけ使う1行分の情報。renewalCodeはLoanドメインモデルへ持たせない(§4.1)。 */
+/**
+ * 延長実行時にだけ使う1行分の情報。renewalCodeはLoanドメインモデルへ持たせない(§4.1)。
+ * `renewalCode`は延長ボタンの無い行では`null`（送信対象になり得ないが、成否照合のため行自体は保持する）。
+ */
 internal data class LoanExtensionRow(
     val tilcod: String,
     val dueDate: LocalDate,
-    val renewalCode: String,
+    val renewalCode: String?,
 )

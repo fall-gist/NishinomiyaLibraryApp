@@ -12,14 +12,23 @@ import org.jsoup.nodes.Element
  * 固定確認コードの機構だが、フィールド名(para)・確認コード値(OPACUSR005)・action検証方針が異なる
  * ため型は分離する(`docs/design/loan-extension.md` §3)。
  *
- * 予約取消と異なり、貸出延長の2段階目actionは常に明示指定である
- * (`docs/site-research.md` §10)。action省略時に「現在のドキュメントURLへ送る」という曖昧さは
- * 許容せず、固定origin・固定path・クエリ無しの完全一致だけを受理する(§5.1のfail-close要件)。
+ * 予約取消と異なり、貸出延長の2段階目送信先は常に明示指定である
+ * (`docs/site-research.md` §10)。ただし**HTMLの`action`属性としては存在しない**。実サイトの
+ * `prevRequestForm`は`<form name="prevRequestForm" method="post">`のみで、送信先はページ内
+ * スクリプトが`document.prevRequestForm.action = "..."`と実行時に代入する。そのため`action`属性の
+ * 有無をそもそも検証条件にせず、`OK_CODES_NAME`と同じ字句走査でこのJS代入から値を抽出し、
+ * 固定origin・固定path・クエリ無しの完全一致だけを受理する(§5.1のfail-close要件)。
  */
 internal object LoanExtensionConfirmationFormParser {
     private const val SCREEN = "loan-extension-confirmation"
     private const val EXPECTED_ACTION = "/licsxp-opac/WOpacUsrLendListExtendAction.do"
 
+    /**
+     * @param expectedStage1Fields 1段階目の**queryとbodyを合わせた**全パラメータ(DOM順・同名重複込み)。
+     *   `prevRequestForm`の項目はbodyだけでなくqueryも含めた多重集合と一致する
+     *   (`mngFlg1_handan`はqueryだが`prevRequestForm`には含まれる。`docs/site-research.md` §10参照)。
+     *   bodyだけを渡すと必ず不一致になるため、呼び出し側はqueryとbodyを合わせて渡すこと。
+     */
     fun parse(
         html: String,
         expectedStage1Fields: List<LoanExtensionConfirmationField>,
@@ -29,10 +38,8 @@ internal object LoanExtensionConfirmationFormParser {
         if (forms.size != 1) throw ParseException(SCREEN, "prevRequestFormを一意に特定できません")
         val form = forms.single()
 
-        val action = form.attr("action").trim()
-        if (action != EXPECTED_ACTION) {
-            throw ParseException(SCREEN, "prevRequestFormのactionが想定外です")
-        }
+        // action属性は実サイトに存在しないため検証条件にしない。送信先はJS代入から抽出し検証する(fail-close)。
+        extractPrevRequestFormAction(document)
 
         val fields = form.select("input[name]:not([disabled]), select[name]:not([disabled]), textarea[name]:not([disabled])")
             .mapNotNull(::toSuccessfulField)
@@ -56,6 +63,23 @@ internal object LoanExtensionConfirmationFormParser {
         return values.single()
     }
 
+    /**
+     * `document.prevRequestForm.action = "...";`というJS代入から送信先を抽出し、固定origin・
+     * 固定path・クエリ無しの完全一致だけを受理する(§5.1)。`action`属性はHTMLに存在しないため
+     * 検証条件にしない(`docs/site-research.md` §10)。
+     */
+    private fun extractPrevRequestFormAction(document: org.jsoup.nodes.Document): String {
+        val values = document.select("script")
+            .filter(::isInlineJavaScript)
+            .flatMap { extractPrevRequestFormActionAssignments(it.data()) }
+        if (values.size != 1) throw ParseException(SCREEN, "prevRequestFormの送信先(action)を一意に特定できません")
+        val action = values.single()
+        if (action != EXPECTED_ACTION) {
+            throw ParseException(SCREEN, "prevRequestFormのaction代入が想定外です")
+        }
+        return action
+    }
+
     private fun isInlineJavaScript(script: Element): Boolean {
         if (script.hasAttr("src")) return false
         if (!script.hasAttr("type")) return true
@@ -64,6 +88,46 @@ internal object LoanExtensionConfirmationFormParser {
 
     private fun extractOkCodesAssignments(source: String): List<String> {
         val values = mutableListOf<String>()
+        val completed = scanJavaScriptIdentifiers(source) { token ->
+            if (token.name == "OK_CODES_NAME" && !token.precededByDot) {
+                parseSimpleAssignment(source, token.end, SAFE_FIELD_NAME)?.let(values::add)
+            }
+        }
+        return if (completed) values else emptyList()
+    }
+
+    /**
+     * `document.prevRequestForm.action = "...";`の識別子連鎖(ドット区切り)を検出する。
+     * OK_CODES_NAME抽出と同じ字句走査基盤を使うため、コメント・文字列・template literal・
+     * 正規表現の内部は候補にならない。
+     */
+    private fun extractPrevRequestFormActionAssignments(source: String): List<String> {
+        val values = mutableListOf<String>()
+        var chain = 0 // 0=未一致, 1=documentまで一致, 2=document.prevRequestFormまで一致
+        val completed = scanJavaScriptIdentifiers(source) { token ->
+            chain = when {
+                !token.precededByDot && token.name == "document" -> 1
+                chain == 1 && token.precededByDot && token.name == "prevRequestForm" -> 2
+                chain == 2 && token.precededByDot && token.name == "action" -> {
+                    parseSimpleAssignment(source, token.end, SAFE_URL_PATH)?.let(values::add)
+                    0
+                }
+                else -> 0
+            }
+        }
+        return if (completed) values else emptyList()
+    }
+
+    /** [scanJavaScriptIdentifiers]が通知する識別子トークン。`precededByDot`は直前の意味のある文字が`.`だったか。 */
+    private class JsIdentifierToken(val name: String, val end: Int, val precededByDot: Boolean)
+
+    /**
+     * script本文から識別子トークンを順に取り出す共通の字句走査。予約取消の`OK_CODES_NAME`抽出と
+     * 同じ規則で、コメント・文字列・template literal・正規表現の内部は候補にしない。
+     * template literal・未終端の文字列/コメント/正規表現・括弧不一致に出会ったら走査を打ち切り、
+     * `false`を返す(呼び出し側は「抽出できない」として扱うこと)。
+     */
+    private fun scanJavaScriptIdentifiers(source: String, onIdentifier: (JsIdentifierToken) -> Unit): Boolean {
         val parentheses = ArrayDeque<Boolean>()
         var index = 0
         var canStartRegex = true
@@ -77,26 +141,24 @@ internal object LoanExtensionConfirmationFormParser {
                 }
                 source.startsWith("/*", index) -> {
                     val end = source.indexOf("*/", index + 2)
-                    if (end < 0) return emptyList()
+                    if (end < 0) return false
                     index = end + 2
                 }
-                source[index] == '`' -> return emptyList()
+                source[index] == '`' -> return false
                 source[index] == '\'' || source[index] == '"' -> {
-                    index = skipString(source, index) ?: return emptyList()
+                    index = skipString(source, index) ?: return false
                     canStartRegex = false
                     previousCodeSignificant = '"'
                 }
                 source[index] == '/' && canStartRegex -> {
-                    index = skipRegex(source, index) ?: return emptyList()
+                    index = skipRegex(source, index) ?: return false
                     canStartRegex = false
                     previousCodeSignificant = '/'
                 }
                 source[index].isJavaScriptIdentifierPart() -> {
                     val end = identifierEnd(source, index)
                     val token = source.substring(index, end)
-                    if (token == "OK_CODES_NAME" && previousCodeSignificant != '.') {
-                        parseSimpleAssignment(source, end)?.let(values::add)
-                    }
+                    onIdentifier(JsIdentifierToken(token, end, previousCodeSignificant == '.'))
                     controlConditionAwaitingParenthesis = token in CONTROL_CONDITION_KEYWORDS
                     canStartRegex = token in EXPRESSION_PREFIX_KEYWORDS
                     previousCodeSignificant = token.last()
@@ -110,7 +172,7 @@ internal object LoanExtensionConfirmationFormParser {
                             canStartRegex = true
                         }
                         ')' -> {
-                            val wasControlCondition = parentheses.removeLastOrNull() ?: return emptyList()
+                            val wasControlCondition = parentheses.removeLastOrNull() ?: return false
                             canStartRegex = wasControlCondition
                         }
                         '[', '{' -> canStartRegex = true
@@ -140,10 +202,10 @@ internal object LoanExtensionConfirmationFormParser {
                 }
             }
         }
-        return values
+        return true
     }
 
-    private fun parseSimpleAssignment(source: String, afterName: Int): String? {
+    private fun parseSimpleAssignment(source: String, afterName: Int, valuePattern: Regex): String? {
         var index = skipTrivia(source, afterName) ?: return null
         if (source.getOrNull(index) != '=') return null
         index = skipTrivia(source, index + 1) ?: return null
@@ -151,7 +213,7 @@ internal object LoanExtensionConfirmationFormParser {
         if (quote != '\'' && quote != '"') return null
         val end = skipString(source, index) ?: return null
         val value = source.substring(index + 1, end - 1)
-        if (!SAFE_FIELD_NAME.matches(value)) return null
+        if (!valuePattern.matches(value)) return null
         val afterValue = skipTrivia(source, end) ?: return null
         if (source.getOrNull(afterValue) != ';') return null
         return value
@@ -249,6 +311,9 @@ internal object LoanExtensionConfirmationFormParser {
     }
 
     private val SAFE_FIELD_NAME = Regex("[A-Za-z][A-Za-z0-9_]*")
+
+    /** action代入値の許容文字集合。パス表記(`/`・`.`)を含むため`SAFE_FIELD_NAME`とは別に定義する。 */
+    private val SAFE_URL_PATH = Regex("[A-Za-z0-9/_.\\-]+")
     private val CONTROL_CONDITION_KEYWORDS = setOf("if", "while", "for", "with", "switch", "catch")
     private val EXPRESSION_PREFIX_KEYWORDS = setOf(
         "return", "throw", "case", "delete", "typeof", "void", "new", "in", "of", "yield", "await", "else", "do", "try", "finally",
