@@ -921,3 +921,57 @@
 > ライブ診断(`liveReservationHideDiagnostic`)は引き続き除外する。
 
 取消済み予約の非表示は二段階POSTであることを確認した。第1段階は確認ページを返し、`prevRequestForm` と確認用コードを含むスクリプトを検証する。第2段階は固定同一originの非表示pathへqueryなしで送信し、第1段階URLをRefererにする。第2段階応答は成否に使用せず、完全な予約一覧を再取得して対象行と非表示コードの消失を確認する。HTML本文・認証情報・予約識別子は記録しない。
+
+## 10. 貸出延長の画面内アクションと通信（2026-08-04、所有者提供HARで確認済み）
+
+所有者が実サイトで貸出延長を1回実行したHAR（`WOpacMnuTopInitAction.do?...moveToGamenId=usrlend`から
+延長完了までの一連）を提供を受けて確認した。**カード番号・パスワード・Cookie値・`hash`実値・
+対象の資料コード実値は本書に記載しない。**
+
+### 確認済みの事実
+
+- 貸出状況一覧（`gamen=usrlend`）の各行には、延長可能な資料にだけ「延長」ボタンが表示される
+  （フィクスチャ`app/src/test/resources/fixtures/usrlend.html`でも同一構造を確認済み。
+  同フィクスチャはHARと完全に一致する構造を持つため、実サイト由来である可能性が高い）。
+- ボタンは`<input type="button" class="button exec" value="延長" onclick='javascript:extend("<管理コード>")'>`。
+  `<管理コード>`は資料ごとに異なる数値文字列で、`tilcod`（13桁の書誌コード）とは別の値である
+  （HARでの実測は9桁）。
+- `extend(mngcod)`関数は、貸出状況一覧の共通`LBForm`の`para`フィールドへ`mngcod`を設定し、
+  `document.LBForm.action = "WOpacUsrLendListExtendAction.do?mngFlg1_handan=1"`として
+  `document.LBForm.submit()`を呼ぶ（1段階目）。
+- 1段階目の応答は貸出状況一覧と同じ`tiles.WUsrLendList`画面を再描画したページであり、
+  `window.onload = createConfirmDialog`でページ読込直後に確認ダイアログを表示する
+  （メッセージ文言はHARの文字コード破損により本書では確認できていない。日本語部分が
+  文字化けしたHARだったため、正確な文言は別途確認が必要）。
+- ダイアログでOKが選ばれると、共通のJS関数が`OK_CODES_NAME = "okCodes"`という変数名で
+  `okCodes=OPACUSR005`という固定値を`document.prevRequestForm`へ隠しフィールドとして追加し、
+  `document.prevRequestForm.action = "/licsxp-opac/WOpacUsrLendListExtendAction.do"`
+  （クエリなし、絶対パス）を明示的に設定してから`submit()`する（2段階目）。
+  この`OK_CODES_NAME`/`prevRequestForm`という命名は、予約取消・予約非表示で確認済みの
+  共通確認ダイアログ機構と同一である。
+- `prevRequestForm`は1段階目の応答内に`<form name="prevRequestForm" method="post">`として存在し、
+  隠しフィールドは1段階目の送信body（`schkflg`・`allschkflg`・`hash`・`islogin`・`btnflg`(重複)・
+  `checkflag`(重複)・`booklistvalue`・`commntvalue`・`returnid`・`gamenid`・`para`・`mngFlg1`・
+  `sortkeyvalue`・`sortDefKey`・`booklist`)とDOM順・重複数まで完全一致する。2段階目の実際の送信は、
+  この`prevRequestForm`の内容へ`mngFlg1_handan=1`を先頭付近に含めたうえで`okCodes`を末尾に
+  追加したものであり、予約取消・非表示と同じ「前段の送信内容を保持したフォームへ確認コードを
+  追加して再送する」パターンである。
+- 2段階目のactionは**常に明示的**（`/licsxp-opac/WOpacUsrLendListExtendAction.do`固定）であり、
+  予約非表示のように「action省略時は現在ドキュメントURLへ送る」という曖昧さは無い。
+- `gamenid`は1段階目・2段階目とも`tiles.WUsrLendList`で一貫しており、予約の直接確定
+  （`tiles.WYoyConfirm`）のような専用確認画面テンプレートは無い。貸出状況一覧そのものを
+  再描画して確認ダイアログを重ねる方式である。
+- 両段階の応答とも`<div id="messages">`は空（`<li>`無し）であり、既存の`extractSiteMessages`が
+  拾う成功・失敗メッセージはこの機能では得られない。成否判定はメッセージ文言に頼れず、
+  返却期限日の変化、または対象行の延長ボタン消失で判定する必要がある。
+- 2段階目応答（貸出状況一覧の再描画）には、延長したはずの資料の`extend(mngcod)`呼び出しが
+  見当たらなくなった（延長ボタンが消えた）。延長後に再度延長できるかどうかは今回の1件だけの
+  観測では確認できていない。
+
+### 未確認事項
+
+- 延長ボタン押下時にサイトが表示するダイアログの正確な文言（HARの文字コード破損により未取得）。
+- 延長を拒否される場合（延長回数上限、予約が入っている資料、返却期限超過中の資料など）の
+  応答構造。今回のHARは成功例1件のみで、拒否例は未取得。
+- 延長後、同じ資料に再度延長ボタンが出るか（延長回数に上限があるか）。
+- `para`の値（延長管理コード）が、貸出状況一覧を再取得するたびに変化するか、安定した値か。
