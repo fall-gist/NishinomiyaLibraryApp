@@ -1041,6 +1041,50 @@ class LicsXpSession private constructor(
 2は独立レビューのみが検出した。**両者に共通して検出した指摘は無く、単独レビューでは
 どちらも3件全ては拾えなかった。**
 
+#### 段階5〜6の実装(2026-08-05)
+
+- **完了**: 段階5(UI: 貸出中一覧の延長ボタン・確認ダイアログ・結果表示)、段階6
+  (`liveLoanExtensionDiagnostic`タスクの登録のみ・未実行)。それぞれ別コミット。
+  `testDebugUnitTest` 658件成功(失敗・エラー・スキップ0)、`assembleDebug`成功。
+  **実サイトへの通信は一切行っていない**(UIテストはコントローラ単体、診断タスクは登録のみで未実行)。
+- **段階7(実サイト一連確認)は未着手。** 所有者の対象指定と明示承認なしに着手しない。
+
+##### 実装内容
+
+- `LoanRow`(`LoansScreenController.kt`)に`memberId`・`dueDate`・`extendable`を追加し、
+  `canExtend`(`extendable && tilcod.isNotBlank()`)で延長ボタンの出し分け条件を一元化した
+  (設計§10「除外」項目: `extendable=true`でも`tilcod`が空なら延長操作を起動できない)。
+- UI状態は`ReservationCancelUiController`と同じ流儀で`LoanExtensionUiController`
+  (`ui/loans/LoanExtensionUiController.kt`)へ分離した。`LoanExtensionRepository`だけを叩き、
+  Gatewayは直接呼ばない。確認ダイアログを確定するまで通信を開始しない。処理中は対象行のキー
+  (`processingTarget`)を保持し、行のボタン無効化・進行中表示に使う。結果文言(`Extended`/
+  `Unknown`/`Failure`)は`LoanExtensionContentBuilder`(Android非依存の純関数)で組み立て、
+  `succeeded`フラグをUnknown/成功の唯一の判定点にした(進行指示15と同じ考え方)。
+- `LoanExtensionRepositoryImpl`に、`Extended`成功時だけ対象行(`memberId`+`tilcod`)のRoomを
+  `dueDate`/`extendable=false`へ更新する処理を追加した(設計§6.1)。`LoanDao.applyExtensionResult`
+  が対象行を`countByMemberAndTilcod`で数え、1件でなければ`updateAfterExtension`を呼ばずに
+  `false`を返す(フェイルクローズ)。`Unknown`/`Failure`では呼び出し自体を行わない。ローカル
+  反映の失敗(例外)は延長そのものの成否を変えない(サイト側では既に延長済みのため)。
+- `liveLoanExtensionDiagnostic`タスク(`app/build.gradle.kts`)を既存4タスクと同じ`exclude`設定に
+  加えた。診断本体(`LiveLoanExtensionDiagnostic.kt`)は既存の本番実装
+  (`LicsXpLoanExtensionSession.extendLoan`)をそのまま1回だけ呼ぶだけで、独自の書込みロジックは
+  持たない。ログはPOSTのmethod/path・段階名・`outcome`の種別(`Extended(dueDateChanged=true)`/
+  `Unknown`/`Failure(reason)`)だけで、返却期限の実値・カード番号・パスワード・Cookie・hash実値・
+  `para`/`mngcod`実値・資料名・HTML本文は一切出力しない。
+
+##### 意図的破壊による検出確認(実施済み)
+
+4件とも実際に赤くなることを確認してから元に戻した。
+
+1. `LoanRow.canExtend`を`extendable`単独判定に変更 → `LoansContentBuilderTest`の
+   `canExtend_isTrueOnlyWhenExtendableAndTilcodPresent`が失敗
+2. `LoanExtensionContentBuilder.resultMessage`の`Unknown`分岐を`succeeded=true`に変更 →
+   `LoanExtensionContentBuilderTest`・`LoanExtensionUiControllerTest`の対応するテストが失敗
+3. `LoanExtensionRepositoryImpl`のローカル反映を`Extended`限定から無条件呼び出しに変更 →
+   `LoanExtensionRepositoryTest`の`Unknownでは対象行を一切更新しない`が失敗
+4. `LoanDao.applyExtensionResult`から件数チェックを除去 → `LoanExtensionRepositoryTest`の
+   `対象行が1件でなければExtendedでも更新しない`が失敗
+
 ### 6. 予約取消に続けて「非表示」まで自動で処理する（2026-08-04、実サイト一連確認成功）
 
 **所有者の想定は「UIに非表示ボタンを置く」ことではなく、予約取消が成立したあとアプリが続けて
