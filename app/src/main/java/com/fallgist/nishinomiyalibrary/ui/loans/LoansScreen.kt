@@ -177,21 +177,18 @@ private fun LoanRowView(
                 fontSize = 11.sp,
                 fontWeight = if (row.overdue || row.dueSoon) FontWeight.SemiBold else FontWeight.Normal,
             )
-        }
-        // 延長ボタンは extendable かつ tilcod が空でない行にだけ出す(`docs/design/loan-extension.md` §6・§9.1)。
-        // 除外条件はLoanRow.canExtendに集約し、UI側で条件を再実装しない。
-        if (row.canExtend) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 0.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            // 延長ボタンは extendable かつ tilcod が空でない行にだけ出す(`docs/design/loan-extension.md` §6・§9.1)。
+            // 除外条件はLoanRow.canExtendに集約し、UI側で条件を再実装しない。
+            // 予約一覧の取消ボタン(ReservationsScreen.kt)と同じ流儀: 情報行の右端に収め、
+            // heightのみ32dpに詰めてタップ領域を確保しつつ行の高さ増加を抑える。
+            if (row.canExtend) {
+                Spacer(Modifier.width(8.dp))
                 if (extending) {
                     Text(
                         text = "延長処理中…",
                         color = colors.ink2,
                         fontSize = 11.sp,
-                        modifier = Modifier.padding(bottom = 10.dp, end = 8.dp),
+                        modifier = Modifier.padding(end = 8.dp),
                     )
                 }
                 Button(
@@ -199,11 +196,9 @@ private fun LoanRowView(
                     enabled = !extendDisabled,
                     colors = ButtonDefaults.buttonColors(containerColor = colors.green, contentColor = colors.card),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp).padding(bottom = 10.dp),
+                    modifier = Modifier.height(32.dp),
                 ) { Text("延長") }
             }
-        } else {
-            Spacer(Modifier.height(0.dp))
         }
     }
 }
