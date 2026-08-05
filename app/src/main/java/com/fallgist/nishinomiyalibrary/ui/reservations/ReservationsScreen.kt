@@ -40,6 +40,8 @@ import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
+import com.fallgist.nishinomiyalibrary.ui.components.MemberDotGap
+import com.fallgist.nishinomiyalibrary.ui.components.MemberDotIndent
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
@@ -240,7 +242,9 @@ private fun ReservationRowView(
                 .padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
         ) {
             // ドットは書誌名の左に置く(2026-08-05・個別行にメンバー名は出さない。絞り込み行の再掲を避ける)。
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // レイアウト追い込み第3次(2026-08-06)項目10: ドットは書誌名と同じRow(CenterVertically)に
+            // 置き、書誌名の縦中央で揃える(予約中一覧は元々この形)。間隔はMemberDotGapで3画面共通化。
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(MemberDotGap)) {
                 MemberDot(row.memberColorHex)
                 Text(
                     text = row.title,
@@ -252,8 +256,12 @@ private fun ReservationRowView(
                 )
             }
             Spacer(Modifier.height(6.dp))
+            // 項目11: 書誌名より下の行(館名・予約順位・取置期限・取消ボタン)にMemberDotIndentを与え、
+            // 書誌名のインデントと揃える。1行目(ステータスラベル・チェックボックス)には付けない。
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = MemberDotIndent),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(

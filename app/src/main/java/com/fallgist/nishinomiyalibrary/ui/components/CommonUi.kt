@@ -102,9 +102,25 @@ fun EmptyNote(text: String, modifier: Modifier = Modifier) {
     )
 }
 
+/** [MemberDot]の既定直径。 */
+private val MemberDotDefaultSize = 9.dp
+
+/**
+ * 一覧行で書誌名とメンバードットの間に空ける間隔(行レイアウト追い込み第3次・項目10、2026-08-06)。
+ * 貸出中・予約中・読書記録の3画面共通。
+ */
+val MemberDotGap = 8.dp
+
+/**
+ * 書誌名より下の行(館名・返却期限・予約順位・取置期限)に与える`start` padding(同・項目11)。
+ * ドット径([MemberDotDefaultSize])＋ドットと書誌名の間隔([MemberDotGap])。
+ * [MemberDot]の既定サイズを変えた場合、3画面のインデントが自動で追随する。
+ */
+val MemberDotIndent = MemberDotDefaultSize + MemberDotGap
+
 /** メンバー識別色のドット。 */
 @Composable
-fun MemberDot(colorHex: String, modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 9.dp) {
+fun MemberDot(colorHex: String, modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = MemberDotDefaultSize) {
     val colors = LocalAppColors.current
     Box(
         modifier = modifier

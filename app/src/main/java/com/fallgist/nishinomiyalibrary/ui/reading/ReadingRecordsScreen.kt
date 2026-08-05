@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
+import com.fallgist.nishinomiyalibrary.ui.components.MemberDotGap
+import com.fallgist.nishinomiyalibrary.ui.components.MemberDotIndent
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
@@ -111,7 +113,10 @@ fun ReadingRecordsScreen(
 @Composable
 private fun ReadingRowView(row: ReadingRow, onClick: () -> Unit) {
     val colors = LocalAppColors.current
-    Row(
+    // レイアウト追い込み第3次(2026-08-06)項目10: ドットは書誌名と同じRow(CenterVertically)に置き、
+    // 書誌名の縦中央で揃える。外側で「ドット｜Column」と横に並べる旧構造(ドットがColumn全体の
+    // 縦中央に付いてしまう)をやめ、Column{ Row(ドット+書誌名) ; Row(下の行) }の形にする。
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 6.dp)
@@ -120,24 +125,28 @@ private fun ReadingRowView(row: ReadingRow, onClick: () -> Unit) {
             .border(1.dp, colors.line, RoundedCornerShape(12.dp))
             .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        MemberDot(row.memberColorHex)
-        Column(modifier = Modifier.weight(1f)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(MemberDotGap),
+        ) {
+            MemberDot(row.memberColorHex)
             Text(
                 text = row.title,
                 color = colors.ink,
                 fontSize = 13.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-            )
-            // 個別行にメンバー名は出さない(2026-08-05・ドットのみ)。絞り込み行での再掲を避ける。
-            Text(
-                text = "${row.loanDateLabel} · ${row.library}",
-                color = colors.ink2,
-                fontSize = 11.sp,
+                modifier = Modifier.weight(1f),
             )
         }
+        // 個別行にメンバー名は出さない(2026-08-05・ドットのみ)。絞り込み行での再掲を避ける。
+        // 項目11: 書誌名より下の行にMemberDotIndentを与え、書誌名のインデントと揃える。
+        Text(
+            text = "${row.loanDateLabel} · ${row.library}",
+            color = colors.ink2,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(start = MemberDotIndent),
+        )
     }
 }
