@@ -88,13 +88,16 @@ object LoansContentBuilder {
         return loans.filter { it.memberId in activeIds }.groupingBy { it.memberId }.eachCount()
     }
 
+    // 先頭に「返却期限」を付ける(2026-08-05 レイアウト追い込み第2次 項目9)。
+    // 予約中一覧の「取置期限 8/19 まで」と同じ形にする。「まで」はこの関数が既に付けているため、
+    // ここで二重に付けないこと。
     private fun dueLabel(date: LocalDate, today: LocalDate): String {
         val formatted = dateFormatter.format(date)
         return when {
-            date.isBefore(today) -> "$formatted まで(超過)"
-            date == today -> "きょう $formatted まで"
-            date == today.plusDays(1) -> "あす $formatted まで"
-            else -> "$formatted まで"
+            date.isBefore(today) -> "返却期限 $formatted まで(超過)"
+            date == today -> "返却期限 きょう $formatted まで"
+            date == today.plusDays(1) -> "返却期限 あす $formatted まで"
+            else -> "返却期限 $formatted まで"
         }
     }
 }

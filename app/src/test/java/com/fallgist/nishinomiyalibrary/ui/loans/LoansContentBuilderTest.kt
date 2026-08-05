@@ -59,9 +59,41 @@ class LoansContentBuilderTest {
         assertEquals(listOf("超過本", "きょう本", "もうすぐ本", "遠い本"), rows.map { it.title })
         assertTrue(rows[0].overdue)
         assertTrue(rows[0].dueLabel.contains("超過"))
-        assertTrue(rows[1].dueLabel.startsWith("きょう"))
+        assertTrue(rows[1].dueLabel.contains("きょう"))
         assertFalse(rows[2].overdue)
         assertFalse(rows[3].overdue)
+    }
+
+    // ------------------------------------------------------------------
+    // レイアウト追い込み(第2次) 項目9: dueLabelの先頭に「返却期限」を付ける。
+    // 「まで」は既存ロジックが付けているため、二重に付いていないことを4パターンすべてで固定する。
+    // ------------------------------------------------------------------
+
+    @Test
+    fun dueLabel_prefixedWithReturnDeadlineAndDoesNotDoubleUpMade() {
+        val loans = listOf(
+            loan(papa.id, "通常本", today.plusDays(5)),
+            loan(papa.id, "きょう本", today),
+            loan(papa.id, "あす本", today.plusDays(1)),
+            loan(papa.id, "超過本", today.minusDays(2)),
+        )
+
+        val rows = LoansContentBuilder.build(members, loans, selectedMemberId = null, today = today)
+        val labelByTitle = rows.associate { it.title to it.dueLabel }
+
+        // 各パターンとも先頭が「返却期限」で始まり、「まで」がちょうど1回だけ出現すること(二重付与の検出)。
+        for ((title, label) in labelByTitle) {
+            assertTrue("先頭に「返却期限」が無い: $title -> $label", label.startsWith("返却期限"))
+            val madeCount = Regex("まで").findAll(label).count()
+            assertEquals("「まで」が二重、または欠落している: $title -> $label", 1, madeCount)
+        }
+
+        assertTrue(labelByTitle.getValue("超過本").contains("(超過)"))
+        assertTrue(labelByTitle.getValue("きょう本").contains("きょう"))
+        assertTrue(labelByTitle.getValue("あす本").contains("あす"))
+        assertFalse(labelByTitle.getValue("通常本").contains("きょう"))
+        assertFalse(labelByTitle.getValue("通常本").contains("あす"))
+        assertFalse(labelByTitle.getValue("通常本").contains("超過"))
     }
 
     @Test

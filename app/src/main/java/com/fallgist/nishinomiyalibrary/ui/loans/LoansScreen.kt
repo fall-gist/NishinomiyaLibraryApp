@@ -150,11 +150,11 @@ private fun LoanRowView(
                 .fillMaxWidth()
                 .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
                 .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             // ドットは書誌名の左に置く(2026-08-05・個別行にメンバー名は出さない。絞り込み行の再掲を避ける)。
-            MemberDot(row.memberColorHex)
+            MemberDot(row.memberColorHex, modifier = Modifier.padding(top = 4.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = row.title,
@@ -163,50 +163,63 @@ private fun LoanRowView(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // 返却期限は書誌名の下・館名と同じ行の右側へ(2026-08-05)。予約中一覧の取置期限と同じ見え方にする。
-                // 色はalert(赤)をやめ太字+cautionInkにする。従来のoverdue/dueSoonによる色出し分けは無くなるが、
-                // 延滞行の背景色(alertBg)による区別は行レベルで維持する。
+                Spacer(Modifier.height(4.dp))
+                // 館名・返却期限は書誌名の下の行にまとめ、延長ボタンは行レイアウト追い込み第2次(2026-08-05)
+                // 項目8により同じ行の右端(館名の行の右端)へ移す。予約中一覧の取消ボタンと同じ流儀。
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = row.library,
-                        color = colors.ink2,
-                        fontSize = 11.sp,
+                    // 館名と返却期限は同じweight(1f)の組に入れ、館名のすぐ右に少し間隔を空けて置く
+                    // (予約中一覧の取置期限と同じ配置。項目9)。右端は延長ボタンだけにする。
+                    Row(
                         modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = row.dueLabel,
-                        color = colors.cautionInk,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = row.library,
+                            color = colors.ink2,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // 返却期限の文言は「返却期限」を先頭に付け、予約中一覧の「取置期限 8/19 まで」と揃える
+                        // (項目9)。「まで」はLoansContentBuilder.dueLabelが既に付けているため二重付与しない。
+                        // 色はalert(赤)をやめ太字+cautionInkにする。従来のoverdue/dueSoonによる色出し分けは
+                        // 無くなるが、延滞行の背景色(alertBg)による区別は行レベルで維持する。
+                        Text(
+                            text = row.dueLabel,
+                            color = colors.cautionInk,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    // 延長ボタンは extendable かつ tilcod が空でない行にだけ出す(`docs/design/loan-extension.md` §6・§9.1)。
+                    // 除外条件はLoanRow.canExtendに集約し、UI側で条件を再実装しない。
+                    // 予約一覧の取消ボタン(ReservationsScreen.kt)と同じ流儀: 情報行の右端に収め、
+                    // heightのみ32dpに詰めてタップ領域を確保しつつ行の高さ増加を抑える。
+                    if (row.canExtend) {
+                        Spacer(Modifier.width(8.dp))
+                        if (extending) {
+                            Text(
+                                text = "延長処理中…",
+                                color = colors.ink2,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
+                        }
+                        Button(
+                            onClick = onRequestExtend,
+                            enabled = !extendDisabled,
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.green, contentColor = colors.card),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp),
+                        ) { Text("延長") }
+                    }
                 }
-            }
-            // 延長ボタンは extendable かつ tilcod が空でない行にだけ出す(`docs/design/loan-extension.md` §6・§9.1)。
-            // 除外条件はLoanRow.canExtendに集約し、UI側で条件を再実装しない。
-            // 予約一覧の取消ボタン(ReservationsScreen.kt)と同じ流儀: 情報行の右端に収め、
-            // heightのみ32dpに詰めてタップ領域を確保しつつ行の高さ増加を抑える。
-            if (row.canExtend) {
-                Spacer(Modifier.width(8.dp))
-                if (extending) {
-                    Text(
-                        text = "延長処理中…",
-                        color = colors.ink2,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
-                }
-                Button(
-                    onClick = onRequestExtend,
-                    enabled = !extendDisabled,
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.green, contentColor = colors.card),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp),
-                ) { Text("延長") }
             }
         }
     }

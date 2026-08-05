@@ -178,11 +178,6 @@ private fun BulkCancelBar(selectedCount: Int, enabled: Boolean, onClick: () -> U
     }
 }
 
-// 取消不可の行でチェックボックスを非表示にした際、タイトルの行頭を揃えるための予約幅。
-// Checkboxの実占有幅(padding(start = 4.dp) + Material3 minimumInteractiveComponentSize の 48.dp)と一致させる。
-// 値はandroidx.compose.material3:material3-android:1.3.0のソース(Checkbox.kt/InteractiveComponentSize.kt)で実測確認済み。
-private val ReservationCheckboxSlotWidth = 4.dp + 48.dp
-
 @Composable
 private fun ReservationRowView(
     row: ReservationRow,
@@ -193,7 +188,11 @@ private fun ReservationRowView(
     onRequestCancel: () -> Unit,
 ) {
     val colors = LocalAppColors.current
-    Row(
+    // レイアウト追い込み第2次(2026-08-05)項目7: 全行で確保していたチェックボックス幅(52dp)を廃止し、
+    // 内容を左詰めにする。チェックボックスは1行目(ステータスラベルの行)へ移し、行タップ(2行目以降の
+    // clickable Column)とは別のRowに置くことでタップ領域を分離する
+    // (docs/ui-design.md「選択用チェックボックスは常時表示する」を維持)。
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 6.dp)
@@ -204,36 +203,42 @@ private fun ReservationRowView(
                 if (row.isReady) colors.green.copy(alpha = 0.3f) else colors.line,
                 RoundedCornerShape(14.dp),
             ),
-        verticalAlignment = Alignment.Top,
     ) {
-        if (row.cancellable) {
-            // チェックボックスは独立したタップ領域を持つ。行タップ(書誌詳細を開く)を誤発火させない。
-            Checkbox(
-                checked = selected,
-                onCheckedChange = { onToggleSelection() },
-                enabled = selectionEnabled,
-                colors = CheckboxDefaults.colors(checkedColor = colors.alert),
-                modifier = Modifier.padding(top = 8.dp, start = 4.dp),
-            )
-        } else {
-            // 取消できない行(受取可能・移送中など)ではチェックボックス自体を出さない(無効表示は分かりにくいため)。
-            // ただしチェックボックス分の幅は空けておき、全行でタイトルの行頭を揃える。
-            Spacer(modifier = Modifier.width(ReservationCheckboxSlotWidth))
-        }
-        Column(
+        // 1行目: ステータスラベル。取消可能な行だけチェックボックスを添える(幅も確保しない)。
+        // このRowはクリック不可(行タップ領域の外)。チェックボックスは独立したタップ領域を持つ。
+        Row(
             modifier = Modifier
-                .weight(1f)
-                // 行タップは書誌詳細への遷移。チェックボックスとは別モディファイアなので領域が競合しない。
-                .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
-                .padding(end = 14.dp, top = 12.dp, bottom = 12.dp),
+                .fillMaxWidth()
+                .padding(
+                    start = if (row.cancellable) 4.dp else 14.dp,
+                    end = 14.dp,
+                    top = if (row.cancellable) 2.dp else 10.dp,
+                    bottom = 4.dp,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (row.cancellable) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { onToggleSelection() },
+                    enabled = selectionEnabled,
+                    colors = CheckboxDefaults.colors(checkedColor = colors.alert),
+                )
+            }
             Text(
                 text = row.statusLabel,
                 color = if (row.isReady) colors.greenInk else colors.ink2,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
             )
-            Spacer(Modifier.height(5.dp))
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                // 行タップは書誌詳細への遷移。チェックボックスの行(上記Row)とは別のRowなので領域が競合しない。
+                .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
+                .padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+        ) {
             // ドットは書誌名の左に置く(2026-08-05・個別行にメンバー名は出さない。絞り込み行の再掲を避ける)。
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MemberDot(row.memberColorHex)
