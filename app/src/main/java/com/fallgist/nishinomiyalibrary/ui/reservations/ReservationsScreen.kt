@@ -227,27 +227,25 @@ private fun ReservationRowView(
                 .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
                 .padding(end = 14.dp, top = 12.dp, bottom = 12.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = row.statusLabel,
-                    color = if (row.isReady) colors.greenInk else colors.ink2,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    MemberDot(row.memberColorHex)
-                    Text(text = row.memberName, color = colors.ink2, fontSize = 11.sp)
-                }
-            }
-            Spacer(Modifier.height(5.dp))
             Text(
-                text = row.title,
-                color = colors.ink,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                text = row.statusLabel,
+                color = if (row.isReady) colors.greenInk else colors.ink2,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
             )
+            Spacer(Modifier.height(5.dp))
+            // ドットは書誌名の左に置く(2026-08-05・個別行にメンバー名は出さない。絞り込み行の再掲を避ける)。
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MemberDot(row.memberColorHex)
+                Text(
+                    text = row.title,
+                    color = colors.ink,
+                    fontSize = 14.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             Spacer(Modifier.height(6.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -257,18 +255,34 @@ private fun ReservationRowView(
                     modifier = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text(
-                        text = "受取館 ${row.pickupLabel}",
-                        color = colors.ink2,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    // 受取館は接頭辞なしで館名のみ表示する。サイトが未定かつアプリの送信記録も無い行では
+                    // pickupLabelがnullになり、項目自体を出さない(館名を捏造しない)。
+                    row.pickupLabel?.let {
+                        Text(
+                            text = it,
+                            color = colors.ink2,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     row.queueLabel?.let {
                         Text(
                             text = it,
                             color = colors.ink2,
                             fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    // 取置期限も同じRowに並べるだけにする(queueLabelと排他の想定だが、両方非nullでも
+                    // どちらかを捨てず両方表示する。受取可能時の赤太字は維持)。
+                    row.holdExpiryLabel?.let {
+                        Text(
+                            text = it,
+                            color = if (row.isReady) colors.alert else colors.ink2,
+                            fontSize = 11.sp,
+                            fontWeight = if (row.isReady) FontWeight.SemiBold else FontWeight.Normal,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -287,15 +301,6 @@ private fun ReservationRowView(
                         modifier = Modifier.height(32.dp),
                     ) { Text("取消") }
                 }
-            }
-            row.holdExpiryLabel?.let {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = it,
-                    color = if (row.isReady) colors.alert else colors.ink2,
-                    fontSize = 11.sp,
-                    fontWeight = if (row.isReady) FontWeight.SemiBold else FontWeight.Normal,
-                )
             }
         }
     }

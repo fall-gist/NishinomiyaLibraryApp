@@ -7,6 +7,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
@@ -41,6 +42,13 @@ interface StatusRepository {
     fun loans(): Flow<List<Loan>>
 
     fun reservations(): Flow<List<Reservation>>
+
+    /**
+     * 予約送信時にアプリが記録した受取館(表示専用)。予約中一覧が受取館「未定」の名前解決に使う
+     * (`docs/ui-design.md`「方針: 一覧画面の行レイアウト統一」6番)。[reservations]の`pickupLibrary`
+     * (サイトの値)とは別入力であり、混ぜて返してはならない。
+     */
+    fun pickupSubmissions(): Flow<List<ReservationPickupSubmissionRecord>>
 
     fun shelf(memberId: Long): Flow<List<ShelfItem>>
 

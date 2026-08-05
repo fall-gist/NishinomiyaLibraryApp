@@ -132,8 +132,9 @@ private fun ReadingRowView(row: ReadingRow, onClick: () -> Unit) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            // 個別行にメンバー名は出さない(2026-08-05・ドットのみ)。絞り込み行での再掲を避ける。
             Text(
-                text = "${row.loanDateLabel} · ${row.library} · ${row.memberName}",
+                text = "${row.loanDateLabel} · ${row.library}",
                 color = colors.ink2,
                 fontSize = 11.sp,
             )

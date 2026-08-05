@@ -418,6 +418,8 @@ class SettingsScreenControllerTest {
     private class FakeStatusRepository : StatusRepository {
         override fun loans(): Flow<List<Loan>> = flowOf(emptyList())
         override fun reservations(): Flow<List<Reservation>> = flowOf(emptyList())
+        override fun pickupSubmissions(): Flow<List<com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionRecord>> =
+            flowOf(emptyList())
         override fun shelf(memberId: Long): Flow<List<ShelfItem>> = flowOf(emptyList())
         override fun summaries(): Flow<List<UserSummary>> = flowOf(emptyList())
         override fun lastSync(): Flow<SyncLog?> = MutableStateFlow(null)

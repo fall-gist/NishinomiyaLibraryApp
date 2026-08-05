@@ -150,7 +150,42 @@ data class Holding(
     val status: String,
 )
 
-data class Library(val code: String, val name: String)
+data class Library(val code: String, val name: String) {
+    companion object {
+        /**
+         * 全12館の館コード→館名の対応表。唯一の正本であり、内容(コードと名前の組)は変更しないこと。
+         * 旧`CalendarRepositoryImpl`の`private companion object`から移動しただけで、値は1文字も変えていない
+         * (`docs/ui-design.md`「方針: 一覧画面の行レイアウト統一」6番)。
+         * `CalendarRepositoryImpl.libraries`と、予約中一覧の受取館未定時の名前解決の両方から参照する。
+         */
+        val ALL_LIBRARIES = listOf(
+            Library("001", "中央図書館"),
+            Library("002", "北口図書館"),
+            Library("003", "鳴尾図書館"),
+            Library("004", "北部図書館"),
+            Library("101", "越木岩分室"),
+            Library("102", "若竹分室"),
+            Library("103", "段上分室"),
+            Library("104", "上ケ原分室"),
+            Library("105", "甲東園分室"),
+            Library("106", "高須分室"),
+            Library("107", "山口分室"),
+            Library("109", "義務教育学校"),
+        )
+    }
+}
+
+/**
+ * 予約送信時にアプリが記録した受取館の情報(表示専用の投影)。
+ * サイトの受取館表示が「未定」の間、`ReservationsContentBuilder`が名前解決に使う
+ * (`docs/ui-design.md`「方針: 一覧画面の行レイアウト統一」6番)。
+ * `Reservation.pickupLibrary`(サイトの値)とは別の入力として渡し、混ぜて書き換えないこと。
+ */
+data class ReservationPickupSubmissionRecord(
+    val memberId: Long,
+    val tilcod: String,
+    val pickupLibraryCode: String,
+)
 
 data class ClosedDay(val libraryCode: String, val date: LocalDate)
 

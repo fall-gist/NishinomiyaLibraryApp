@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.reservations
 
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
 import java.time.LocalDate
@@ -51,14 +52,87 @@ class ReservationsContentBuilderTest {
     }
 
     @Test
-    fun blankPickupLibraryShownAsUndecided() {
+    fun blankPickupLibraryAndNoSubmissionRecordOmitsPickupLabel() {
+        // 表示規則3: サイトが未定・アプリの送信記録も無い(旧データ等) → 項目自体を出さない(nullで捏造しない)
         val reservations = listOf(
             Reservation(papa.id, "割当前の本", "本", "", today, 1, ReservationState.WAITING, null),
         )
 
         val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null)
 
-        assertEquals("未定", rows.single().pickupLabel)
+        assertNull(rows.single().pickupLabel)
+    }
+
+    // ------------------------------------------------------------------
+    // 受取館「未定」の表示規則(`docs/ui-design.md`「方針: 一覧画面の行レイアウト統一」6番)
+    // 3通り(サイトが実館名／未定+記録あり／未定+記録なし)を並べて固定する。
+    // ------------------------------------------------------------------
+
+    @Test
+    fun pickupLabel_サイトの受取館が実館名ならそれを最優先する() {
+        // サイトの値が最優先(送信記録があっても無視する)。中央図書館=コード001。
+        val reservations = listOf(
+            Reservation(papa.id, "確定済み", "本", "北口図書館", today, 1, ReservationState.WAITING, null, "1000001"),
+        )
+        val submissions = listOf(
+            ReservationPickupSubmissionRecord(memberId = papa.id, tilcod = "1000001", pickupLibraryCode = "001"),
+        )
+
+        val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null, submissions)
+
+        assertEquals("北口図書館", rows.single().pickupLabel)
+    }
+
+    @Test
+    fun pickupLabel_サイトが未定でも送信記録があればその館名を出す() {
+        val reservations = listOf(
+            Reservation(papa.id, "未定+記録あり", "本", "", today, 1, ReservationState.WAITING, null, "1000002"),
+        )
+        val submissions = listOf(
+            ReservationPickupSubmissionRecord(memberId = papa.id, tilcod = "1000002", pickupLibraryCode = "106"),
+        )
+
+        val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null, submissions)
+
+        assertEquals("高須分室", rows.single().pickupLabel)
+    }
+
+    @Test
+    fun pickupLabel_サイトが未定で送信記録も無ければ項目を出さない() {
+        val reservations = listOf(
+            Reservation(papa.id, "未定+記録なし", "本", "", today, 1, ReservationState.WAITING, null, "1000003"),
+        )
+
+        val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null, emptyList())
+
+        assertNull(rows.single().pickupLabel)
+    }
+
+    @Test
+    fun pickupLabel_未知の館コードの記録では館名を捏造せず項目を出さない() {
+        val reservations = listOf(
+            Reservation(papa.id, "未知コード", "本", "", today, 1, ReservationState.WAITING, null, "1000004"),
+        )
+        val submissions = listOf(
+            ReservationPickupSubmissionRecord(memberId = papa.id, tilcod = "1000004", pickupLibraryCode = "999"),
+        )
+
+        val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null, submissions)
+
+        assertNull(rows.single().pickupLabel)
+    }
+
+    @Test
+    fun pickupLabel_解決してもReservationのpickupLibraryは書き換わらない() {
+        // Repository/ドメイン側でサイトの値が保たれることを固定する(サイトが未定の値を保持したまま)。
+        val reservation = Reservation(papa.id, "未定+記録あり", "本", "", today, 1, ReservationState.WAITING, null, "1000005")
+        val submissions = listOf(
+            ReservationPickupSubmissionRecord(memberId = papa.id, tilcod = "1000005", pickupLibraryCode = "106"),
+        )
+
+        ReservationsContentBuilder.build(members, listOf(reservation), selectedMemberId = null, submissions)
+
+        assertEquals("", reservation.pickupLibrary)
     }
 
     @Test

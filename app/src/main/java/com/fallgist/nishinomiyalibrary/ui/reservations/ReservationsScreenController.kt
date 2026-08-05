@@ -1,8 +1,10 @@
 package com.fallgist.nishinomiyalibrary.ui.reservations
 
+import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
@@ -28,7 +30,11 @@ data class ReservationRow(
     val title: String,
     val isReady: Boolean,
     val statusLabel: String,
-    val pickupLabel: String,
+    /**
+     * 受取館の表示名。サイトが未定かつアプリの送信記録も無い行ではnull(項目自体を出さない)。
+     * サイトの値を最優先し、未定時だけアプリの送信記録で補う(`docs/ui-design.md`6番)。
+     */
+    val pickupLabel: String?,
     val queueLabel: String?,
     val holdExpiryLabel: String?,
     /** 書誌詳細リンク用。空文字列のときは遷移しない。 */
@@ -62,11 +68,18 @@ object ReservationsContentBuilder {
         members: List<Member>,
         reservations: List<Reservation>,
         selectedMemberId: Long?,
+        /**
+         * サイトの受取館が未定の行を補うアプリの送信記録(2026-08-05追加)。既定は空リストで、
+         * 呼出し元を追随させなくても既存呼出しは壊れない([Reservation.pickupLibrary]は変更しない)。
+         */
+        pickupSubmissions: List<ReservationPickupSubmissionRecord> = emptyList(),
     ): List<ReservationRow> {
         val activeIds = members.map { it.id }.toSet()
         val nameOf = members.associate { it.id to it.name }
         val colorOf = members.associate { it.id to it.colorHex }
         val orderOf = members.associate { it.id to it.sortOrder }
+        // (memberId, tilcod) -> 送信時の館コード。同じ組の記録が複数あることは想定しないため後勝ちでよい。
+        val submissionCodeOf = pickupSubmissions.associate { (it.memberId to it.tilcod) to it.pickupLibraryCode }
 
         val visible = reservations
             .filter { it.memberId in activeIds && (selectedMemberId == null || selectedMemberId == it.memberId) }
@@ -89,7 +102,7 @@ object ReservationsContentBuilder {
                 title = reservation.title,
                 isReady = reservation.state == ReservationState.READY,
                 statusLabel = statusLabel(reservation.state),
-                pickupLabel = reservation.pickupLibrary.takeIf { it.isNotBlank() } ?: "未定",
+                pickupLabel = resolvePickupLabel(reservation, submissionCodeOf),
                 queueLabel = reservation.queuePosition?.let { "予約順位 ${it}番目" },
                 // 提供可能でもEmail連絡前はサイト側で取置期限が未設定のため、受取可能行では「未定」を明示する
                 holdExpiryLabel = reservation.holdExpiryDate?.let { "取置期限 ${dateFormatter.format(it)} まで" }
@@ -136,6 +149,22 @@ object ReservationsContentBuilder {
         ReservationState.CANCELLED -> "取消済み"
         ReservationState.IN_TRANSIT -> "移送中"
     }
+
+    /**
+     * 受取館表示を解決する純関数(`docs/ui-design.md`「方針: 一覧画面の行レイアウト統一」6番、表示規則1〜3)。
+     * 1. サイトの受取館が実館名 → その値を最優先(書き換えない)
+     * 2. サイトが未定かつアプリの送信記録あり → 記録の館コードに対応する館名
+     * 3. サイトが未定かつ記録なし、または記録の館コードが対応表に無い(未知コード) → null(項目を出さない。館名を捏造しない)
+     */
+    private fun resolvePickupLabel(
+        reservation: Reservation,
+        submissionCodeOf: Map<Pair<Long, String>, String>,
+    ): String? {
+        val sitePickup = reservation.pickupLibrary.takeIf { it.isNotBlank() }
+        if (sitePickup != null) return sitePickup
+        val submittedCode = submissionCodeOf[reservation.memberId to reservation.tilcod] ?: return null
+        return Library.ALL_LIBRARIES.find { it.code == submittedCode }?.name
+    }
 }
 
 /** 予約中画面のFlowを集約するController。 */
@@ -156,15 +185,16 @@ class ReservationsScreenController(
             combine(
                 familyRepository.members(),
                 statusRepository.reservations(),
+                statusRepository.pickupSubmissions(),
                 selectedMemberId,
-            ) { members, reservations, selectedId ->
+            ) { members, reservations, pickupSubmissions, selectedId ->
                 val effectiveSelection = selectedId?.takeIf { id -> members.any { it.id == id } }
                 val countByMemberId = ReservationsContentBuilder.countByMember(members, reservations)
                 ReservationsUiState(
                     initialized = true,
                     members = members,
                     selectedMemberId = effectiveSelection,
-                    rows = ReservationsContentBuilder.build(members, reservations, effectiveSelection),
+                    rows = ReservationsContentBuilder.build(members, reservations, effectiveSelection, pickupSubmissions),
                     countByMemberId = countByMemberId,
                     totalCount = countByMemberId.values.sum(),
                 )

@@ -21,7 +21,8 @@ class CalendarRepositoryImpl @Inject constructor(
     private val gateway: LibraryGateway,
     private val clock: Clock,
 ) : CalendarRepository {
-    override val libraries: List<Library> = LIBRARIES
+    // 全12館の対応表は Library.ALL_LIBRARIES が唯一の正本(2026-08-05に移動。値は変更していない)。
+    override val libraries: List<Library> = Library.ALL_LIBRARIES
 
     override fun closedDays(libraryCode: String): Flow<List<ClosedDay>> =
         closedDayDao.observeForLibrary(libraryCode).map { days -> days.map { it.toDomain() } }
@@ -32,23 +33,6 @@ class CalendarRepositoryImpl @Inject constructor(
             libraryCode = libraryCode,
             today = LocalDate.now(clock),
             days = gateway.closedDays(libraryCode).map { ClosedDayEntity(libraryCode, it) },
-        )
-    }
-
-    private companion object {
-        val LIBRARIES = listOf(
-            Library("001", "中央図書館"),
-            Library("002", "北口図書館"),
-            Library("003", "鳴尾図書館"),
-            Library("004", "北部図書館"),
-            Library("101", "越木岩分室"),
-            Library("102", "若竹分室"),
-            Library("103", "段上分室"),
-            Library("104", "上ケ原分室"),
-            Library("105", "甲東園分室"),
-            Library("106", "高須分室"),
-            Library("107", "山口分室"),
-            Library("109", "義務教育学校"),
         )
     }
 }

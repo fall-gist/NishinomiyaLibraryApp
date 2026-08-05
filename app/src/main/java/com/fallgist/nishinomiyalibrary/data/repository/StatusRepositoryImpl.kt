@@ -5,6 +5,7 @@ import com.fallgist.nishinomiyalibrary.data.local.CredentialStore
 import com.fallgist.nishinomiyalibrary.data.local.dao.LoanDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationPickupSubmissionDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReadingRecordDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfItemDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.SyncLogDao
@@ -17,6 +18,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.UserData
 import com.fallgist.nishinomiyalibrary.data.sync.PostSyncNotifier
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
@@ -49,6 +51,7 @@ class StatusRepositoryImpl @Inject constructor(
     private val postSyncNotifier: PostSyncNotifier,
     private val clock: Clock,
     private val readingRecordDao: ReadingRecordDao = database.readingRecordDao(),
+    private val pickupSubmissionDao: ReservationPickupSubmissionDao = database.reservationPickupSubmissionDao(),
 ) : StatusRepository {
     private val syncMutex = Mutex()
 
@@ -56,6 +59,17 @@ class StatusRepositoryImpl @Inject constructor(
 
     override fun reservations(): Flow<List<Reservation>> =
         reservationDao.observeAll().map { reservations -> reservations.map { it.toDomain() } }
+
+    override fun pickupSubmissions(): Flow<List<ReservationPickupSubmissionRecord>> =
+        pickupSubmissionDao.observeAll().map { submissions ->
+            submissions.map {
+                ReservationPickupSubmissionRecord(
+                    memberId = it.memberId,
+                    tilcod = it.tilcod,
+                    pickupLibraryCode = it.pickupLibraryCode,
+                )
+            }
+        }
 
     override fun shelf(memberId: Long): Flow<List<ShelfItem>> =
         shelfItemDao.observeForMember(memberId).map { shelf -> shelf.map { it.toDomain() } }

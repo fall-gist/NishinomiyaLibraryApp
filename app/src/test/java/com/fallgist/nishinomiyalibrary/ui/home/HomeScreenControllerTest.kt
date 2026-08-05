@@ -228,6 +228,9 @@ class HomeScreenControllerTest {
 
         override fun reservations(): Flow<List<Reservation>> = reservations
 
+        override fun pickupSubmissions(): Flow<List<com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionRecord>> =
+            flowOf(emptyList())
+
         override fun shelf(memberId: Long): Flow<List<ShelfItem>> = flowOf(emptyList())
 
         override fun summaries(): Flow<List<UserSummary>> = flowOf(emptyList())

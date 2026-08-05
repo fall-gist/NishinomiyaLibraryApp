@@ -153,14 +153,8 @@ private fun LoanRowView(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(
-                modifier = Modifier.width(52.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                MemberDot(row.memberColorHex)
-                Text(text = row.memberName, color = colors.ink2, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+            // ドットは書誌名の左に置く(2026-08-05・個別行にメンバー名は出さない。絞り込み行の再掲を避ける)。
+            MemberDot(row.memberColorHex)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = row.title,
@@ -169,14 +163,29 @@ private fun LoanRowView(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(text = row.library, color = colors.ink2, fontSize = 11.sp)
+                // 返却期限は書誌名の下・館名と同じ行の右側へ(2026-08-05)。予約中一覧の取置期限と同じ見え方にする。
+                // 色はalert(赤)をやめ太字+cautionInkにする。従来のoverdue/dueSoonによる色出し分けは無くなるが、
+                // 延滞行の背景色(alertBg)による区別は行レベルで維持する。
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = row.library,
+                        color = colors.ink2,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = row.dueLabel,
+                        color = colors.cautionInk,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
-            Text(
-                text = row.dueLabel,
-                color = if (row.overdue || row.dueSoon) colors.alert else colors.ink2,
-                fontSize = 11.sp,
-                fontWeight = if (row.overdue || row.dueSoon) FontWeight.SemiBold else FontWeight.Normal,
-            )
             // 延長ボタンは extendable かつ tilcod が空でない行にだけ出す(`docs/design/loan-extension.md` §6・§9.1)。
             // 除外条件はLoanRow.canExtendに集約し、UI側で条件を再実装しない。
             // 予約一覧の取消ボタン(ReservationsScreen.kt)と同じ流儀: 情報行の右端に収め、

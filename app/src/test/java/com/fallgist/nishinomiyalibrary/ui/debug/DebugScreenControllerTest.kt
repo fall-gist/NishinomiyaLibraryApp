@@ -343,6 +343,9 @@ class DebugScreenControllerTest {
 
         override fun reservations(): Flow<List<Reservation>> = reservations
 
+        override fun pickupSubmissions(): Flow<List<com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionRecord>> =
+            MutableStateFlow(emptyList())
+
         override fun shelf(memberId: Long): Flow<List<ShelfItem>> = shelves.getOrPut(memberId) { MutableStateFlow(emptyList()) }
 
         override fun summaries(): Flow<List<UserSummary>> = summaries
