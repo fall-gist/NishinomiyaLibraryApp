@@ -20,7 +20,6 @@ import kotlinx.coroutines.launch
 
 /** 読書記録一覧の1行。 */
 data class ReadingRow(
-    val memberName: String,
     val memberColorHex: String,
     val title: String,
     val loanDateLabel: String,
@@ -45,11 +44,9 @@ object ReadingRecordsContentBuilder {
     private val dateFormatter = DateTimeFormatter.ofPattern("yyyy/M/d", Locale.JAPANESE)
 
     fun build(members: List<Member>, records: List<ReadingRecord>): List<ReadingRow> {
-        val nameOf = members.associate { it.id to it.name }
         val colorOf = members.associate { it.id to it.colorHex }
         return records.map { record ->
             ReadingRow(
-                memberName = nameOf[record.memberId] ?: "?",
                 memberColorHex = colorOf[record.memberId]?.takeIf { it.isNotBlank() } ?: FALLBACK_COLOR,
                 title = record.title,
                 loanDateLabel = dateFormatter.format(record.loanDate),

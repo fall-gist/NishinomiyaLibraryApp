@@ -7,7 +7,6 @@ import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -22,14 +21,12 @@ import kotlinx.coroutines.launch
 /** 貸出中一覧の1行。 */
 data class LoanRow(
     val memberId: Long,
-    val memberName: String,
     val memberColorHex: String,
     val title: String,
     val library: String,
     val dueDate: LocalDate,
     val dueLabel: String,
     val overdue: Boolean,
-    val dueSoon: Boolean,
     /** 書誌詳細リンク用。空文字列のときは遷移しない。 */
     val tilcod: String = "",
     /**
@@ -54,7 +51,6 @@ data class LoansUiState(
 
 /** 貸出中の表示行を返却期限昇順で組み立てる純関数。Android非依存でテストする。 */
 object LoansContentBuilder {
-    private const val DUE_SOON_DAYS = 3L
     private const val FALLBACK_COLOR = "#6E675C"
     private val dateFormatter = DateTimeFormatter.ofPattern("M/d(E)", Locale.JAPANESE)
 
@@ -65,7 +61,6 @@ object LoansContentBuilder {
         today: LocalDate,
     ): List<LoanRow> {
         val activeIds = members.map { it.id }.toSet()
-        val nameOf = members.associate { it.id to it.name }
         val colorOf = members.associate { it.id to it.colorHex }
         val orderOf = members.associate { it.id to it.sortOrder }
 
@@ -73,18 +68,14 @@ object LoansContentBuilder {
             .filter { it.memberId in activeIds && (selectedMemberId == null || selectedMemberId == it.memberId) }
             .sortedWith(compareBy({ it.dueDate }, { orderOf[it.memberId] ?: Int.MAX_VALUE }))
             .map { loan ->
-                val overdue = loan.dueDate.isBefore(today)
-                val daysUntil = ChronoUnit.DAYS.between(today, loan.dueDate)
                 LoanRow(
                     memberId = loan.memberId,
-                    memberName = nameOf[loan.memberId] ?: "?",
                     memberColorHex = colorOf[loan.memberId]?.takeIf { it.isNotBlank() } ?: FALLBACK_COLOR,
                     title = loan.title,
                     library = loan.lendingLibrary,
                     dueDate = loan.dueDate,
                     dueLabel = dueLabel(loan.dueDate, today),
-                    overdue = overdue,
-                    dueSoon = !overdue && daysUntil <= DUE_SOON_DAYS,
+                    overdue = loan.dueDate.isBefore(today),
                     tilcod = loan.tilcod,
                     extendable = loan.extendable,
                 )

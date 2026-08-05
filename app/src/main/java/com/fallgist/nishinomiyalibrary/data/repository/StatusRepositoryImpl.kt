@@ -67,6 +67,7 @@ class StatusRepositoryImpl @Inject constructor(
                     memberId = it.memberId,
                     tilcod = it.tilcod,
                     pickupLibraryCode = it.pickupLibraryCode,
+                    origin = it.origin,
                 )
             }
         }

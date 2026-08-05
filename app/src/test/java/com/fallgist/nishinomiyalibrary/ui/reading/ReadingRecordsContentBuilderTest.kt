@@ -20,7 +20,9 @@ class ReadingRecordsContentBuilderTest {
         val rows = ReadingRecordsContentBuilder.build(listOf(papa, hana), records)
 
         assertEquals(2, rows.size)
-        assertEquals("パパ", rows[0].memberName)
+        // memberNameは行レイアウト統一(2026-08-05)でカラードットのみの表示に変更したため
+        // ReadingRowから削除した。識別色で判定できることを確認する。
+        assertEquals("#3D6DB5", rows[0].memberColorHex)
         assertEquals("2026/7/1", rows[0].loanDateLabel)
         assertEquals("中央図書館", rows[0].library)
         // 書誌詳細遷移用にタイトルコードを保持する

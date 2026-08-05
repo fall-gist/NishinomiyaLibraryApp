@@ -185,6 +185,12 @@ data class ReservationPickupSubmissionRecord(
     val memberId: Long,
     val tilcod: String,
     val pickupLibraryCode: String,
+    /**
+     * 送信の確度。`UNVERIFIED_SUBMISSION`はPOST後の成否が確認できていない記録であり、
+     * その予約行が本当にアプリの送信で作られた保証が無いため、表示側で区別が必要
+     * (`docs/ui-design.md`「方針: 一覧画面の行レイアウト統一」6番)。
+     */
+    val origin: ReservationPickupSubmissionOrigin,
 )
 
 data class ClosedDay(val libraryCode: String, val date: LocalDate)

@@ -4,6 +4,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionOrigin
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
@@ -25,7 +26,6 @@ import kotlinx.coroutines.launch
 /** 予約中一覧の1行。受取可能は先頭に集める。 */
 data class ReservationRow(
     val memberId: Long,
-    val memberName: String,
     val memberColorHex: String,
     val title: String,
     val isReady: Boolean,
@@ -75,11 +75,10 @@ object ReservationsContentBuilder {
         pickupSubmissions: List<ReservationPickupSubmissionRecord> = emptyList(),
     ): List<ReservationRow> {
         val activeIds = members.map { it.id }.toSet()
-        val nameOf = members.associate { it.id to it.name }
         val colorOf = members.associate { it.id to it.colorHex }
         val orderOf = members.associate { it.id to it.sortOrder }
-        // (memberId, tilcod) -> 送信時の館コード。同じ組の記録が複数あることは想定しないため後勝ちでよい。
-        val submissionCodeOf = pickupSubmissions.associate { (it.memberId to it.tilcod) to it.pickupLibraryCode }
+        // (memberId, tilcod) -> 送信記録。同じ組の記録が複数あることは想定しないため後勝ちでよい。
+        val submissionOf = pickupSubmissions.associate { (it.memberId to it.tilcod) to it }
 
         val visible = reservations
             .filter { it.memberId in activeIds && (selectedMemberId == null || selectedMemberId == it.memberId) }
@@ -97,12 +96,11 @@ object ReservationsContentBuilder {
         return (ready + others).map { reservation ->
             ReservationRow(
                 memberId = reservation.memberId,
-                memberName = nameOf[reservation.memberId] ?: "?",
                 memberColorHex = colorOf[reservation.memberId]?.takeIf { it.isNotBlank() } ?: FALLBACK_COLOR,
                 title = reservation.title,
                 isReady = reservation.state == ReservationState.READY,
                 statusLabel = statusLabel(reservation.state),
-                pickupLabel = resolvePickupLabel(reservation, submissionCodeOf),
+                pickupLabel = resolvePickupLabel(reservation, submissionOf),
                 queueLabel = reservation.queuePosition?.let { "予約順位 ${it}番目" },
                 // 提供可能でもEmail連絡前はサイト側で取置期限が未設定のため、受取可能行では「未定」を明示する
                 holdExpiryLabel = reservation.holdExpiryDate?.let { "取置期限 ${dateFormatter.format(it)} まで" }
@@ -151,19 +149,28 @@ object ReservationsContentBuilder {
     }
 
     /**
-     * 受取館表示を解決する純関数(`docs/ui-design.md`「方針: 一覧画面の行レイアウト統一」6番、表示規則1〜3)。
+     * 受取館表示を解決する純関数(`docs/ui-design.md`「方針: 一覧画面の行レイアウト統一」6番、表示規則1〜5)。
      * 1. サイトの受取館が実館名 → その値を最優先(書き換えない)
-     * 2. サイトが未定かつアプリの送信記録あり → 記録の館コードに対応する館名
-     * 3. サイトが未定かつ記録なし、または記録の館コードが対応表に無い(未知コード) → null(項目を出さない。館名を捏造しない)
+     * 2. サイトが未定かつ記録あり・`CONFIRMED_SUBMISSION` → 記録の館コードに対応する館名
+     * 3. サイトが未定かつ記録あり・`UNVERIFIED_SUBMISSION` → 「○○館（未確認）」
+     *    (POST後の成否が確認できていない記録のため、その予約行が本当にアプリの送信で
+     *    作られた保証が無い。館名だけを出すと不確実な値を確定値として断定することになるため、
+     *    未確認であることを表示に残す。ここで項目を消してはならない)
+     * 4. サイトが未定かつ記録なし(ブラウザ予約・記録機能より前の旧データ) → null(項目を出さない)
+     * 5. 記録の館コードが対応表に無い(未知コード) → null(項目を出さない。館名を捏造しない)
      */
     private fun resolvePickupLabel(
         reservation: Reservation,
-        submissionCodeOf: Map<Pair<Long, String>, String>,
+        submissionOf: Map<Pair<Long, String>, ReservationPickupSubmissionRecord>,
     ): String? {
         val sitePickup = reservation.pickupLibrary.takeIf { it.isNotBlank() }
         if (sitePickup != null) return sitePickup
-        val submittedCode = submissionCodeOf[reservation.memberId to reservation.tilcod] ?: return null
-        return Library.ALL_LIBRARIES.find { it.code == submittedCode }?.name
+        val submission = submissionOf[reservation.memberId to reservation.tilcod] ?: return null
+        val libraryName = Library.ALL_LIBRARIES.find { it.code == submission.pickupLibraryCode }?.name ?: return null
+        return when (submission.origin) {
+            ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION -> libraryName
+            ReservationPickupSubmissionOrigin.UNVERIFIED_SUBMISSION -> "$libraryName（未確認）"
+        }
     }
 }
 

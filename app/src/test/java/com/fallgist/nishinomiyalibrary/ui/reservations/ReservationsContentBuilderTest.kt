@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.reservations
 
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionOrigin
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
@@ -65,17 +66,24 @@ class ReservationsContentBuilderTest {
 
     // ------------------------------------------------------------------
     // 受取館「未定」の表示規則(`docs/ui-design.md`「方針: 一覧画面の行レイアウト統一」6番)
-    // 3通り(サイトが実館名／未定+記録あり／未定+記録なし)を並べて固定する。
+    // 5通り(規則1: サイトが実館名／規則2: 未定+記録あり+CONFIRMED／規則3: 未定+記録あり+UNVERIFIED／
+    // 規則4: 未定+記録なし／規則5: 未定+記録あるが未知コード)を並べて固定する。
+    // 特に規則2と規則3が異なる文字列になること、規則4・5(null)が規則3(出す)と分かれることが本修正の核心。
     // ------------------------------------------------------------------
 
     @Test
-    fun pickupLabel_サイトの受取館が実館名ならそれを最優先する() {
+    fun pickupLabel_規則1_サイトの受取館が実館名ならそれを最優先する() {
         // サイトの値が最優先(送信記録があっても無視する)。中央図書館=コード001。
         val reservations = listOf(
             Reservation(papa.id, "確定済み", "本", "北口図書館", today, 1, ReservationState.WAITING, null, "1000001"),
         )
         val submissions = listOf(
-            ReservationPickupSubmissionRecord(memberId = papa.id, tilcod = "1000001", pickupLibraryCode = "001"),
+            ReservationPickupSubmissionRecord(
+                memberId = papa.id,
+                tilcod = "1000001",
+                pickupLibraryCode = "001",
+                origin = ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION,
+            ),
         )
 
         val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null, submissions)
@@ -84,12 +92,17 @@ class ReservationsContentBuilderTest {
     }
 
     @Test
-    fun pickupLabel_サイトが未定でも送信記録があればその館名を出す() {
+    fun pickupLabel_規則2_未定でCONFIRMEDの記録があれば館名をそのまま出す() {
         val reservations = listOf(
-            Reservation(papa.id, "未定+記録あり", "本", "", today, 1, ReservationState.WAITING, null, "1000002"),
+            Reservation(papa.id, "未定+CONFIRMED", "本", "", today, 1, ReservationState.WAITING, null, "1000002"),
         )
         val submissions = listOf(
-            ReservationPickupSubmissionRecord(memberId = papa.id, tilcod = "1000002", pickupLibraryCode = "106"),
+            ReservationPickupSubmissionRecord(
+                memberId = papa.id,
+                tilcod = "1000002",
+                pickupLibraryCode = "106",
+                origin = ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION,
+            ),
         )
 
         val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null, submissions)
@@ -98,7 +111,60 @@ class ReservationsContentBuilderTest {
     }
 
     @Test
-    fun pickupLabel_サイトが未定で送信記録も無ければ項目を出さない() {
+    fun pickupLabel_規則3_未定でUNVERIFIEDの記録は館名に未確認を付けて出す() {
+        val reservations = listOf(
+            Reservation(papa.id, "未定+UNVERIFIED", "本", "", today, 1, ReservationState.WAITING, null, "1000006"),
+        )
+        val submissions = listOf(
+            ReservationPickupSubmissionRecord(
+                memberId = papa.id,
+                tilcod = "1000006",
+                pickupLibraryCode = "106",
+                origin = ReservationPickupSubmissionOrigin.UNVERIFIED_SUBMISSION,
+            ),
+        )
+
+        val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null, submissions)
+
+        assertEquals("高須分室（未確認）", rows.single().pickupLabel)
+    }
+
+    @Test
+    fun pickupLabel_規則2と規則3は同じ館コードでも異なる文字列になる() {
+        // 本修正の核心: originを無視して館名だけ出す実装(修正前と同じ)ではこの2つが一致してしまう。
+        val confirmed = listOf(
+            Reservation(papa.id, "CONFIRMED", "本", "", today, 1, ReservationState.WAITING, null, "1000007"),
+        )
+        val confirmedSubmissions = listOf(
+            ReservationPickupSubmissionRecord(
+                memberId = papa.id,
+                tilcod = "1000007",
+                pickupLibraryCode = "106",
+                origin = ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION,
+            ),
+        )
+        val unverified = listOf(
+            Reservation(papa.id, "UNVERIFIED", "本", "", today, 1, ReservationState.WAITING, null, "1000008"),
+        )
+        val unverifiedSubmissions = listOf(
+            ReservationPickupSubmissionRecord(
+                memberId = papa.id,
+                tilcod = "1000008",
+                pickupLibraryCode = "106",
+                origin = ReservationPickupSubmissionOrigin.UNVERIFIED_SUBMISSION,
+            ),
+        )
+
+        val confirmedLabel = ReservationsContentBuilder.build(members, confirmed, null, confirmedSubmissions).single().pickupLabel
+        val unverifiedLabel = ReservationsContentBuilder.build(members, unverified, null, unverifiedSubmissions).single().pickupLabel
+
+        assertEquals("高須分室", confirmedLabel)
+        assertEquals("高須分室（未確認）", unverifiedLabel)
+        assertTrue(confirmedLabel != unverifiedLabel)
+    }
+
+    @Test
+    fun pickupLabel_規則4_サイトが未定で送信記録も無ければ項目を出さない() {
         val reservations = listOf(
             Reservation(papa.id, "未定+記録なし", "本", "", today, 1, ReservationState.WAITING, null, "1000003"),
         )
@@ -109,12 +175,17 @@ class ReservationsContentBuilderTest {
     }
 
     @Test
-    fun pickupLabel_未知の館コードの記録では館名を捏造せず項目を出さない() {
+    fun pickupLabel_規則5_未知の館コードの記録では館名を捏造せず項目を出さない() {
         val reservations = listOf(
             Reservation(papa.id, "未知コード", "本", "", today, 1, ReservationState.WAITING, null, "1000004"),
         )
         val submissions = listOf(
-            ReservationPickupSubmissionRecord(memberId = papa.id, tilcod = "1000004", pickupLibraryCode = "999"),
+            ReservationPickupSubmissionRecord(
+                memberId = papa.id,
+                tilcod = "1000004",
+                pickupLibraryCode = "999",
+                origin = ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION,
+            ),
         )
 
         val rows = ReservationsContentBuilder.build(members, reservations, selectedMemberId = null, submissions)
@@ -123,11 +194,57 @@ class ReservationsContentBuilderTest {
     }
 
     @Test
+    fun pickupLabel_規則4と5のnullは規則3の表示ありと明確に分かれる() {
+        // 規則4(記録なし)・規則5(未知コード)はnull、規則3(UNVERIFIED)は文字列を返すことを並べて固定する。
+        val noRecord = ReservationsContentBuilder.build(
+            members,
+            listOf(Reservation(papa.id, "記録なし", "本", "", today, 1, ReservationState.WAITING, null, "9000001")),
+            null,
+            emptyList(),
+        ).single().pickupLabel
+        val unknownCode = ReservationsContentBuilder.build(
+            members,
+            listOf(Reservation(papa.id, "未知コード", "本", "", today, 1, ReservationState.WAITING, null, "9000002")),
+            null,
+            listOf(
+                ReservationPickupSubmissionRecord(
+                    memberId = papa.id,
+                    tilcod = "9000002",
+                    pickupLibraryCode = "999",
+                    origin = ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION,
+                ),
+            ),
+        ).single().pickupLabel
+        val unverified = ReservationsContentBuilder.build(
+            members,
+            listOf(Reservation(papa.id, "未確認", "本", "", today, 1, ReservationState.WAITING, null, "9000003")),
+            null,
+            listOf(
+                ReservationPickupSubmissionRecord(
+                    memberId = papa.id,
+                    tilcod = "9000003",
+                    pickupLibraryCode = "106",
+                    origin = ReservationPickupSubmissionOrigin.UNVERIFIED_SUBMISSION,
+                ),
+            ),
+        ).single().pickupLabel
+
+        assertNull(noRecord)
+        assertNull(unknownCode)
+        assertEquals("高須分室（未確認）", unverified)
+    }
+
+    @Test
     fun pickupLabel_解決してもReservationのpickupLibraryは書き換わらない() {
         // Repository/ドメイン側でサイトの値が保たれることを固定する(サイトが未定の値を保持したまま)。
         val reservation = Reservation(papa.id, "未定+記録あり", "本", "", today, 1, ReservationState.WAITING, null, "1000005")
         val submissions = listOf(
-            ReservationPickupSubmissionRecord(memberId = papa.id, tilcod = "1000005", pickupLibraryCode = "106"),
+            ReservationPickupSubmissionRecord(
+                memberId = papa.id,
+                tilcod = "1000005",
+                pickupLibraryCode = "106",
+                origin = ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION,
+            ),
         )
 
         ReservationsContentBuilder.build(members, listOf(reservation), selectedMemberId = null, submissions)
@@ -188,7 +305,6 @@ class ReservationsContentBuilderTest {
     fun cancelCandidatesは選択済みかつ取消可能な行だけを候補にする() {
         val cancellableRow = ReservationRow(
             memberId = papa.id,
-            memberName = "パパ",
             memberColorHex = "#111111",
             title = "取消可能",
             isReady = false,

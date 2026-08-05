@@ -44,7 +44,9 @@ class LoansContentBuilderTest {
     }
 
     @Test
-    fun rows_sortedByDueDateWithOverdueAndSoonFlags() {
+    fun rows_sortedByDueDateWithOverdueFlag() {
+        // dueSoon(返却期限間近の色分岐用フラグ)は行レイアウト統一(2026-08-05)で色分岐を撤去した結果
+        // 参照ゼロになったため削除した。overdue(alertBgの行背景色判定に使用)は維持する。
         val loans = listOf(
             loan(hana.id, "遠い本", today.plusDays(10)),
             loan(papa.id, "超過本", today.minusDays(2)),
@@ -58,9 +60,8 @@ class LoansContentBuilderTest {
         assertTrue(rows[0].overdue)
         assertTrue(rows[0].dueLabel.contains("超過"))
         assertTrue(rows[1].dueLabel.startsWith("きょう"))
-        assertTrue(rows[2].dueSoon)
+        assertFalse(rows[2].overdue)
         assertFalse(rows[3].overdue)
-        assertFalse(rows[3].dueSoon)
     }
 
     @Test
@@ -73,7 +74,7 @@ class LoansContentBuilderTest {
         val rows = LoansContentBuilder.build(members, loans, selectedMemberId = hana.id, today = today)
 
         assertEquals(1, rows.size)
-        assertEquals("はな", rows.single().memberName)
+        assertEquals(hana.id, rows.single().memberId)
     }
 
     @Test
