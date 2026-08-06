@@ -206,6 +206,33 @@ class ReservationCancelConfirmationFormParserTest {
         """.trimIndent()
     }
 
+    /**
+     * 「抽出した確認コードをそのまま送る」という不変条件を直接固定する。
+     *
+     * [ReservationCancelConfirmationFormParser.parse]経由では想定値照合(fail-close)により
+     * 確認コードが常に`OPACUSR001`になるため、`buildForm()`が抽出値を送っていても
+     * リテラルを送っていても外部から区別できない。実際、`buildForm()`をリテラルへ戻す劣化を
+     * 入れても他の全テストは緑のままである(2026-08-06の破壊検証で確認)。
+     * 将来この照合を緩めたときにリテラルが誤った値を送る事故を防ぐため、ここだけは
+     * フォームを直接構築して、渡した確認コードがそのまま末尾へ付くことを固定する。
+     */
+    @Test
+    fun `buildFormは渡された確認コードをそのまま末尾へ付ける`() {
+        val form = ReservationCancelConfirmationForm(
+            action = ReservationCancelConfirmationAction.SameAsCurrentDocument,
+            fields = listOf("first" to "1", "second" to "2").map(::field),
+            okCodesFieldName = "okCodes",
+            confirmationCode = "NOT_THE_EXPECTED_CODE",
+        )
+
+        val body = form.buildForm()
+
+        assertEquals(
+            "okCodes" to "NOT_THE_EXPECTED_CODE",
+            body.name(body.size - 1) to body.value(body.size - 1),
+        )
+    }
+
     private fun fixture(name: String): String =
         requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
 
