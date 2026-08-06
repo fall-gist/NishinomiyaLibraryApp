@@ -1902,6 +1902,74 @@ class ReservationGatewayTest {
         assertOnlyStage1IsSent(cancelConfirmationStageHtml(scriptBody = cancelConfirmationScriptWithTailInsideIfFalse()))
     }
 
+    /**
+     * 修正方針B(docs/design/reservation-cancel-hardening.md)の対になる2ケース。
+     * 1段階目POST後のメンテナンス検知(:653相当)を、署名不一致(既存の非メンテナンス経路)と
+     * 並べて固定する。片方だけをLibraryError.Maintenanceへ寄せる変更が入れば、メンテナンス側の
+     * シナリオがIndeterminateAfterPost以外(あるいは例外)へ変わって赤くなる。
+     */
+    @Test
+    fun `stage1応答のメンテナンス検知と署名不一致は同じ経路へ倒れ2段階目を送らない`() = runBlocking {
+        suspend fun runScenario(stage1Html: String): Pair<ReservationCancelAttempt, Int> {
+            val scenarioServer = MockWebServer()
+            scenarioServer.start()
+            try {
+                scenarioServer.enqueue(page(fixture("menu.html")))
+                scenarioServer.enqueue(page(fixture("usrrsv.html")))
+                scenarioServer.enqueue(page(stage1Html))
+                scenarioServer.enqueue(page(menuWithReservationCount(19)))
+                scenarioServer.enqueue(page(fixture("usrrsv.html")))
+                val session = LicsXpReservationSession(
+                    LicsXpSession(scenarioServer.url("/"), waitForRequestSlot = {}),
+                    ReservationSequenceHooks(),
+                )
+                val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+                val requests = List(scenarioServer.requestCount) { requireNotNull(scenarioServer.takeRequest(1, TimeUnit.SECONDS)) }
+                val cancelPostCount = requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true }
+                return result to cancelPostCount
+            } finally {
+                scenarioServer.shutdown()
+            }
+        }
+
+        // メンテナンス検知(stage1Htmlにメンテナンス文言のみ、署名は当然一致しない)。
+        val maintenanceScenario = runScenario("<html>ただいまメンテナンス中です</html>")
+        // 署名不一致(メンテナンスではないが確認プロトコル署名が無い、通常の一覧HTML)。
+        val signatureMismatchScenario = runScenario(fixture("usrrsv.html"))
+
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, maintenanceScenario.first)
+        assertEquals(ReservationCancelAttempt.IndeterminateAfterPost, signatureMismatchScenario.first)
+        assertEquals(1, maintenanceScenario.second)
+        assertEquals(1, signatureMismatchScenario.second)
+        // 対になる2ケースが完全に同じ結果(=同じ経路)へ倒れることを確認する。
+        assertEquals(signatureMismatchScenario, maintenanceScenario)
+    }
+
+    /**
+     * 修正方針Bの2つ目の受入条件。2段階目(状態変更POST)は既に送信済みであり、実害は1段階目より
+     * 大きい。メンテナンス文言が返っても例外(LibraryError.Maintenance)を漏らさず、一覧照合の結果を
+     * そのまま返すこと、かつ取消POSTが2回を超えないことを検証する。
+     */
+    @Test
+    fun `stage2応答のメンテナンス検知はLibraryErrorMaintenanceを漏らさず一覧照合で判定する`() = runBlocking {
+        server.enqueue(page(fixture("menu.html")))
+        server.enqueue(page(fixture("usrrsv.html")))
+        server.enqueue(page(cancelConfirmationStageHtml()))
+        server.enqueue(page("<html>ただいまメンテナンス中です</html>"))
+        server.enqueue(page(menuWithReservationCount(18)))
+        server.enqueue(page(withoutReservationRow(fixture("usrrsv.html"), "1013074729")))
+
+        val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
+        val result = session.cancelReservation("1013074729", CANCEL_TARGET_TILCOD)
+
+        // 例外が漏れていれば(=元のrequireNotMaintenanceのまま送出されていれば)ここに到達する前に
+        // LibraryError.Maintenanceがテストを失敗させる。一覧照合の結果がそのまま返ることを確認する。
+        assertEquals(ReservationCancelAttempt.CancelledAndHidden, result)
+        assertEquals(6, server.requestCount)
+        val requests = List(6) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        assertEquals(2, requests.count { it.path?.startsWith("/WOpacUsrRsvCancelAction.do") == true })
+    }
+
     @Test
     fun `候補内部に禁止構文があれば2段階目を送らない`() = runBlocking {
         assertOnlyStage1IsSent(

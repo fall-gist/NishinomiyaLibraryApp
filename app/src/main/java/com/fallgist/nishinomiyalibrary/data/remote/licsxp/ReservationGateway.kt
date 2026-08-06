@@ -650,7 +650,13 @@ internal class LicsXpReservationSession(
                 return@withExclusiveRequestSequence ReservationCancelAttempt.IndeterminateAfterPost
             }
             val stage1Html = stage1Page.html
-            requireNotMaintenance(stage1Html) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+            // 修正方針B: 1段階目POSTは既に送信済みのため、メンテナンス検知を「送っていない」意味の
+            // LibraryError.Maintenanceで漏らさない。署名不一致・確認フォーム解析失敗・action解決失敗と
+            // 同じ一覧照合経路(resolveCancelAndHide)へ倒す。
+            if (isMaintenancePage(stage1Html)) {
+                session.noteDiagnostic("cancel-reservation", "メンテナンス(1段階目応答、送信済みのため一覧照合へ)")
+                return@withExclusiveRequestSequence resolveCancelAndHide(session, cancelBaseline, ::listForm)
+            }
             val signatureInspection = inspectKnownCancelConfirmationProtocolSignature(stage1Html)
             session.noteDiagnostic("cancel-reservation-signature", signatureInspection.diagnosticSummary())
             val stageInspection = inspectCancelConfirmationStage(
@@ -717,7 +723,11 @@ internal class LicsXpReservationSession(
             } catch (_: LibraryError.Network) {
                 return@withExclusiveRequestSequence ReservationCancelAttempt.IndeterminateAfterPost
             }
-            requireNotMaintenance(stage2Response) { session.noteDiagnostic("cancel-reservation", "メンテナンス") }
+            // 修正方針B: 2段階目(状態変更POST)は既に送信済みであり、実害は1段階目より大きい。
+            // ここでもLibraryError.Maintenanceを漏らさず、一覧照合(resolveCancelAndHide)の判定へ委ねる。
+            if (isMaintenancePage(stage2Response)) {
+                session.noteDiagnostic("cancel-reservation", "メンテナンス(2段階目応答、送信済みのため一覧照合へ)")
+            }
             // 2段階目の応答に確認文言が残っていても、文字列だけで未完了とは断定しない。
             // 成否は完全な取消後一覧で固定済みtilcodを照合して決める。
             resolveCancelAndHide(session, cancelBaseline, ::listForm)
@@ -965,11 +975,19 @@ private fun isLoginForm(document: org.jsoup.nodes.Document): Boolean =
 
 /** [onMaintenance] は診断ログへの注記だけに使う。呼出し側の判定・例外送出は一切変えない。 */
 private fun requireNotMaintenance(html: String, onMaintenance: (() -> Unit)? = null) {
-    if (MAINTENANCE_MARKERS.any(html::contains)) {
+    if (isMaintenancePage(html)) {
         onMaintenance?.invoke()
         throw LibraryError.Maintenance()
     }
 }
+
+/**
+ * メンテナンス判定の述語だけを独立させたもの。`cancelReservation`のstage1/stage2応答
+ * (状態変更POST後)はこれを使い、[requireNotMaintenance]の例外送出（＝「送っていない」意味の
+ * 失敗）ではなく一覧照合経路へ倒す(`docs/design/reservation-cancel-hardening.md` 修正方針B)。
+ * それ以外(POST前の呼び出し)は引き続き[requireNotMaintenance]を使う。
+ */
+private fun isMaintenancePage(html: String): Boolean = MAINTENANCE_MARKERS.any(html::contains)
 
 private val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")
 /**
