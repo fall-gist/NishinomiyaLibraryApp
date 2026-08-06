@@ -239,6 +239,8 @@ fun SettingsScreen(
                     onCheckedChange = onSetNotifyPickupReady,
                 )
             }
+            DividerLine()
+            NotificationTestSection()
         }
 
         SectionTitle("カレンダー")
