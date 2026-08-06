@@ -5,7 +5,7 @@ import org.junit.Test
 
 class ReservationCancelConfirmationFormParserTest {
     @Test
-    fun `prevRequestFormをDOM順で送り実際のOK field名を末尾へ加える`() {
+    fun `prevRequestFormをDOM順で送り実際のOK field名と抽出した確認コードを末尾へ加える`() {
         val form = ReservationCancelConfirmationFormParser.parse(
             html = confirmationHtml(
                 fields = listOf("second" to "2", "first" to "1", "second" to "3"),
@@ -33,6 +33,27 @@ class ReservationCancelConfirmationFormParserTest {
         )
 
         assertEquals(ReservationCancelConfirmationAction.SameAsCurrentDocument, form.action)
+    }
+
+    @Test
+    fun `実測フラグメント(reservation_cancel_confirmation_live_fragment_js)を埋め込んだ正常系で確認コードOPACUSR001が末尾へ付く`() {
+        // 受入条件1(docs/design/reservation-cancel-hardening.md)。実測フラグメントを<script>として
+        // 埋め込み、自作HTMLだけでは検出できない実装誤りを固定する。
+        val form = ReservationCancelConfirmationFormParser.parse(
+            html = confirmationHtml(
+                fields = listOf("first" to "1", "second" to "2"),
+                okCodesName = "okCodes",
+                includeConfirmationCodeAssignment = false,
+                extraScript = "<script>${fixture("reservation_cancel_confirmation_live_fragment.js")}</script>",
+            ),
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+
+        val body = form.buildForm()
+        assertEquals(
+            "okCodes" to "OPACUSR001",
+            body.name(body.size - 1) to body.value(body.size - 1),
+        )
     }
 
     @Test
@@ -106,21 +127,87 @@ class ReservationCancelConfirmationFormParserTest {
         )
     }
 
+    @Test
+    fun `確認コードのokArray代入が無ければ拒否する`() = assertParseError {
+        ReservationCancelConfirmationFormParser.parse(
+            html = confirmationHtml(includeConfirmationCodeAssignment = false),
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+    }
+
+    @Test
+    fun `確認コードのokArray代入が複数あれば拒否する`() = assertParseError {
+        ReservationCancelConfirmationFormParser.parse(
+            html = confirmationHtml() + "<script>okArray[okArray.length] = \"OPACUSR001\";</script>",
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+    }
+
+    @Test
+    fun `確認コードのokArray代入値が想定値OPACUSR001と異なれば拒否する`() = assertParseError {
+        ReservationCancelConfirmationFormParser.parse(
+            html = confirmationHtml(confirmationCodeAssignmentValue = "OPACUSR999"),
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+    }
+
+    @Test
+    fun `正規表現内の偽okArray代入は抽出しない`() = assertParseError {
+        // 本物のokArray代入がコメント内に隠れており、抽出できないため拒否される
+        // (ハードコードなら偶然通ってしまう欠陥をこのテストで検出する)。
+        ReservationCancelConfirmationFormParser.parse(
+            html = confirmationHtml(includeConfirmationCodeAssignment = false) +
+                "<script>if (true) /okArray[okArray.length] = \"OPACUSR001\";/;</script>" +
+                "<script>// okArray[okArray.length] = \"OPACUSR001\";</script>",
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+    }
+
+    @Test
+    fun `コメント文字列template内の偽okArray代入は抽出しない`() = assertParseError {
+        ReservationCancelConfirmationFormParser.parse(
+            html = confirmationHtml(includeConfirmationCodeAssignment = false) +
+                "<script>const ignored = \"okArray[okArray.length] = 'OPACUSR001';\";</script>" +
+                "<script>const ignored2 = `okArray[okArray.length] = 'OPACUSR001';`;</script>",
+            expectedStage1Fields = listOf("first" to "1", "second" to "2").map(::field),
+        )
+    }
+
     private fun confirmationHtml(
         fields: List<Pair<String, String>> = listOf("first" to "1", "second" to "2"),
         okCodesName: String = "okCodes",
         action: String? = "WOpacUsrRsvCancelAction.do",
+        includeConfirmationCodeAssignment: Boolean = true,
+        confirmationCodeAssignmentValue: String = "OPACUSR001",
+        extraScript: String = "",
     ): String {
         val actionAttribute = if (action == null) "" else " action=\"$action\""
+        // 実サイトの確認コードは`okArray[okArray.length] = "OPACUSR001";`という配列要素代入で現れる
+        // (reservation_cancel_confirmation_live_fragment.js 23行目)。テスト用HTMLもこの構造を模す。
+        val confirmationCodeScript = if (includeConfirmationCodeAssignment) {
+            """
+            <script>
+              var okArray = new Array();
+              okArray[okArray.length] = "$confirmationCodeAssignmentValue";
+            </script>
+            """.trimIndent()
+        } else {
+            ""
+        }
         return """
         <html><body>
           <form name="prevRequestForm"$actionAttribute>
             ${fields.joinToString("\n") { (name, value) -> "<input type=\"hidden\" name=\"$name\" value=\"$value\">" }}
           </form>
           <script>const OK_CODES_NAME = "$okCodesName";</script>
+          $confirmationCodeScript
+          $extraScript
         </body></html>
         """.trimIndent()
     }
+
+    private fun fixture(name: String): String =
+        requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
 
     private fun assertParseError(block: () -> Unit) {
         val error = try {
