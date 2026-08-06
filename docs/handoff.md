@@ -2096,6 +2096,42 @@ DIモジュール・`LibraryApp.kt`は無変更である。
 `ON_RESUME`再評価・権限要求・設定アプリ遷移・トグル配線は**テストで守られていない**。
 ここに手を入れるときは必ず実機確認を伴わせること。
 
+## リリースビルド（2026-08-07、上書きインストール確認済み）
+
+正本は`docs/design/release-build.md`。CIの成果物は`app-release.apk`（artifact名`app-release-apk`）に
+なった。所有者がコミット`7dde301`のAPKで既存インストールへの上書きを確認済みである。
+
+### 維持すべき事項
+
+1. **署名は`debug.keystore`を流用している。絶対に鍵を変えないこと。**
+   `buildTypes.release`に`signingConfigs.getByName("debug")`を割り当てている。鍵を変えると
+   既存インストールを上書き更新できなくなり、**アンインストールが必要になってメンバー登録・
+   カード番号・パスワード・予約の送信記録がすべて消える**（家族全員の端末で再設定が必要）。
+   変更する場合は必ず所有者へデータ消失を確認すること。
+   APKの署名がdebug鍵と一致することは実測で確認済み
+   （SHA-256 `9fec46ca…d043fa00b` / `CN=Android Debug`）。
+2. **R8/minifyは意図的に無効（`isMinifyEnabled = false`を明示）。**
+   有効にするとJsoup（リフレクション）・Room・Hilt・kotlinx.serializationでProGuardルールが
+   必要になり、不備があると**releaseビルドだけが実行時に壊れる**。単体テストはdebugで走るため
+   **検出できない**。非公開アプリでサイズ削減の必要も薄い。
+3. **`versionCode`はgitのコミット数から自動付与する。手で書かないこと。**
+   CIの`actions/checkout`には`fetch-depth: 0`が必要である。shallow cloneのままだと
+   `rev-list --count HEAD`が1を返し、versionCodeが常に1になって更新できなくなる。
+4. **`versionName`はリリースごとに手で上げる**（2026-08-07所有者決定）。2026-08-06のリリース版を
+   `1.0`とし、機能追加・バグ修正を1回行うごとに`1.1`→`1.2`…と増やす。
+   `build.gradle.kts`の該当行にも規約をコメントで残してある。
+5. 単体テストは`testDebugUnitTest`のままでよい。`BuildConfig.DEBUG`に依存する箇所が
+   アプリ内に無く、releaseで挙動が変わる分岐が存在しないためである。
+
+### 未対応
+
+- **アプリアイコンが未設定**（`res`に`mipmap`が無く`android:icon`の指定も無い）。デフォルトの
+  Androidアイコンのままである。所有者判断により今回は見送った。
+- `ui/di/DebugUiModule.kt`というファイル名は実態（全画面のControllerを提供する本番モジュール）と
+  合っていない。リネームは見送った。
+- 死にコードだった`ui/debug/DebugScreenController.kt`・`DebugScreenFormatter.kt`とそのテストは
+  除去済み（テスト683件→672件）。
+
 ### 経緯（今回行ったこと）
 
 通知のトリガーが同期成功時しかなく受動的なため、設定画面へ手動発火用のテストボタンを

@@ -50,6 +50,9 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = computedVersionCode
+        // versionNameはリリースごとに**手で**上げる。2026-08-06のリリース版を1.0とし、
+        // 機能追加・バグ修正を1回行うごとに 1.1 → 1.2 … と増やす(2026-08-07所有者決定)。
+        // versionCodeはコミット数から自動付与されるため、こちらは触らない。
         versionName = "1.0"
 
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
