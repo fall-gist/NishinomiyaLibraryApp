@@ -89,7 +89,20 @@ class NotificationPermissionController(
     fun requestOrOpenSettings() = onRequestOrOpenSettings()
 }
 
-private fun currentPermissionGranted(context: android.content.Context): Boolean {
+/**
+ * 通知が実際に届く状態かどうか。
+ *
+ * `AndroidNotificationSink.canPost()`が投稿可否に使う条件のうち、**アプリ単位の2条件**
+ * （ランタイム権限とアプリ全体の通知トグル）と揃える。権限だけを見ると、権限は許可のまま
+ * アプリ全体の通知がオフにされた端末で「警告を出さないのに通知が届かない」状態になる。
+ *
+ * **チャンネル単位の無効化（`IMPORTANCE_NONE`）は見ていない。** `canPost()`はチャンネルごとに
+ * 判定するため、特定チャンネルだけをオフにされた場合はここでは検出できない（既知の制約。
+ * `docs/design/notification-permission.md`参照）。
+ */
+private fun canReceiveNotifications(context: android.content.Context): Boolean {
+    val manager = context.getSystemService(android.app.NotificationManager::class.java)
+    if (manager != null && !manager.areNotificationsEnabled()) return false
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
     return context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
         PackageManager.PERMISSION_GRANTED
@@ -108,7 +121,7 @@ fun rememberNotificationPermissionController(): NotificationPermissionController
         mutableStateOf(
             when {
                 notRequired -> NotificationPermissionUiState.NotRequired
-                currentPermissionGranted(context) -> NotificationPermissionUiState.Granted
+                canReceiveNotifications(context) -> NotificationPermissionUiState.Granted
                 else -> NotificationPermissionUiState.Missing
             },
         )
@@ -116,7 +129,7 @@ fun rememberNotificationPermissionController(): NotificationPermissionController
 
     fun reevaluate() {
         if (notRequired) return
-        state = if (currentPermissionGranted(context)) {
+        state = if (canReceiveNotifications(context)) {
             NotificationPermissionUiState.Granted
         } else if (state == NotificationPermissionUiState.Granted) {
             // 直前までGrantedだった場合(設定アプリでオフにされた)はMissingへ戻す。
@@ -129,7 +142,9 @@ fun rememberNotificationPermissionController(): NotificationPermissionController
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        state = if (granted) {
+        // 権限が取れても、アプリ全体の通知がオフなら通知は届かない。その場合はGrantedにせず
+        // Deniedへ倒し、設定アプリへの導線を出す(権限だけを見るとここで警告が消えてしまう)。
+        state = if (granted && canReceiveNotifications(context)) {
             NotificationPermissionUiState.Granted
         } else {
             NotificationPermissionUiState.Denied
