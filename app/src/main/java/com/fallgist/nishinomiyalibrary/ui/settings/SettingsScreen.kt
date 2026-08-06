@@ -87,6 +87,7 @@ fun SettingsScreen(
 ) {
     val colors = LocalAppColors.current
     val dragThresholdPx = with(LocalDensity.current) { 48.dp.toPx() }
+    val notificationPermissionController = rememberNotificationPermissionController()
     var editorTarget by remember { mutableStateOf<EditorTarget?>(null) }
     var deleteTarget by remember { mutableStateOf<Member?>(null) }
     var autoRuleEditor by remember { mutableStateOf<AutoReservationRule?>(null) }
@@ -194,6 +195,7 @@ fun SettingsScreen(
         )
         Spacer(Modifier.height(6.dp))
         SectionCard {
+            NotificationPermissionNotice(notificationPermissionController)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -205,7 +207,10 @@ fun SettingsScreen(
                 }
                 Switch(
                     checked = state.settings.notifyReturnReminder,
-                    onCheckedChange = onSetNotifyReturnReminder,
+                    onCheckedChange = { enabled ->
+                        if (enabled) notificationPermissionController.requestOrOpenSettings()
+                        onSetNotifyReturnReminder(enabled)
+                    },
                 )
             }
             if (state.settings.notifyReturnReminder) {
@@ -236,7 +241,10 @@ fun SettingsScreen(
                 }
                 Switch(
                     checked = state.settings.notifyPickupReady,
-                    onCheckedChange = onSetNotifyPickupReady,
+                    onCheckedChange = { enabled ->
+                        if (enabled) notificationPermissionController.requestOrOpenSettings()
+                        onSetNotifyPickupReady(enabled)
+                    },
                 )
             }
         }
