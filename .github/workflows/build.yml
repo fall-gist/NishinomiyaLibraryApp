@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: リポジトリを取得
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: JDK を設定
         uses: actions/setup-java@v4
@@ -23,12 +25,12 @@ jobs:
       - name: Gradle を設定
         uses: gradle/actions/setup-gradle@v4
 
-      - name: 単体テストとデバッグ APK をビルド
-        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: 単体テストとリリース APK をビルド
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleRelease --no-daemon
 
-      - name: デバッグ APK を保存
+      - name: リリース APK を保存
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: app-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error

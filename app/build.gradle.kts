@@ -36,6 +36,11 @@ val buildGitSha = when {
 val buildTimeStamp: String = ZonedDateTime.now(ZoneId.of("Asia/Tokyo"))
     .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
 
+// versionCodeはgitのコミット数から与える。取得失敗・空の場合は1へフォールバックする(buildGitShaと同じ流儀)。
+// 単一ブランチ運用である限り単調増加するが、ブランチを切り替えると減り得る点は認識しておくこと。
+val gitCommitCount = runGitCommand("rev-list", "--count", "HEAD")
+val computedVersionCode = gitCommitCount?.toIntOrNull()?.takeIf { it > 0 } ?: 1
+
 android {
     namespace = "com.fallgist.nishinomiyalibrary"
     compileSdk = 35
@@ -44,7 +49,7 @@ android {
         applicationId = "com.fallgist.nishinomiyalibrary"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
+        versionCode = computedVersionCode
         versionName = "1.0"
 
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
@@ -71,6 +76,14 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
     }
 
 }

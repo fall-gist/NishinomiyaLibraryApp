@@ -16,7 +16,6 @@ import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.AutoReservationRepository
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
-import com.fallgist.nishinomiyalibrary.ui.debug.DebugScreenController
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
 import com.fallgist.nishinomiyalibrary.ui.diagnostics.DiagnosticLogScreenController
 import com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController
@@ -52,20 +51,6 @@ abstract class DebugUiBindingModule {
 @Module
 @InstallIn(SingletonComponent::class)
 object DebugUiProvisionModule {
-    @Provides
-    @Singleton
-    fun provideDebugScreenController(
-        familyRepository: FamilyRepository,
-        statusRepository: StatusRepository,
-        readingRecordRepository: ReadingRecordRepository,
-        scheduleStarter: SyncScheduleStarter,
-    ): DebugScreenController = DebugScreenController(
-        familyRepository = familyRepository,
-        statusRepository = statusRepository,
-        readingRecordRepository = readingRecordRepository,
-        scheduleStarter = scheduleStarter,
-    )
-
     @Provides
     @Singleton
     fun provideHomeScreenController(
@@ -268,8 +253,6 @@ interface MainActivityEntryPoint {
     fun reservationUiController(): ReservationUiController
 
     fun settingsScreenController(): SettingsScreenController
-
-    fun debugScreenController(): DebugScreenController
 
     fun diagnosticLogScreenController(): DiagnosticLogScreenController
 }
