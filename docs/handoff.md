@@ -2054,6 +2054,29 @@ Terra（high）実装後、Sol（low）レビューの中指摘1件を修正し�
 `SyncWorker`(24時間周期) → `StatusRepositoryImpl.sync` → `NotificationService.notifyAfterSuccessfulSync`
 → `NotificationPlanner` → `AndroidNotificationSink` → `NotificationManager.notify()`
 
+### 通知タップの導線（2026-08-07実装。実機未確認）
+
+**不具合**: 返却期限リマインダーと予約受取可能の通知は、タップしても何も起こらず消えもしなかった。
+`postReturnReminder`・`postPickupReady`に`setContentIntent`が無く、`setAutoCancel(true)`は
+タップ動作が定義されて初めて効くためである。`postAutoReservation`だけが`PendingIntent`を
+持っていた（段階10で実装、実機確認済み）。
+
+**対応**: 「アプリを開くだけ」の共通`PendingIntent`（`ui/OpenAppNotificationNavigation.kt`）を新設し、
+2つの通知へ接続した。消去は既存の`setAutoCancel(true)`に委ねる。
+
+- **actionを設定しないこと。** 自動予約の`ACTION_OPEN_HOME`を流用すると`HomeNavigationCommandStore`が
+  HOMEへ強制遷移させ、「アプリを開く」という要件を超える。前回開いていた画面のまま復帰させる。
+  **この不変条件は`AndroidAutoReservationNotificationTest`の`assertEquals(null, savedIntent.action)`で
+  固定してある**（誰かが誤って自動予約用の`PendingIntent`を流用する回帰を直接検知する）
+- requestCodeは通知ID（1001／1002）を流用する。自動予約は1003。Androidは
+  requestCodeと`Intent.filterEquals`（flagsは比較対象外）でPendingIntentの同一性を決めるため、
+  **同じ値を使い回すと通知同士が上書きし合う**
+- `postAutoReservation`は変更していない
+- 検証: `testDebugUnitTest`・`assembleDebug`成功。`setContentIntent`を外すと該当テストだけが
+  赤くなることを劣化注入で確認済み。独立レビューでも重大・中の指摘なし
+- **未検証**: 実機でのタップ挙動（アプリが開き通知が消えること）。Robolectricは契約を固定するだけで
+  実際のタップを検証しない。CIのAPKでの実機確認が必要
+
 ### 権限要求フロー（2026-08-06実装・実機確認済み）
 
 当初、`POST_NOTIFICATIONS`のランタイム権限を要求するコードがアプリのどこにも存在せず
