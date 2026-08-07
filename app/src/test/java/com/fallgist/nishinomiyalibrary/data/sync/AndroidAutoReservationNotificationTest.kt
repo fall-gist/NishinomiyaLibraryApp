@@ -1,11 +1,14 @@
 package com.fallgist.nishinomiyalibrary.data.sync
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import java.time.LocalDate
 import com.fallgist.nishinomiyalibrary.ui.AutoReservationNotificationNavigation
+import com.fallgist.nishinomiyalibrary.ui.MainActivity
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -118,5 +121,74 @@ class AndroidAutoReservationNotificationTest {
 
         assertFalse(posted)
         assertEquals(0, Shadows.shadowOf(manager).size())
+    }
+
+    @Test
+    fun `return reminderはアプリを開くだけのPendingIntentを持ちタップで消える`() = runTest {
+        val context = RuntimeEnvironment.getApplication() as Context
+
+        assertTrue(
+            AndroidNotificationSink(context).postReturnReminder(
+                ReturnReminderPlan(
+                    itemsByMember = listOf(
+                        MemberLoanItems(7L, "会員A", listOf("返却本A")),
+                    ),
+                    hasOverdue = false,
+                ),
+            ),
+        )
+
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val notification = requireNotNull(
+            Shadows.shadowOf(manager).getNotification(AndroidNotificationSink.NOTIFICATION_ID_RETURN_REMINDER),
+        )
+        val contentIntent = requireNotNull(notification.contentIntent)
+        val savedIntent = Shadows.shadowOf(contentIntent).getSavedIntent()
+        assertEquals(
+            ComponentName(context, MainActivity::class.java),
+            savedIntent.component,
+        )
+        assertEquals(null, savedIntent.action)
+        val flags = savedIntent.flags
+        assertTrue(flags and Intent.FLAG_ACTIVITY_CLEAR_TOP != 0)
+        assertTrue(flags and Intent.FLAG_ACTIVITY_SINGLE_TOP != 0)
+        assertTrue(notification.flags and Notification.FLAG_AUTO_CANCEL != 0)
+    }
+
+    @Test
+    fun `pickup readyはアプリを開くだけのPendingIntentを持ちタップで消える`() = runTest {
+        val context = RuntimeEnvironment.getApplication() as Context
+
+        assertTrue(
+            AndroidNotificationSink(context).postPickupReady(
+                PickupReadyPlan(
+                    listOf(
+                        PickupReadyItem(
+                            reservationId = 9L,
+                            memberName = "会員B",
+                            title = "受取本A",
+                            pickupLibrary = "中央図書館",
+                            holdExpiryDate = LocalDate.of(2030, 1, 5),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val notification = requireNotNull(
+            Shadows.shadowOf(manager).getNotification(AndroidNotificationSink.NOTIFICATION_ID_PICKUP_READY),
+        )
+        val contentIntent = requireNotNull(notification.contentIntent)
+        val savedIntent = Shadows.shadowOf(contentIntent).getSavedIntent()
+        assertEquals(
+            ComponentName(context, MainActivity::class.java),
+            savedIntent.component,
+        )
+        assertEquals(null, savedIntent.action)
+        val flags = savedIntent.flags
+        assertTrue(flags and Intent.FLAG_ACTIVITY_CLEAR_TOP != 0)
+        assertTrue(flags and Intent.FLAG_ACTIVITY_SINGLE_TOP != 0)
+        assertTrue(notification.flags and Notification.FLAG_AUTO_CANCEL != 0)
     }
 }

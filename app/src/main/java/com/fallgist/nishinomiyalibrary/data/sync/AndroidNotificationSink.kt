@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import com.fallgist.nishinomiyalibrary.ui.AutoReservationNotificationNavigation
+import com.fallgist.nishinomiyalibrary.ui.OpenAppNotificationNavigation
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
@@ -32,6 +33,7 @@ class AndroidNotificationSink @Inject constructor(
                 .setContentTitle("明日返却の本があります")
                 .setContentText(if (plan.hasOverdue) "$summary・期限超過あり" else summary)
                 .setStyle(style)
+                .setContentIntent(OpenAppNotificationNavigation.pendingIntent(context, NOTIFICATION_ID_RETURN_REMINDER))
                 .setAutoCancel(true)
                 .build()
             notificationManager().notify(NOTIFICATION_ID_RETURN_REMINDER, notification)
@@ -57,6 +59,7 @@ class AndroidNotificationSink @Inject constructor(
                 .setContentTitle("予約資料を受け取れます")
                 .setContentText("${plan.items.size}件の予約資料が受取可能です")
                 .setStyle(style)
+                .setContentIntent(OpenAppNotificationNavigation.pendingIntent(context, NOTIFICATION_ID_PICKUP_READY))
                 .setAutoCancel(true)
                 .build()
             notificationManager().notify(NOTIFICATION_ID_PICKUP_READY, notification)
@@ -129,8 +132,8 @@ class AndroidNotificationSink @Inject constructor(
         const val CH_PICKUP_READY = "pickup_ready"
         const val CH_AUTO_RESERVATION = "auto_reservation"
 
-        private const val NOTIFICATION_ID_RETURN_REMINDER = 1001
-        private const val NOTIFICATION_ID_PICKUP_READY = 1002
+        const val NOTIFICATION_ID_RETURN_REMINDER = 1001
+        const val NOTIFICATION_ID_PICKUP_READY = 1002
         const val NOTIFICATION_ID_AUTO_RESERVATION = 1003
         private val DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("M/d")
     }
