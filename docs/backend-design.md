@@ -841,7 +841,9 @@ UIは`ReservationBatchResult`をそのまま結果画面へ渡し、成功・重
 
 機能要件は`docs/spec.md`§3.11、実装可能な技術設計は
 [`docs/design/new-arrival-auto-reservation.md`](design/new-arrival-auto-reservation.md)を正とする。
-2026-07-29時点では設計完了・実装未着手である。
+技術設計§12の段階1〜13を2026-08-03に実装完了し、所有者が実機(CIのAPK)で回帰確認済みである
+(`docs/handoff.md`「新着キーワード自動予約」参照)。**個別ルールOFF(マスターON・特定ルールだけ無効)
+時に予約されないことだけは実機未検証**で、ユニットテストによる確認に留まる。
 
 自動予約は既存の予約確定POST・予約一覧照合を再利用するが、公開
 `ReservationCartRepository`へ確認なしのAPIを追加しない。`ReservationCartRepositoryImpl`内の
