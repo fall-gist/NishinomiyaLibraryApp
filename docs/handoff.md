@@ -2054,7 +2054,7 @@ Terra（high）実装後、Sol（low）レビューの中指摘1件を修正し�
 `SyncWorker`(24時間周期) → `StatusRepositoryImpl.sync` → `NotificationService.notifyAfterSuccessfulSync`
 → `NotificationPlanner` → `AndroidNotificationSink` → `NotificationManager.notify()`
 
-### 通知タップの導線（2026-08-07実装。実機未確認）
+### 通知タップの導線（2026-08-07実装。通知履歴からのタップは実機確認済み）
 
 **不具合**: 返却期限リマインダーと予約受取可能の通知は、タップしても何も起こらず消えもしなかった。
 `postReturnReminder`・`postPickupReady`に`setContentIntent`が無く、`setAutoCancel(true)`は
@@ -2074,8 +2074,12 @@ Terra（high）実装後、Sol（low）レビューの中指摘1件を修正し�
 - `postAutoReservation`は変更していない
 - 検証: `testDebugUnitTest`・`assembleDebug`成功。`setContentIntent`を外すと該当テストだけが
   赤くなることを劣化注入で確認済み。独立レビューでも重大・中の指摘なし
-- **未検証**: 実機でのタップ挙動（アプリが開き通知が消えること）。Robolectricは契約を固定するだけで
-  実際のタップを検証しない。CIのAPKでの実機確認が必要
+- **確認済み（2026-08-07、所有者の実機）**: 端末の**通知履歴**を遡ってタップすると
+  アプリが開くことを確認した。`PendingIntent`がシステムに登録され、タップで`MainActivity`が
+  起動する経路そのものは実機で成立している
+- **未確認**: 通知シェードに出ている**本通知**でのタップ、およびタップ後に通知が消えること
+  （`setAutoCancel`）。通知履歴のエントリは元の通知が既に消えた後の記録であるため、
+  自動消去の確認には使えない。次に通知が発生した時点で所有者が確認する
 
 ### 権限要求フロー（2026-08-06実装・実機確認済み）
 
