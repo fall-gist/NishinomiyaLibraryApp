@@ -1089,3 +1089,61 @@ value は本棚を指す文字列）
 - 資料の識別がDOM順に依存するという推定の当否
 - 本棚削除時に中の資料がどうなるか、確認が何段あるか
 - 同じ資料を同じ本棚へ二重に追加したときの応答
+
+### 13.6 実測結果（2026-08-08、テスト棚を作って全操作を実行）
+
+所有者のログイン済みブラウザで、専用のテスト棚（本棚6）を作り、その中だけで全操作を実行して採取した。
+**既存5本棚には触れておらず、採取後にテスト棚を削除して元の状態へ戻した（確認済み）。**
+
+| 操作 | 1段階目 | 段階 | 確認文言 | 確認コード |
+|---|---|---|---|---|
+| 本棚作成 | `WOpacSdiBookListExecAction.do` | 二段階 | リストを登録します。よろしいですか？ | `OPACSDI017` |
+| 資料追加 | `WOpacTifDetailAddBookListAction.do` | **一段階** | なし | — |
+| 本棚更新 | `WOpacSdiBookListUpdateAction.do?` | 二段階 | 入力された内容で更新します。よろしいですか？ | `OPACSDI011` |
+| 資料削除 | `WOpacSdiBookDelAction.do?flg=1` | 二段階 | 本棚からこのタイトルを削除します。よろしいですか？ | **未採取** |
+| 本棚削除 | `WOpacSdiBookListDelAction.do?delflg=1` | 二段階 | このリストを削除します。よろしいですか？ | **未採取** |
+
+2段階目はいずれも**同じURLからクエリを外したもの**へ、`prevRequestForm`＋末尾`okCodes`を送る
+（更新で実測。予約取消・貸出延長と同型）。
+
+完了時のalert:
+
+- 作成・追加とも「マイ本棚への登録が完了しました。」
+- 本棚削除「マイ本棚の削除処理が完了しました。」。削除後は`WOpacSdiBookMyListDispAction.do`へ遷移する
+- **二重登録は拒否される**: 「このリストには、既に同一の書誌が登録されています。」（登録されない）
+
+送信項目（DOM順、実測）:
+
+- 資料追加 = 書誌詳細の`LBForm`全体29項目:
+  `islogin, gamentilcod, prevORnext, preNextTilcod, hash, syurui, syuruivalue, returnid, diccod,
+  syuruiName, btnflg, execflg, amazonUrl, aWSAccessKeyId, secretAccessKey, associateTag, version,
+  responseGroup, amazonIsbn, storeId, amazonDispFlag, kensakuFlg, kensaku, yoy_directtilcod, tilcod,
+  refCode, gamenid, booklist, commnt`
+- 本棚更新・資料削除 = 編集画面の`LBForm`12項目（資料が増えると末尾4項目が資料数ぶん繰り返す）:
+  `hash, returnid, gamenid, tilcod, dispflg, otherbook, listname, commnt, bookcmnt, eachcmnt,
+  sortno, eachsortno`
+- 本棚削除 = 一覧画面の`LBForm`6項目: `hash, returnid, gamenid, tilcod, btnflg, otherbook`
+- 更新の2段階目 = 上記12項目＋`okCodes`
+
+### 13.7 調査で判明した落とし穴（実装・今後の調査の両方に効く）
+
+1. **`prevRequestForm`の存在は二段階の証拠にならない。** 資料追加は一段階だが、**重複エラーの
+   alertを出す応答にも`prevRequestForm`がある**。段階数はJSの`createConfirmDialog`の有無で判断する。
+2. **`WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=...`はセッションをリセットする。**
+   ログイン済みでもログイン画面が返る。ブラウザ調査中にこのURLへ直接移動してはならない
+   （本調査で3回セッションを失った）。画面遷移はサイト内のリンク・ボタンから行う。
+3. **確認ダイアログはネイティブ`window.confirm`である**（Chrome系の分岐）。自動化ブラウザでは
+   自動的に閉じられ**キャンセル扱い**になるため、AIだけでは二段階操作を完了できない。
+   人がOKを押す必要がある。
+4. **キャンセルすると、2段階目のURLへ`cancelCodes`付きで再POSTされる**（推定。キャンセル後に
+   1段階目の確認スクリプトが失われ、編集画面が返ることから）。このため
+   「キャンセルして応答を読む」方法では確認コードを採れない操作がある。
+5. 1段階目のPOSTだけでは状態は変わらない（本棚作成で実測。バッジ件数が増えなかった）。
+
+### 13.8 未採取（実装前に確定させるもの）
+
+- **資料削除・本棚削除の確認コード**（`okCodes`の値）。DevToolsのPayloadまたは1段階目応答の
+  `okArray`代入から読める。ハードコードせず抽出＋想定値照合にするため、想定値が要る
+- 本棚更新の成功時の応答（本調査では手順の誤りで2段階目が通らず、更新は反映されなかった）
+- 資料削除・本棚更新の完了alertの文言
+- `commnt`のプレースホルダ「メモ（任意）」を消さずに送った場合の登録内容
