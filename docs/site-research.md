@@ -1010,3 +1010,73 @@
 - 新しい返却期日が「延長実行日+14日」で決まるという規則は1件の観測からの推定であり、未確認。
   実装は日付の前後関係だけを見るため、この規則に依存しない。
 - `para`の値（延長管理コード）が、貸出状況一覧を再取得するたびに変化するか、安定した値か。
+
+## 13. マイ本棚の編集（2026-08-08、ブラウザ実測。**書き込みは一切していない**）
+
+アプリ内ブラウザで所有者のログイン済みセッションを操作し、画面遷移とページ内JavaScriptの
+関数定義から採取した。**この節の内容を得るためにサイトへ送った書き込みPOSTは0件である**
+（表示遷移POSTのみ）。各アクションの送信先は、実際に押した結果ではなく
+`Function.prototype.toString`で読んだ関数定義に基づく。したがって**応答の構造・確認段階の有無は
+未確認**である。
+
+### 13.1 画面と遷移
+
+| 画面 | gamenid | 入口 |
+|---|---|---|
+| マイ本棚（一覧） | `tiles.WSdiBookList` | `WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=mybooklist`（GETで直行できることを実測） |
+| マイ本棚の編集 | `tiles.WSdiBookListMainte` | 一覧の「このリストの編集」→ `POST WOpacSdiBookListToSdiMainteAction.do` |
+| マイ本棚の新規作成 | `tiles.WSdiBookListNew` | 「リストの新規作成」→ `POST WOpacSdiBookListToInputAction.do` |
+
+### 13.2 各操作の送信先（関数定義から確定。応答は未確認）
+
+| 操作 | action | 対象の指定方法 |
+|---|---|---|
+| 資料を本棚へ追加 | `WOpacTifDetailAddBookListAction.do` | 書誌詳細の`select booklist`と`commnt`、`tilcod` |
+| 資料を1件削除 | `WOpacSdiBookDelAction.do?flg=1` | hidden `tilcod`へ対象を代入してから編集画面フォーム全体を送る |
+| 資料を全削除 | `WOpacSdiALLBookDelAction.do?flg=1` | `tilcod=''` |
+| 本棚の更新（名前・メモ・各資料のメモ・並び順） | `WOpacSdiBookListUpdateAction.do?` | 編集画面フォーム全体 |
+| 本棚の新規作成 | `WOpacSdiBookListExecAction.do` | `listname`・`commnt` |
+| 本棚の削除 | `WOpacSdiBookListDelAction.do?delflg=1` | 一覧画面の`otherbook`が示す本棚 |
+| 本棚の切り替え | `WOpacSdiBookListToOtherBookDispAction.do?flg=1` | 実装済み（表示切替） |
+
+**`click_delBook`・`click_uplist`・`click_ok`のいずれにも`lbConfirm`が無い。** 予約取消・貸出延長と
+違い、クライアント側の確認を挟まずに送信する。ただし**応答ページ側に確認段階があるかは未確認**で
+あり、一段階POSTと断定してはならない。`click_return`（キャンセル）にだけ
+「本棚の編集処理を中断します。」の`lbConfirm`がある。
+
+### 13.3 編集画面のフォーム構造（実測、DOM順）
+
+`hash` / `returnid=tiles.WSdiBookList` / `gamenid=tiles.WSdiBookListMainte` / `tilcod`（空。
+削除時だけ対象を代入） / `dispflg=0` / `otherbook`（本棚番号） / `listname`（text・本棚名50文字）
+/ `commnt`（textarea・本棚メモ1000文字） / `disp_chk`（checkbox・「最初に表示されるリストにする」。
+value は本棚を指す文字列）
+
+続いて**資料1件につき4項目が同名で繰り返す**:
+
+`bookcmnt`（hidden・現在のメモ） → `eachcmnt`（textarea・編集後のメモ） →
+`sortno`（hidden・現在の並び順） → `eachsortno`（text・編集後の並び順）
+
+- **資料を識別するフィールドが行ごとに存在しない。** 対象はDOM順（配列の位置）で決まると考えられる。
+  したがって**行の順序を保ったまま全行を送る必要があり、部分送信や並べ替えは危険**である。
+  この推定は書き込みを伴う検証が済むまで確定させないこと
+- 並び順は1000刻み（1000, 2000, …）で入っている
+
+### 13.4 書誌詳細の追加UI（実測）
+
+- `select name=booklist`のoption: `0`=「追加先の本棚選択」、各本棚の番号、`998`=区切り線、
+  `999 `=「新規登録」。**`999`には末尾に半角スペースがある**（`selectbooklist()`の比較も
+  `"999 "`で書かれており、この空白込みで一致させている）
+- `commnt`（text）は**初期値が「メモ（任意）」という文字列で、初期状態は`disabled`**。
+  本棚を選ぶと`selectbooklist()`が`disabled`を外し`btnflg`を`1`にするが、**値はクリアしない**。
+  この文字列がそのままメモとして登録されるのか、サイト側で除去されるのかは**未確認**。
+  アプリから送る際は空文字を明示的に入れる必要があるかもしれない
+- 追加ボタン`addlistbnt`も初期状態は`disabled`
+
+### 13.5 未確認事項（書き込みを伴う検証が必要）
+
+- 各POSTの応答構造、成功時の画面、確認段階の有無
+- 削除・更新が一段階で完了するのか、予約取消と同型の二段階なのか
+- `commnt`のプレースホルダ「メモ（任意）」の扱い
+- 資料の識別がDOM順に依存するという推定の当否
+- 本棚削除時に中の資料がどうなるか、確認が何段あるか
+- 同じ資料を同じ本棚へ二重に追加したときの応答
