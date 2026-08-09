@@ -117,6 +117,25 @@ data class BookshelfContent(
     val items: List<ShelfItem>,
 )
 
+/** 明示的な本棚編集だけで使用する、メンバーを含む操作要求。 */
+sealed interface BookshelfMutation {
+    val memberId: Long
+
+    data class AddItem(override val memberId: Long, val shelfNo: Int, val tilcod: String, val memo: String) : BookshelfMutation
+    data class DeleteItem(override val memberId: Long, val shelfNo: Int, val tilcod: String) : BookshelfMutation
+    data class UpdateItemMemo(override val memberId: Long, val shelfNo: Int, val tilcod: String, val memo: String) : BookshelfMutation
+    data class CreateShelf(override val memberId: Long, val name: String) : BookshelfMutation
+    data class RenameShelf(override val memberId: Long, val shelfNo: Int, val name: String) : BookshelfMutation
+    data class DeleteShelf(override val memberId: Long, val shelfNo: Int) : BookshelfMutation
+}
+
+sealed interface BookshelfMutationOutcome {
+    data class Applied(val localRefreshRequired: Boolean = false) : BookshelfMutationOutcome
+    data class AlreadyRegistered(val localRefreshRequired: Boolean = false) : BookshelfMutationOutcome
+    data object Unknown : BookshelfMutationOutcome
+    data class Failure(val reason: FailureReason) : BookshelfMutationOutcome
+}
+
 data class UserSummary(
     val memberId: Long,
     /** 登録資料数ではなく、マイ本棚の本棚数。 */

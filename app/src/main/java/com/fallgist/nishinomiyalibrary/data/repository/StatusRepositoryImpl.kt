@@ -50,6 +50,7 @@ class StatusRepositoryImpl @Inject constructor(
     private val gateway: LibraryGateway,
     private val postSyncNotifier: PostSyncNotifier,
     private val clock: Clock,
+    private val bookshelfStateGate: BookshelfStateGate = BookshelfStateGate(),
     private val readingRecordDao: ReadingRecordDao = database.readingRecordDao(),
     private val pickupSubmissionDao: ReservationPickupSubmissionDao = database.reservationPickupSubmissionDao(),
 ) : StatusRepository {
@@ -133,6 +134,14 @@ class StatusRepositoryImpl @Inject constructor(
     }
 
     private suspend fun syncMember(memberId: Long, cardNumber: String): MemberSyncOutcome {
+        // ロック順は syncMutex -> BookshelfStateGate -> LicsXpSession の共有limiter -> Room。
+        // サイト取得からreplaceMemberSnapshot完了まで保持し、古い同期結果が編集後の本棚を上書きしないようにする。
+        return bookshelfStateGate.withLock {
+            syncMemberLocked(memberId, cardNumber)
+        }
+    }
+
+    private suspend fun syncMemberLocked(memberId: Long, cardNumber: String): MemberSyncOutcome {
         val password = try {
             credentialStore.getPassword(memberId)
         } catch (exception: CancellationException) {

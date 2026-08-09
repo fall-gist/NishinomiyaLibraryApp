@@ -31,6 +31,8 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpReservationGatew
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpLoanExtensionGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LoanExtensionGateway
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.BookshelfGateway
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpBookshelfGateway
 import com.fallgist.nishinomiyalibrary.data.sync.AndroidNotificationSink
 import com.fallgist.nishinomiyalibrary.data.sync.AutoReservationCompletionNotifier
 import com.fallgist.nishinomiyalibrary.data.sync.AutoReservationNotificationService
@@ -171,6 +173,10 @@ object RepositoryProvisionModule {
     @Provides
     @Singleton
     fun provideLoanExtensionGateway(session: LicsXpSession): LoanExtensionGateway = LicsXpLoanExtensionGateway(session)
+
+    @Provides
+    @Singleton
+    fun provideBookshelfGateway(session: LicsXpSession): BookshelfGateway = LicsXpBookshelfGateway(session)
 
     @Provides
     @Singleton

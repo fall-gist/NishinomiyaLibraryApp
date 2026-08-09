@@ -2,6 +2,8 @@ package com.fallgist.nishinomiyalibrary.domain.repository
 
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
 import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
@@ -60,9 +62,11 @@ interface StatusRepository {
     suspend fun syncAll(trigger: SyncTrigger): SyncResult
 }
 
-/** 本棚機能の読み取り専用公開API。書込み操作は後続段階で追加する。 */
+/** 本棚の読み取りと、明示的な利用者操作からのみ呼ぶ編集公開API。 */
 interface BookshelfRepository {
     fun observeShelves(memberId: Long): Flow<List<BookshelfContent>>
+
+    suspend fun mutate(mutation: BookshelfMutation): BookshelfMutationOutcome
 }
 
 /** 検索はキャッシュせず、都度公式サイトとopenBDへ委譲する。 */
