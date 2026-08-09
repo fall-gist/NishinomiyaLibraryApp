@@ -123,8 +123,14 @@ private fun ShelfColumnView(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(10.dp),
         ) {
-            items(column.books) { book ->
-                ShelfBookView(book, onClick = { onOpenDetail(book.tilcod, book.title) })
+            if (column.books.isEmpty()) {
+                item {
+                    EmptyNote("登録資料はありません")
+                }
+            } else {
+                items(column.books) { book ->
+                    ShelfBookView(book, onClick = { onOpenDetail(book.tilcod, book.title) })
+                }
             }
         }
     }

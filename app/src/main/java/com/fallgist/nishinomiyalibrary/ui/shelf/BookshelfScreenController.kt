@@ -1,9 +1,9 @@
 package com.fallgist.nishinomiyalibrary.ui.shelf
 
 import com.fallgist.nishinomiyalibrary.domain.model.Member
-import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
+import com.fallgist.nishinomiyalibrary.domain.repository.BookshelfRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
-import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.CoroutineDispatcher
@@ -32,6 +32,8 @@ data class ShelfBook(
 
 /** 横並びに表示する1本棚(メンバー×本棚名)。タイトル頭にメンバー識別色を付ける。 */
 data class ShelfColumn(
+    val memberId: Long,
+    val shelfNo: Int,
     val memberName: String,
     val memberColorHex: String,
     val shelfName: String,
@@ -52,7 +54,7 @@ object BookshelfContentBuilder {
 
     fun build(
         members: List<Member>,
-        shelvesByMember: Map<Long, List<ShelfItem>>,
+        shelvesByMember: Map<Long, List<BookshelfContent>>,
         selectedMemberId: Long?,
     ): List<ShelfColumn> {
         val visibleMembers = members
@@ -60,16 +62,16 @@ object BookshelfContentBuilder {
             .sortedBy { it.sortOrder }
 
         return visibleMembers.flatMap { member ->
-            val items = shelvesByMember[member.id].orEmpty()
-            items
-                .groupBy { it.shelfNo to it.shelfName }
-                .toSortedMap(compareBy { it.first })
-                .map { (key, shelfItems) ->
+            shelvesByMember[member.id].orEmpty()
+                .sortedBy { it.shelfNo }
+                .map { shelf ->
                     ShelfColumn(
+                        memberId = member.id,
+                        shelfNo = shelf.shelfNo,
                         memberName = member.name,
                         memberColorHex = member.colorHex.takeIf { it.isNotBlank() } ?: FALLBACK_COLOR,
-                        shelfName = key.second.takeIf { it.isNotBlank() } ?: "マイ本棚",
-                        books = shelfItems
+                        shelfName = shelf.name.takeIf { it.isNotBlank() } ?: "マイ本棚",
+                        books = shelf.items
                             .sortedByDescending { it.registeredDate }
                             .map { item ->
                                 ShelfBook(
@@ -88,7 +90,7 @@ object BookshelfContentBuilder {
 /** 本棚画面のFlowを集約するController。 */
 class BookshelfScreenController(
     private val familyRepository: FamilyRepository,
-    private val statusRepository: StatusRepository,
+    private val bookshelfRepository: BookshelfRepository,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -126,11 +128,11 @@ class BookshelfScreenController(
         scope.coroutineContext[Job]?.cancel()
     }
 
-    private fun shelves(members: List<Member>): Flow<Map<Long, List<ShelfItem>>> {
+    private fun shelves(members: List<Member>): Flow<Map<Long, List<BookshelfContent>>> {
         if (members.isEmpty()) return flowOf(emptyMap())
         return combine(
             members.map { member ->
-                statusRepository.shelf(member.id).map { shelf -> member.id to shelf }
+                bookshelfRepository.observeShelves(member.id).map { shelves -> member.id to shelves }
             },
         ) { values -> values.toMap() }
     }

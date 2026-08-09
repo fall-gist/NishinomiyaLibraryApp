@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.domain.repository
 
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
 import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
 import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
@@ -57,6 +58,11 @@ interface StatusRepository {
     fun lastSync(): Flow<SyncLog?>
 
     suspend fun syncAll(trigger: SyncTrigger): SyncResult
+}
+
+/** 本棚機能の読み取り専用公開API。書込み操作は後続段階で追加する。 */
+interface BookshelfRepository {
+    fun observeShelves(memberId: Long): Flow<List<BookshelfContent>>
 }
 
 /** 検索はキャッシュせず、都度公式サイトとopenBDへ委譲する。 */

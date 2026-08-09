@@ -16,6 +16,7 @@ import com.fallgist.nishinomiyalibrary.data.local.dao.NewArrivalDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationCartDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ReadingRecordDao
+import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.ShelfItemDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.SyncLogDao
 import com.fallgist.nishinomiyalibrary.data.local.dao.UserSummaryDao
@@ -66,6 +67,9 @@ object LocalDataModule {
 
     @Provides
     fun provideShelfItemDao(database: AppDatabase): ShelfItemDao = database.shelfItemDao()
+
+    @Provides
+    fun provideShelfDao(database: AppDatabase): ShelfDao = database.shelfDao()
 
     @Provides
     fun provideClosedDayDao(database: AppDatabase): ClosedDayDao = database.closedDayDao()

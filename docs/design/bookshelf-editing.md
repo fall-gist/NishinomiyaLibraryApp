@@ -1,7 +1,7 @@
 # 本棚編集機能 技術設計
 
 最終更新: 2026-08-09
-状態: **設計確定・実装未着手**
+状態: **段階1（読取りモデルとRoom反映基盤）実装完了・段階2未着手**
 機能要件の正本: `docs/spec.md` §3.13
 実サイト通信の正本: `docs/site-research.md` §13
 
@@ -415,6 +415,10 @@ ControllerのCoroutineScopeをActivity内の既存Controllerと同じ寿命で�
 ## 10. 実装分割
 
 ### 段階1: 読取りモデルとRoom反映基盤
+
+**完了（2026-08-09）**: `BookshelfContent`と読取り専用`BookshelfRepository`、空棚を保持する
+Flow結合、`replaceShelfSnapshot`、既存サマリの`shelfCount`更新、空棚列表示を実装した。
+対象テストと全単体テストは成功し、5.6-Sol（low）の独立レビューで重大・中程度の指摘はなかった。
 
 - `BookshelfContent`、`BookshelfRepository`観測API
 - `ShelfDao`と`ShelfItemDao`のFlow結合

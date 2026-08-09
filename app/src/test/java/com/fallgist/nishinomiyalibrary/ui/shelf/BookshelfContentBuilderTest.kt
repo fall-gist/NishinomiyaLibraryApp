@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui.shelf
 
 import com.fallgist.nishinomiyalibrary.domain.model.Member
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
@@ -21,16 +22,28 @@ class BookshelfContentBuilderTest {
         shelfName = shelfName,
     )
 
+    private fun shelf(memberId: Long, shelfNo: Int, name: String, vararg items: ShelfItem) = BookshelfContent(
+        memberId = memberId,
+        shelfNo = shelfNo,
+        name = name,
+        items = items.toList(),
+    )
+
     @Test
     fun columns_orderedByMemberThenShelfNoWithColorHead() {
         val shelves = mapOf(
             hana.id to listOf(
-                item(hana.id, "はなの本", 1, "よみたい", LocalDate.of(2026, 6, 1)),
+                shelf(hana.id, 1, "よみたい", item(hana.id, "はなの本", 1, "よみたい", LocalDate.of(2026, 6, 1))),
             ),
             papa.id to listOf(
-                item(papa.id, "パパ本B", 2, "小説", LocalDate.of(2026, 5, 1)),
-                item(papa.id, "パパ本A", 1, "技術書", LocalDate.of(2026, 4, 1)),
-                item(papa.id, "パパ本C", 1, "技術書", LocalDate.of(2026, 7, 1)),
+                shelf(papa.id, 2, "小説", item(papa.id, "パパ本B", 2, "小説", LocalDate.of(2026, 5, 1))),
+                shelf(
+                    papa.id,
+                    1,
+                    "技術書",
+                    item(papa.id, "パパ本A", 1, "技術書", LocalDate.of(2026, 4, 1)),
+                    item(papa.id, "パパ本C", 1, "技術書", LocalDate.of(2026, 7, 1)),
+                ),
             ),
         )
 
@@ -40,6 +53,8 @@ class BookshelfContentBuilderTest {
         assertEquals(listOf("技術書", "小説", "よみたい"), columns.map { it.shelfName })
         assertEquals(listOf("パパ", "パパ", "はな"), columns.map { it.memberName })
         assertEquals("#3D6DB5", columns[0].memberColorHex)
+        assertEquals(papa.id, columns[0].memberId)
+        assertEquals(1, columns[0].shelfNo)
         // 本棚内は登録日の新しい順
         assertEquals(listOf("パパ本C", "パパ本A"), columns[0].books.map { it.title })
         assertEquals("2026/7/1", columns[0].books[0].registeredDateLabel)
@@ -50,13 +65,25 @@ class BookshelfContentBuilderTest {
     @Test
     fun memberFilter_showsOnlySelectedMembersShelves() {
         val shelves = mapOf(
-            papa.id to listOf(item(papa.id, "パパ本", 1, "技術書", LocalDate.of(2026, 4, 1))),
-            hana.id to listOf(item(hana.id, "はな本", 1, "よみたい", LocalDate.of(2026, 6, 1))),
+            papa.id to listOf(shelf(papa.id, 1, "技術書", item(papa.id, "パパ本", 1, "技術書", LocalDate.of(2026, 4, 1)))),
+            hana.id to listOf(shelf(hana.id, 1, "よみたい", item(hana.id, "はな本", 1, "よみたい", LocalDate.of(2026, 6, 1)))),
         )
 
         val columns = BookshelfContentBuilder.build(members, shelves, selectedMemberId = hana.id)
 
         assertEquals(1, columns.size)
         assertEquals("はな", columns.single().memberName)
+    }
+
+    @Test
+    fun emptyShelf_remainsAsAnEmptyColumn() {
+        val shelves = mapOf(papa.id to listOf(shelf(papa.id, 3, "空の本棚")))
+
+        val columns = BookshelfContentBuilder.build(members, shelves, selectedMemberId = papa.id)
+
+        assertEquals(1, columns.size)
+        assertEquals(3, columns.single().shelfNo)
+        assertEquals("空の本棚", columns.single().shelfName)
+        assertEquals(emptyList<ShelfBook>(), columns.single().books)
     }
 }

@@ -156,6 +156,29 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 
+    /** 本棚だけを完全スナップショットで置き換え、既存サマリの本棚数だけを同期する。 */
+    @Transaction
+    suspend fun replaceShelfSnapshot(
+        memberId: Long,
+        shelves: List<ShelfEntity>,
+        shelfItems: List<ShelfItemEntity>,
+    ) {
+        require(shelves.all { it.memberId == memberId }) { "本棚データのmemberIdが一致しません" }
+        require(shelfItems.all { it.memberId == memberId }) { "本棚項目のmemberIdが一致しません" }
+        require(shelves.map { it.shelfNo }.distinct().size == shelves.size) { "本棚番号が重複しています" }
+        val shelfNos = shelves.mapTo(mutableSetOf()) { it.shelfNo }
+        require(shelfItems.all { it.shelfNo in shelfNos }) { "本棚項目に対応する本棚がありません" }
+
+        withTransaction {
+            shelfItemDao().deleteForMember(memberId)
+            shelfDao().deleteForMember(memberId)
+            shelfDao().insertAll(shelves)
+            shelfItemDao().insertAll(shelfItems)
+            // サマリが未取得のケースで、他件数を推測した行は作らない。
+            userSummaryDao().updateShelfCount(memberId, shelves.size)
+        }
+    }
+
     /** 新着資料を取得結果で全置換する(ジャンル横断の統合リストを丸ごと入れ替える)。 */
     @Transaction
     suspend fun replaceNewArrivals(items: List<NewArrivalEntity>) {

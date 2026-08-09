@@ -28,4 +28,8 @@ interface UserSummaryDao {
 
     @Query("DELETE FROM user_summaries WHERE memberId = :memberId")
     suspend fun deleteForMember(memberId: Long)
+
+    /** 既存行だけを更新する。戻り値0はサマリ未作成を表す。 */
+    @Query("UPDATE user_summaries SET shelfCount = :shelfCount WHERE memberId = :memberId")
+    suspend fun updateShelfCount(memberId: Long, shelfCount: Int): Int
 }

@@ -880,6 +880,68 @@ class LocalDataTest {
     }
 
     @Test
+    fun `replaceShelfSnapshotは空棚を含めて置換し既存サマリの棚数だけを更新する`() = runBlocking {
+        val memberId = 60L
+        val otherMemberId = 61L
+        database.shelfDao().insertAll(listOf(ShelfEntity(memberId, 1, "旧本棚"), ShelfEntity(otherMemberId, 1, "他人の棚")))
+        database.shelfItemDao().insert(shelf(memberId, "old"))
+        database.shelfItemDao().insert(shelf(otherMemberId, "keep"))
+        database.userSummaryDao().insert(summary(memberId, loanCount = 7).copy(shelfCount = 1, reservationCount = 8, cartCount = 9))
+
+        database.replaceShelfSnapshot(
+            memberId = memberId,
+            shelves = listOf(ShelfEntity(memberId, 2, "空棚"), ShelfEntity(memberId, 4, "資料あり")),
+            shelfItems = listOf(ShelfItemEntity(memberId, 4, "new", "新資料", "新メモ", LocalDate.of(2030, 4, 1))),
+        )
+
+        assertEquals(listOf(2 to "空棚", 4 to "資料あり"), database.shelfDao().observeForMember(memberId).first().map { it.shelfNo to it.name })
+        assertEquals(listOf("new"), database.shelfItemDao().observeForMember(memberId).first().map { it.tilcod })
+        assertEquals(listOf("keep"), database.shelfItemDao().observeForMember(otherMemberId).first().map { it.tilcod })
+        val summary = database.userSummaryDao().observeForMember(memberId).first()!!
+        assertEquals(2, summary.shelfCount)
+        assertEquals(7, summary.loanCount)
+        assertEquals(8, summary.reservationCount)
+        assertEquals(9, summary.cartCount)
+    }
+
+    @Test
+    fun `replaceShelfSnapshotは不正な親棚参照で既存データを変更しない`() = runBlocking {
+        val memberId = 62L
+        database.shelfDao().insertAll(listOf(ShelfEntity(memberId, 1, "保持棚")))
+        database.shelfItemDao().insert(shelf(memberId, "keep"))
+
+        var rejected = false
+        try {
+            database.replaceShelfSnapshot(
+                memberId = memberId,
+                shelves = listOf(ShelfEntity(memberId, 2, "新棚")),
+                shelfItems = listOf(ShelfItemEntity(memberId, 3, "invalid", "不正", "", LocalDate.of(2030, 5, 1))),
+            )
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+
+        assertTrue(rejected)
+        assertEquals(listOf("保持棚"), database.shelfDao().observeForMember(memberId).first().map { it.name })
+        assertEquals(listOf("keep"), database.shelfItemDao().observeForMember(memberId).first().map { it.tilcod })
+        assertNull(database.userSummaryDao().observeForMember(memberId).first())
+    }
+
+    @Test
+    fun `replaceShelfSnapshotは未作成のサマリを新規作成しない`() = runBlocking {
+        val memberId = 63L
+
+        database.replaceShelfSnapshot(
+            memberId = memberId,
+            shelves = listOf(ShelfEntity(memberId, 1, "サマリなし棚")),
+            shelfItems = emptyList(),
+        )
+
+        assertEquals(listOf("サマリなし棚"), database.shelfDao().observeForMember(memberId).first().map { it.name })
+        assertNull(database.userSummaryDao().observeForMember(memberId).first())
+    }
+
+    @Test
     fun `replaceMemberSnapshotは異なるmemberIdの同期データを拒否する`() = runBlocking {
         var rejected = false
 

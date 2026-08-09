@@ -109,6 +109,14 @@ data class ShelfItem(
     val shelfName: String = "",
 )
 
+/** 資料が0件の棚も含む、本棚画面用の読み取りモデル。 */
+data class BookshelfContent(
+    val memberId: Long,
+    val shelfNo: Int,
+    val name: String,
+    val items: List<ShelfItem>,
+)
+
 data class UserSummary(
     val memberId: Long,
     /** 登録資料数ではなく、マイ本棚の本棚数。 */

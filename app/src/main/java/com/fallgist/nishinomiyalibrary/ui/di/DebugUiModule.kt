@@ -6,6 +6,7 @@ import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationGate
 import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.data.sync.WorkManagerSyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.BookshelfRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
@@ -125,10 +126,10 @@ object DebugUiProvisionModule {
     @Singleton
     fun provideBookshelfScreenController(
         familyRepository: FamilyRepository,
-        statusRepository: StatusRepository,
+        bookshelfRepository: BookshelfRepository,
     ): BookshelfScreenController = BookshelfScreenController(
         familyRepository = familyRepository,
-        statusRepository = statusRepository,
+        bookshelfRepository = bookshelfRepository,
     )
 
     @Provides
