@@ -2176,9 +2176,9 @@ DIモジュール・`LibraryApp.kt`は無変更である。
   **権限を後から許可すれば、それまでに受取可能になった予約は次の同期で通知される。**
   この取りこぼし防止を壊さないこと
 
-## マイ本棚の編集（2026-08-09、段階1実装完了・段階2未着手）
+## マイ本棚の編集（2026-08-09、段階2実装完了・段階3未着手）
 
-**次に実装セッションが段階2へ着手する機能。** 技術設計の正本は`docs/design/bookshelf-editing.md`である。
+**次に実装セッションが段階3へ着手する機能。** 技術設計の正本は`docs/design/bookshelf-editing.md`である。
 機能要件の正本`docs/spec.md`§3.13、サイト通信の正本`docs/site-research.md`§13と合わせて先に読むこと。
 
 ### 状態
@@ -2195,7 +2195,10 @@ DIモジュール・`LibraryApp.kt`は無変更である。
 - **完了（段階1）**: `BookshelfContent`、読取り専用`BookshelfRepository`、空棚を保持するRoom Flow結合、
   `replaceShelfSnapshot`、既存サマリの`shelfCount`更新、本棚画面の空棚列表示。対象テストと
   `testDebugUnitTest`は成功し、5.6-Sol（low）の独立レビューで重大・中程度の指摘なし
-- **未着手**: 段階2の通信フォームパーサ・Gateway以降。サイトへの書込み通信はまだ実装・実行していない
+- **完了（段階2）**: 6操作のGateway、送信・確認フォームパーサ、Exactly-once、操作前後の全棚比較、
+  MockWebServer/合成fixtureテスト。全単体テスト成功、最終Solレビューで重大・中程度の指摘なし
+- **未着手**: 段階3のRepository mutation・`BookshelfStateGate`・即時Room反映以降
+- **未実施**: 実サイトへの書込み通信。段階2ではMockWebServer以外へPOSTしていない
 
 ### 設計で必ず織り込むこと
 

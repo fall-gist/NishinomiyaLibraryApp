@@ -194,6 +194,23 @@ class LicsXpSession private constructor(
             retryOnIOException = true,
         )
 
+        /**
+         * 排他要求列内の読み取り・画面遷移用POST。
+         * 状態変更POSTには使わず、必ず [postExactlyOnce] を使う。
+         */
+        suspend fun post(
+            path: String,
+            query: Map<String, String> = emptyMap(),
+            form: FormBody,
+        ): String = executeInExclusiveSequence(
+            Request.Builder()
+                .url(endpointUrl(path, query))
+                .post(form)
+                .build(),
+            client,
+            retryOnIOException = true,
+        )
+
         /** 通常書誌詳細GETのURLを、その直後の予約確認表示POSTのRefererにだけ使う。 */
         suspend fun getReservationDetail(
             path: String,

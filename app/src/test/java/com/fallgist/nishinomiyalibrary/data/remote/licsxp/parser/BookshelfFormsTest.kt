@@ -1,0 +1,129 @@
+package com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** site-research.md §13の確定契約だけから作った最小合成fixtureによるパーサ試験。 */
+class BookshelfFormsTest {
+    @Test
+    fun `詳細追加は無効な項目も含む29項目をDOM順で送りメモ空文字を保持する`() {
+        val html = form(
+            listOf(
+                "islogin", "gamentilcod", "prevORnext", "preNextTilcod", "hash", "syurui", "syuruivalue", "returnid",
+                "diccod", "syuruiName", "btnflg", "execflg", "amazonUrl", "aWSAccessKeyId", "secretAccessKey", "associateTag",
+                "version", "responseGroup", "amazonIsbn", "storeId", "amazonDispFlag", "kensakuFlg", "kensaku", "yoy_directtilcod",
+                "tilcod", "refCode", "gamenid", "booklist", "commnt",
+            ),
+        ).replace("name='tilcod' value='tilcod'", "name='tilcod' value='1000000000001'")
+        val body = BookshelfDetailAddFormParser.parse(html).buildForm(3, "")
+        assertEquals(29, body.size)
+        assertEquals("booklist", body.name(27))
+        assertEquals("3", body.value(27))
+        assertEquals("commnt", body.name(28))
+        assertEquals("", body.value(28))
+    }
+
+    @Test
+    fun `編集フォームは繰返し4項目の対象メモだけを置換する`() {
+        val html = form(listOf("hash", "returnid", "gamenid", "tilcod", "dispflg", "otherbook", "listname", "commnt", "bookcmnt", "eachcmnt", "sortno", "eachsortno", "bookcmnt", "eachcmnt", "sortno", "eachsortno"))
+            .replace("name='otherbook' value='otherbook'", "name='otherbook' value='4'")
+        val body = BookshelfEditFormParser.parse(html).updateMemo(1, "新しい\r\nメモ")
+        assertEquals("eachcmnt", body.name(9))
+        assertEquals("eachcmnt", body.name(13))
+        assertEquals("eachcmnt", body.value(9))
+        assertEquals("新しい\r\nメモ", body.value(13))
+    }
+
+    @Test
+    fun `確認コードとcreateConfirmDialogが操作と一致しなければ拒否する`() {
+        val fields = listOf(BookshelfFormField("hash", "masked"))
+        val html = """
+            <form name='prevRequestForm'><input name='hash' value='masked'></form>
+            <script>var OK_CODES_NAME = 'okCodes'; var okArray=[]; okArray[okArray.length] = 'OPACSDI011'; createConfirmDialog('x');</script>
+        """.trimIndent()
+        val failure = runCatching { BookshelfConfirmationFormParser.parse(html, fields, BookshelfConfirmationKind.CREATE) }.exceptionOrNull()
+        assertTrue(failure is ParseException)
+    }
+
+    @Test
+    fun `確認フォームは同じ項目のDOM順変更と重複差異を拒否する`() {
+        val expected = listOf(
+            BookshelfFormField("hash", "masked"),
+            BookshelfFormField("eachcmnt", "一件目"),
+            BookshelfFormField("eachcmnt", "二件目"),
+        )
+        val reordered = confirmationHtml(listOf(expected[0], expected[2], expected[1]))
+
+        val failure = runCatching { BookshelfConfirmationFormParser.parse(reordered, expected, BookshelfConfirmationKind.UPDATE) }.exceptionOrNull()
+
+        assertTrue(failure is ParseException)
+    }
+
+    @Test
+    fun `確認フォームは実行時JSのaction hidden追加 submit連鎖を検証し文字列とコメント内の偽署名を無視する`() {
+        val expected = listOf(BookshelfFormField("hash", "masked"))
+        val valid = confirmationHtml(
+            expected,
+            "/* createConfirmDialog('偽'); document.prevRequestForm.submit(); */ var ignored = \"createConfirmDialog window.onload OK_CODES_NAME\";",
+        )
+        val form = BookshelfConfirmationFormParser.parse(valid, expected, BookshelfConfirmationKind.UPDATE)
+        assertEquals("WOpacSdiBookListUpdateAction.do", form.action)
+        val applicationAbsolute = valid.replace(
+            "action = 'WOpacSdiBookListUpdateAction.do'",
+            "action = '/licsxp-opac/WOpacSdiBookListUpdateAction.do'",
+        )
+        assertEquals(
+            "WOpacSdiBookListUpdateAction.do",
+            BookshelfConfirmationFormParser.parse(applicationAbsolute, expected, BookshelfConfirmationKind.UPDATE).action,
+        )
+
+        listOf(
+            valid.replace("WOpacSdiBookListUpdateAction.do", "WOpacSdiBookListUpdateAction.do?x=1"),
+            valid.replace("action = 'WOpacSdiBookListUpdateAction.do'", "action = 'https://example.invalid/licsxp-opac/WOpacSdiBookListUpdateAction.do'"),
+            valid.replace("document.prevRequestForm.appendChild(newHidden);", "document.prevRequestForm.appendChild(other);"),
+            valid.replace("newHidden.value = okArray[i];", "newHidden.value = okArray[0];"),
+            valid.replace("<form name='prevRequestForm'>", "<form name='prevRequestForm' action='WOpacSdiBookListUpdateAction.do'>"),
+        ).forEach { changed ->
+            assertTrue(runCatching { BookshelfConfirmationFormParser.parse(changed, expected, BookshelfConfirmationKind.UPDATE) }.exceptionOrNull() is ParseException)
+        }
+    }
+
+    @Test
+    fun `確認フォームは制御条件直後の正規表現内にある完全な偽署名を拒否する`() {
+        val expected = listOf(BookshelfFormField("hash", "masked"))
+        val fakeSignature = """
+            var OK_CODES_NAME = 'okCodes'; function createConfirmDialog() { var okArray = new Array(); if (rest) { okArray[okArray.length] = 'OPACSDI011'; } for (var i = 0; i < okArray.length; i++) { var newHidden = document.createElement('input'); newHidden.type = 'hidden'; newHidden.name = OK_CODES_NAME; newHidden.value = okArray[i]; document.prevRequestForm.appendChild(newHidden); } document.prevRequestForm.action = 'WOpacSdiBookListUpdateAction.do'; document.prevRequestForm.submit(); } window.onload = createConfirmDialog;
+        """.trimIndent()
+        val html = """
+            <form name='prevRequestForm'><input name='hash' value='masked'></form>
+            <script>if /* 制御条件と括弧の間のコメント */
+                (x)
+                /$fakeSignature/;</script>
+        """.trimIndent()
+
+        assertTrue(
+            runCatching {
+                BookshelfConfirmationFormParser.parse(html, expected, BookshelfConfirmationKind.UPDATE)
+            }.exceptionOrNull() is ParseException,
+        )
+    }
+
+    @Test
+    fun `削除フォームの項目順変更は送信前に拒否する`() {
+        val html = form(listOf("hash", "returnid", "gamenid", "tilcod", "otherbook", "btnflg"))
+        assertTrue(runCatching { BookshelfDeleteFormParser.parse(html) }.exceptionOrNull() is ParseException)
+    }
+
+    private fun form(names: List<String>): String = buildString {
+        append("<form name='LBForm'>")
+        names.forEach { name -> append("<input type='hidden' name='$name' value='$name'>") }
+        append("</form>")
+    }
+
+    /** 実測済み共通構造を縮約した合成fixture。 */
+    private fun confirmationHtml(fields: List<BookshelfFormField>, prefix: String = "") = """
+        <form name='prevRequestForm'>${fields.joinToString("") { "<input name='${it.name}' value='${it.value}'>" }}</form>
+        <script>$prefix var OK_CODES_NAME = 'okCodes'; function createConfirmDialog() { var okArray = new Array(); if (rest) { okArray[okArray.length] = 'OPACSDI011'; } for (var i = 0; i < okArray.length; i++) { var newHidden = document.createElement('input'); newHidden.type = 'hidden'; newHidden.name = OK_CODES_NAME; newHidden.value = okArray[i]; document.prevRequestForm.appendChild(newHidden); } document.prevRequestForm.action = 'WOpacSdiBookListUpdateAction.do'; document.prevRequestForm.submit(); } window.onload = createConfirmDialog;</script>
+    """.trimIndent()
+}

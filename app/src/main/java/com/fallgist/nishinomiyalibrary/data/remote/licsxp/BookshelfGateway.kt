@@ -1,0 +1,330 @@
+package com.fallgist.nishinomiyalibrary.data.remote.licsxp
+
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfConfirmationFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfConfirmationKind
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfCreateFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfDeleteFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfDetailAddFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfEditFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfFormField
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoginFormParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfListParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfParseResult
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfParser
+import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
+import com.fallgist.nishinomiyalibrary.domain.model.Shelf
+import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
+import kotlinx.coroutines.CancellationException
+import okhttp3.FormBody
+import org.jsoup.Jsoup
+
+/** Repository層へ漏らさない、サイトで対象を固定するための操作要求。 */
+sealed interface RemoteBookshelfMutation {
+    data class AddItem(val shelfNo: Int, val tilcod: String, val memo: String) : RemoteBookshelfMutation
+    data class DeleteItem(val shelfNo: Int, val tilcod: String) : RemoteBookshelfMutation
+    data class UpdateItemMemo(val shelfNo: Int, val tilcod: String, val memo: String) : RemoteBookshelfMutation
+    data class CreateShelf(val name: String) : RemoteBookshelfMutation
+    data class RenameShelf(val shelfNo: Int, val name: String) : RemoteBookshelfMutation
+    data class DeleteShelf(val shelfNo: Int) : RemoteBookshelfMutation
+}
+
+/** Gateway内で照合済みの完全スナップショット。Room反映は次段階のRepositoryだけが行う。 */
+sealed interface RemoteBookshelfOutcome {
+    data class Applied(val shelves: List<Shelf>, val items: List<ShelfItem>) : RemoteBookshelfOutcome
+    data class AlreadyRegistered(val shelves: List<Shelf>, val items: List<ShelfItem>) : RemoteBookshelfOutcome
+    data object Unknown : RemoteBookshelfOutcome
+    data class Failure(val reason: FailureReason) : RemoteBookshelfOutcome
+}
+
+interface BookshelfGateway {
+    suspend fun openAuthenticatedSession(cardNumber: String, password: String): BookshelfSession
+}
+
+interface BookshelfSession {
+    suspend fun mutate(mutation: RemoteBookshelfMutation): RemoteBookshelfOutcome
+    fun close()
+}
+
+/** Cookieは利用者ごとに隔離し、root sessionとはリクエスト間隔だけを共有する。 */
+class LicsXpBookshelfGateway(private val rootSession: LicsXpSession) : BookshelfGateway {
+    override suspend fun openAuthenticatedSession(cardNumber: String, password: String): BookshelfSession {
+        if (cardNumber.isBlank() || password.isBlank()) throw LibraryError.Auth(memberName = null)
+        val session = rootSession.newIsolatedSession()
+        try {
+            session.get("WOpacEsSchCmpdDispAction.do")
+            val login = session.get("OpacInitLoginAction.do", mapOf("subSystemFlag" to "0"))
+            requireBookshelfNotMaintenance(login)
+            session.post("j_security_check", mapOf("subSystemFlag" to "0"), LoginFormParser.parse(login).buildForm(cardNumber, password))
+            val menu = session.get("WOpacMnuTopInitAction.do", mapOf("WebLinkFlag" to "1"))
+            classifyBookshelfLogin(menu)
+            session.updateTokens(menu)
+            return LicsXpBookshelfSession(session)
+        } catch (exception: ParseException) {
+            throw LibraryError.Parse(exception.screen, exception.reason)
+        }
+    }
+}
+
+internal class LicsXpBookshelfSession(private val session: LicsXpSession) : BookshelfSession {
+    override suspend fun mutate(mutation: RemoteBookshelfMutation): RemoteBookshelfOutcome = try {
+        session.withExclusiveRequestSequence { mutateExclusively(mutation) }
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: LibraryError.Auth) {
+        RemoteBookshelfOutcome.Failure(FailureReason.AUTH)
+    } catch (exception: LibraryError.Maintenance) {
+        RemoteBookshelfOutcome.Failure(FailureReason.SITE_MAINTENANCE)
+    } catch (exception: LibraryError.Network) {
+        RemoteBookshelfOutcome.Failure(FailureReason.NETWORK)
+    } catch (_: ParseException) {
+        RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED)
+    } catch (_: LibraryError.Parse) {
+        RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED)
+    }
+
+    override fun close() = Unit
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.mutateExclusively(mutation: RemoteBookshelfMutation): RemoteBookshelfOutcome {
+        val before = fetchAllShelves()
+        return when (mutation) {
+            is RemoteBookshelfMutation.AddItem -> add(before, mutation)
+            is RemoteBookshelfMutation.CreateShelf -> create(before, mutation)
+            is RemoteBookshelfMutation.RenameShelf -> edit(
+                before = before,
+                shelfNo = mutation.shelfNo,
+                kind = BookshelfConfirmationKind.UPDATE,
+                transform = { it.rename(mutation.name) },
+                success = { after ->
+                    after.shelves == before.shelves.map { shelf -> if (shelf.no == mutation.shelfNo) shelf.copy(name = mutation.name) else shelf } &&
+                        sameItems(before.itemsFor(mutation.shelfNo), after.itemsFor(mutation.shelfNo)) &&
+                        unchangedOutsideShelf(before, after, mutation.shelfNo)
+                },
+            )
+            is RemoteBookshelfMutation.UpdateItemMemo -> updateMemo(before, mutation)
+            is RemoteBookshelfMutation.DeleteItem -> deleteItem(before, mutation)
+            is RemoteBookshelfMutation.DeleteShelf -> deleteShelf(before, mutation)
+        }
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.add(before: BookshelfSnapshot, mutation: RemoteBookshelfMutation.AddItem): RemoteBookshelfOutcome {
+        if (!before.hasShelf(mutation.shelfNo)) return changedFailure()
+        if (before.itemsFor(mutation.shelfNo).count { it.tilcod == mutation.tilcod } > 0) return before.alreadyRegistered()
+        if (mutation.shelfNo <= 0 || mutation.shelfNo == 998 || mutation.shelfNo.toString() == "999") return changedFailure()
+        val detail = get("WOpacMsgNewListToTifTilDetailAction.do", mapOf("urlNotFlag" to "1", "tilcod" to mutation.tilcod))
+        requireBookshelfNotMaintenance(detail)
+        if (isBookshelfLoginForm(detail)) return RemoteBookshelfOutcome.Failure(FailureReason.SESSION_EXPIRED_BEFORE_SUBMIT)
+        val form = BookshelfDetailAddFormParser.parse(detail)
+        if (form.tilcod != mutation.tilcod) return changedFailure()
+        // 追加は唯一の状態変更POST。以降の失敗では再送せず、全棚再取得でだけ照合する。
+        try { postExactlyOnce("WOpacTifDetailAddBookListAction.do", form = form.buildForm(mutation.shelfNo, mutation.memo)) } catch (_: LibraryError.Network) { }
+        val after = refetchOrNull() ?: return RemoteBookshelfOutcome.Unknown
+        val matched = after.itemsFor(mutation.shelfNo).filter { it.tilcod == mutation.tilcod }
+        return when {
+            matched.size == 1 && normalized(matched.single().memo) == normalized(mutation.memo) &&
+                after.shelves == before.shelves &&
+                sameItems(
+                    before.itemsFor(mutation.shelfNo),
+                    after.itemsFor(mutation.shelfNo).filter { it.tilcod != mutation.tilcod },
+                ) &&
+                after.itemsFor(mutation.shelfNo).size == before.itemsFor(mutation.shelfNo).size + 1 &&
+                unchangedOutsideShelf(before, after, mutation.shelfNo) -> after.applied()
+            else -> RemoteBookshelfOutcome.Unknown
+        }
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.create(before: BookshelfSnapshot, mutation: RemoteBookshelfMutation.CreateShelf): RemoteBookshelfOutcome {
+        val page = before.currentPage ?: return changedFailure()
+        val nav = BookshelfDeleteFormParser.parse(page).buildForm()
+        val input = post("WOpacSdiBookListToInputAction.do", form = nav)
+        requireBookshelfNotMaintenance(input)
+        val stage1 = BookshelfCreateFormParser.parse(input).buildForm(mutation.name)
+        return twoStage(before, "WOpacSdiBookListExecAction.do", emptyMap(), stage1, BookshelfConfirmationKind.CREATE) { after ->
+            val added = after.shelves.filter { shelf -> before.shelves.none { it.no == shelf.no } }
+            added.size == 1 && added.single().name == mutation.name && unchangedExistingShelves(before, after)
+        }
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.edit(
+        before: BookshelfSnapshot,
+        shelfNo: Int,
+        kind: BookshelfConfirmationKind,
+        transform: (com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfEditForm) -> FormBody,
+        success: ((BookshelfSnapshot) -> Boolean)? = null,
+    ): RemoteBookshelfOutcome {
+        val edit = openEditPage(before, shelfNo) ?: return changedFailure()
+        val form = BookshelfEditFormParser.parse(edit)
+        if (form.shelfNo != shelfNo) return changedFailure()
+        form.requireMatches(before.shelves.singleOrNull { it.no == shelfNo } ?: return changedFailure(), before.itemsFor(shelfNo))
+        val stage1 = transform(form)
+        return twoStage(before, "WOpacSdiBookListUpdateAction.do", emptyMap(), stage1, kind) { after -> success?.invoke(after) ?: false }
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.updateMemo(before: BookshelfSnapshot, mutation: RemoteBookshelfMutation.UpdateItemMemo): RemoteBookshelfOutcome {
+        val target = before.itemsFor(mutation.shelfNo).withIndex().filter { it.value.tilcod == mutation.tilcod }
+        if (target.size != 1) return changedFailure()
+        val targetIndex = target.single().index
+        val beforeItems = before.itemsFor(mutation.shelfNo)
+        return edit(before, mutation.shelfNo, BookshelfConfirmationKind.UPDATE, { form ->
+            if (form.itemCount != beforeItems.size) throw ParseException("bookshelf-edit", "表示ページと編集フォームの資料数が一致しません")
+            form.updateMemo(targetIndex, mutation.memo)
+        }) { after ->
+            val items = after.itemsFor(mutation.shelfNo)
+            after.shelves == before.shelves &&
+                items.size == beforeItems.size && items.indices.all { index ->
+                val old = beforeItems[index]; val new = items[index]
+                old.tilcod == new.tilcod && old.title == new.title && old.registeredDate == new.registeredDate &&
+                    normalized(new.memo) == normalized(if (index == targetIndex) mutation.memo else old.memo)
+            } && unchangedOutsideShelf(before, after, mutation.shelfNo)
+        }
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.deleteItem(before: BookshelfSnapshot, mutation: RemoteBookshelfMutation.DeleteItem): RemoteBookshelfOutcome {
+        val beforeItems = before.itemsFor(mutation.shelfNo)
+        val target = beforeItems.withIndex().filter { it.value.tilcod == mutation.tilcod }
+        if (target.size != 1) return changedFailure()
+        val expectedItems = beforeItems.filterIndexed { index, _ -> index != target.single().index }
+        val edit = openEditPage(before, mutation.shelfNo) ?: return changedFailure()
+        val form = BookshelfEditFormParser.parse(edit)
+        if (form.shelfNo != mutation.shelfNo || form.itemCount != beforeItems.size) return changedFailure()
+        form.requireMatches(before.shelves.singleOrNull { it.no == mutation.shelfNo } ?: return changedFailure(), beforeItems)
+        return twoStage(before, "WOpacSdiBookDelAction.do", mapOf("flg" to "1"), form.delete(mutation.tilcod), BookshelfConfirmationKind.DELETE_ITEM) { after ->
+            after.shelves == before.shelves &&
+                sameItems(after.itemsFor(mutation.shelfNo), expectedItems) &&
+                unchangedOutsideShelf(before, after, mutation.shelfNo)
+        }
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.deleteShelf(before: BookshelfSnapshot, mutation: RemoteBookshelfMutation.DeleteShelf): RemoteBookshelfOutcome {
+        if (!before.hasShelf(mutation.shelfNo)) return changedFailure()
+        val page = before.pageFor(mutation.shelfNo) ?: return changedFailure()
+        val form = BookshelfDeleteFormParser.parse(page)
+        if (form.shelfNo != mutation.shelfNo) return changedFailure()
+        return twoStage(before, "WOpacSdiBookListDelAction.do", mapOf("delflg" to "1"), form.buildForm(), BookshelfConfirmationKind.DELETE_SHELF) { after ->
+            val expectedShelves = before.shelves.filter { it.no != mutation.shelfNo }
+            after.shelves == expectedShelves &&
+                expectedShelves.all { shelf -> sameItems(before.itemsFor(shelf.no), after.itemsFor(shelf.no)) }
+        }
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.openEditPage(before: BookshelfSnapshot, shelfNo: Int): String? {
+        val page = before.pageFor(shelfNo) ?: return null
+        val form = BookshelfDeleteFormParser.parse(page)
+        if (form.shelfNo != shelfNo) return null
+        return post("WOpacSdiBookListToSdiMainteAction.do", form = form.buildForm()).also(::requireBookshelfNotMaintenance)
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.twoStage(
+        before: BookshelfSnapshot,
+        path: String,
+        query: Map<String, String>,
+        stage1: FormBody,
+        kind: BookshelfConfirmationKind,
+        success: (BookshelfSnapshot) -> Boolean,
+    ): RemoteBookshelfOutcome {
+        val response = try { postExactlyOnce(path, query, stage1) } catch (_: LibraryError.Network) { return beforeStage2(before, success) }
+        // stage1は状態変更前。メンテナンス画面を含む解析不能応答はstage2を送らず、三分岐で裁定する。
+        if (isBookshelfMaintenance(response)) return beforeStage2(before, success)
+        val expected = buildList {
+            query.forEach { (name, value) -> add(BookshelfFormField(name, value)) }
+            for (index in 0 until stage1.size) add(BookshelfFormField(stage1.name(index), stage1.value(index)))
+        }
+        val confirm = try { BookshelfConfirmationFormParser.parse(response, expected, kind) } catch (_: ParseException) { return beforeStage2(before, success) }
+        // action属性は使わず、確認ページJSから固定path・query無しまで検証済みのactionを使う。
+        if (confirm.action != path || confirm.action.contains('?')) return beforeStage2(before, success)
+        try { postExactlyOnce(confirm.action, form = confirm.buildForm()) } catch (_: LibraryError.Network) { }
+        return afterPost(before, success)
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.beforeStage2(before: BookshelfSnapshot, success: (BookshelfSnapshot) -> Boolean): RemoteBookshelfOutcome {
+        val after = refetchOrNull() ?: return RemoteBookshelfOutcome.Unknown
+        return when { success(after) -> after.applied(); after.sameAs(before) -> changedFailure(); else -> RemoteBookshelfOutcome.Unknown }
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.afterPost(before: BookshelfSnapshot, success: (BookshelfSnapshot) -> Boolean): RemoteBookshelfOutcome {
+        val after = refetchOrNull() ?: return RemoteBookshelfOutcome.Unknown
+        return if (success(after)) after.applied() else RemoteBookshelfOutcome.Unknown
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.refetchOrNull(): BookshelfSnapshot? = try {
+        fetchAllShelves()
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (_: Exception) {
+        null
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.fetchAllShelves(): BookshelfSnapshot {
+        val tokens = session.requireTokens()
+        val currentPage = post("WOpacMnuTopToPwdLibraryAction.do", mapOf("gamen" to "mybooklist"), tokenForm(tokens))
+        requireBookshelfNotMaintenance(currentPage)
+        if (isBookshelfLoginForm(currentPage)) throw LibraryError.Auth(memberName = null)
+        session.updateTokens(currentPage)
+        val listed = ShelfListParser.parse(currentPage)
+        val current = ShelfParser.parse(currentPage)
+        if (listed.singleOrNull { it.no == current.shelf.no }?.name != current.shelf.name) throw ParseException("shelf", "現在の本棚が一覧と一致しません")
+        val parsed = linkedMapOf(current.shelf.no to current)
+        val pages = linkedMapOf(current.shelf.no to currentPage)
+        for (shelf in listed) {
+            if (shelf.no == current.shelf.no) continue
+            val page = post("WOpacSdiBookListToOtherBookDispAction.do", mapOf("flg" to "1"), switchForm(shelf.no))
+            requireBookshelfNotMaintenance(page)
+            session.updateTokens(page)
+            val result = ShelfParser.parse(page)
+            if (result.shelf != shelf) throw ParseException("shelf", "切替後の本棚が要求対象と一致しません")
+            parsed[shelf.no] = result
+            pages[shelf.no] = page
+        }
+        return BookshelfSnapshot(listed, parsed, pages, currentPage)
+    }
+
+    private fun tokenForm(tokens: com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.PageTokens): FormBody =
+        FormBody.Builder().add("hash", tokens.hash).add("gamenid", tokens.gamenId).build()
+
+    private fun LicsXpSession.ExclusiveRequestSequence.switchForm(shelfNo: Int): FormBody {
+        val tokens = session.requireTokens()
+        return FormBody.Builder().add("hash", tokens.hash).add("gamenid", "tiles.WSdiBookList").add("otherbook", shelfNo.toString()).add("tilcod", "").add("btnflg", "").build()
+    }
+}
+
+private data class BookshelfSnapshot(
+    val shelves: List<Shelf>,
+    val parsed: Map<Int, ShelfParseResult>,
+    val pages: Map<Int, String>,
+    val currentPage: String?,
+) {
+    fun itemsFor(shelfNo: Int): List<ShelfItem> = parsed[shelfNo]?.items.orEmpty()
+    fun pageFor(shelfNo: Int): String? = pages[shelfNo]
+    fun hasShelf(shelfNo: Int): Boolean = shelves.any { it.no == shelfNo }
+    fun applied(): RemoteBookshelfOutcome.Applied = RemoteBookshelfOutcome.Applied(shelves, shelves.flatMap { itemsFor(it.no) })
+    fun alreadyRegistered(): RemoteBookshelfOutcome.AlreadyRegistered = RemoteBookshelfOutcome.AlreadyRegistered(shelves, shelves.flatMap { itemsFor(it.no) })
+    fun sameAs(other: BookshelfSnapshot): Boolean = shelves == other.shelves && shelves.all { shelf -> sameItems(itemsFor(shelf.no), other.itemsFor(shelf.no)) }
+}
+
+private fun unchangedOutsideShelf(before: BookshelfSnapshot, after: BookshelfSnapshot, shelfNo: Int): Boolean {
+    val beforeOutside = before.shelves.filter { it.no != shelfNo }
+    val afterOutside = after.shelves.filter { it.no != shelfNo }
+    return beforeOutside == afterOutside && beforeOutside.all { shelf -> sameItems(before.itemsFor(shelf.no), after.itemsFor(shelf.no)) }
+}
+
+private fun unchangedExistingShelves(before: BookshelfSnapshot, after: BookshelfSnapshot): Boolean =
+    after.shelves.filter { afterShelf -> before.shelves.any { it.no == afterShelf.no } } == before.shelves &&
+        before.shelves.all { shelf -> sameItems(before.itemsFor(shelf.no), after.itemsFor(shelf.no)) }
+
+private fun sameItems(left: List<ShelfItem>, right: List<ShelfItem>): Boolean = left.size == right.size && left.indices.all { i ->
+    val a = left[i]; val b = right[i]
+    a.tilcod == b.tilcod && a.title == b.title && normalized(a.memo) == normalized(b.memo) && a.registeredDate == b.registeredDate
+}
+
+private fun normalized(value: String): String = value.replace("\r\n", "\n")
+private fun changedFailure() = RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED)
+private fun isBookshelfMaintenance(html: String): Boolean = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス").any(html::contains)
+private fun requireBookshelfNotMaintenance(html: String) { if (isBookshelfMaintenance(html)) throw LibraryError.Maintenance() }
+private fun isBookshelfLoginForm(html: String): Boolean = Jsoup.parse(html).selectFirst("input[name=j_password], input[name=j_username], form[action*=j_security_check]") != null
+private fun classifyBookshelfLogin(html: String) {
+    val document = Jsoup.parse(html)
+    if (document.selectFirst("#stat-login") != null || document.select("a, [id], [class]").any { it.id().contains("logout", true) || it.className().contains("logout", true) || it.text().contains("ログアウト") }) return
+    if (isBookshelfLoginForm(html)) throw LibraryError.Auth(memberName = null)
+    requireBookshelfNotMaintenance(html)
+    throw ParseException("login", "ログイン後メニューを判定できません")
+}
