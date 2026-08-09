@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,10 +46,15 @@ import com.fallgist.nishinomiyalibrary.ui.reservationcart.PickupLibrarySelector
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationCartContentBuilder
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiState
 import com.fallgist.nishinomiyalibrary.ui.search.CoverImageLoaderHolder
+import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfEditingUiState
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import kotlinx.coroutines.delay
 
 /** tilcodを持つ全画面から開ける、共通の書誌詳細ビュー。戻る操作で閉じる。 */
+object BookDetailViewTestTags {
+    const val ADD_TO_BOOKSHELF = "book-detail-add-to-bookshelf"
+}
+
 @Composable
 fun BookDetailView(
     detail: BookDetailUiState,
@@ -59,6 +65,8 @@ fun BookDetailView(
     onAddToCart: (ReservationTarget) -> Unit,
     onRequestReserveNow: (ReservationTarget) -> Unit,
     onOpenOfficialBookDetail: (String) -> Unit,
+    bookshelfEditing: BookshelfEditingUiState,
+    onRequestAddToBookshelf: (tilcod: String, title: String) -> Unit,
     // 経路3: detail.cancelTargetが非nullのとき(予約中一覧から開いたcancellableな行)だけボタンを表示する。
     onRequestCancel: (BookDetailCancelTarget) -> Unit,
     modifier: Modifier = Modifier,
@@ -140,6 +148,20 @@ fun BookDetailView(
                             contentColor = colors.card,
                         ),
                     ) { Text("この予約を取り消す") }
+                }
+                if (detail.tilcod.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    androidx.compose.material3.Button(
+                        onClick = { onRequestAddToBookshelf(detail.tilcod, detail.title) },
+                        enabled = bookshelfEditing.initialized && bookshelfEditing.members.isNotEmpty() && !bookshelfEditing.processing,
+                        modifier = Modifier.testTag(BookDetailViewTestTags.ADD_TO_BOOKSHELF),
+                    ) {
+                        Text(if (bookshelfEditing.processing) "本棚を処理中…" else "本棚へ追加")
+                    }
+                    when {
+                        !bookshelfEditing.initialized -> Text("メンバーを確認しています", color = colors.ink2, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+                        bookshelfEditing.members.isEmpty() -> Text("本棚へ追加するには、先に設定からメンバーを登録してください", color = colors.ink2, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+                    }
                 }
                 Spacer(Modifier.height(12.dp))
                 if (detail.fields.isNotEmpty() || detail.tilcod.isNotBlank()) {

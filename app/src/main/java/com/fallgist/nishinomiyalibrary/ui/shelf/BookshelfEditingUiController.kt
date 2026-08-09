@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.shelf
 
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.repository.BookshelfRepository
@@ -39,6 +40,13 @@ data class BookshelfItemTarget(
 /** 入力中のダイアログ。送信対象は最終確認時に固定する。 */
 sealed interface BookshelfEditingDialog {
     data class CreateShelf(val memberId: Long? = null, val name: String = "") : BookshelfEditingDialog
+    data class AddItem(
+        val tilcod: String,
+        val title: String,
+        val memberId: Long? = null,
+        val shelfNo: Int? = null,
+        val memo: String = "",
+    ) : BookshelfEditingDialog
     data class RenameShelf(val target: BookshelfShelfTarget, val name: String = target.shelfName) : BookshelfEditingDialog
     data class EditItemMemo(val target: BookshelfItemTarget, val memo: String = target.memo) : BookshelfEditingDialog
 }
@@ -51,6 +59,14 @@ sealed interface BookshelfEditingConfirmation {
         val memberName: String,
         val shelfName: String,
         override val mutation: BookshelfMutation.CreateShelf,
+    ) : BookshelfEditingConfirmation
+
+    data class AddItem(
+        val memberName: String,
+        val shelfName: String,
+        val title: String,
+        val memo: String,
+        override val mutation: BookshelfMutation.AddItem,
     ) : BookshelfEditingConfirmation
 
     data class RenameShelf(
@@ -87,6 +103,10 @@ data class BookshelfEditingResultMessage(
 data class BookshelfEditingUiState(
     val initialized: Boolean = false,
     val members: List<Member> = emptyList(),
+    /** 資料追加ダイアログで選択中のメンバーに属する棚。空棚も含む。 */
+    val addItemShelves: List<BookshelfContent> = emptyList(),
+    /** [addItemShelves] が選択メンバーの最初のFlow値を受け取ったか。 */
+    val addItemShelvesLoadedForMemberId: Long? = null,
     val dialog: BookshelfEditingDialog? = null,
     val inputError: String? = null,
     val pendingConfirmation: BookshelfEditingConfirmation? = null,
@@ -110,6 +130,7 @@ class BookshelfEditingUiController(
     private val _state = MutableStateFlow(BookshelfEditingUiState())
     val state: StateFlow<BookshelfEditingUiState> = _state
     private val membersJob: Job
+    private var addItemShelvesJob: Job? = null
 
     init {
         membersJob = scope.launch {
@@ -120,69 +141,138 @@ class BookshelfEditingUiController(
     }
 
     fun requestCreateShelf() {
-        if (state.value.processing) return
-        _state.value = state.value.copy(dialog = BookshelfEditingDialog.CreateShelf(), inputError = null)
+        _state.update { current ->
+            if (current.processing) current else current.copy(dialog = BookshelfEditingDialog.CreateShelf(), inputError = null)
+        }
+    }
+
+    /** 書誌詳細からの資料追加を開始する。前回の選択・メモは引き継がない。 */
+    fun requestAddItem(tilcod: String, title: String) {
+        if (tilcod.isBlank()) return
+        var opened = false
+        _state.update { current ->
+            opened = false
+            if (current.processing || current.members.isEmpty()) current else {
+                opened = true
+                current.copy(
+                    dialog = BookshelfEditingDialog.AddItem(tilcod = tilcod, title = title),
+                    addItemShelves = emptyList(),
+                    addItemShelvesLoadedForMemberId = null,
+                    inputError = null,
+                )
+            }
+        }
+        if (opened) stopAddItemShelfObservation()
+    }
+
+    fun selectAddItemMember(memberId: Long) {
+        var selected = false
+        _state.update { current ->
+            selected = false
+            val dialog = current.dialog as? BookshelfEditingDialog.AddItem
+            if (current.processing || dialog == null || current.members.none { it.id == memberId }) current else {
+                selected = true
+                current.copy(
+                    dialog = dialog.copy(memberId = memberId, shelfNo = null),
+                    addItemShelves = emptyList(),
+                    addItemShelvesLoadedForMemberId = null,
+                    inputError = null,
+                )
+            }
+        }
+        if (!selected) return
+        stopAddItemShelfObservation()
+        addItemShelvesJob = scope.launch {
+            bookshelfRepository.observeShelves(memberId).collect { shelves ->
+                _state.update { current ->
+                    val dialog = current.dialog as? BookshelfEditingDialog.AddItem
+                    val pending = current.pendingConfirmation as? BookshelfEditingConfirmation.AddItem
+                    if (dialog?.memberId == memberId || pending?.mutation?.memberId == memberId) {
+                        current.copy(
+                            addItemShelves = shelves.sortedBy { it.shelfNo },
+                            addItemShelvesLoadedForMemberId = memberId,
+                        )
+                    } else {
+                        current
+                    }
+                }
+            }
+        }
+    }
+
+    fun selectAddItemShelf(shelfNo: Int) {
+        _state.update { current ->
+            val dialog = current.dialog as? BookshelfEditingDialog.AddItem
+            if (current.processing || dialog?.memberId == null || current.addItemShelves.none { it.shelfNo == shelfNo }) current
+            else current.copy(dialog = dialog.copy(shelfNo = shelfNo), inputError = null)
+        }
     }
 
     fun selectCreateMember(memberId: Long) {
-        val dialog = state.value.dialog as? BookshelfEditingDialog.CreateShelf ?: return
-        if (state.value.processing || state.value.members.none { it.id == memberId }) return
-        _state.value = state.value.copy(dialog = dialog.copy(memberId = memberId), inputError = null)
+        _state.update { current ->
+            val dialog = current.dialog as? BookshelfEditingDialog.CreateShelf
+            if (current.processing || dialog == null || current.members.none { it.id == memberId }) current
+            else current.copy(dialog = dialog.copy(memberId = memberId), inputError = null)
+        }
     }
 
     fun requestRenameShelf(target: BookshelfShelfTarget) {
-        if (state.value.processing) return
-        _state.value = state.value.copy(dialog = BookshelfEditingDialog.RenameShelf(target), inputError = null)
+        _state.update { current -> if (current.processing) current else current.copy(dialog = BookshelfEditingDialog.RenameShelf(target), inputError = null) }
     }
 
     fun requestEditItemMemo(target: BookshelfItemTarget) {
-        if (state.value.processing) return
-        _state.value = state.value.copy(dialog = BookshelfEditingDialog.EditItemMemo(target), inputError = null)
+        _state.update { current -> if (current.processing) current else current.copy(dialog = BookshelfEditingDialog.EditItemMemo(target), inputError = null) }
     }
 
     fun requestDeleteItem(target: BookshelfItemTarget) {
-        if (state.value.processing) return
-        _state.value = state.value.copy(
-            pendingConfirmation = BookshelfEditingConfirmation.DeleteItem(
-                target,
-                BookshelfMutation.DeleteItem(target.memberId, target.shelfNo, target.tilcod),
-            ),
-            inputError = null,
-        )
+        _state.update { current ->
+            if (current.processing) current else current.copy(
+                pendingConfirmation = BookshelfEditingConfirmation.DeleteItem(
+                    target,
+                    BookshelfMutation.DeleteItem(target.memberId, target.shelfNo, target.tilcod),
+                ),
+                inputError = null,
+            )
+        }
     }
 
     fun requestDeleteShelf(target: BookshelfShelfTarget) {
-        if (state.value.processing) return
-        _state.value = state.value.copy(
-            pendingConfirmation = BookshelfEditingConfirmation.DeleteShelf(
-                target,
-                BookshelfMutation.DeleteShelf(target.memberId, target.shelfNo),
-            ),
-            inputError = null,
-        )
+        _state.update { current ->
+            if (current.processing) current else current.copy(
+                pendingConfirmation = BookshelfEditingConfirmation.DeleteShelf(
+                    target,
+                    BookshelfMutation.DeleteShelf(target.memberId, target.shelfNo),
+                ),
+                inputError = null,
+            )
+        }
     }
 
     fun updateInput(value: String) {
-        if (state.value.processing) return
-        val dialog = state.value.dialog ?: return
-        val updated = when (dialog) {
-            is BookshelfEditingDialog.CreateShelf -> dialog.copy(name = value)
-            is BookshelfEditingDialog.RenameShelf -> dialog.copy(name = value)
-            is BookshelfEditingDialog.EditItemMemo -> dialog.copy(memo = value)
+        _state.update { current ->
+            val dialog = current.dialog
+            if (current.processing || dialog == null) return@update current
+            val updated = when (dialog) {
+                is BookshelfEditingDialog.CreateShelf -> dialog.copy(name = value)
+                is BookshelfEditingDialog.AddItem -> dialog.copy(memo = value)
+                is BookshelfEditingDialog.RenameShelf -> dialog.copy(name = value)
+                is BookshelfEditingDialog.EditItemMemo -> dialog.copy(memo = value)
+            }
+            current.copy(dialog = updated, inputError = null)
         }
-        _state.value = state.value.copy(dialog = updated, inputError = null)
     }
 
     /** 入力画面の「次へ」。検証を通った場合だけ、通信しない最終確認へ進む。 */
     fun requestInputConfirmation() {
-        if (state.value.processing) return
-        when (val dialog = state.value.dialog) {
+        _state.update { current ->
+            if (current.processing) return@update current
+            when (val dialog = current.dialog) {
             is BookshelfEditingDialog.CreateShelf -> {
-                val member = state.value.members.find { it.id == dialog.memberId }
+                val member = current.members.find { it.id == dialog.memberId }
                 when {
-                    member == null -> setInputError("対象メンバーを選択してください")
-                    !isValidShelfName(dialog.name) -> setInputError(shelfNameError(dialog.name))
-                    else -> _state.value = state.value.copy(
+                    member == null -> current.copy(inputError = "対象メンバーを選択してください")
+                    !isValidShelfName(dialog.name) -> current.copy(inputError = shelfNameError(dialog.name))
+                    else -> current.copy(
                         dialog = null,
                         inputError = null,
                         pendingConfirmation = BookshelfEditingConfirmation.CreateShelf(
@@ -193,11 +283,33 @@ class BookshelfEditingUiController(
                     )
                 }
             }
+            is BookshelfEditingDialog.AddItem -> {
+                val member = current.members.find { it.id == dialog.memberId }
+                val shelf = dialog.shelfNo?.let { shelfNo -> current.addItemShelves.find { it.shelfNo == shelfNo } }
+                when {
+                    member == null -> current.copy(inputError = "対象メンバーを選択してください")
+                    current.addItemShelvesLoadedForMemberId != member.id -> current.copy(inputError = "本棚を読み込んでいます")
+                    current.addItemShelves.isEmpty() -> current.copy(inputError = "先に本棚を作成してください")
+                    shelf == null -> current.copy(inputError = "追加先の本棚を選択してください")
+                    dialog.memo.length > MAX_MEMO_LENGTH -> current.copy(inputError = "資料メモは${MAX_MEMO_LENGTH}文字以内で入力してください")
+                    else -> current.copy(
+                        dialog = null,
+                        inputError = null,
+                        pendingConfirmation = BookshelfEditingConfirmation.AddItem(
+                            memberName = member.name,
+                            shelfName = shelf.name,
+                            title = dialog.title,
+                            memo = dialog.memo,
+                            mutation = BookshelfMutation.AddItem(member.id, shelf.shelfNo, dialog.tilcod, dialog.memo),
+                        ),
+                    )
+                }
+            }
             is BookshelfEditingDialog.RenameShelf -> {
                 if (!isValidShelfName(dialog.name)) {
-                    setInputError(shelfNameError(dialog.name))
+                    current.copy(inputError = shelfNameError(dialog.name))
                 } else {
-                    _state.value = state.value.copy(
+                    current.copy(
                         dialog = null,
                         inputError = null,
                         pendingConfirmation = BookshelfEditingConfirmation.RenameShelf(
@@ -210,9 +322,9 @@ class BookshelfEditingUiController(
             }
             is BookshelfEditingDialog.EditItemMemo -> {
                 if (dialog.memo.length > MAX_MEMO_LENGTH) {
-                    setInputError("資料メモは${MAX_MEMO_LENGTH}文字以内で入力してください")
+                    current.copy(inputError = "資料メモは${MAX_MEMO_LENGTH}文字以内で入力してください")
                 } else {
-                    _state.value = state.value.copy(
+                    current.copy(
                         dialog = null,
                         inputError = null,
                         pendingConfirmation = BookshelfEditingConfirmation.EditItemMemo(
@@ -228,65 +340,144 @@ class BookshelfEditingUiController(
                     )
                 }
             }
-            null -> Unit
+            null -> current
+            }
         }
     }
 
     fun dismissDialog() {
-        if (!state.value.processing) _state.value = state.value.copy(dialog = null, inputError = null)
+        var stopObservation = false
+        _state.update { current ->
+            stopObservation = false
+            if (current.processing) current else {
+                stopObservation = current.dialog is BookshelfEditingDialog.AddItem
+                current.copy(
+                    dialog = null,
+                    inputError = null,
+                    addItemShelves = if (stopObservation) emptyList() else current.addItemShelves,
+                    addItemShelvesLoadedForMemberId = if (stopObservation) null else current.addItemShelvesLoadedForMemberId,
+                )
+            }
+        }
+        if (stopObservation) stopAddItemShelfObservation()
     }
 
     fun dismissConfirmation() {
-        if (!state.value.processing) _state.value = state.value.copy(pendingConfirmation = null)
+        var stopObservation = false
+        _state.update { current ->
+            stopObservation = false
+            if (current.processing) current else {
+                stopObservation = current.pendingConfirmation is BookshelfEditingConfirmation.AddItem
+                current.copy(
+                    pendingConfirmation = null,
+                    addItemShelves = if (stopObservation) emptyList() else current.addItemShelves,
+                    addItemShelvesLoadedForMemberId = if (stopObservation) null else current.addItemShelvesLoadedForMemberId,
+                )
+            }
+        }
+        if (stopObservation) stopAddItemShelfObservation()
     }
 
     /** 最終確認の肯定操作だけがRepositoryへのmutationを開始する。 */
     fun confirmPending() {
-        val confirmation = state.value.pendingConfirmation ?: return
-        if (state.value.processing) return
-        // 作成対象のメンバーが確認表示中に削除されていた場合は、送信せず選択し直しを求める。
-        if (confirmation.mutation.memberId !in state.value.members.map { it.id }) {
-            _state.value = state.value.copy(
-                pendingConfirmation = null,
-                errorMessage = "対象メンバーが見つかりません。内容を確認してからやり直してください",
-            )
-            return
+        var mutationToSend: BookshelfMutation? = null
+        var stopObservation = false
+        _state.update { current ->
+            mutationToSend = null
+            stopObservation = false
+            val confirmation = current.pendingConfirmation ?: return@update current
+            if (current.processing) return@update current
+            val member = current.members.find { it.id == confirmation.mutation.memberId }
+            fun reject(message: String): BookshelfEditingUiState {
+                stopObservation = confirmation is BookshelfEditingConfirmation.AddItem
+                return current.copy(
+                    pendingConfirmation = null,
+                    errorMessage = message,
+                    addItemShelves = if (stopObservation) emptyList() else current.addItemShelves,
+                    addItemShelvesLoadedForMemberId = if (stopObservation) null else current.addItemShelvesLoadedForMemberId,
+                )
+            }
+            when {
+                member == null -> reject("対象メンバーが見つかりません。内容を確認してからやり直してください")
+                confirmation is BookshelfEditingConfirmation.AddItem && member.name != confirmation.memberName ->
+                    reject("対象メンバーの名前が変更されました。もう一度選択してください")
+                confirmation is BookshelfEditingConfirmation.AddItem &&
+                    current.addItemShelvesLoadedForMemberId != confirmation.mutation.memberId ->
+                    reject("本棚を読み込めませんでした。もう一度選択してください")
+                confirmation is BookshelfEditingConfirmation.AddItem -> {
+                    val shelf = current.addItemShelves.find { it.shelfNo == confirmation.mutation.shelfNo }
+                    when {
+                        shelf == null -> reject("追加先の本棚が見つかりません。もう一度選択してください")
+                        shelf.name != confirmation.shelfName -> reject("追加先の本棚名が変更されました。もう一度選択してください")
+                        else -> {
+                            mutationToSend = confirmation.mutation
+                            current.copy(pendingConfirmation = null, processingMutation = confirmation.mutation)
+                        }
+                    }
+                }
+                else -> {
+                    mutationToSend = confirmation.mutation
+                    current.copy(pendingConfirmation = null, processingMutation = confirmation.mutation)
+                }
+            }
         }
-        _state.value = state.value.copy(pendingConfirmation = null, processingMutation = confirmation.mutation)
+        if (stopObservation) stopAddItemShelfObservation()
+        val mutation = mutationToSend ?: return
         scope.launch {
             try {
-                val outcome = bookshelfRepository.mutate(confirmation.mutation)
-                _state.value = _state.value.copy(
-                    processingMutation = null,
-                    result = BookshelfEditingContentBuilder.resultMessage(outcome),
-                )
+                val outcome = bookshelfRepository.mutate(mutation)
+                _state.update { current ->
+                    if (current.processingMutation != mutation) current else current.copy(
+                        processingMutation = null,
+                        result = BookshelfEditingContentBuilder.resultMessage(outcome),
+                    )
+                }
+                if (mutation is BookshelfMutation.AddItem) clearAddItemShelfObservation()
             } catch (exception: CancellationException) {
-                _state.value = _state.value.copy(processingMutation = null)
+                _state.update { current ->
+                    if (current.processingMutation == mutation) current.copy(processingMutation = null) else current
+                }
+                if (mutation is BookshelfMutation.AddItem) clearAddItemShelfObservation()
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    processingMutation = null,
-                    errorMessage = "本棚の操作を完了できませんでした。通信状態を確認してください。",
-                )
+                _state.update { current ->
+                    if (current.processingMutation != mutation) current else current.copy(
+                        processingMutation = null,
+                        errorMessage = "本棚の操作を完了できませんでした。通信状態を確認してください。",
+                    )
+                }
+                if (mutation is BookshelfMutation.AddItem) clearAddItemShelfObservation()
             }
         }
     }
 
     fun clearResult() {
-        _state.value = state.value.copy(result = null)
+        _state.update { it.copy(result = null) }
     }
 
     fun clearError() {
-        _state.value = state.value.copy(errorMessage = null)
+        _state.update { it.copy(errorMessage = null) }
     }
 
     fun close() {
         membersJob.cancel()
+        addItemShelvesJob?.cancel()
         scope.coroutineContext[Job]?.cancel()
     }
 
-    private fun setInputError(message: String) {
-        _state.value = state.value.copy(inputError = message)
+    private fun clearAddItemShelfObservation() {
+        stopAddItemShelfObservation()
+        _state.update { current ->
+            current.copy(
+                addItemShelves = emptyList(),
+                addItemShelvesLoadedForMemberId = null,
+            )
+        }
+    }
+
+    private fun stopAddItemShelfObservation() {
+        addItemShelvesJob?.cancel()
+        addItemShelvesJob = null
     }
 
     companion object {
@@ -307,6 +498,7 @@ class BookshelfEditingUiController(
 object BookshelfEditingContentBuilder {
     fun confirmationTitle(confirmation: BookshelfEditingConfirmation): String = when (confirmation) {
         is BookshelfEditingConfirmation.CreateShelf -> "本棚を作成しますか？"
+        is BookshelfEditingConfirmation.AddItem -> "本棚に追加しますか？"
         is BookshelfEditingConfirmation.RenameShelf -> "本棚名を変更しますか？"
         is BookshelfEditingConfirmation.EditItemMemo -> "資料メモを変更しますか？"
         is BookshelfEditingConfirmation.DeleteItem -> "本棚から資料を削除しますか？"
@@ -316,6 +508,8 @@ object BookshelfEditingContentBuilder {
     fun confirmationMessage(confirmation: BookshelfEditingConfirmation): String = when (confirmation) {
         is BookshelfEditingConfirmation.CreateShelf ->
             "対象メンバー：${confirmation.memberName}\n本棚名：${confirmation.shelfName}"
+        is BookshelfEditingConfirmation.AddItem ->
+            "対象メンバー：${confirmation.memberName}\n本棚：${confirmation.shelfName}\n資料名：${confirmation.title}\nメモ：${confirmation.memo.ifEmpty { "（なし）" }}"
         is BookshelfEditingConfirmation.RenameShelf ->
             "対象本棚：${confirmation.target.shelfName}\n新しい名前：${confirmation.newName}"
         is BookshelfEditingConfirmation.EditItemMemo ->
@@ -328,6 +522,7 @@ object BookshelfEditingContentBuilder {
 
     fun confirmLabel(confirmation: BookshelfEditingConfirmation): String = when (confirmation) {
         is BookshelfEditingConfirmation.CreateShelf -> "本棚を作成"
+        is BookshelfEditingConfirmation.AddItem -> "この本棚に追加"
         is BookshelfEditingConfirmation.RenameShelf -> "名前を変更"
         is BookshelfEditingConfirmation.EditItemMemo -> "メモを変更"
         is BookshelfEditingConfirmation.DeleteItem -> "本棚から削除"

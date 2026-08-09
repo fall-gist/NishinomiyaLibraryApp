@@ -74,6 +74,7 @@ import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreen
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreen
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfEditingUiController
+import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfEditingDialogs
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import com.fallgist.nishinomiyalibrary.ui.sync.SyncUiState
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
@@ -262,6 +263,7 @@ fun LibraryApp(
                     // 書誌詳細オーバーレイの状態。RESERVATIONS分岐でのonOpenDetail組み立てと、
                     // オーバーレイ本体の描画、取消確定時の自動クローズ判定の3箇所で共有する。
                     val detailState by bookDetailController.state.collectAsState()
+                    val editingState by bookshelfEditingUiController.state.collectAsState()
                     // 経路3: 書誌詳細の「この予約を取り消す」ボタン。第1段階のrequestSingleCancelConfirmation
                     // (経路1と同じ確認文言)へそのまま委譲する。新しい確認の仕組みは作らない。
                     val onRequestCancelFromDetail: (BookDetailCancelTarget) -> Unit = { target ->
@@ -387,7 +389,6 @@ fun LibraryApp(
 
                         Destination.SHELF -> {
                             val shelfState by bookshelfController.state.collectAsState()
-                            val editingState by bookshelfEditingUiController.state.collectAsState()
                             BookshelfScreen(
                                 state = shelfState,
                                 editingState = editingState,
@@ -397,18 +398,10 @@ fun LibraryApp(
                                 onOpenMenu = openMenu,
                                 onOpenDetail = openDetail,
                                 onRequestCreateShelf = bookshelfEditingUiController::requestCreateShelf,
-                                onSelectCreateMember = bookshelfEditingUiController::selectCreateMember,
                                 onRequestRenameShelf = bookshelfEditingUiController::requestRenameShelf,
                                 onRequestDeleteShelf = bookshelfEditingUiController::requestDeleteShelf,
                                 onRequestEditMemo = bookshelfEditingUiController::requestEditItemMemo,
                                 onRequestDeleteItem = bookshelfEditingUiController::requestDeleteItem,
-                                onUpdateEditingInput = bookshelfEditingUiController::updateInput,
-                                onRequestInputConfirmation = bookshelfEditingUiController::requestInputConfirmation,
-                                onDismissEditingDialog = bookshelfEditingUiController::dismissDialog,
-                                onConfirmEditing = bookshelfEditingUiController::confirmPending,
-                                onDismissEditingConfirmation = bookshelfEditingUiController::dismissConfirmation,
-                                onClearEditingResult = bookshelfEditingUiController::clearResult,
-                                onClearEditingError = bookshelfEditingUiController::clearError,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -523,6 +516,8 @@ fun LibraryApp(
                                         onAddToCart = reservationUiController::addToCart,
                                         onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
                                         onOpenOfficialBookDetail = openOfficialBookDetail,
+                                        bookshelfEditing = editingState,
+                                        onRequestAddToBookshelf = bookshelfEditingUiController::requestAddItem,
                                         onRequestCancel = onRequestCancelFromDetail,
                                         modifier = Modifier.fillMaxSize(),
                                     )
@@ -538,6 +533,8 @@ fun LibraryApp(
                                 onAddToCart = reservationUiController::addToCart,
                                 onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
                                 onOpenOfficialBookDetail = openOfficialBookDetail,
+                                bookshelfEditing = editingState,
+                                onRequestAddToBookshelf = bookshelfEditingUiController::requestAddItem,
                                 onRequestCancel = onRequestCancelFromDetail,
                                 modifier = Modifier.fillMaxSize().background(colors.paper),
                             )
@@ -556,6 +553,19 @@ fun LibraryApp(
                             modifier = Modifier.fillMaxSize().background(colors.paper),
                         )
                     }
+                    BookshelfEditingDialogs(
+                        editingState = editingState,
+                        onSelectCreateMember = bookshelfEditingUiController::selectCreateMember,
+                        onSelectAddItemMember = bookshelfEditingUiController::selectAddItemMember,
+                        onSelectAddItemShelf = bookshelfEditingUiController::selectAddItemShelf,
+                        onUpdateInput = bookshelfEditingUiController::updateInput,
+                        onRequestInputConfirmation = bookshelfEditingUiController::requestInputConfirmation,
+                        onDismissDialog = bookshelfEditingUiController::dismissDialog,
+                        onConfirm = bookshelfEditingUiController::confirmPending,
+                        onDismissConfirmation = bookshelfEditingUiController::dismissConfirmation,
+                        onClearResult = bookshelfEditingUiController::clearResult,
+                        onClearError = bookshelfEditingUiController::clearError,
+                    )
                     reservationState.pendingConfirmation?.let { request ->
                         ReservationConfirmDialog(
                             request = request,

@@ -58,6 +58,56 @@ class BookshelfScreenComposeTest {
         composeRule.onNodeWithText("登録資料はありません").assertExists()
     }
 
+    @Test
+    fun `資料追加ダイアログはloadingと未選択と空棚で確認を無効化する`() {
+        setEditingDialogs(
+            BookshelfEditingUiState(
+                initialized = true,
+                members = listOf(father),
+                dialog = BookshelfEditingDialog.AddItem("t-1", "資料A", memberId = father.id),
+            ),
+        )
+        composeRule.onNodeWithTag(BookshelfEditingDialogTestTags.ADD_ITEM_CONFIRM).assertIsNotEnabled()
+        composeRule.onNodeWithText("本棚を読み込んでいます").assertExists()
+
+        setEditingDialogs(
+            BookshelfEditingUiState(
+                initialized = true,
+                members = listOf(father),
+                dialog = BookshelfEditingDialog.AddItem("t-1", "資料A", memberId = father.id),
+                addItemShelvesLoadedForMemberId = father.id,
+            ),
+        )
+        composeRule.onNodeWithTag(BookshelfEditingDialogTestTags.ADD_ITEM_CONFIRM).assertIsNotEnabled()
+        composeRule.onNodeWithText("先に本棚を作成してください").assertExists()
+
+        setEditingDialogs(
+            BookshelfEditingUiState(
+                initialized = true,
+                members = listOf(father),
+                dialog = BookshelfEditingDialog.AddItem("t-1", "資料A"),
+            ),
+        )
+        composeRule.onNodeWithTag(BookshelfEditingDialogTestTags.ADD_ITEM_CONFIRM).assertIsNotEnabled()
+    }
+
+    @Test
+    fun `資料追加の最終確認には対象とメモを表示する`() {
+        val confirmation = BookshelfEditingConfirmation.AddItem(
+            memberName = "父",
+            shelfName = "父の棚",
+            title = "資料A",
+            memo = "メモA",
+            mutation = BookshelfMutation.AddItem(father.id, 3, "t-1", "メモA"),
+        )
+        setEditingDialogs(BookshelfEditingUiState(pendingConfirmation = confirmation))
+
+        composeRule.onNodeWithText("対象メンバー：父", substring = true).assertExists()
+        composeRule.onNodeWithText("本棚：父の棚", substring = true).assertExists()
+        composeRule.onNodeWithText("資料名：資料A", substring = true).assertExists()
+        composeRule.onNodeWithText("メモ：メモA", substring = true).assertExists()
+    }
+
     private fun setScreen(
         columns: List<ShelfColumn> = listOf(column),
         editingState: BookshelfEditingUiState = BookshelfEditingUiState(
@@ -77,18 +127,30 @@ class BookshelfScreenComposeTest {
                     onOpenMenu = {},
                     onOpenDetail = onOpenDetail,
                     onRequestCreateShelf = {},
-                    onSelectCreateMember = {},
                     onRequestRenameShelf = {},
                     onRequestDeleteShelf = {},
                     onRequestEditMemo = {},
                     onRequestDeleteItem = {},
-                    onUpdateEditingInput = {},
+                )
+            }
+        }
+    }
+
+    private fun setEditingDialogs(editingState: BookshelfEditingUiState) {
+        composeRule.setContent {
+            NishinomiyaLibraryTheme(darkTheme = false) {
+                BookshelfEditingDialogs(
+                    editingState = editingState,
+                    onSelectCreateMember = {},
+                    onSelectAddItemMember = {},
+                    onSelectAddItemShelf = {},
+                    onUpdateInput = {},
                     onRequestInputConfirmation = {},
-                    onDismissEditingDialog = {},
-                    onConfirmEditing = {},
-                    onDismissEditingConfirmation = {},
-                    onClearEditingResult = {},
-                    onClearEditingError = {},
+                    onDismissDialog = {},
+                    onConfirm = {},
+                    onDismissConfirmation = {},
+                    onClearResult = {},
+                    onClearError = {},
                 )
             }
         }

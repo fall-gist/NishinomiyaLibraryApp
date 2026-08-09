@@ -61,6 +61,10 @@ object BookshelfScreenTestTags {
         "${bookCard(memberId, shelfNo, tilcod)}-menu"
 }
 
+object BookshelfEditingDialogTestTags {
+    const val ADD_ITEM_CONFIRM = "bookshelf-add-item-confirm"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookshelfScreen(
@@ -72,18 +76,10 @@ fun BookshelfScreen(
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
     onRequestCreateShelf: () -> Unit,
-    onSelectCreateMember: (Long) -> Unit,
     onRequestRenameShelf: (BookshelfShelfTarget) -> Unit,
     onRequestDeleteShelf: (BookshelfShelfTarget) -> Unit,
     onRequestEditMemo: (BookshelfItemTarget) -> Unit,
     onRequestDeleteItem: (BookshelfItemTarget) -> Unit,
-    onUpdateEditingInput: (String) -> Unit,
-    onRequestInputConfirmation: () -> Unit,
-    onDismissEditingDialog: () -> Unit,
-    onConfirmEditing: () -> Unit,
-    onDismissEditingConfirmation: () -> Unit,
-    onClearEditingResult: () -> Unit,
-    onClearEditingError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -139,35 +135,6 @@ fun BookshelfScreen(
                 }
             }
         }
-    }
-    editingState.errorMessage?.let { message ->
-        AlertDialog(
-            onDismissRequest = onClearEditingError,
-            title = { Text("本棚の操作を完了できませんでした") },
-            text = { Text(message, color = colors.alert) },
-            confirmButton = { Button(onClick = onClearEditingError) { Text("閉じる") } },
-        )
-    }
-    editingState.dialog?.let { dialog ->
-        BookshelfEditingInputDialog(
-            dialog = dialog,
-            members = editingState.members,
-            inputError = editingState.inputError,
-            onSelectCreateMember = onSelectCreateMember,
-            onInputChange = onUpdateEditingInput,
-            onConfirm = onRequestInputConfirmation,
-            onDismiss = onDismissEditingDialog,
-        )
-    }
-    editingState.pendingConfirmation?.let { confirmation ->
-        BookshelfEditingConfirmDialog(
-            confirmation = confirmation,
-            onConfirm = onConfirmEditing,
-            onDismiss = onDismissEditingConfirmation,
-        )
-    }
-    editingState.result?.let { result ->
-        BookshelfEditingResultDialog(result, onClearEditingResult)
     }
 }
 
@@ -364,6 +331,144 @@ private fun ShelfBookOverflowMenu(
 }
 
 @Composable
+fun BookshelfEditingDialogs(
+    editingState: BookshelfEditingUiState,
+    onSelectCreateMember: (Long) -> Unit,
+    onSelectAddItemMember: (Long) -> Unit,
+    onSelectAddItemShelf: (Int) -> Unit,
+    onUpdateInput: (String) -> Unit,
+    onRequestInputConfirmation: () -> Unit,
+    onDismissDialog: () -> Unit,
+    onConfirm: () -> Unit,
+    onDismissConfirmation: () -> Unit,
+    onClearResult: () -> Unit,
+    onClearError: () -> Unit,
+) {
+    val colors = LocalAppColors.current
+    editingState.errorMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = onClearError,
+            title = { Text("本棚の操作を完了できませんでした") },
+            text = { Text(message, color = colors.alert) },
+            confirmButton = { Button(onClick = onClearError) { Text("閉じる") } },
+        )
+    }
+    editingState.dialog?.let { dialog ->
+        if (dialog is BookshelfEditingDialog.AddItem) {
+            AddItemDialog(
+                dialog = dialog,
+                members = editingState.members,
+                shelves = editingState.addItemShelves,
+                shelvesLoaded = editingState.addItemShelvesLoadedForMemberId == dialog.memberId,
+                inputError = editingState.inputError,
+                onSelectMember = onSelectAddItemMember,
+                onSelectShelf = onSelectAddItemShelf,
+                onMemoChange = onUpdateInput,
+                onConfirm = onRequestInputConfirmation,
+                onDismiss = onDismissDialog,
+            )
+        } else {
+            BookshelfEditingInputDialog(
+                dialog = dialog,
+                members = editingState.members,
+                inputError = editingState.inputError,
+                onSelectCreateMember = onSelectCreateMember,
+                onInputChange = onUpdateInput,
+                onConfirm = onRequestInputConfirmation,
+                onDismiss = onDismissDialog,
+            )
+        }
+    }
+    editingState.pendingConfirmation?.let { confirmation ->
+        BookshelfEditingConfirmDialog(confirmation, onConfirm, onDismissConfirmation)
+    }
+    editingState.result?.let { result -> BookshelfEditingResultDialog(result, onClearResult) }
+}
+
+@Composable
+private fun AddItemDialog(
+    dialog: BookshelfEditingDialog.AddItem,
+    members: List<com.fallgist.nishinomiyalibrary.domain.model.Member>,
+    shelves: List<com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent>,
+    shelvesLoaded: Boolean,
+    inputError: String?,
+    onSelectMember: (Long) -> Unit,
+    onSelectShelf: (Int) -> Unit,
+    onMemoChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var memberMenuExpanded by remember(dialog) { mutableStateOf(false) }
+    var shelfMenuExpanded by remember(dialog.memberId) { mutableStateOf(false) }
+    val memberName = members.find { it.id == dialog.memberId }?.name ?: "メンバーを選択"
+    val shelfName = shelves.find { it.shelfNo == dialog.shelfNo }?.name ?: "本棚を選択"
+    val confirmEnabled = dialog.memberId != null && shelvesLoaded && shelves.isNotEmpty() &&
+        dialog.shelfNo != null && shelves.any { it.shelfNo == dialog.shelfNo } &&
+        dialog.memo.length <= BookshelfEditingUiController.MAX_MEMO_LENGTH
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("本棚へ追加") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("資料名：${dialog.title}", fontSize = 12.sp)
+                Text("対象メンバー", color = LocalAppColors.current.ink2, fontSize = 12.sp)
+                Text(
+                    memberName,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalAppColors.current.card)
+                        .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp))
+                        .clickable { memberMenuExpanded = true }.padding(12.dp),
+                )
+                DropdownMenu(expanded = memberMenuExpanded, onDismissRequest = { memberMenuExpanded = false }) {
+                    members.forEach { member ->
+                        DropdownMenuItem(text = { Text(member.name) }, onClick = {
+                            memberMenuExpanded = false
+                            onSelectMember(member.id)
+                        })
+                    }
+                }
+                Text("追加先の本棚", color = LocalAppColors.current.ink2, fontSize = 12.sp)
+                Text(
+                    shelfName,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalAppColors.current.card)
+                        .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp))
+                        .clickable(enabled = dialog.memberId != null && shelvesLoaded && shelves.isNotEmpty()) { shelfMenuExpanded = true }.padding(12.dp),
+                )
+                DropdownMenu(expanded = shelfMenuExpanded, onDismissRequest = { shelfMenuExpanded = false }) {
+                    shelves.forEach { shelf ->
+                        DropdownMenuItem(text = { Text(shelf.name) }, onClick = {
+                            shelfMenuExpanded = false
+                            onSelectShelf(shelf.shelfNo)
+                        })
+                    }
+                }
+                if (dialog.memberId != null && !shelvesLoaded) {
+                    Text("本棚を読み込んでいます", color = LocalAppColors.current.ink2, fontSize = 12.sp)
+                } else if (dialog.memberId != null && shelves.isEmpty()) {
+                    Text("先に本棚を作成してください", color = LocalAppColors.current.alert, fontSize = 12.sp)
+                }
+                OutlinedTextField(
+                    value = dialog.memo,
+                    onValueChange = onMemoChange,
+                    label = { Text("メモ（1000文字以内）") },
+                    isError = inputError != null,
+                    minLines = 3,
+                    maxLines = 6,
+                )
+                inputError?.let { Text(it, color = LocalAppColors.current.alert, fontSize = 12.sp) }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                enabled = confirmEnabled,
+                modifier = Modifier.testTag(BookshelfEditingDialogTestTags.ADD_ITEM_CONFIRM),
+            ) { Text("確認へ") }
+        },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
+    )
+}
+
+@Composable
 private fun BookshelfEditingInputDialog(
     dialog: BookshelfEditingDialog,
     members: List<com.fallgist.nishinomiyalibrary.domain.model.Member>,
@@ -376,6 +481,7 @@ private fun BookshelfEditingInputDialog(
     var memberMenuExpanded by remember(dialog) { mutableStateOf(false) }
     val title = when (dialog) {
         is BookshelfEditingDialog.CreateShelf -> "本棚を作成"
+        is BookshelfEditingDialog.AddItem -> "本棚へ追加"
         is BookshelfEditingDialog.RenameShelf -> "本棚名を変更"
         is BookshelfEditingDialog.EditItemMemo -> "資料メモを編集"
     }
@@ -404,11 +510,14 @@ private fun BookshelfEditingInputDialog(
                 }
                 val value = when (dialog) {
                     is BookshelfEditingDialog.CreateShelf -> dialog.name
+                    is BookshelfEditingDialog.AddItem -> dialog.memo
                     is BookshelfEditingDialog.RenameShelf -> dialog.name
                     is BookshelfEditingDialog.EditItemMemo -> dialog.memo
                 }
-                val isMemo = dialog is BookshelfEditingDialog.EditItemMemo
-                if (isMemo) Text("資料名：${dialog.target.title}\n本棚：${dialog.target.shelfName}", fontSize = 12.sp)
+                val isMemo = dialog is BookshelfEditingDialog.EditItemMemo || dialog is BookshelfEditingDialog.AddItem
+                if (dialog is BookshelfEditingDialog.EditItemMemo) {
+                    Text("資料名：${dialog.target.title}\n本棚：${dialog.target.shelfName}", fontSize = 12.sp)
+                }
                 OutlinedTextField(
                     value = value,
                     onValueChange = onInputChange,

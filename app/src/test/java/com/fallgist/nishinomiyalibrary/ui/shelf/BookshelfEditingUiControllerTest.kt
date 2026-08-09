@@ -10,6 +10,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -201,6 +202,7 @@ class BookshelfEditingUiControllerTest {
         assertTrue(controller.state.value.processing)
 
         controller.confirmPending()
+        controller.requestAddItem("t-2", "資料B")
         controller.requestCreateShelf()
         controller.requestRenameShelf(shelfTarget)
         controller.requestEditItemMemo(itemTarget)
@@ -216,18 +218,200 @@ class BookshelfEditingUiControllerTest {
         controller.close()
     }
 
+    @Test
+    fun `資料追加は毎回未選択から開始し確認後にだけ正確なmutationを送る`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-2", "資料B")
+        assertEquals(BookshelfEditingDialog.AddItem(tilcod = "t-2", title = "資料B"), controller.state.value.dialog)
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.updateInput("m".repeat(1000))
+        controller.requestInputConfirmation()
+
+        assertEquals(0, repo.calls.size)
+        val confirmation = controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.AddItem
+        assertEquals("父", confirmation.memberName)
+        assertEquals("父の棚", confirmation.shelfName)
+        assertEquals("資料B", confirmation.title)
+        assertEquals("m".repeat(1000), confirmation.memo)
+        assertEquals(BookshelfMutation.AddItem(father.id, 3, "t-2", "m".repeat(1000)), confirmation.mutation)
+
+        controller.confirmPending()
+        advanceUntilIdle()
+        assertEquals(listOf(confirmation.mutation), repo.calls)
+
+        controller.requestAddItem("t-3", "資料C")
+        assertEquals(BookshelfEditingDialog.AddItem("t-3", "資料C"), controller.state.value.dialog)
+        controller.close()
+    }
+
+    @Test
+    fun `資料追加はメンバー変更時に棚選択を解除し空棚と1001文字を拒否する`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val childShelves = MutableStateFlow(emptyList<BookshelfContent>())
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves, child.id to childShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-2", "資料B")
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.selectAddItemMember(child.id)
+        assertEquals(null, controller.state.value.addItemShelvesLoadedForMemberId)
+        advanceUntilIdle()
+        assertEquals(child.id, controller.state.value.addItemShelvesLoadedForMemberId)
+        assertEquals(null, (controller.state.value.dialog as BookshelfEditingDialog.AddItem).shelfNo)
+        controller.requestInputConfirmation()
+        assertEquals("先に本棚を作成してください", controller.state.value.inputError)
+        assertEquals(0, repo.calls.size)
+
+        controller.dismissDialog()
+        controller.requestAddItem("t-2", "資料B")
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.updateInput("m".repeat(1001))
+        controller.requestInputConfirmation()
+        assertEquals("資料メモは1000文字以内で入力してください", controller.state.value.inputError)
+        assertEquals(0, repo.calls.size)
+        controller.close()
+    }
+
+    @Test
+    fun `資料追加の確認前に追加先が消えた場合は送信しない`() = runTest {
+        val shelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to shelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-2", "資料B")
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.requestInputConfirmation()
+        shelves.value = emptyList()
+        advanceUntilIdle()
+        controller.confirmPending()
+
+        assertEquals(0, repo.calls.size)
+        assertTrue(controller.state.value.errorMessage != null)
+        controller.close()
+    }
+
+    @Test
+    fun `資料追加は棚Flowの初回値を待ち空棚と区別して確認を拒否する`() = runTest {
+        val shelves = MutableSharedFlow<List<BookshelfContent>>()
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to shelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-2", "資料B")
+        controller.selectAddItemMember(father.id)
+        runCurrent()
+        assertEquals(null, controller.state.value.addItemShelvesLoadedForMemberId)
+        controller.requestInputConfirmation()
+        assertEquals(null, controller.state.value.pendingConfirmation)
+        assertTrue(controller.state.value.inputError != null)
+
+        shelves.emit(emptyList())
+        runCurrent()
+        assertEquals(father.id, controller.state.value.addItemShelvesLoadedForMemberId)
+        controller.requestInputConfirmation()
+        assertEquals(null, controller.state.value.pendingConfirmation)
+        assertTrue(controller.state.value.inputError != null)
+        controller.close()
+    }
+
+    @Test
+    fun `確認中のmember削除と棚emitが競合してもmemberを復元せず送信しない`() = runTest {
+        val members = MutableStateFlow(listOf(father, child))
+        val shelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to shelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler), members)
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-2", "資料B")
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.requestInputConfirmation()
+
+        members.value = listOf(child)
+        shelves.value = listOf(BookshelfContent(father.id, 3, "更新後の棚", emptyList()))
+        runCurrent()
+        assertTrue(controller.state.value.members.none { it.id == father.id })
+
+        controller.confirmPending()
+        advanceUntilIdle()
+        assertEquals(0, repo.calls.size)
+        assertTrue(controller.state.value.members.none { it.id == father.id })
+        controller.close()
+    }
+
+    @Test
+    fun `確認中に棚名が変わった場合は表示対象との不一致を検出して送信しない`() = runTest {
+        val shelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to shelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-2", "資料B")
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.requestInputConfirmation()
+        shelves.value = listOf(BookshelfContent(father.id, 3, "変更後の棚", emptyList()))
+        runCurrent()
+
+        controller.confirmPending()
+        advanceUntilIdle()
+        assertEquals(0, repo.calls.size)
+        assertTrue(controller.state.value.errorMessage != null)
+        controller.close()
+    }
+
+    @Test
+    fun `確認中にmember名が変わった場合は表示対象との不一致を検出して送信しない`() = runTest {
+        val members = MutableStateFlow(listOf(father, child))
+        val shelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to shelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler), members)
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-2", "資料B")
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.requestInputConfirmation()
+        members.value = listOf(father.copy(name = "変更後"), child)
+        runCurrent()
+
+        controller.confirmPending()
+        advanceUntilIdle()
+        assertEquals(0, repo.calls.size)
+        assertTrue(controller.state.value.errorMessage != null)
+        controller.close()
+    }
+
     private fun controller(
         repo: FakeBookshelfRepository,
         dispatcher: kotlinx.coroutines.CoroutineDispatcher,
+        membersFlow: Flow<List<Member>> = flowOf(listOf(father, child)),
     ): BookshelfEditingUiController =
         BookshelfEditingUiController(
             bookshelfRepository = repo,
-            familyRepository = FakeFamilyRepository(),
+            familyRepository = FakeFamilyRepository(membersFlow),
             dispatcher = dispatcher,
         )
 
-    private inner class FakeFamilyRepository : FamilyRepository {
-        override fun members(): Flow<List<Member>> = flowOf(listOf(father, child))
+    private inner class FakeFamilyRepository(private val membersFlow: Flow<List<Member>>) : FamilyRepository {
+        override fun members(): Flow<List<Member>> = membersFlow
         override suspend fun addMember(name: String, colorHex: String, cardNumber: String, password: String) = Unit
         override suspend fun updateMember(member: Member, newPassword: String?) = Unit
         override suspend fun removeMember(memberId: Long) = Unit
@@ -236,9 +420,10 @@ class BookshelfEditingUiControllerTest {
     private class FakeBookshelfRepository(
         private val outcome: BookshelfMutationOutcome = BookshelfMutationOutcome.Applied(),
         private val onMutate: (suspend () -> Unit)? = null,
+        private val shelves: Map<Long, Flow<List<BookshelfContent>>> = emptyMap(),
     ) : BookshelfRepository {
         val calls = mutableListOf<BookshelfMutation>()
-        override fun observeShelves(memberId: Long): Flow<List<BookshelfContent>> = MutableStateFlow(emptyList())
+        override fun observeShelves(memberId: Long): Flow<List<BookshelfContent>> = shelves[memberId] ?: MutableStateFlow(emptyList())
         override suspend fun mutate(mutation: BookshelfMutation): BookshelfMutationOutcome {
             calls += mutation
             onMutate?.invoke()
