@@ -31,6 +31,7 @@ import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiControlle
 import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
+import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfEditingUiController
 import com.fallgist.nishinomiyalibrary.ui.sync.SyncUiController
 import dagger.Binds
 import dagger.Module
@@ -130,6 +131,16 @@ object DebugUiProvisionModule {
     ): BookshelfScreenController = BookshelfScreenController(
         familyRepository = familyRepository,
         bookshelfRepository = bookshelfRepository,
+    )
+
+    @Provides
+    @Singleton
+    fun provideBookshelfEditingUiController(
+        bookshelfRepository: BookshelfRepository,
+        familyRepository: FamilyRepository,
+    ): BookshelfEditingUiController = BookshelfEditingUiController(
+        bookshelfRepository = bookshelfRepository,
+        familyRepository = familyRepository,
     )
 
     @Provides
@@ -242,6 +253,8 @@ interface MainActivityEntryPoint {
     fun readingRecordsScreenController(): ReadingRecordsScreenController
 
     fun bookshelfScreenController(): BookshelfScreenController
+
+    fun bookshelfEditingUiController(): BookshelfEditingUiController
 
     fun searchScreenController(): SearchScreenController
 

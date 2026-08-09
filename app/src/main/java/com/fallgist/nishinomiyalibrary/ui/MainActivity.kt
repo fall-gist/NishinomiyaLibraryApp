@@ -22,6 +22,7 @@ import com.fallgist.nishinomiyalibrary.ui.reservations.ReservationsScreenControl
 import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
+import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfEditingUiController
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiController
 import com.fallgist.nishinomiyalibrary.ui.sync.SyncUiController
 import com.fallgist.nishinomiyalibrary.ui.theme.NishinomiyaLibraryTheme
@@ -45,6 +46,7 @@ open class MainActivity : ComponentActivity() {
     private lateinit var reservationCancelUiController: ReservationCancelUiController
     private lateinit var readingRecordsController: ReadingRecordsScreenController
     private lateinit var bookshelfController: BookshelfScreenController
+    private lateinit var bookshelfEditingUiController: BookshelfEditingUiController
     private lateinit var searchController: SearchScreenController
     private lateinit var calendarController: CalendarScreenController
     private lateinit var newArrivalsController: NewArrivalsScreenController
@@ -72,6 +74,7 @@ open class MainActivity : ComponentActivity() {
         reservationCancelUiController = entryPoint.reservationCancelUiController()
         readingRecordsController = entryPoint.readingRecordsScreenController()
         bookshelfController = entryPoint.bookshelfScreenController()
+        bookshelfEditingUiController = entryPoint.bookshelfEditingUiController()
         searchController = entryPoint.searchScreenController()
         calendarController = entryPoint.calendarScreenController()
         newArrivalsController = entryPoint.newArrivalsScreenController()
@@ -101,6 +104,7 @@ open class MainActivity : ComponentActivity() {
                     reservationCancelUiController = reservationCancelUiController,
                     readingRecordsController = readingRecordsController,
                     bookshelfController = bookshelfController,
+                    bookshelfEditingUiController = bookshelfEditingUiController,
                     searchController = searchController,
                     calendarController = calendarController,
                     newArrivalsController = newArrivalsController,

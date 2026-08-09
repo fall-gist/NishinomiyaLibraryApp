@@ -55,6 +55,8 @@ android {
         // versionCodeはコミット数から自動付与されるため、こちらは触らない。
         versionName = "1.0"
 
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
         buildConfigField("String", "GIT_SHA", "\"$buildGitSha\"")
         buildConfigField("String", "BUILD_TIME", "\"$buildTimeStamp\"")
     }
@@ -105,6 +107,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     implementation(libs.coil)
     implementation(libs.coil.compose)
@@ -125,6 +128,8 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockwebserver)
     testImplementation(libs.robolectric)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 }
 
 val liveReservationDiagnosticClass = "**/LiveReservationDiagnosticTest.class"

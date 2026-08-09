@@ -73,6 +73,7 @@ import com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreen
 import com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreen
+import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfEditingUiController
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import com.fallgist.nishinomiyalibrary.ui.sync.SyncUiState
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
@@ -116,6 +117,7 @@ fun LibraryApp(
     reservationCancelUiController: ReservationCancelUiController,
     readingRecordsController: ReadingRecordsScreenController,
     bookshelfController: BookshelfScreenController,
+    bookshelfEditingUiController: BookshelfEditingUiController,
     searchController: SearchScreenController,
     calendarController: CalendarScreenController,
     newArrivalsController: NewArrivalsScreenController,
@@ -385,13 +387,28 @@ fun LibraryApp(
 
                         Destination.SHELF -> {
                             val shelfState by bookshelfController.state.collectAsState()
+                            val editingState by bookshelfEditingUiController.state.collectAsState()
                             BookshelfScreen(
                                 state = shelfState,
+                                editingState = editingState,
                                 isRefreshing = syncState.isSyncing,
                                 onRefresh = onManualSync,
                                 onSelectMember = bookshelfController::selectMember,
                                 onOpenMenu = openMenu,
                                 onOpenDetail = openDetail,
+                                onRequestCreateShelf = bookshelfEditingUiController::requestCreateShelf,
+                                onSelectCreateMember = bookshelfEditingUiController::selectCreateMember,
+                                onRequestRenameShelf = bookshelfEditingUiController::requestRenameShelf,
+                                onRequestDeleteShelf = bookshelfEditingUiController::requestDeleteShelf,
+                                onRequestEditMemo = bookshelfEditingUiController::requestEditItemMemo,
+                                onRequestDeleteItem = bookshelfEditingUiController::requestDeleteItem,
+                                onUpdateEditingInput = bookshelfEditingUiController::updateInput,
+                                onRequestInputConfirmation = bookshelfEditingUiController::requestInputConfirmation,
+                                onDismissEditingDialog = bookshelfEditingUiController::dismissDialog,
+                                onConfirmEditing = bookshelfEditingUiController::confirmPending,
+                                onDismissEditingConfirmation = bookshelfEditingUiController::dismissConfirmation,
+                                onClearEditingResult = bookshelfEditingUiController::clearResult,
+                                onClearEditingError = bookshelfEditingUiController::clearError,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }

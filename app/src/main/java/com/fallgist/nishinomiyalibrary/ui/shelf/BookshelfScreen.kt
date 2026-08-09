@@ -21,13 +21,25 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,20 +50,57 @@ import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
+/** 重要な操作領域を見た目に依存せずCompose回帰テストから特定する。 */
+object BookshelfScreenTestTags {
+    const val CREATE_SHELF = "bookshelf-create-shelf"
+
+    fun bookCard(memberId: Long, shelfNo: Int, tilcod: String): String =
+        "bookshelf-book-$memberId-$shelfNo-$tilcod"
+
+    fun bookMenu(memberId: Long, shelfNo: Int, tilcod: String): String =
+        "${bookCard(memberId, shelfNo, tilcod)}-menu"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookshelfScreen(
     state: BookshelfUiState,
+    editingState: BookshelfEditingUiState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     onSelectMember: (Long?) -> Unit,
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
+    onRequestCreateShelf: () -> Unit,
+    onSelectCreateMember: (Long) -> Unit,
+    onRequestRenameShelf: (BookshelfShelfTarget) -> Unit,
+    onRequestDeleteShelf: (BookshelfShelfTarget) -> Unit,
+    onRequestEditMemo: (BookshelfItemTarget) -> Unit,
+    onRequestDeleteItem: (BookshelfItemTarget) -> Unit,
+    onUpdateEditingInput: (String) -> Unit,
+    onRequestInputConfirmation: () -> Unit,
+    onDismissEditingDialog: () -> Unit,
+    onConfirmEditing: () -> Unit,
+    onDismissEditingConfirmation: () -> Unit,
+    onClearEditingResult: () -> Unit,
+    onClearEditingError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
     Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar(title = "本棚", onOpenMenu = onOpenMenu)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            OutlinedButton(
+                onClick = onRequestCreateShelf,
+                enabled = !editingState.processing,
+                modifier = Modifier.testTag(BookshelfScreenTestTags.CREATE_SHELF),
+            ) {
+                Text(if (editingState.processing) "本棚を処理中…" else "本棚を作成")
+            }
+        }
         MemberFilterRow(
             members = state.members,
             selectedMemberId = state.selectedMemberId,
@@ -76,17 +125,61 @@ fun BookshelfScreen(
                     contentPadding = PaddingValues(horizontal = 18.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(state.columns) { column -> ShelfColumnView(column, onOpenDetail) }
+                    items(state.columns) { column ->
+                        ShelfColumnView(
+                            column = column,
+                            editingDisabled = editingState.processing,
+                            onOpenDetail = onOpenDetail,
+                            onRequestRenameShelf = onRequestRenameShelf,
+                            onRequestDeleteShelf = onRequestDeleteShelf,
+                            onRequestEditMemo = onRequestEditMemo,
+                            onRequestDeleteItem = onRequestDeleteItem,
+                        )
+                    }
                 }
             }
         }
+    }
+    editingState.errorMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = onClearEditingError,
+            title = { Text("本棚の操作を完了できませんでした") },
+            text = { Text(message, color = colors.alert) },
+            confirmButton = { Button(onClick = onClearEditingError) { Text("閉じる") } },
+        )
+    }
+    editingState.dialog?.let { dialog ->
+        BookshelfEditingInputDialog(
+            dialog = dialog,
+            members = editingState.members,
+            inputError = editingState.inputError,
+            onSelectCreateMember = onSelectCreateMember,
+            onInputChange = onUpdateEditingInput,
+            onConfirm = onRequestInputConfirmation,
+            onDismiss = onDismissEditingDialog,
+        )
+    }
+    editingState.pendingConfirmation?.let { confirmation ->
+        BookshelfEditingConfirmDialog(
+            confirmation = confirmation,
+            onConfirm = onConfirmEditing,
+            onDismiss = onDismissEditingConfirmation,
+        )
+    }
+    editingState.result?.let { result ->
+        BookshelfEditingResultDialog(result, onClearEditingResult)
     }
 }
 
 @Composable
 private fun ShelfColumnView(
     column: ShelfColumn,
+    editingDisabled: Boolean,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
+    onRequestRenameShelf: (BookshelfShelfTarget) -> Unit,
+    onRequestDeleteShelf: (BookshelfShelfTarget) -> Unit,
+    onRequestEditMemo: (BookshelfItemTarget) -> Unit,
+    onRequestDeleteItem: (BookshelfItemTarget) -> Unit,
 ) {
     val colors = LocalAppColors.current
     Column(
@@ -117,6 +210,31 @@ private fun ShelfColumnView(
                 modifier = Modifier.weight(1f),
             )
             Text(text = column.memberName, color = colors.ink2, fontSize = 11.sp)
+            ShelfOverflowMenu(
+                enabled = !editingDisabled,
+                onRename = {
+                    onRequestRenameShelf(
+                        BookshelfShelfTarget(
+                            memberId = column.memberId,
+                            shelfNo = column.shelfNo,
+                            memberName = column.memberName,
+                            shelfName = column.shelfName,
+                            itemCount = column.books.size,
+                        ),
+                    )
+                },
+                onDelete = {
+                    onRequestDeleteShelf(
+                        BookshelfShelfTarget(
+                            memberId = column.memberId,
+                            shelfNo = column.shelfNo,
+                            memberName = column.memberName,
+                            shelfName = column.shelfName,
+                            itemCount = column.books.size,
+                        ),
+                    )
+                },
+            )
         }
         HorizontalDivider(color = colors.line)
         LazyColumn(
@@ -129,7 +247,14 @@ private fun ShelfColumnView(
                 }
             } else {
                 items(column.books) { book ->
-                    ShelfBookView(book, onClick = { onOpenDetail(book.tilcod, book.title) })
+                    ShelfBookView(
+                        book = book,
+                        shelf = column,
+                        editingDisabled = editingDisabled,
+                        onClick = { onOpenDetail(book.tilcod, book.title) },
+                        onRequestEditMemo = onRequestEditMemo,
+                        onRequestDeleteItem = onRequestDeleteItem,
+                    )
                 }
             }
         }
@@ -137,7 +262,14 @@ private fun ShelfColumnView(
 }
 
 @Composable
-private fun ShelfBookView(book: ShelfBook, onClick: () -> Unit) {
+private fun ShelfBookView(
+    book: ShelfBook,
+    shelf: ShelfColumn,
+    editingDisabled: Boolean,
+    onClick: () -> Unit,
+    onRequestEditMemo: (BookshelfItemTarget) -> Unit,
+    onRequestDeleteItem: (BookshelfItemTarget) -> Unit,
+) {
     val colors = LocalAppColors.current
     Column(
         modifier = Modifier
@@ -146,21 +278,188 @@ private fun ShelfBookView(book: ShelfBook, onClick: () -> Unit) {
             .clip(RoundedCornerShape(10.dp))
             .background(colors.paper)
             .border(1.dp, colors.line, RoundedCornerShape(10.dp))
+            .testTag(BookshelfScreenTestTags.bookCard(shelf.memberId, shelf.shelfNo, book.tilcod))
             .clickable(enabled = book.tilcod.isNotBlank(), onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
-        Text(
-            text = book.title,
-            color = colors.ink,
-            fontSize = 13.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (book.memo.isNotBlank()) {
-            Spacer(Modifier.height(2.dp))
-            Text(text = book.memo, color = colors.ink2, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Row(verticalAlignment = Alignment.Top) {
+            Column(
+                modifier = Modifier
+                    .weight(1f),
+            ) {
+                Text(
+                    text = book.title,
+                    color = colors.ink,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (book.memo.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(text = book.memo, color = colors.ink2, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                Spacer(Modifier.height(2.dp))
+                Text(text = "登録 ${book.registeredDateLabel}", color = colors.ink2, fontSize = 10.sp)
+            }
+            ShelfBookOverflowMenu(
+                enabled = !editingDisabled && book.tilcod.isNotBlank(),
+                testTag = BookshelfScreenTestTags.bookMenu(shelf.memberId, shelf.shelfNo, book.tilcod),
+                onEditMemo = {
+                    onRequestEditMemo(book.toItemTarget(shelf))
+                },
+                onDelete = {
+                    onRequestDeleteItem(book.toItemTarget(shelf))
+                },
+            )
         }
-        Spacer(Modifier.height(2.dp))
-        Text(text = "登録 ${book.registeredDateLabel}", color = colors.ink2, fontSize = 10.sp)
     }
+}
+
+private fun ShelfBook.toItemTarget(shelf: ShelfColumn) = BookshelfItemTarget(
+    memberId = shelf.memberId,
+    shelfNo = shelf.shelfNo,
+    shelfName = shelf.shelfName,
+    tilcod = tilcod,
+    title = title,
+    memo = memo,
+)
+
+@Composable
+private fun ShelfOverflowMenu(enabled: Boolean, onRename: () -> Unit, onDelete: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Text(
+        text = "⋮",
+        color = LocalAppColors.current.ink2,
+        fontSize = 20.sp,
+        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = enabled) { expanded = true }.padding(horizontal = 5.dp),
+    )
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenuItem(text = { Text("名前を変更") }, onClick = { expanded = false; onRename() })
+        DropdownMenuItem(text = { Text("本棚を削除", color = LocalAppColors.current.alert) }, onClick = { expanded = false; onDelete() })
+    }
+}
+
+@Composable
+private fun ShelfBookOverflowMenu(
+    enabled: Boolean,
+    testTag: String,
+    onEditMemo: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Text(
+        text = "⋮",
+        color = LocalAppColors.current.ink2,
+        fontSize = 18.sp,
+        modifier = Modifier
+            .testTag(testTag)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled) { expanded = true }
+            .padding(horizontal = 4.dp),
+    )
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenuItem(text = { Text("メモを編集") }, onClick = { expanded = false; onEditMemo() })
+        DropdownMenuItem(text = { Text("本棚から削除", color = LocalAppColors.current.alert) }, onClick = { expanded = false; onDelete() })
+    }
+}
+
+@Composable
+private fun BookshelfEditingInputDialog(
+    dialog: BookshelfEditingDialog,
+    members: List<com.fallgist.nishinomiyalibrary.domain.model.Member>,
+    inputError: String?,
+    onSelectCreateMember: (Long) -> Unit,
+    onInputChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var memberMenuExpanded by remember(dialog) { mutableStateOf(false) }
+    val title = when (dialog) {
+        is BookshelfEditingDialog.CreateShelf -> "本棚を作成"
+        is BookshelfEditingDialog.RenameShelf -> "本棚名を変更"
+        is BookshelfEditingDialog.EditItemMemo -> "資料メモを編集"
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (dialog is BookshelfEditingDialog.CreateShelf) {
+                    val memberName = members.find { it.id == dialog.memberId }?.name ?: "メンバーを選択"
+                    Text("対象メンバー", color = LocalAppColors.current.ink2, fontSize = 12.sp)
+                    Text(
+                        memberName,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalAppColors.current.card)
+                            .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp))
+                            .clickable { memberMenuExpanded = true }.padding(12.dp),
+                    )
+                    DropdownMenu(expanded = memberMenuExpanded, onDismissRequest = { memberMenuExpanded = false }) {
+                        members.forEach { member ->
+                            DropdownMenuItem(text = { Text(member.name) }, onClick = {
+                                memberMenuExpanded = false
+                                onSelectCreateMember(member.id)
+                            })
+                        }
+                    }
+                }
+                val value = when (dialog) {
+                    is BookshelfEditingDialog.CreateShelf -> dialog.name
+                    is BookshelfEditingDialog.RenameShelf -> dialog.name
+                    is BookshelfEditingDialog.EditItemMemo -> dialog.memo
+                }
+                val isMemo = dialog is BookshelfEditingDialog.EditItemMemo
+                if (isMemo) Text("資料名：${dialog.target.title}\n本棚：${dialog.target.shelfName}", fontSize = 12.sp)
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = onInputChange,
+                    label = { Text(if (isMemo) "メモ（1000文字以内）" else "本棚名（50文字以内）") },
+                    isError = inputError != null,
+                    minLines = if (isMemo) 3 else 1,
+                    maxLines = if (isMemo) 6 else 1,
+                )
+                inputError?.let { Text(it, color = LocalAppColors.current.alert, fontSize = 12.sp) }
+            }
+        },
+        confirmButton = { Button(onClick = onConfirm) { Text("確認へ") } },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
+    )
+}
+
+@Composable
+private fun BookshelfEditingConfirmDialog(
+    confirmation: BookshelfEditingConfirmation,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = LocalAppColors.current
+    val destructive = BookshelfEditingContentBuilder.isDestructive(confirmation)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(BookshelfEditingContentBuilder.confirmationTitle(confirmation)) },
+        text = { Text(BookshelfEditingContentBuilder.confirmationMessage(confirmation)) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = if (destructive) ButtonDefaults.buttonColors(containerColor = colors.alert, contentColor = colors.card) else ButtonDefaults.buttonColors(),
+            ) { Text(BookshelfEditingContentBuilder.confirmLabel(confirmation)) }
+        },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
+    )
+}
+
+@Composable
+private fun BookshelfEditingResultDialog(result: BookshelfEditingResultMessage, onClose: () -> Unit) {
+    val colors = LocalAppColors.current
+    val color = when (result.kind) {
+        BookshelfEditingResultKind.APPLIED -> colors.greenInk
+        BookshelfEditingResultKind.ALREADY_REGISTERED -> colors.cautionInk
+        BookshelfEditingResultKind.UNKNOWN -> colors.cautionInk
+        BookshelfEditingResultKind.FAILURE -> colors.alert
+    }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(result.title) },
+        text = { Text(result.message, color = color) },
+        confirmButton = { Button(onClick = onClose) { Text("閉じる") } },
+    )
 }
