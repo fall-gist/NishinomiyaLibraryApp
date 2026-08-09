@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.ui.theme.NishinomiyaLibraryTheme
 import org.junit.Assert.assertEquals
@@ -21,6 +22,7 @@ class BookshelfScreenComposeTest {
     private val father = Member(1, "父", "#111111", "", 0)
     private val book = ShelfBook("資料A", "メモ", "2026/8/9", "t-1")
     private val column = ShelfColumn(1, 3, "父", "#111111", "技術書", listOf(book))
+    private val expected = BookshelfMutationExpectation("父", 1)
 
     @Test
     fun `資料カード外側に詳細クリックがありoverflowクリックは伝播しない`() {
@@ -43,7 +45,7 @@ class BookshelfScreenComposeTest {
             editingState = BookshelfEditingUiState(
                 initialized = true,
                 members = listOf(father),
-                processingMutation = BookshelfMutation.DeleteItem(1, 3, "t-1"),
+                processingMutation = BookshelfMutation.DeleteItem(1, 3, "t-1", expected),
             ),
         )
 
@@ -98,7 +100,7 @@ class BookshelfScreenComposeTest {
             shelfName = "父の棚",
             title = "資料A",
             memo = "メモA",
-            mutation = BookshelfMutation.AddItem(father.id, 3, "t-1", "メモA"),
+            mutation = BookshelfMutation.AddItem(father.id, 3, "t-1", "メモA", expected),
         )
         setEditingDialogs(BookshelfEditingUiState(pendingConfirmation = confirmation))
 

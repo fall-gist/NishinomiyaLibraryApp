@@ -117,16 +117,37 @@ data class BookshelfContent(
     val items: List<ShelfItem>,
 )
 
+/** 最終確認に表示した対象が、送信直前まで変わっていないことを確認するための値。 */
+data class BookshelfMutationExpectation(
+    val memberName: String,
+    val shelfCount: Int,
+    val shelf: BookshelfExpectedShelf? = null,
+    val item: BookshelfExpectedItem? = null,
+)
+
+data class BookshelfExpectedShelf(
+    val shelfNo: Int,
+    val name: String,
+    val itemCount: Int,
+)
+
+data class BookshelfExpectedItem(
+    val tilcod: String,
+    val title: String,
+    val memo: String,
+)
+
 /** 明示的な本棚編集だけで使用する、メンバーを含む操作要求。 */
 sealed interface BookshelfMutation {
     val memberId: Long
+    val expected: BookshelfMutationExpectation
 
-    data class AddItem(override val memberId: Long, val shelfNo: Int, val tilcod: String, val memo: String) : BookshelfMutation
-    data class DeleteItem(override val memberId: Long, val shelfNo: Int, val tilcod: String) : BookshelfMutation
-    data class UpdateItemMemo(override val memberId: Long, val shelfNo: Int, val tilcod: String, val memo: String) : BookshelfMutation
-    data class CreateShelf(override val memberId: Long, val name: String) : BookshelfMutation
-    data class RenameShelf(override val memberId: Long, val shelfNo: Int, val name: String) : BookshelfMutation
-    data class DeleteShelf(override val memberId: Long, val shelfNo: Int) : BookshelfMutation
+    data class AddItem(override val memberId: Long, val shelfNo: Int, val tilcod: String, val memo: String, override val expected: BookshelfMutationExpectation) : BookshelfMutation
+    data class DeleteItem(override val memberId: Long, val shelfNo: Int, val tilcod: String, override val expected: BookshelfMutationExpectation) : BookshelfMutation
+    data class UpdateItemMemo(override val memberId: Long, val shelfNo: Int, val tilcod: String, val memo: String, override val expected: BookshelfMutationExpectation) : BookshelfMutation
+    data class CreateShelf(override val memberId: Long, val name: String, override val expected: BookshelfMutationExpectation) : BookshelfMutation
+    data class RenameShelf(override val memberId: Long, val shelfNo: Int, val name: String, override val expected: BookshelfMutationExpectation) : BookshelfMutation
+    data class DeleteShelf(override val memberId: Long, val shelfNo: Int, override val expected: BookshelfMutationExpectation) : BookshelfMutation
 }
 
 sealed interface BookshelfMutationOutcome {

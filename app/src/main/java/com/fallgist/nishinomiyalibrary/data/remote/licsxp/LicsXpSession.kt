@@ -277,6 +277,7 @@ class LicsXpSession private constructor(
             path: String,
             query: Map<String, String> = emptyMap(),
             form: FormBody,
+            onRequestStarted: () -> Unit = {},
         ): String = executeInExclusiveSequence(
             Request.Builder()
                 .url(endpointUrl(path, query))
@@ -284,6 +285,7 @@ class LicsXpSession private constructor(
                 .build(),
             noRetryClient,
             retryOnIOException = false,
+            onRequestStarted = onRequestStarted,
         )
 
         /** 予約確認ページ由来のReferer/Originを持つ、予約確定専用の一回限りPOST。 */
@@ -592,15 +594,17 @@ class LicsXpSession private constructor(
         request: Request,
         requestClient: OkHttpClient,
         retryOnIOException: Boolean,
+        onRequestStarted: () -> Unit = {},
     ): String {
         var latestIOException: IOException? = null
         val attempts = if (retryOnIOException) MAX_NETWORK_ATTEMPTS else 1
         repeat(attempts) {
             try {
                 return withContext(Dispatchers.IO) {
-                    rateLimiter.executeWhileExclusive {
-                        observeRequest(request)
-                        requestClient.newCall(request).execute().use { response ->
+                        rateLimiter.executeWhileExclusive {
+                            observeRequest(request)
+                            onRequestStarted()
+                            requestClient.newCall(request).execute().use { response ->
                             response.readObservedBody()
                         }
                     }

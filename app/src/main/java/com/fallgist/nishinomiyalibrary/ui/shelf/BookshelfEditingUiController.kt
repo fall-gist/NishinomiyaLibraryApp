@@ -1,6 +1,9 @@
 package com.fallgist.nishinomiyalibrary.ui.shelf
 
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfExpectedItem
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfExpectedShelf
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
@@ -25,6 +28,7 @@ data class BookshelfShelfTarget(
     val memberName: String,
     val shelfName: String,
     val itemCount: Int,
+    val shelfCount: Int = 0,
 )
 
 /** 資料カードで選んだ操作対象。 */
@@ -35,6 +39,8 @@ data class BookshelfItemTarget(
     val tilcod: String,
     val title: String,
     val memo: String,
+    val itemCount: Int = 0,
+    val shelfCount: Int = 0,
 )
 
 /** 入力中のダイアログ。送信対象は最終確認時に固定する。 */
@@ -107,6 +113,8 @@ data class BookshelfEditingUiState(
     val addItemShelves: List<BookshelfContent> = emptyList(),
     /** [addItemShelves] が選択メンバーの最初のFlow値を受け取ったか。 */
     val addItemShelvesLoadedForMemberId: Long? = null,
+    val createShelfCount: Int? = null,
+    val createShelvesLoadedForMemberId: Long? = null,
     val dialog: BookshelfEditingDialog? = null,
     val inputError: String? = null,
     val pendingConfirmation: BookshelfEditingConfirmation? = null,
@@ -131,6 +139,7 @@ class BookshelfEditingUiController(
     val state: StateFlow<BookshelfEditingUiState> = _state
     private val membersJob: Job
     private var addItemShelvesJob: Job? = null
+    private var createShelvesJob: Job? = null
 
     init {
         membersJob = scope.launch {
@@ -142,7 +151,12 @@ class BookshelfEditingUiController(
 
     fun requestCreateShelf() {
         _state.update { current ->
-            if (current.processing) current else current.copy(dialog = BookshelfEditingDialog.CreateShelf(), inputError = null)
+            if (current.processing) current else current.copy(
+                dialog = BookshelfEditingDialog.CreateShelf(),
+                createShelfCount = null,
+                createShelvesLoadedForMemberId = null,
+                inputError = null,
+            )
         }
     }
 
@@ -209,10 +223,29 @@ class BookshelfEditingUiController(
     }
 
     fun selectCreateMember(memberId: Long) {
+        var selected = false
         _state.update { current ->
             val dialog = current.dialog as? BookshelfEditingDialog.CreateShelf
-            if (current.processing || dialog == null || current.members.none { it.id == memberId }) current
-            else current.copy(dialog = dialog.copy(memberId = memberId), inputError = null)
+            selected = !current.processing && dialog != null && current.members.any { it.id == memberId }
+            if (!selected) current else current.copy(
+                dialog = dialog!!.copy(memberId = memberId),
+                createShelfCount = null,
+                createShelvesLoadedForMemberId = null,
+                inputError = null,
+            )
+        }
+        if (!selected) return
+        createShelvesJob?.cancel()
+        createShelvesJob = scope.launch {
+            bookshelfRepository.observeShelves(memberId).collect { shelves ->
+                _state.update { current ->
+                    val dialog = current.dialog as? BookshelfEditingDialog.CreateShelf
+                    val pending = current.pendingConfirmation as? BookshelfEditingConfirmation.CreateShelf
+                    if (dialog?.memberId == memberId || pending?.mutation?.memberId == memberId) {
+                        current.copy(createShelfCount = shelves.size, createShelvesLoadedForMemberId = memberId)
+                    } else current
+                }
+            }
         }
     }
 
@@ -229,7 +262,12 @@ class BookshelfEditingUiController(
             if (current.processing) current else current.copy(
                 pendingConfirmation = BookshelfEditingConfirmation.DeleteItem(
                     target,
-                    BookshelfMutation.DeleteItem(target.memberId, target.shelfNo, target.tilcod),
+                    BookshelfMutation.DeleteItem(
+                        target.memberId,
+                        target.shelfNo,
+                        target.tilcod,
+                        target.expectation(current.members.find { it.id == target.memberId }?.name ?: ""),
+                    ),
                 ),
                 inputError = null,
             )
@@ -241,7 +279,7 @@ class BookshelfEditingUiController(
             if (current.processing) current else current.copy(
                 pendingConfirmation = BookshelfEditingConfirmation.DeleteShelf(
                     target,
-                    BookshelfMutation.DeleteShelf(target.memberId, target.shelfNo),
+                    BookshelfMutation.DeleteShelf(target.memberId, target.shelfNo, target.expectation()),
                 ),
                 inputError = null,
             )
@@ -271,6 +309,7 @@ class BookshelfEditingUiController(
                 val member = current.members.find { it.id == dialog.memberId }
                 when {
                     member == null -> current.copy(inputError = "対象メンバーを選択してください")
+                    current.createShelvesLoadedForMemberId != member.id -> current.copy(inputError = "本棚を読み込んでいます")
                     !isValidShelfName(dialog.name) -> current.copy(inputError = shelfNameError(dialog.name))
                     else -> current.copy(
                         dialog = null,
@@ -278,7 +317,11 @@ class BookshelfEditingUiController(
                         pendingConfirmation = BookshelfEditingConfirmation.CreateShelf(
                             memberName = member.name,
                             shelfName = dialog.name,
-                            mutation = BookshelfMutation.CreateShelf(member.id, dialog.name),
+                            mutation = BookshelfMutation.CreateShelf(
+                                member.id,
+                                dialog.name,
+                                BookshelfMutationExpectation(member.name, requireNotNull(current.createShelfCount)),
+                            ),
                         ),
                     )
                 }
@@ -300,7 +343,17 @@ class BookshelfEditingUiController(
                             shelfName = shelf.name,
                             title = dialog.title,
                             memo = dialog.memo,
-                            mutation = BookshelfMutation.AddItem(member.id, shelf.shelfNo, dialog.tilcod, dialog.memo),
+                            mutation = BookshelfMutation.AddItem(
+                                member.id,
+                                shelf.shelfNo,
+                                dialog.tilcod,
+                                dialog.memo,
+                                BookshelfMutationExpectation(
+                                    member.name,
+                                    current.addItemShelves.size,
+                                    BookshelfExpectedShelf(shelf.shelfNo, shelf.name, shelf.items.size),
+                                ),
+                            ),
                         ),
                     )
                 }
@@ -315,7 +368,12 @@ class BookshelfEditingUiController(
                         pendingConfirmation = BookshelfEditingConfirmation.RenameShelf(
                             target = dialog.target,
                             newName = dialog.name,
-                            mutation = BookshelfMutation.RenameShelf(dialog.target.memberId, dialog.target.shelfNo, dialog.name),
+                            mutation = BookshelfMutation.RenameShelf(
+                                dialog.target.memberId,
+                                dialog.target.shelfNo,
+                                dialog.name,
+                                dialog.target.expectation(),
+                            ),
                         ),
                     )
                 }
@@ -335,6 +393,7 @@ class BookshelfEditingUiController(
                                 dialog.target.shelfNo,
                                 dialog.target.tilcod,
                                 dialog.memo,
+                                dialog.target.expectation(current.members.find { it.id == dialog.target.memberId }?.name ?: ""),
                             ),
                         ),
                     )
@@ -462,6 +521,7 @@ class BookshelfEditingUiController(
     fun close() {
         membersJob.cancel()
         addItemShelvesJob?.cancel()
+        createShelvesJob?.cancel()
         scope.coroutineContext[Job]?.cancel()
     }
 
@@ -493,6 +553,19 @@ class BookshelfEditingUiController(
         }
     }
 }
+
+private fun BookshelfShelfTarget.expectation() = BookshelfMutationExpectation(
+    memberName = memberName,
+    shelfCount = shelfCount,
+    shelf = BookshelfExpectedShelf(shelfNo, shelfName, itemCount),
+)
+
+private fun BookshelfItemTarget.expectation(memberName: String) = BookshelfMutationExpectation(
+    memberName = memberName,
+    shelfCount = shelfCount,
+    shelf = BookshelfExpectedShelf(shelfNo, shelfName, itemCount),
+    item = BookshelfExpectedItem(tilcod, title, memo),
+)
 
 /** Android非依存の確認・結果文言。対象の取り違えを単体テストで検証する。 */
 object BookshelfEditingContentBuilder {

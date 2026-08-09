@@ -16,6 +16,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.UserData
 import com.fallgist.nishinomiyalibrary.data.sync.PostSyncNotifier
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
@@ -50,6 +51,8 @@ class BookshelfRepositoryMutationTest {
     private lateinit var credentials: CredentialStore
     private lateinit var member: MemberEntity
 
+    private fun expected() = BookshelfMutationExpectation("利用者", 0)
+
     @Before
     fun setUp() = runBlocking {
         context = RuntimeEnvironment.getApplication()
@@ -71,22 +74,22 @@ class BookshelfRepositoryMutationTest {
         val repository = repository { mutation -> received += mutation; RemoteBookshelfOutcome.Unknown }
 
         listOf(
-            BookshelfMutation.AddItem(member.id, 1, "a", "memo"),
-            BookshelfMutation.DeleteItem(member.id, 1, "b"),
-            BookshelfMutation.UpdateItemMemo(member.id, 1, "c", "updated"),
-            BookshelfMutation.CreateShelf(member.id, "new"),
-            BookshelfMutation.RenameShelf(member.id, 2, "renamed"),
-            BookshelfMutation.DeleteShelf(member.id, 3),
+            BookshelfMutation.AddItem(member.id, 1, "a", "memo", expected()),
+            BookshelfMutation.DeleteItem(member.id, 1, "b", expected()),
+            BookshelfMutation.UpdateItemMemo(member.id, 1, "c", "updated", expected()),
+            BookshelfMutation.CreateShelf(member.id, "new", expected()),
+            BookshelfMutation.RenameShelf(member.id, 2, "renamed", expected()),
+            BookshelfMutation.DeleteShelf(member.id, 3, expected()),
         ).forEach { mutation -> assertEquals(BookshelfMutationOutcome.Unknown, repository.mutate(mutation)) }
 
         assertEquals(
             listOf(
-                RemoteBookshelfMutation.AddItem(1, "a", "memo"),
-                RemoteBookshelfMutation.DeleteItem(1, "b"),
-                RemoteBookshelfMutation.UpdateItemMemo(1, "c", "updated"),
-                RemoteBookshelfMutation.CreateShelf("new"),
-                RemoteBookshelfMutation.RenameShelf(2, "renamed"),
-                RemoteBookshelfMutation.DeleteShelf(3),
+                RemoteBookshelfMutation.AddItem(1, "a", "memo", expected()),
+                RemoteBookshelfMutation.DeleteItem(1, "b", expected()),
+                RemoteBookshelfMutation.UpdateItemMemo(1, "c", "updated", expected()),
+                RemoteBookshelfMutation.CreateShelf("new", expected()),
+                RemoteBookshelfMutation.RenameShelf(2, "renamed", expected()),
+                RemoteBookshelfMutation.DeleteShelf(3, expected()),
             ),
             received,
         )
@@ -95,13 +98,13 @@ class BookshelfRepositoryMutationTest {
     @Test
     fun `AppliedとAlreadyRegisteredだけが完全スナップショットをRoomへ反映する`() = runBlocking {
         val snapshot = RemoteBookshelfOutcome.Applied(listOf(Shelf(4, "更新後")), listOf(item(shelfNo = 4)))
-        val applied = repository { snapshot }.mutate(BookshelfMutation.CreateShelf(member.id, "更新後"))
+        val applied = repository { snapshot }.mutate(BookshelfMutation.CreateShelf(member.id, "更新後", expected()))
         assertEquals(BookshelfMutationOutcome.Applied(), applied)
         assertEquals(listOf("更新後"), database.shelfDao().observeForMember(member.id).first().map { it.name })
 
         val already = repository {
             RemoteBookshelfOutcome.AlreadyRegistered(listOf(Shelf(5, "既存")), listOf(item(shelfNo = 5)))
-        }.mutate(BookshelfMutation.AddItem(member.id, 5, "book", ""))
+        }.mutate(BookshelfMutation.AddItem(member.id, 5, "book", "", expected()))
         assertEquals(BookshelfMutationOutcome.AlreadyRegistered(), already)
         assertEquals(listOf(5), database.shelfDao().observeForMember(member.id).first().map { it.shelfNo })
     }
@@ -111,11 +114,11 @@ class BookshelfRepositoryMutationTest {
         database.shelfDao().insertAll(listOf(ShelfEntity(member.id, 1, "保持")))
 
         assertEquals(BookshelfMutationOutcome.Unknown, repository { RemoteBookshelfOutcome.Unknown }
-            .mutate(BookshelfMutation.DeleteShelf(member.id, 1)))
+            .mutate(BookshelfMutation.DeleteShelf(member.id, 1, expected())))
         assertEquals(
             BookshelfMutationOutcome.Failure(FailureReason.NETWORK),
             repository { RemoteBookshelfOutcome.Failure(FailureReason.NETWORK) }
-                .mutate(BookshelfMutation.DeleteShelf(member.id, 1)),
+                .mutate(BookshelfMutation.DeleteShelf(member.id, 1, expected())),
         )
         assertEquals(listOf("保持"), database.shelfDao().observeForMember(member.id).first().map { it.name })
     }
@@ -124,7 +127,7 @@ class BookshelfRepositoryMutationTest {
     fun `Room反映失敗はサイト成功を失敗へ変換せず再取得を要求する`() = runBlocking {
         val result = repository {
             RemoteBookshelfOutcome.Applied(emptyList(), listOf(item(shelfNo = 99)))
-        }.mutate(BookshelfMutation.CreateShelf(member.id, "new"))
+        }.mutate(BookshelfMutation.CreateShelf(member.id, "new", expected()))
 
         assertEquals(BookshelfMutationOutcome.Applied(localRefreshRequired = true), result)
         assertTrue(database.shelfDao().observeForMember(member.id).first().isEmpty())
@@ -134,13 +137,35 @@ class BookshelfRepositoryMutationTest {
     fun `認証情報不足とmember不在はAuth失敗にする`() = runBlocking {
         assertEquals(
             BookshelfMutationOutcome.Failure(FailureReason.AUTH),
-            repository { RemoteBookshelfOutcome.Unknown }.mutate(BookshelfMutation.CreateShelf(member.id + 1, "new")),
+            repository { RemoteBookshelfOutcome.Unknown }.mutate(BookshelfMutation.CreateShelf(member.id + 1, "new", expected())),
         )
         credentials.delete(member.id)
         assertEquals(
             BookshelfMutationOutcome.Failure(FailureReason.AUTH),
-            repository { RemoteBookshelfOutcome.Unknown }.mutate(BookshelfMutation.CreateShelf(member.id, "new")),
+            repository { RemoteBookshelfOutcome.Unknown }.mutate(BookshelfMutation.CreateShelf(member.id, "new", expected())),
         )
+    }
+
+    @Test
+    fun `確認時からメンバー名が変化した場合はGatewayを呼ばない`() = runBlocking {
+        var gatewayCalls = 0
+        val gateway = object : BookshelfGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String): BookshelfSession {
+                gatewayCalls++
+                error("Gatewayは呼ばれてはいけません")
+            }
+        }
+
+        val result = repository(gateway).mutate(
+            BookshelfMutation.CreateShelf(
+                member.id,
+                "new",
+                BookshelfMutationExpectation("確認時の名前", 0),
+            ),
+        )
+
+        assertEquals(BookshelfMutationOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED), result)
+        assertEquals(0, gatewayCalls)
     }
 
     @Test
@@ -155,7 +180,7 @@ class BookshelfRepositoryMutationTest {
         cases.forEach { (error, reason) ->
             assertEquals(
                 BookshelfMutationOutcome.Failure(reason),
-                repository { throw error }.mutate(BookshelfMutation.CreateShelf(member.id, "new")),
+                repository { throw error }.mutate(BookshelfMutation.CreateShelf(member.id, "new", expected())),
             )
         }
     }
@@ -165,20 +190,20 @@ class BookshelfRepositoryMutationTest {
         val normal = CloseTrackingSession { RemoteBookshelfOutcome.Unknown }
         assertEquals(
             BookshelfMutationOutcome.Unknown,
-            repository(gatewayFor(normal)).mutate(BookshelfMutation.CreateShelf(member.id, "new")),
+            repository(gatewayFor(normal)).mutate(BookshelfMutation.CreateShelf(member.id, "new", expected())),
         )
         assertTrue(normal.closed)
 
         val exceptional = CloseTrackingSession { throw LibraryError.Network(IllegalStateException()) }
         assertEquals(
             BookshelfMutationOutcome.Failure(FailureReason.NETWORK),
-            repository(gatewayFor(exceptional)).mutate(BookshelfMutation.CreateShelf(member.id, "new")),
+            repository(gatewayFor(exceptional)).mutate(BookshelfMutation.CreateShelf(member.id, "new", expected())),
         )
         assertTrue(exceptional.closed)
 
         val cancelled = CloseTrackingSession { throw CancellationException() }
         try {
-            repository(gatewayFor(cancelled)).mutate(BookshelfMutation.CreateShelf(member.id, "new"))
+            repository(gatewayFor(cancelled)).mutate(BookshelfMutation.CreateShelf(member.id, "new", expected()))
             fail("CancellationExceptionが再throwされていません")
         } catch (_: CancellationException) {
             assertTrue(cancelled.closed)
@@ -203,7 +228,7 @@ class BookshelfRepositoryMutationTest {
 
         val sync = async { status.syncAll(SyncTrigger.MANUAL) }
         syncFetched.await()
-        val edit = async { bookshelf.mutate(BookshelfMutation.CreateShelf(member.id, "編集")) }
+        val edit = async { bookshelf.mutate(BookshelfMutation.CreateShelf(member.id, "編集", expected())) }
         assertTrue(!editOpened.isCompleted)
         releaseSync.complete(Unit)
 
@@ -230,7 +255,7 @@ class BookshelfRepositoryMutationTest {
             RemoteBookshelfOutcome.Applied(listOf(Shelf(2, "編集")), listOf(item(2)))
         }
 
-        val edit = async { bookshelf.mutate(BookshelfMutation.CreateShelf(member.id, "編集")) }
+        val edit = async { bookshelf.mutate(BookshelfMutation.CreateShelf(member.id, "編集", expected())) }
         editOpened.await()
         val sync = async { status.syncAll(SyncTrigger.MANUAL) }
         assertTrue(!syncFetched.isCompleted)

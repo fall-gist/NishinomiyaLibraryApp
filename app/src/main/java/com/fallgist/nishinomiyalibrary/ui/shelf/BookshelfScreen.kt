@@ -187,6 +187,7 @@ private fun ShelfColumnView(
                             memberName = column.memberName,
                             shelfName = column.shelfName,
                             itemCount = column.books.size,
+                            shelfCount = column.memberShelfCount,
                         ),
                     )
                 },
@@ -198,6 +199,7 @@ private fun ShelfColumnView(
                             memberName = column.memberName,
                             shelfName = column.shelfName,
                             itemCount = column.books.size,
+                            shelfCount = column.memberShelfCount,
                         ),
                     )
                 },
@@ -289,6 +291,8 @@ private fun ShelfBook.toItemTarget(shelf: ShelfColumn) = BookshelfItemTarget(
     tilcod = tilcod,
     title = title,
     memo = memo,
+    itemCount = shelf.books.size,
+    shelfCount = shelf.memberShelfCount,
 )
 
 @Composable

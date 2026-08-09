@@ -38,6 +38,7 @@ data class ShelfColumn(
     val memberColorHex: String,
     val shelfName: String,
     val books: List<ShelfBook>,
+    val memberShelfCount: Int = 0,
 )
 
 data class BookshelfUiState(
@@ -62,7 +63,8 @@ object BookshelfContentBuilder {
             .sortedBy { it.sortOrder }
 
         return visibleMembers.flatMap { member ->
-            shelvesByMember[member.id].orEmpty()
+            val memberShelves = shelvesByMember[member.id].orEmpty()
+            memberShelves
                 .sortedBy { it.shelfNo }
                 .map { shelf ->
                     ShelfColumn(
@@ -81,6 +83,7 @@ object BookshelfContentBuilder {
                                     tilcod = item.tilcod,
                                 )
                             },
+                        memberShelfCount = memberShelves.size,
                     )
                 }
         }

@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.fallgist.nishinomiyalibrary.domain.model.Member
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationUiState
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfEditingUiState
 import com.fallgist.nishinomiyalibrary.ui.theme.NishinomiyaLibraryTheme
@@ -38,7 +39,7 @@ class BookDetailViewComposeTest {
             editing = BookshelfEditingUiState(
                 initialized = true,
                 members = listOf(member),
-                processingMutation = com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation.DeleteItem(1, 1, "x"),
+                processingMutation = com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation.DeleteItem(1, 1, "x", BookshelfMutationExpectation("父", 1)),
             ),
         )
         composeRule.onNodeWithTag(BookDetailViewTestTags.ADD_TO_BOOKSHELF).assertIsNotEnabled()

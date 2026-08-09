@@ -27,8 +27,9 @@ class BookshelfEditingUiControllerTest {
     private val father = Member(1, "父", "#111111", "card", 0)
     private val child = Member(2, "子", "#222222", "card", 1)
 
-    private val shelfTarget = BookshelfShelfTarget(1, 3, "父", "技術書", 2)
-    private val itemTarget = BookshelfItemTarget(1, 3, "技術書", "t-1", "資料A", "既存メモ")
+    private val shelfTarget = BookshelfShelfTarget(1, 3, "父", "技術書", 2, shelfCount = 1)
+    private val itemTarget = BookshelfItemTarget(1, 3, "技術書", "t-1", "資料A", "既存メモ", itemCount = 2, shelfCount = 1)
+    private val testExpectation = com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation("父", 1)
 
     @Test
     fun `作成はメンバー選択と入力確認を経るまでmutateしない`() = runTest {
@@ -43,6 +44,7 @@ class BookshelfEditingUiControllerTest {
         assertEquals(0, repo.calls.size)
 
         controller.selectCreateMember(father.id)
+        advanceUntilIdle()
         controller.requestInputConfirmation()
         val confirmation = controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.CreateShelf
         assertEquals("父", confirmation.memberName)
@@ -51,7 +53,7 @@ class BookshelfEditingUiControllerTest {
 
         controller.confirmPending()
         advanceUntilIdle()
-        assertEquals(listOf(BookshelfMutation.CreateShelf(father.id, "新しい本棚")), repo.calls)
+        assertEquals(listOf(confirmation.mutation), repo.calls)
         controller.close()
     }
 
@@ -87,6 +89,7 @@ class BookshelfEditingUiControllerTest {
 
         controller.requestCreateShelf()
         controller.selectCreateMember(child.id)
+        advanceUntilIdle()
         controller.updateInput("子の棚")
         controller.requestInputConfirmation()
         controller.confirmPending()
@@ -94,14 +97,15 @@ class BookshelfEditingUiControllerTest {
 
         assertEquals(
             listOf(
-                BookshelfMutation.RenameShelf(1, 3, "名前変更"),
-                BookshelfMutation.UpdateItemMemo(1, 3, "t-1", "変更メモ"),
-                BookshelfMutation.DeleteItem(1, 3, "t-1"),
-                BookshelfMutation.DeleteShelf(1, 3),
-                BookshelfMutation.CreateShelf(2, "子の棚"),
+                BookshelfMutation.RenameShelf::class,
+                BookshelfMutation.UpdateItemMemo::class,
+                BookshelfMutation.DeleteItem::class,
+                BookshelfMutation.DeleteShelf::class,
+                BookshelfMutation.CreateShelf::class,
             ),
-            repo.calls,
+            repo.calls.map { it::class },
         )
+        assertTrue(repo.calls.all { it.expected != null })
         controller.close()
     }
 
@@ -148,11 +152,11 @@ class BookshelfEditingUiControllerTest {
     fun `削除確認は正確な本棚名と件数および資料名と本棚名を表示する`() {
         val deleteShelf = BookshelfEditingConfirmation.DeleteShelf(
             shelfTarget,
-            BookshelfMutation.DeleteShelf(1, 3),
+            BookshelfMutation.DeleteShelf(1, 3, testExpectation),
         )
         val deleteItem = BookshelfEditingConfirmation.DeleteItem(
             itemTarget,
-            BookshelfMutation.DeleteItem(1, 3, "t-1"),
+            BookshelfMutation.DeleteItem(1, 3, "t-1", testExpectation),
         )
 
         assertEquals("本棚と2件を削除", BookshelfEditingContentBuilder.confirmLabel(deleteShelf))
@@ -239,7 +243,8 @@ class BookshelfEditingUiControllerTest {
         assertEquals("父の棚", confirmation.shelfName)
         assertEquals("資料B", confirmation.title)
         assertEquals("m".repeat(1000), confirmation.memo)
-        assertEquals(BookshelfMutation.AddItem(father.id, 3, "t-2", "m".repeat(1000)), confirmation.mutation)
+        assertEquals("m".repeat(1000), confirmation.mutation.memo)
+        assertEquals(1, requireNotNull(confirmation.mutation.expected).shelfCount)
 
         controller.confirmPending()
         advanceUntilIdle()

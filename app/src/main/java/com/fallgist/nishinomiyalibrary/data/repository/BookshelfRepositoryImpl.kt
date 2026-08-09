@@ -71,6 +71,9 @@ class BookshelfRepositoryImpl @Inject constructor(
             exception.rethrowIfCancellation()
             return BookshelfMutationOutcome.Failure(FailureReason.AUTH)
         } ?: return BookshelfMutationOutcome.Failure(FailureReason.AUTH)
+        if (member.name != mutation.expected.memberName) {
+            return BookshelfMutationOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED)
+        }
 
         val password = try {
             requireNotNull(credentialStore).getPassword(member.id)
@@ -130,12 +133,12 @@ class BookshelfRepositoryImpl @Inject constructor(
 }
 
 private fun BookshelfMutation.toRemote(): RemoteBookshelfMutation = when (this) {
-    is BookshelfMutation.AddItem -> RemoteBookshelfMutation.AddItem(shelfNo, tilcod, memo)
-    is BookshelfMutation.DeleteItem -> RemoteBookshelfMutation.DeleteItem(shelfNo, tilcod)
-    is BookshelfMutation.UpdateItemMemo -> RemoteBookshelfMutation.UpdateItemMemo(shelfNo, tilcod, memo)
-    is BookshelfMutation.CreateShelf -> RemoteBookshelfMutation.CreateShelf(name)
-    is BookshelfMutation.RenameShelf -> RemoteBookshelfMutation.RenameShelf(shelfNo, name)
-    is BookshelfMutation.DeleteShelf -> RemoteBookshelfMutation.DeleteShelf(shelfNo)
+    is BookshelfMutation.AddItem -> RemoteBookshelfMutation.AddItem(shelfNo, tilcod, memo, expected)
+    is BookshelfMutation.DeleteItem -> RemoteBookshelfMutation.DeleteItem(shelfNo, tilcod, expected)
+    is BookshelfMutation.UpdateItemMemo -> RemoteBookshelfMutation.UpdateItemMemo(shelfNo, tilcod, memo, expected)
+    is BookshelfMutation.CreateShelf -> RemoteBookshelfMutation.CreateShelf(name, expected)
+    is BookshelfMutation.RenameShelf -> RemoteBookshelfMutation.RenameShelf(shelfNo, name, expected)
+    is BookshelfMutation.DeleteShelf -> RemoteBookshelfMutation.DeleteShelf(shelfNo, expected)
 }
 
 private fun Exception.toFailureReason(): FailureReason = when (this) {
