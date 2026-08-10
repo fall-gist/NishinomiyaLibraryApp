@@ -190,7 +190,7 @@ internal object BookshelfConfirmationFormParser {
     private val okNameAssignment = Regex("\\bOK_CODES_NAME\\s*=\\s*['\"]([A-Za-z][A-Za-z0-9_]*)['\"]\\s*;")
     private val okCodeAssignment = Regex("\\bokArray\\s*\\[\\s*okArray\\s*\\.\\s*length\\s*]\\s*=\\s*['\"]([^'\"]+)['\"]\\s*;")
     private val actionAssignment = Regex("\\bdocument\\s*\\.\\s*prevRequestForm\\s*\\.\\s*action\\s*=\\s*['\"]([^'\"]+)['\"]\\s*;")
-    private val linkedOkCodesLoop = Regex("""\bfor\s*\(\s*var\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*0\s*;\s*\1\s*<\s*okArray\s*\.\s*length\s*;\s*\1\s*\+\+\s*\)\s*\{\s*(?:var\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*createElement\s*\(\s*['\"]input['\"]\s*\)\s*;\s*\2\s*\.\s*type\s*=\s*['\"]hidden['\"]\s*;\s*\2\s*\.\s*name\s*=\s*OK_CODES_NAME\s*;\s*\2\s*\.\s*value\s*=\s*okArray\s*\[\s*\1\s*]\s*;\s*document\s*\.\s*prevRequestForm\s*\.\s*appendChild\s*\(\s*\2\s*\)\s*;\s*}""")
+    private val linkedOkCodesLoop = Regex("""\bfor\s*\(\s*var\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*0\s*;\s*\1\s*<\s*okArray\s*\.\s*length\s*;\s*\1\s*\+\+\s*\)\s*\{\s*(?:var\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*createElement\s*\(\s*['\"]input['\"]\s*\)\s*;\s*\2\s*\.\s*type\s*=\s*['\"]hidden['\"]\s*;\s*\2\s*\.\s*name\s*=\s*OK_CODES_NAME\s*;\s*\2\s*\.\s*value\s*=\s*okArray\s*\[\s*\1\s*]\s*;\s*document\s*\.\s*prevRequestForm\s*\.\s*appendChild\s*\(\s*\2\s*\)\s*;\s*\}""")
     private val submitCall = Regex("\\bdocument\\s*\\.\\s*prevRequestForm\\s*\\.\\s*submit\\s*\\(\\s*\\)\\s*;")
     private val createConfirmDialogFunction = Regex("\\bfunction\\s+createConfirmDialog\\s*\\(\\s*\\)\\s*\\{")
     private val okArrayDeclaration = Regex("\\bvar\\s+okArray\\s*=\\s*(?:\\[\\s*]|new\\s+Array\\s*\\(\\s*\\))\\s*;")
