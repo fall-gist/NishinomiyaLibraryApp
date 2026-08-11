@@ -25,7 +25,10 @@ internal object BookshelfConfirmationFormParser {
         val contract = contracts.getValue(kind)
         val signatures = document.select("script")
             .filter { !it.hasAttr("src") && (!it.hasAttr("type") || it.attr("type").trim().lowercase() in javascriptMimeTypes) }
-            .mapNotNull { parseSignature(it.data(), contract) }
+            .flatMap { script -> buildList {
+                parseNamedSignature(script.data(), contract)?.let(::add)
+                if (kind == BookshelfConfirmationKind.UPDATE) parseInlineUpdateSignature(script.data(), contract)?.let(::add)
+            } }
         val signature = signatures.singleOrNull() ?: throw ParseException(screen, "確認送信scriptを一意に特定できません")
         if (fields.any { it.name == signature.okName }) throw ParseException(screen, "OK_CODES_NAMEが既存項目と衝突します")
         return BookshelfConfirmationForm(signature.action, fields, signature.okName, contract.code)
@@ -35,7 +38,7 @@ internal object BookshelfConfirmationFormParser {
      * 実際に onload から起動される単一関数の内部だけを受理する。
      * `okArray.length` への唯一の追加と、同じ配列を走査するhidden生成ループの連鎖を静的に検証する。
      */
-    private fun parseSignature(script: String, contract: Contract): Signature? {
+    private fun parseNamedSignature(script: String, contract: Contract): Signature? {
         val function = oneCodeMatch(script, createConfirmDialogFunction) ?: return null
         if (braceDepthAt(script, function.range.first) != 0) return null
         val bodyStart = function.range.last
@@ -57,6 +60,9 @@ internal object BookshelfConfirmationFormParser {
         if (codeMatches(body, Regex("\\bOK_CODES_NAME\\b")).size != 1 || submit.size != 1 || declaration.size != 1 ||
             !hasOnlyLinkedOkArrayUses(body)
         ) return null
+        if (braceDepthAt(script, oneCodeMatch(script, okNameAssignment)?.range?.first ?: return null) != 0 ||
+            !allMatchesAreInside(bodyStart + 1, bodyEnd, script, okArrayDeclaration, linkedOkCodesLoop, actionAssignment, submitCall)
+        ) return null
         val sequence = listOf(
                 declaration.single().range.first, codeMatches(body, okCodeAssignment).single().range.first, loop.range.first,
                 oneCodeMatch(body, actionAssignment)?.range?.first ?: return null, submit.single().range.first,
@@ -73,6 +79,75 @@ internal object BookshelfConfirmationFormParser {
         return Signature(okName, contract.action)
     }
 
+    /**
+     * UPDATE画面専用の、関数・onloadを介さないトップレベル送信形式を受理する。
+     * JSは実行せず肯定時のPOSTだけを再構成するため、cancelArray・else・肯定分岐外の画面内フラグは対象外とする。
+     * ただし、肯定分岐の到達性は実測形状を検証する。
+     */
+    private fun parseInlineUpdateSignature(script: String, contract: Contract): Signature? {
+        if (contract.code != "OPACSDI011" ||
+            codeMatches(script, createConfirmDialogFunction).isNotEmpty() ||
+            codeMatches(script, windowOnload).isNotEmpty()
+        ) return null
+
+        val okNameMatch = oneCodeMatch(script, okNameAssignment) ?: return null
+        val declaration = oneCodeMatch(script, okArrayDeclaration) ?: return null
+        val codeMatch = oneCodeMatch(script, okCodeAssignment) ?: return null
+        val loop = oneCodeMatch(script, linkedOkCodesLoop) ?: return null
+        val actionMatch = oneCodeMatch(script, actionAssignment) ?: return null
+        val submit = oneCodeMatch(script, submitCall) ?: return null
+        val action = actionMatch.groupValues[1]
+        if (!isExpectedAction(action, contract) ||
+            codeMatch.groupValues[1] != contract.code ||
+            codeMatches(script, Regex("\\bOK_CODES_NAME\\b")).size != 2 ||
+            !hasOnlyLinkedOkArrayUses(script)
+        ) return null
+
+        val restIf = oneCodeMatch(script, topLevelRestIf) ?: return null
+        val restIfEnd = matchingBrace(script, restIf.range.last) ?: return null
+        val positiveBranchStart = skipIgnorable(script, restIf.range.last + 1, restIfEnd) ?: return null
+        if (codeMatch.range.first != positiveBranchStart) return null
+        val submitFlgStart = skipIgnorable(script, codeMatch.range.last + 1, restIfEnd) ?: return null
+        val submitFlg = codeMatches(script, submitFlgFalseAssignment)
+            .singleOrNull { it.range.first == submitFlgStart } ?: return null
+        val topLevel = listOf(okNameMatch, declaration, restIf, loop, actionMatch, submit)
+        if (topLevel.any { braceDepthAt(script, it.range.first) != 0 } ||
+            braceDepthAt(script, codeMatch.range.first) != 1 ||
+            skipIgnorable(script, submitFlg.range.last + 1, restIfEnd) != restIfEnd ||
+            listOf(okNameMatch, declaration, restIf, codeMatch, loop, actionMatch, submit).map { it.range.first } !=
+                listOf(okNameMatch, declaration, restIf, codeMatch, loop, actionMatch, submit).map { it.range.first }.sorted()
+        ) return null
+        return Signature(okNameMatch.groupValues[1], contract.action)
+    }
+
+    /** 指定範囲の空白とコメントを読み飛ばす。未閉鎖コメントは不正なscriptとして拒否する。 */
+    private fun skipIgnorable(source: String, start: Int, end: Int): Int? {
+        var index = start
+        while (index < end) when {
+            source[index].isWhitespace() -> index++
+            source.startsWith("//", index) -> {
+                val lineEnd = source.indexOf('\n', index + 2)
+                index = if (lineEnd < 0) end else lineEnd + 1
+            }
+            source.startsWith("/*", index) -> {
+                val commentEnd = source.indexOf("*/", index + 2)
+                if (commentEnd < 0 || commentEnd + 2 > end) return null
+                index = commentEnd + 2
+            }
+            else -> return index
+        }
+        return index
+    }
+
+    private fun allMatchesAreInside(
+        bodyStart: Int,
+        bodyEnd: Int,
+        script: String,
+        vararg patterns: Regex,
+    ): Boolean = patterns.all { pattern ->
+        codeMatches(script, pattern).all { it.range.first in bodyStart until bodyEnd }
+    }
+
     /** 固定契約の相対パスか、同一 origin のアプリケーション絶対パスだけを受理する。 */
     private fun isExpectedAction(action: String, contract: Contract): Boolean =
         action == contract.action || action == "/licsxp-opac/${contract.action}"
@@ -83,7 +158,53 @@ internal object BookshelfConfirmationFormParser {
     private fun oneCodeMatch(source: String, pattern: Regex): MatchResult? = codeMatches(source, pattern).singleOrNull()
     private fun codeMatches(source: String, pattern: Regex): List<MatchResult> {
         val starts = codeStarts(source)
-        return pattern.findAll(source).filter { it.range.first in starts }.toList()
+        return pattern.findAll(source).filter { match ->
+            match.range.first in starts && isStandaloneIdentifierStart(source, match.range.first)
+        }.toList()
+    }
+
+    /** 正規表現の語境界だけでは許してしまう `object.identifier` を候補から除外する。 */
+    private fun isStandaloneIdentifierStart(source: String, start: Int): Boolean {
+        var index = start - 1
+        while (index >= 0) {
+            var crossedLineBreak = false
+            while (index >= 0 && source[index].isWhitespace()) {
+                crossedLineBreak = crossedLineBreak || source[index] == '\n' || source[index] == '\r'
+                index--
+            }
+            if (index < 0) return true
+            if (index >= 1 && source[index - 1] == '*' && source[index] == '/') {
+                val commentStart = source.lastIndexOf("/*", index - 1)
+                if (commentStart < 0) return false
+                index = commentStart - 1
+                continue
+            }
+            if (crossedLineBreak) {
+                val lineStart = maxOf(source.lastIndexOf('\n', index), source.lastIndexOf('\r', index)) + 1
+                val commentStart = lineCommentStart(source, lineStart, index)
+                if (commentStart != null) {
+                    index = commentStart - 1
+                    continue
+                }
+            }
+            return source[index] != '.'
+        }
+        return true
+    }
+
+    private fun lineCommentStart(source: String, lineStart: Int, lineEnd: Int): Int? {
+        var index = lineStart
+        while (index <= lineEnd) when {
+            source.startsWith("//", index) -> return index
+            source.startsWith("/*", index) -> {
+                val end = source.indexOf("*/", index + 2)
+                if (end < 0 || end > lineEnd) return null
+                index = end + 2
+            }
+            source[index] in "'\"" -> index = skipQuoted(source, index) ?: return null
+            else -> index++
+        }
+        return null
     }
 
     /** コメント、文字列、template literal、正規表現内部を候補にしない最小字句走査。 */
@@ -194,6 +315,8 @@ internal object BookshelfConfirmationFormParser {
     private val submitCall = Regex("\\bdocument\\s*\\.\\s*prevRequestForm\\s*\\.\\s*submit\\s*\\(\\s*\\)\\s*;")
     private val createConfirmDialogFunction = Regex("\\bfunction\\s+createConfirmDialog\\s*\\(\\s*\\)\\s*\\{")
     private val okArrayDeclaration = Regex("\\bvar\\s+okArray\\s*=\\s*(?:\\[\\s*]|new\\s+Array\\s*\\(\\s*\\))\\s*;")
+    private val topLevelRestIf = Regex("\\bif\\s*\\(\\s*rest\\s*\\)\\s*\\{")
+    private val submitFlgFalseAssignment = Regex("\\bsubmitFlg\\s*=\\s*false\\s*;")
     private val javascriptMimeTypes = setOf("text/javascript", "application/javascript", "text/ecmascript", "application/ecmascript")
     private val controlConditionKeywords = setOf("if", "while", "for", "with", "switch", "catch")
     private val expressionPrefixKeywords = setOf(

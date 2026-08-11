@@ -226,12 +226,13 @@ class BookshelfGatewayTest {
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
         server.enqueue(page(editPage(1, "変更前", listOf(item))))
-        server.enqueue(page(confirmPage(editFields(1, "変更後", listOf(item)), "OPACSDI011")))
+        server.enqueue(page(inlineUpdateConfirmPage(editFields(1, "変更後", listOf(item)))))
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "変更後", items = listOf(item))))
         val renamed = session().mutate(RemoteBookshelfMutation.RenameShelf(1, "変更後", expected()))
         assertTrue(renamed is RemoteBookshelfOutcome.Applied)
         assertEquals(9, server.requestCount)
+        assertEquals(1, requests(9).count { it.path == "/WOpacSdiBookListUpdateAction.do" && it.body.readUtf8().contains("okCodes=OPACSDI011") })
     }
 
     @Test
@@ -241,7 +242,7 @@ class BookshelfGatewayTest {
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "棚", items = listOf(original))))
         server.enqueue(page(editPage(1, "棚", listOf(original))))
-        server.enqueue(page(confirmPage(updateMemoFields(1, "棚", listOf(original), updated.memo), "OPACSDI011")))
+        server.enqueue(page(inlineUpdateConfirmPage(updateMemoFields(1, "棚", listOf(original), updated.memo))))
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "棚", items = listOf(updated))))
 
@@ -249,6 +250,7 @@ class BookshelfGatewayTest {
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
         assertEquals(9, server.requestCount)
+        assertEquals(1, requests(9).count { it.path == "/WOpacSdiBookListUpdateAction.do" && it.body.readUtf8().contains("okCodes=OPACSDI011") })
     }
 
     @Test
@@ -483,6 +485,7 @@ class BookshelfGatewayTest {
     /** 実測済み共通構造を縮約した合成fixture。 */
     private fun confirmPage(fields: List<Pair<String, String>>, code: String) = "<form name='prevRequestForm'>${fields.joinToString("") { (name, value) -> if (name == "commnt" || name == "eachcmnt") "<textarea name='$name'>$value</textarea>" else "<input name='$name' value='$value'>" }}</form><script>var OK_CODES_NAME = 'okCodes'; function createConfirmDialog() { var okArray = new Array(); if (rest) { okArray[okArray.length] = '$code'; } for (var i = 0; i < okArray.length; i++) { var newHidden = document.createElement('input'); newHidden.type = 'hidden'; newHidden.name = OK_CODES_NAME; newHidden.value = okArray[i]; document.prevRequestForm.appendChild(newHidden); } document.prevRequestForm.action = '${actionFor(code)}'; document.prevRequestForm.submit(); } window.onload = createConfirmDialog;</script>"
     private fun actionFor(code: String) = when (code) { "OPACSDI017" -> "WOpacSdiBookListExecAction.do"; "OPACSDI011" -> "WOpacSdiBookListUpdateAction.do"; "OPACSDI033" -> "WOpacSdiBookDelAction.do"; else -> "WOpacSdiBookListDelAction.do" }
+    private fun inlineUpdateConfirmPage(fields: List<Pair<String, String>>) = "<form name='prevRequestForm'>${fields.joinToString("") { (name, value) -> if (name == "commnt" || name == "eachcmnt") "<textarea name='$name'>$value</textarea>" else "<input name='$name' value='$value'>" }}</form><script>var OK_CODES_NAME = 'okCodes'; var CANCEL_CODES_NAME = 'cancelCodes'; var okArray = new Array(); var cancelArray = new Array(); if (rest) { okArray[okArray.length] = 'OPACSDI011'; submitFlg = false; } else { return cancelDialog(); } for (var i = 0; i < okArray.length; i++) { var newHidden = document.createElement('input'); newHidden.type = 'hidden'; newHidden.name = OK_CODES_NAME; newHidden.value = okArray[i]; document.prevRequestForm.appendChild(newHidden); } for (var c = 0; c < cancelArray.length; c++) { var cancelHidden = document.createElement('input'); cancelHidden.type = 'hidden'; cancelHidden.name = CANCEL_CODES_NAME; cancelHidden.value = cancelArray[c]; document.prevRequestForm.appendChild(cancelHidden); } document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListUpdateAction.do'; document.prevRequestForm.submit();</script>"
     private fun fieldsForm(fields: List<Pair<String, String>>) = "<form name='LBForm'>${fields.joinToString("") { (name, value) -> if (name == "commnt" || name == "eachcmnt") "<textarea name='$name'>$value</textarea>" else "<input name='$name' value='$value'>" }}</form>"
     private fun page(body: String) = MockResponse().setBody(body)
 

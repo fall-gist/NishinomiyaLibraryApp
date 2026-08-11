@@ -115,6 +115,96 @@ class BookshelfFormsTest {
         assertTrue(runCatching { BookshelfDeleteFormParser.parse(html) }.exceptionOrNull() is ParseException)
     }
 
+    @Test
+    fun `UPDATEのトップレベル確認scriptはroot relativeとapplication absoluteを受理する`() {
+        val expected = listOf(BookshelfFormField("hash", "masked"))
+        val rootRelative = inlineUpdateConfirmationHtml(expected)
+
+        assertEquals(
+            "WOpacSdiBookListUpdateAction.do",
+            BookshelfConfirmationFormParser.parse(rootRelative, expected, BookshelfConfirmationKind.UPDATE).action,
+        )
+        assertEquals(
+            "WOpacSdiBookListUpdateAction.do",
+            BookshelfConfirmationFormParser.parse(
+                rootRelative.replace(
+                    "'/licsxp-opac/WOpacSdiBookListUpdateAction.do'",
+                    "'WOpacSdiBookListUpdateAction.do'",
+                ),
+                expected,
+                BookshelfConfirmationKind.UPDATE,
+            ).action,
+        )
+        assertEquals(
+            "WOpacSdiBookListUpdateAction.do",
+            BookshelfConfirmationFormParser.parse(
+                rootRelative.replace("OPACSDI011'; submitFlg", "OPACSDI011'; /* 実測上の補足 */\n submitFlg"),
+                expected,
+                BookshelfConfirmationKind.UPDATE,
+            ).action,
+        )
+    }
+
+    @Test
+    fun `UPDATEのトップレベル確認scriptは不正な構造とnamed混在を拒否する`() {
+        val expected = listOf(BookshelfFormField("hash", "masked"))
+        val valid = inlineUpdateConfirmationHtml(expected)
+        listOf(
+            valid.replace("OPACSDI011", "OPACSDI017"),
+            valid.replace("WOpacSdiBookListUpdateAction.do'", "WOpacSdiBookListUpdateAction.do?x=1'"),
+            valid.replace("'/licsxp-opac/WOpacSdiBookListUpdateAction.do'", "'https://example.invalid/licsxp-opac/WOpacSdiBookListUpdateAction.do'"),
+            valid.replace("var OK_CODES_NAME = 'okCodes';", "evil.OK_CODES_NAME = 'okCodes';"),
+            valid.replace("var OK_CODES_NAME = 'okCodes';", "evil . OK_CODES_NAME = 'okCodes';"),
+            valid.replace("document.createElement('input')", "evil.document.createElement('input')"),
+            valid.replace("document.prevRequestForm.appendChild(newHidden);", "evil.document.prevRequestForm.appendChild(newHidden);"),
+            valid.replace("document.prevRequestForm.action", "evil.document.prevRequestForm.action"),
+            valid.replace("document.prevRequestForm.action", "evil . document.prevRequestForm.action"),
+            valid.replace("document.prevRequestForm.action", "evil./*x*/document.prevRequestForm.action"),
+            valid.replace("document.prevRequestForm.action", "evil.//x\ndocument.prevRequestForm.action"),
+            valid.replace("document.prevRequestForm.submit();", "evil.document.prevRequestForm.submit();"),
+            valid.replace("document.prevRequestForm.submit();", "document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListUpdateAction.do'; document.prevRequestForm.submit();"),
+            valid.replace("okArray[i]", "okArray[0]"),
+            valid.replace("} document.prevRequestForm.action", "} for (var j = 0; j < okArray.length; j++) { var extraHidden = document.createElement('input'); extraHidden.type = 'hidden'; extraHidden.name = OK_CODES_NAME; extraHidden.value = okArray[j]; document.prevRequestForm.appendChild(extraHidden); } document.prevRequestForm.action"),
+            valid.replace("appendChild(newHidden);", "appendChild(other);"),
+            valid.replace("appendChild(newHidden);", "appendChild(newHidden); document.prevRequestForm.appendChild(newHidden);"),
+            valid.replace("submit();", "submit(); document.prevRequestForm.submit();"),
+            valid.replace("var okArray", "if (rest) { var okArray").replace("document.prevRequestForm.submit();", "document.prevRequestForm.submit(); }"),
+            valid.replace("document.prevRequestForm.submit();", "document.prevRequestForm.submit(); function createConfirmDialog() {} window.onload = createConfirmDialog;"),
+            valid.replace(" submitFlg = false;", ""),
+            valid.replace("submitFlg = false;", "submitFlg = true;"),
+            valid.replace("submitFlg = false;", "return cancelDialog();"),
+            valid.replace("submitFlg = false;", "evil(); submitFlg = false;"),
+            valid.replace("submitFlg = false;", "submitFlg = false; evil();"),
+            valid.replace("submitFlg = false;", "if (nested) { submitFlg = false; }"),
+            valid.replace("submitFlg = false;", "evil.submitFlg = false;"),
+        ).forEach { changed ->
+            assertTrue(
+                runCatching {
+                    BookshelfConfirmationFormParser.parse(changed, expected, BookshelfConfirmationKind.UPDATE)
+                }.exceptionOrNull() is ParseException,
+            )
+        }
+        assertTrue(
+            runCatching {
+                BookshelfConfirmationFormParser.parse(valid, expected, BookshelfConfirmationKind.CREATE)
+            }.exceptionOrNull() is ParseException,
+        )
+    }
+
+    @Test
+    fun `先頭空白後のnamed確認scriptを受理する`() {
+        val expected = listOf(BookshelfFormField("hash", "masked"))
+
+        assertEquals(
+            "WOpacSdiBookListUpdateAction.do",
+            BookshelfConfirmationFormParser.parse(
+                minimalNamedConfirmationHtml(expected),
+                expected,
+                BookshelfConfirmationKind.UPDATE,
+            ).action,
+        )
+    }
+
     private fun form(names: List<String>): String = buildString {
         append("<form name='LBForm'>")
         names.forEach { name -> append("<input type='hidden' name='$name' value='$name'>") }
@@ -125,5 +215,15 @@ class BookshelfFormsTest {
     private fun confirmationHtml(fields: List<BookshelfFormField>, prefix: String = "") = """
         <form name='prevRequestForm'>${fields.joinToString("") { "<input name='${it.name}' value='${it.value}'>" }}</form>
         <script>$prefix var OK_CODES_NAME = 'okCodes'; function createConfirmDialog() { var okArray = new Array(); if (rest) { okArray[okArray.length] = 'OPACSDI011'; } for (var i = 0; i < okArray.length; i++) { var newHidden = document.createElement('input'); newHidden.type = 'hidden'; newHidden.name = OK_CODES_NAME; newHidden.value = okArray[i]; document.prevRequestForm.appendChild(newHidden); } document.prevRequestForm.action = 'WOpacSdiBookListUpdateAction.do'; document.prevRequestForm.submit(); } window.onload = createConfirmDialog;</script>
+    """.trimIndent()
+
+    private fun inlineUpdateConfirmationHtml(fields: List<BookshelfFormField>) = """
+        <form name='prevRequestForm'>${fields.joinToString("") { "<input name='${it.name}' value='${it.value}'>" }}</form>
+        <script>/* document.prevRequestForm.submit(); */ var ignored = "OK_CODES_NAME createConfirmDialog"; var fake = /document\.prevRequestForm\.submit\(\)/; var OK_CODES_NAME = 'okCodes'; var CANCEL_CODES_NAME = 'cancelCodes'; var okArray = new Array(); var cancelArray = new Array(); if (rest) { okArray[okArray.length] = 'OPACSDI011'; submitFlg = false; } else { return cancelDialog(); } for (var i = 0; i < okArray.length; i++) { var newHidden = document.createElement('input'); newHidden.type = 'hidden'; newHidden.name = OK_CODES_NAME; newHidden.value = okArray[i]; document.prevRequestForm.appendChild(newHidden); } for (var c = 0; c < cancelArray.length; c++) { var cancelHidden = document.createElement('input'); cancelHidden.type = 'hidden'; cancelHidden.name = CANCEL_CODES_NAME; cancelHidden.value = cancelArray[c]; document.prevRequestForm.appendChild(cancelHidden); } document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListUpdateAction.do'; document.prevRequestForm.submit();</script>
+    """.trimIndent()
+
+    private fun minimalNamedConfirmationHtml(fields: List<BookshelfFormField>) = """
+        <form name='prevRequestForm'>${fields.joinToString("") { "<input name='${it.name}' value='${it.value}'>" }}</form>
+        <script>  function createConfirmDialog() { var okArray = new Array(); if (rest) { okArray[okArray.length] = 'OPACSDI011'; } for (var i = 0; i < okArray.length; i++) { var newHidden = document.createElement('input'); newHidden.type = 'hidden'; newHidden.name = OK_CODES_NAME; newHidden.value = okArray[i]; document.prevRequestForm.appendChild(newHidden); } document.prevRequestForm.action = 'WOpacSdiBookListUpdateAction.do'; document.prevRequestForm.submit(); } var OK_CODES_NAME = 'okCodes'; window.onload = createConfirmDialog;</script>
     """.trimIndent()
 }
