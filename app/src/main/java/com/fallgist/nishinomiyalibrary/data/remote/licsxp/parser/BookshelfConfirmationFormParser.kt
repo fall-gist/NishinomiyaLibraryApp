@@ -49,7 +49,7 @@ internal object BookshelfConfirmationFormParser {
         val action = oneCodeMatch(body, actionAssignment)?.groupValues?.get(1) ?: return null
         if (!isExpectedAction(action, contract)) return null
 
-        // 実測済みの共通 createConfirmDialog は、確認コードを for ループで hidden に転記する。
+        // 実測済みの共通 createConfirmDialog が、確認コードを for ループで hidden に転記する。
         // 末尾要素を直接代入する簡略形や、コード連鎖外の似た断片は受理しない。
         val loop = oneCodeMatch(body, linkedOkCodesLoop) ?: return null
         val submit = codeMatches(body, submitCall)
