@@ -66,6 +66,59 @@ class BookshelfGatewayTest {
     }
 
     @Test
+    fun `資料追加は状態変更POST応答のトークンで再取得する`() = runBlocking {
+        val added = FixtureItem("1000000000002", "追加資料", "新規メモ")
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "棚")))
+        server.enqueue(page(detailAddPage(added.code)))
+        server.enqueue(page(tokenPage("masked-next", "tiles.AfterAdd")))
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(added))))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.AddItem(1, added.code, added.memo, expected()))
+
+        assertTrue(outcome is RemoteBookshelfOutcome.Applied)
+        val requests = requests(8)
+        assertEquals("gamenid=tiles.AfterAdd", requests[7].body.readUtf8().substringAfter('&'))
+        assertEquals(1, requests.count { it.path == "/WOpacTifDetailAddBookListAction.do" })
+    }
+
+    @Test
+    fun `資料追加のPOST応答が空hashなら従来トークンで再取得する`() = runBlocking {
+        val added = FixtureItem("1000000000002", "追加資料", "新規メモ")
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "棚")))
+        server.enqueue(page(detailAddPage(added.code)))
+        server.enqueue(page(tokenPage("", "tiles.AfterAdd")))
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(added))))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.AddItem(1, added.code, added.memo, expected()))
+
+        assertTrue(outcome is RemoteBookshelfOutcome.Applied)
+        val requests = requests(8)
+        assertEquals("gamenid=tiles.WSdiBookList", requests[7].body.readUtf8().substringAfter('&'))
+        assertEquals(1, requests.count { it.path == "/WOpacTifDetailAddBookListAction.do" })
+    }
+
+    @Test
+    fun `stage2確定POST応答のトークンで再取得してAppliedにする`() = runBlocking {
+        val shelves = listOf(1 to "作成前", 2 to "新しい棚")
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "作成前")))
+        server.enqueue(page(createPage()))
+        server.enqueue(page(confirmPage(createFields("新しい棚"), "OPACSDI017")))
+        server.enqueue(page(tokenPage("masked-next", "tiles.AfterCreate")))
+        server.enqueue(page(shelfPage(2, "新しい棚", shelves = shelves)))
+        server.enqueue(page(shelfPage(1, "作成前", shelves = shelves)))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected()))
+
+        assertTrue(outcome is RemoteBookshelfOutcome.Applied)
+        val requests = requests(10)
+        assertEquals("gamenid=tiles.AfterCreate", requests[8].body.readUtf8().substringAfter('&'))
+        assertEquals(1, requests.count { it.path == "/WOpacSdiBookListExecAction.do" && it.body.readUtf8().contains("okCodes") })
+    }
+
+    @Test
     fun `追加済み資料は詳細画面も状態変更POSTも行わずAlreadyRegisteredにする`() = runBlocking {
         val existing = FixtureItem("1000000000001", "既存", "メモ")
         enqueueLogin()
@@ -414,6 +467,7 @@ class BookshelfGatewayTest {
     }
 
     private fun createPage() = "<form name='LBForm'><input name='hash' value='masked'><input name='returnid' value='tiles.WSdiBookList'><input name='gamenid' value='tiles.WSdiBookListNew'><input name='listname' value=''><textarea name='commnt'></textarea></form>"
+    private fun tokenPage(hash: String, gamenId: String) = "<form name='LBForm'><input name='hash' value='$hash'><input name='gamenid' value='$gamenId'></form>"
     private fun createFields(name: String) = listOf("hash" to "masked", "returnid" to "tiles.WSdiBookList", "gamenid" to "tiles.WSdiBookListNew", "listname" to name, "commnt" to "")
 
     private fun editPage(no: Int, name: String, items: List<FixtureItem>) = fieldsForm(editFields(no, name, items))

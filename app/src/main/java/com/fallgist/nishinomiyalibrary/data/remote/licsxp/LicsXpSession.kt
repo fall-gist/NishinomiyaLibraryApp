@@ -501,6 +501,20 @@ class LicsXpSession private constructor(
         lastPageTokens = tokens
     }
 
+    /**
+     * 状態変更POST後の照合用に、非空のhashとgamenidを持つ場合だけトークンを更新する。
+     * 完了画面などからトークンを抽出できない場合は、直前画面のトークンを維持する。
+     */
+    internal fun updateTokensIfPresent(html: String): Boolean = try {
+        val tokens = HashExtractor.extract(html)
+        if (tokens.hash.isBlank()) false else {
+            lastPageTokens = tokens
+            true
+        }
+    } catch (_: ParseException) {
+        false
+    }
+
     internal fun requireTokens(): PageTokens = lastPageTokens
         ?: throw ParseException("session", "hash と gamenid がまだ取得されていません")
 

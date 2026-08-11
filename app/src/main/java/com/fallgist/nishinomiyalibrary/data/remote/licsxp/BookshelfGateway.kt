@@ -126,11 +126,12 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
         if (form.tilcod != mutation.tilcod) return changedFailure()
         // 追加は唯一の状態変更POST。以降の失敗では再送せず、全棚再取得でだけ照合する。
         try {
-            postExactlyOnce(
+            val response = postExactlyOnce(
                 "WOpacTifDetailAddBookListAction.do",
                 form = form.buildForm(mutation.shelfNo, mutation.memo),
                 onRequestStarted = stateChangePost::markStarted,
             )
+            session.updateTokensIfPresent(response)
         } catch (_: LibraryError.Network) { }
         val after = refetchOrNull() ?: return RemoteBookshelfOutcome.Unknown
         val matched = after.itemsFor(mutation.shelfNo).filter { it.tilcod == mutation.tilcod }
@@ -256,7 +257,8 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
         // action属性は使わず、確認ページJSから固定path・query無しまで検証済みのactionを使う。
         if (confirm.action != path || confirm.action.contains('?')) return beforeStage2(before, success)
         try {
-            postExactlyOnce(confirm.action, form = confirm.buildForm(), onRequestStarted = stateChangePost::markStarted)
+            val response = postExactlyOnce(confirm.action, form = confirm.buildForm(), onRequestStarted = stateChangePost::markStarted)
+            session.updateTokensIfPresent(response)
         } catch (_: LibraryError.Network) { }
         return afterPost(before, success)
     }
