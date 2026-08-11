@@ -24,8 +24,7 @@ object ShelfParser {
             ?.takeIf { it.isNotEmpty() }
             ?: throw ParseException(screen, "本棚名が見つかりません")
         val shelf = Shelf(shelfNo, shelfName)
-        val table = ParserSupport.requireTable(document, screen, "リスト詳細")
-        val items = table.select("tbody > tr").map { row ->
+        val items = document.selectFirst("table[summary=リスト詳細]")?.select("tbody > tr")?.map { row ->
             val titleText = row.selectFirst(".title")?.text()?.let { ParserSupport.run { it.normalized() } }
                 ?: throw ParseException(screen, ".title が見つかりません")
             val match = Regex("^(\\d{13})\\s*(.*)$").matchEntire(titleText)
@@ -45,7 +44,7 @@ object ShelfParser {
                 shelfNo = shelf.no,
                 shelfName = shelf.name,
             )
-        }
+        } ?: emptyList()
         return ShelfParseResult(shelf, items)
     }
 }

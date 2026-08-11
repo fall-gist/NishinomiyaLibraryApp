@@ -733,6 +733,17 @@ class ParsersTest {
     }
 
     @Test
+    fun `本棚の詳細テーブルがない0件画面をパースできる`() {
+        val result = ShelfParser.parse(
+            "<h1>マイ本棚</h1><form name='LBForm'><input name='otherbook' value='1'></form>" +
+                "<table summary='本棚属性'><tbody><tr><td><em class='huge'>空の本棚</em></td></tr></tbody></table>",
+        )
+
+        assertEquals("空の本棚", result.shelf.name)
+        assertTrue(result.items.isEmpty())
+    }
+
+    @Test
     fun `本棚の不正HTMLはParseExceptionになる`() = assertParseError("shelf") {
         ShelfParser.parse("<h1>マイ本棚</h1>")
     }
