@@ -213,8 +213,10 @@ class BookshelfFormsTest {
 
         assertEquals("okCodes", form.buildForm().name(12))
         assertEquals("OPACSDI011", form.buildForm().value(12))
+        assertEquals("jp.co.necsoft.licsxp.base.util.validation.MessageUtil.CONFIRM_DIALOG_SEND_REDIRECT", form.buildForm().name(13))
+        assertEquals("true", form.buildForm().value(13))
         val grouped = groupedCompletionFields()
-        assertEquals(17, BookshelfCompletionFormParser.parse(completionHtml(grouped), grouped).buildForm().size)
+        assertEquals(18, BookshelfCompletionFormParser.parse(completionHtml(grouped), grouped).buildForm().size)
         assertEquals(
             "bookcmnt",
             BookshelfCompletionFormParser.parse(completionHtml(grouped), grouped).buildForm().name(8),
@@ -229,11 +231,11 @@ class BookshelfFormsTest {
             grouped[9], grouped[11], grouped[13], grouped[15],
         ) + grouped.last()
         assertEquals(
-            17,
+            18,
             BookshelfCompletionFormParser.parse(completionHtml(crossNameReordered), grouped).buildForm().size,
         )
         val emptyShelf = completionFields().take(8) + completionFields().last()
-        assertEquals(9, BookshelfCompletionFormParser.parse(completionHtml(emptyShelf), emptyShelf).buildForm().size)
+        assertEquals(10, BookshelfCompletionFormParser.parse(completionHtml(emptyShelf), emptyShelf).buildForm().size)
         assertEquals(
             "OPACSDI011",
             BookshelfCompletionFormParser.parse(
@@ -241,6 +243,19 @@ class BookshelfFormsTest {
                     "document.prevRequestForm.action",
                     "lbAlert('マイ本棚の更新処理が完了しました。', ''); document.prevRequestForm.action",
                 ),
+                fields,
+            ).buildForm().value(12),
+        )
+        // 実測HARを縮約した、redirect前のloopと文間の空白・コメントは受理する。
+        assertEquals(
+            "OPACSDI011",
+            BookshelfCompletionFormParser.parse(
+                completionHtml(fields)
+                    .replace("redirect.type = 'hidden';", "/* input種別 */ redirect.type = 'hidden'; // 次は固定field\n")
+                    .replace(
+                        "redirect.name = CONFIRM_DIALOG_SEND_REDIRECT_NAME;",
+                        "/* 固定field */ redirect.name = CONFIRM_DIALOG_SEND_REDIRECT_NAME;",
+                    ),
                 fields,
             ).buildForm().value(12),
         )
@@ -252,6 +267,18 @@ class BookshelfFormsTest {
             ).buildForm().value(12),
         )
         listOf(
+            completionHtml(fields).replace(
+                "var OK_CODES_NAME",
+                "var fake = '++CONFIRM_DIALOG_SEND_REDIRECT_NAME'; /* window.CONFIRM_DIALOG_SEND_REDIRECT_NAME = 'evil'; */ " +
+                    "var pattern = /window[\\\"CONFIRM_DIALOG_SEND_REDIRECT_NAME\\\"] = 'evil'/; var OK_CODES_NAME",
+            ),
+        ).forEach { html ->
+            assertEquals(
+                "OPACSDI011",
+                BookshelfCompletionFormParser.parse(html, fields).buildForm().value(12),
+            )
+        }
+        listOf(
             completionHtml(fields).replace("'/licsxp-opac/WOpacSdiBookListDispAction.do'", "'WOpacSdiBookListDispAction.do'"),
             completionHtml(fields).replace("WOpacSdiBookListDispAction.do", "WOpacSdiBookListDispAction.do?next=1"),
             completionHtml(fields).replace("<script>", "<script type='text/javascript'>"),
@@ -260,11 +287,46 @@ class BookshelfFormsTest {
             completionHtml(fields).replace("document.prevRequestForm.action", "evil.document.prevRequestForm.action"),
             completionHtml(fields).replace("document.prevRequestForm.submit();", "document.prevRequestForm.submit(); document.prevRequestForm.submit();"),
             completionHtml(fields).replace("document.prevRequestForm.action", "document.prevRequestForm.reset(); document.prevRequestForm.action"),
-            completionHtml(fields).replace("document.prevRequestForm.action", "document.prevRequestForm.appendChild(node); document.prevRequestForm.action"),
             completionHtml(fields).replace("document.prevRequestForm.action", "document.prevRequestForm.foo; document.prevRequestForm.action"),
             completionHtml(fields).replace("document.prevRequestForm.action", "if (ok) { document.prevRequestForm.action").replace("document.prevRequestForm.submit();", "document.prevRequestForm.submit(); }"),
-            completionHtml(fields).replace("</script>", "var unexpected = 1;</script>"),
             completionHtml(fields) + "<script>function createConfirmDialog() { document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListDispAction.do'; document.prevRequestForm.submit(); } window.onload = createConfirmDialog;</script>",
+            completionHtml(fields).replace("var CONFIRM_DIALOG_SEND_REDIRECT_NAME", "var OTHER_REDIRECT_NAME"),
+            completionHtml(fields).replace("CONFIRM_DIALOG_SEND_REDIRECT\";", "CONFIRM_DIALOG_SEND_REDIRECT_OTHER\";"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "CONFIRM_DIALOG_SEND_REDIRECT_NAME = 'evil'; var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "CONFIRM_DIALOG_SEND_REDIRECT_NAME++; var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "++CONFIRM_DIALOG_SEND_REDIRECT_NAME; var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "--CONFIRM_DIALOG_SEND_REDIRECT_NAME; var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "((CONFIRM_DIALOG_SEND_REDIRECT_NAME)) = 'evil'; var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "((CONFIRM_DIALOG_SEND_REDIRECT_NAME))++; var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "++((CONFIRM_DIALOG_SEND_REDIRECT_NAME)); var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "window.CONFIRM_DIALOG_SEND_REDIRECT_NAME = 'evil'; var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "window[\"CONFIRM_DIALOG_SEND_REDIRECT_NAME\"] = 'evil'; var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "globalThis.CONFIRM_DIALOG_SEND_REDIRECT_NAME = 'evil'; var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "self['CONFIRM_DIALOG_SEND_REDIRECT_NAME'] = 'evil'; var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "var observedRedirectName = CONFIRM_DIALOG_SEND_REDIRECT_NAME; var OK_CODES_NAME"),
+            completionHtml(fields).replace("</script>", "</script><script>CONFIRM_DIALOG_SEND_REDIRECT_NAME = 'evil';</script>"),
+            completionHtml(fields).replace("redirect.type = 'hidden'", "redirect.type = 'text'"),
+            completionHtml(fields).replace("redirect.name = CONFIRM_DIALOG_SEND_REDIRECT_NAME", "redirect.name = OTHER_REDIRECT_NAME"),
+            completionHtml(fields).replace("redirect.value = 'true'", "redirect.value = 'false'"),
+            completionHtml(fields).replace("redirect.value = 'true';", "redirect.value = 'true'; redirect[\"value\"] = 'false';"),
+            completionHtml(fields).replace("redirect.name = CONFIRM_DIALOG_SEND_REDIRECT_NAME;", "redirect.name = CONFIRM_DIALOG_SEND_REDIRECT_NAME; redirect['name'] = 'evil';"),
+            completionHtml(fields).replace("document.prevRequestForm.appendChild(redirect);", "if (ok) { redirect.value = 'false'; } document.prevRequestForm.appendChild(redirect);"),
+            completionHtml(fields).replace("appendChild(redirect)", "appendChild(other)"),
+            completionHtml(fields).replace("var redirect =", "if (ok) { var redirect =").replace("document.prevRequestForm.action", "} document.prevRequestForm.action"),
+            completionHtml(fields).replace("var redirect =", "if (blocked) ; else var redirect ="),
+            completionHtml(fields).replace("var redirect =", "if (blocked) return; var redirect ="),
+            completionHtml(fields).replace("var redirect =", "if (blocked) { return; } var redirect ="),
+            completionHtml(fields).replace("redirect.type = 'hidden';", "redirect.type = 'hidden'; unexpected();"),
+            completionHtml(fields).replace("redirect.name = CONFIRM_DIALOG_SEND_REDIRECT_NAME;", "if (ok) redirect.name = CONFIRM_DIALOG_SEND_REDIRECT_NAME;"),
+            completionHtml(fields).replace("document.prevRequestForm.action", "document.prevRequestForm = otherForm; document.prevRequestForm.action"),
+            completionHtml(fields).replace("document.prevRequestForm.action", "document['prevRequestForm'] = otherForm; document.prevRequestForm.action"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "document.forms['prevRequestForm'].submit(); var OK_CODES_NAME"),
+            completionHtml(fields).replace("var OK_CODES_NAME", "Object.defineProperty(document, 'prevRequestForm', { value: otherForm }); var OK_CODES_NAME"),
+            completionHtml(fields).replace("var redirect =", "var alias = document.prevRequestForm; var redirect ="),
+            completionHtml(fields) + "<script>document.prevRequestForm = otherForm;</script>",
+            completionHtml(fields) + "<script>document['prevRequestForm'] = otherForm;</script>",
+            completionHtml(fields).replace("</form>", "<input name='jp.co.necsoft.licsxp.base.util.validation.MessageUtil.CONFIRM_DIALOG_SEND_REDIRECT' value='true'></form>"),
+            completionHtml(fields).replace("var redirect = document.createElement('input');", "var fake = \"var redirect = document.createElement('input');\";"),
         ).forEach { html ->
             assertTrue(runCatching { BookshelfCompletionFormParser.parse(html, fields) }.exceptionOrNull() is ParseException)
         }
@@ -388,6 +450,19 @@ class BookshelfFormsTest {
 
     private fun completionHtml(fields: List<BookshelfFormField>) = """
         <form name='prevRequestForm'>${fields.joinToString("") { field -> if (field.name == "commnt" || field.name == "eachcmnt") "<textarea name='${field.name}'>${field.value}</textarea>" else "<input name='${field.name}' value='${field.value}'>" }}</form>
-        <script>function createConfirmDialog() { document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListDispAction.do'; document.prevRequestForm.submit(); } window.onload = createConfirmDialog;</script>
+        <script>
+        var CONFIRM_DIALOG_SEND_REDIRECT_NAME = "jp.co.necsoft.licsxp.base.util.validation.MessageUtil.CONFIRM_DIALOG_SEND_REDIRECT";
+        var OK_CODES_NAME = 'okCodes'; var CANCEL_CODES_NAME = 'cancelCodes'; var browser = navigator.userAgent;
+        function createConfirmDialog() {
+          for (var i = 0; i < okArray.length; i++) { var ok = document.createElement('input'); ok.type = 'hidden'; ok.name = OK_CODES_NAME; ok.value = okArray[i]; document.prevRequestForm.appendChild(ok); }
+          for (var c = 0; c < cancelArray.length; c++) { var cancel = document.createElement('input'); cancel.type = 'hidden'; cancel.name = CANCEL_CODES_NAME; cancel.value = cancelArray[c]; document.prevRequestForm.appendChild(cancel); }
+          var redirect = document.createElement('input');
+          redirect.type = 'hidden'; redirect.name = CONFIRM_DIALOG_SEND_REDIRECT_NAME; redirect.value = 'true';
+          document.prevRequestForm.appendChild(redirect);
+          document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListDispAction.do';
+          document.prevRequestForm.submit();
+        }
+        window.onload = createConfirmDialog;
+        </script>
     """.trimIndent()
 }
