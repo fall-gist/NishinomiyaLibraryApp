@@ -227,12 +227,15 @@ class BookshelfGatewayTest {
         server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
         server.enqueue(page(editPage(1, "変更前", listOf(item))))
         server.enqueue(page(inlineUpdateConfirmPage(editFields(1, "変更後", listOf(item)))))
+        server.enqueue(page(completionPage(editFields(1, "変更後", listOf(item)))))
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "変更後", items = listOf(item))))
         val renamed = session().mutate(RemoteBookshelfMutation.RenameShelf(1, "変更後", expected()))
         assertTrue(renamed is RemoteBookshelfOutcome.Applied)
-        assertEquals(9, server.requestCount)
-        assertEquals(1, requests(9).count { it.path == "/WOpacSdiBookListUpdateAction.do" && it.body.readUtf8().contains("okCodes=OPACSDI011") })
+        assertEquals(10, server.requestCount)
+        val requests = requests(10)
+        assertEquals("/WOpacSdiBookListDispAction.do", requests[8].path)
+        assertEquals("hash=masked&returnid=tiles.WSdiBookList&gamenid=tiles.WSdiBookList&tilcod=&dispflg=&otherbook=1&listname=%E5%A4%89%E6%9B%B4%E5%BE%8C&commnt=&bookcmnt=%E5%A4%89%E6%9B%B4%E5%89%8D&eachcmnt=%E5%A4%89%E6%9B%B4%E5%89%8D&sortno=0&eachsortno=0&okCodes=OPACSDI011", requests[8].body.readUtf8())
     }
 
     @Test
@@ -243,14 +246,17 @@ class BookshelfGatewayTest {
         server.enqueue(page(shelfPage(1, "棚", items = listOf(original))))
         server.enqueue(page(editPage(1, "棚", listOf(original))))
         server.enqueue(page(inlineUpdateConfirmPage(updateMemoFields(1, "棚", listOf(original), updated.memo))))
+        server.enqueue(page(completionPage(updateMemoFields(1, "棚", listOf(original), updated.memo))))
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "棚", items = listOf(updated))))
 
         val outcome = session().mutate(RemoteBookshelfMutation.UpdateItemMemo(1, original.code, updated.memo, expected()))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
-        assertEquals(9, server.requestCount)
-        assertEquals(1, requests(9).count { it.path == "/WOpacSdiBookListUpdateAction.do" && it.body.readUtf8().contains("okCodes=OPACSDI011") })
+        assertEquals(10, server.requestCount)
+        val requests = requests(10)
+        assertEquals("/WOpacSdiBookListDispAction.do", requests[8].path)
+        assertTrue(requests[8].body.readUtf8().contains("eachcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C"))
     }
 
     @Test
@@ -261,6 +267,7 @@ class BookshelfGatewayTest {
         server.enqueue(page(shelfPage(1, "棚", items = listOf(original))))
         server.enqueue(page(editPage(1, "棚", listOf(original))))
         server.enqueue(page(confirmPage(updateMemoFields(1, "棚", listOf(original), updated.memo), "OPACSDI011")))
+        server.enqueue(page(completionPage(updateMemoFields(1, "棚", listOf(original), updated.memo))))
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "改変された棚", items = listOf(updated))))
 
@@ -489,14 +496,75 @@ class BookshelfGatewayTest {
         server.enqueue(page(shelfPage(1, "棚", items = items)))
         server.enqueue(page(editPage(1, "棚", items)))
         server.enqueue(page(inlineUpdateConfirmPage(groupUpdateFields(updateMemoFields(1, "棚", items, updated.memo)))))
+        server.enqueue(page(completionPage(groupUpdateFields(updateMemoFields(1, "棚", items, updated.memo)))))
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "棚", items = listOf(updated, unchanged))))
 
         val outcome = session().mutate(RemoteBookshelfMutation.UpdateItemMemo(1, original.code, updated.memo, expected()))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
+        assertEquals(10, server.requestCount)
+        val requests = requests(10)
+        assertEquals("/WOpacSdiBookListDispAction.do", requests[8].path)
+        assertTrue(requests[8].body.readUtf8().contains("bookcmnt=%E5%A4%89%E6%9B%B4%E5%89%8D&bookcmnt=%E3%81%9D%E3%81%AE%E3%81%BE%E3%81%BE&eachcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C&eachcmnt=%E3%81%9D%E3%81%AE%E3%81%BE%E3%81%BE"))
+    }
+
+    @Test
+    fun `UPDATEの第3フォームが不正なら表示POSTを送らず送信後照合だけを行う`() = runBlocking {
+        val item = FixtureItem("1000000000001", "資料", "変更前")
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
+        server.enqueue(page(editPage(1, "変更前", listOf(item))))
+        server.enqueue(page(inlineUpdateConfirmPage(editFields(1, "変更後", listOf(item)))))
+        server.enqueue(page(completionPage(editFields(1, "変更後", listOf(item))).replace("WOpacSdiBookListDispAction.do", "WOpacSdiBookListDispAction.do?next=1")))
+        server.enqueue(page(shelfPage(1, "変更後", items = listOf(item))))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.RenameShelf(1, "変更後", expected()))
+
+        assertTrue(outcome is RemoteBookshelfOutcome.Applied)
         assertEquals(9, server.requestCount)
-        assertEquals(1, requests(9).count { it.path == "/WOpacSdiBookListUpdateAction.do" && it.body.readUtf8().contains("okCodes=OPACSDI011") })
+        assertEquals(0, requests(9).count { it.path == "/WOpacSdiBookListDispAction.do" })
+    }
+
+    @Test
+    fun `UPDATEの第3POST通信断では再送せず送信後照合だけを行う`() = runBlocking {
+        val item = FixtureItem("1000000000001", "資料", "変更前")
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
+        server.enqueue(page(editPage(1, "変更前", listOf(item))))
+        server.enqueue(page(inlineUpdateConfirmPage(editFields(1, "変更後", listOf(item)))))
+        server.enqueue(page(completionPage(editFields(1, "変更後", listOf(item)))))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        server.enqueue(page(shelfPage(1, "変更後", items = listOf(item))))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.RenameShelf(1, "変更後", expected()))
+
+        assertTrue(outcome is RemoteBookshelfOutcome.Applied)
+        assertEquals(10, server.requestCount)
+        assertEquals(1, requests(10).count { it.path == "/WOpacSdiBookListDispAction.do" })
+    }
+
+    @Test
+    fun `UPDATEの第3POST応答中取消はUnknownで再送しない`() = runBlocking {
+        val item = FixtureItem("1000000000001", "資料", "変更前")
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
+        server.enqueue(page(editPage(1, "変更前", listOf(item))))
+        server.enqueue(page(inlineUpdateConfirmPage(editFields(1, "変更後", listOf(item)))))
+        server.enqueue(page(completionPage(editFields(1, "変更後", listOf(item)))))
+        server.enqueue(page("<html>完了</html>").setBodyDelay(100, TimeUnit.MILLISECONDS))
+
+        var observed: RemoteBookshelfOutcome? = null
+        val job = launch(Dispatchers.Default) {
+            observed = session().mutate(RemoteBookshelfMutation.RenameShelf(1, "変更後", expected()))
+        }
+        val requests = requests(9)
+        job.cancel()
+        job.join()
+
+        assertEquals(RemoteBookshelfOutcome.Unknown, observed)
+        assertTrue(job.isCancelled)
+        assertEquals(1, requests.count { it.path == "/WOpacSdiBookListDispAction.do" })
     }
 
     private fun updateMemoFields(no: Int, name: String, items: List<FixtureItem>, memo: String): List<Pair<String, String>> {
@@ -518,6 +586,7 @@ class BookshelfGatewayTest {
     private fun confirmPage(fields: List<Pair<String, String>>, code: String) = "<form name='prevRequestForm'>${fields.joinToString("") { (name, value) -> if (name == "commnt" || name == "eachcmnt") "<textarea name='$name'>$value</textarea>" else "<input name='$name' value='$value'>" }}</form><script>var OK_CODES_NAME = 'okCodes'; function createConfirmDialog() { var okArray = new Array(); if (rest) { okArray[okArray.length] = '$code'; } for (var i = 0; i < okArray.length; i++) { var newHidden = document.createElement('input'); newHidden.type = 'hidden'; newHidden.name = OK_CODES_NAME; newHidden.value = okArray[i]; document.prevRequestForm.appendChild(newHidden); } document.prevRequestForm.action = '${actionFor(code)}'; document.prevRequestForm.submit(); } window.onload = createConfirmDialog;</script>"
     private fun actionFor(code: String) = when (code) { "OPACSDI017" -> "WOpacSdiBookListExecAction.do"; "OPACSDI011" -> "WOpacSdiBookListUpdateAction.do"; "OPACSDI033" -> "WOpacSdiBookDelAction.do"; else -> "WOpacSdiBookListDelAction.do" }
     private fun inlineUpdateConfirmPage(fields: List<Pair<String, String>>) = "<form name='prevRequestForm'>${fields.joinToString("") { (name, value) -> if (name == "commnt" || name == "eachcmnt") "<textarea name='$name'>$value</textarea>" else "<input name='$name' value='$value'>" }}</form><script>var OK_CODES_NAME = 'okCodes'; var CANCEL_CODES_NAME = 'cancelCodes'; var okArray = new Array(); var cancelArray = new Array(); if (rest) { okArray[okArray.length] = 'OPACSDI011'; submitFlg = false; } else { return cancelDialog(); } for (var i = 0; i < okArray.length; i++) { var newHidden = document.createElement('input'); newHidden.type = 'hidden'; newHidden.name = OK_CODES_NAME; newHidden.value = okArray[i]; document.prevRequestForm.appendChild(newHidden); } for (var c = 0; c < cancelArray.length; c++) { var cancelHidden = document.createElement('input'); cancelHidden.type = 'hidden'; cancelHidden.name = CANCEL_CODES_NAME; cancelHidden.value = cancelArray[c]; document.prevRequestForm.appendChild(cancelHidden); } document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListUpdateAction.do'; document.prevRequestForm.submit();</script>"
+    private fun completionPage(fields: List<Pair<String, String>>) = "<form name='prevRequestForm'>${(fields + ("okCodes" to "OPACSDI011")).joinToString("") { (name, value) -> if (name == "commnt" || name == "eachcmnt") "<textarea name='$name'>$value</textarea>" else "<input name='$name' value='$value'>" }}</form><script>function createConfirmDialog() { document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListDispAction.do'; document.prevRequestForm.submit(); } window.onload = createConfirmDialog;</script>"
     private fun fieldsForm(fields: List<Pair<String, String>>) = "<form name='LBForm'>${fields.joinToString("") { (name, value) -> if (name == "commnt" || name == "eachcmnt") "<textarea name='$name'>$value</textarea>" else "<input name='$name' value='$value'>" }}</form>"
     private fun page(body: String) = MockResponse().setBody(body)
 

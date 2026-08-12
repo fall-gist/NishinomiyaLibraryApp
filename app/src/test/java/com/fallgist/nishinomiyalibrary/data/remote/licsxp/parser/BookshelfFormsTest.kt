@@ -205,6 +205,61 @@ class BookshelfFormsTest {
         )
     }
 
+    @Test
+    fun `UPDATE完了後の第3フォームは固定項目と表示scriptを検証する`() {
+        val fields = completionFields()
+        val form = BookshelfCompletionFormParser.parse(completionHtml(fields), fields)
+
+        assertEquals("okCodes", form.buildForm().name(12))
+        assertEquals("OPACSDI011", form.buildForm().value(12))
+        val grouped = groupedCompletionFields()
+        assertEquals(17, BookshelfCompletionFormParser.parse(completionHtml(grouped), grouped).buildForm().size)
+        assertEquals(
+            "bookcmnt",
+            BookshelfCompletionFormParser.parse(completionHtml(grouped), grouped).buildForm().name(8),
+        )
+        assertEquals(
+            "eachcmnt",
+            BookshelfCompletionFormParser.parse(completionHtml(grouped), grouped).buildForm().name(10),
+        )
+        val emptyShelf = completionFields().take(8) + completionFields().last()
+        assertEquals(9, BookshelfCompletionFormParser.parse(completionHtml(emptyShelf), emptyShelf).buildForm().size)
+        assertEquals(
+            "OPACSDI011",
+            BookshelfCompletionFormParser.parse(
+                completionHtml(fields).replace(
+                    "document.prevRequestForm.action",
+                    "lbAlert('マイ本棚の更新処理が完了しました。', ''); document.prevRequestForm.action",
+                ),
+                fields,
+            ).buildForm().value(12),
+        )
+        assertEquals(
+            "OPACSDI011",
+            BookshelfCompletionFormParser.parse(
+                completionHtml(fields) + "<script src='common.js'></script><script>var unrelated = 1;</script>",
+                fields,
+            ).buildForm().value(12),
+        )
+        listOf(
+            completionHtml(fields).replace("'/licsxp-opac/WOpacSdiBookListDispAction.do'", "'WOpacSdiBookListDispAction.do'"),
+            completionHtml(fields).replace("WOpacSdiBookListDispAction.do", "WOpacSdiBookListDispAction.do?next=1"),
+            completionHtml(fields).replace("<script>", "<script type='text/javascript'>"),
+            completionHtml(fields).replace("<form name='prevRequestForm'>", "<form name='prevRequestForm' action='WOpacSdiBookListDispAction.do'>"),
+            completionHtml(fields.dropLast(1)),
+            completionHtml(fields).replace("document.prevRequestForm.action", "evil.document.prevRequestForm.action"),
+            completionHtml(fields).replace("document.prevRequestForm.submit();", "document.prevRequestForm.submit(); document.prevRequestForm.submit();"),
+            completionHtml(fields).replace("document.prevRequestForm.action", "document.prevRequestForm.reset(); document.prevRequestForm.action"),
+            completionHtml(fields).replace("document.prevRequestForm.action", "document.prevRequestForm.appendChild(node); document.prevRequestForm.action"),
+            completionHtml(fields).replace("document.prevRequestForm.action", "document.prevRequestForm.foo; document.prevRequestForm.action"),
+            completionHtml(fields).replace("document.prevRequestForm.action", "if (ok) { document.prevRequestForm.action").replace("document.prevRequestForm.submit();", "document.prevRequestForm.submit(); }"),
+            completionHtml(fields).replace("</script>", "var unexpected = 1;</script>"),
+            completionHtml(fields) + "<script>function createConfirmDialog() { document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListDispAction.do'; document.prevRequestForm.submit(); } window.onload = createConfirmDialog;</script>",
+        ).forEach { html ->
+            assertTrue(runCatching { BookshelfCompletionFormParser.parse(html, fields) }.exceptionOrNull() is ParseException)
+        }
+    }
+
     private fun form(names: List<String>): String = buildString {
         append("<form name='LBForm'>")
         names.forEach { name -> append("<input type='hidden' name='$name' value='$name'>") }
@@ -297,5 +352,32 @@ class BookshelfFormsTest {
     private fun minimalNamedConfirmationHtml(fields: List<BookshelfFormField>) = """
         <form name='prevRequestForm'>${fields.joinToString("") { "<input name='${it.name}' value='${it.value}'>" }}</form>
         <script>  function createConfirmDialog() { var okArray = new Array(); if (rest) { okArray[okArray.length] = 'OPACSDI011'; } for (var i = 0; i < okArray.length; i++) { var newHidden = document.createElement('input'); newHidden.type = 'hidden'; newHidden.name = OK_CODES_NAME; newHidden.value = okArray[i]; document.prevRequestForm.appendChild(newHidden); } document.prevRequestForm.action = 'WOpacSdiBookListUpdateAction.do'; document.prevRequestForm.submit(); } var OK_CODES_NAME = 'okCodes'; window.onload = createConfirmDialog;</script>
+    """.trimIndent()
+
+    private fun completionFields() = listOf(
+        BookshelfFormField("hash", "masked"), BookshelfFormField("returnid", "tiles.WSdiBookList"),
+        BookshelfFormField("gamenid", "tiles.WSdiBookList"), BookshelfFormField("tilcod", ""),
+        BookshelfFormField("dispflg", ""), BookshelfFormField("otherbook", "1"),
+        BookshelfFormField("listname", "棚"), BookshelfFormField("commnt", ""),
+        BookshelfFormField("bookcmnt", "メモ"), BookshelfFormField("eachcmnt", "メモ"),
+        BookshelfFormField("sortno", "0"), BookshelfFormField("eachsortno", "0"),
+        BookshelfFormField("okCodes", "OPACSDI011"),
+    )
+
+    private fun groupedCompletionFields() = listOf(
+        BookshelfFormField("hash", "masked"), BookshelfFormField("returnid", "tiles.WSdiBookList"),
+        BookshelfFormField("gamenid", "tiles.WSdiBookList"), BookshelfFormField("tilcod", ""),
+        BookshelfFormField("dispflg", ""), BookshelfFormField("otherbook", "1"),
+        BookshelfFormField("listname", "棚"), BookshelfFormField("commnt", ""),
+        BookshelfFormField("bookcmnt", "一件目"), BookshelfFormField("bookcmnt", "二件目"),
+        BookshelfFormField("eachcmnt", "一件目"), BookshelfFormField("eachcmnt", "二件目"),
+        BookshelfFormField("sortno", "0"), BookshelfFormField("sortno", "1"),
+        BookshelfFormField("eachsortno", "0"), BookshelfFormField("eachsortno", "1"),
+        BookshelfFormField("okCodes", "OPACSDI011"),
+    )
+
+    private fun completionHtml(fields: List<BookshelfFormField>) = """
+        <form name='prevRequestForm'>${fields.joinToString("") { field -> if (field.name == "commnt" || field.name == "eachcmnt") "<textarea name='${field.name}'>${field.value}</textarea>" else "<input name='${field.name}' value='${field.value}'>" }}</form>
+        <script>function createConfirmDialog() { document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListDispAction.do'; document.prevRequestForm.submit(); } window.onload = createConfirmDialog;</script>
     """.trimIndent()
 }

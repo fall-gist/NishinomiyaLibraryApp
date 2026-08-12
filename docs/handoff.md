@@ -2228,6 +2228,18 @@ DIモジュール・`LibraryApp.kt`は無変更である。
   `prevRequestForm`照合は異なる項目名間の順序のみ許容し、項目名ごとの出現順の値列、未知項目、
   追加・欠落、同名内の値順は厳密に検証するよう修正済み。全単体テストは`gradlew test`で成功。
   実サイトで資料メモ編集が成立することはなお未確認のため、修正を含むビルドで再検証すること。
+- **UPDATEの第3 POSTを追加・実機再検証待ち**: commit `4a1193f` では、UPDATEの1段階目と
+  `WOpacSdiBookListUpdateAction.do`への確認POST（`okCodes=OPACSDI011`）は成功したが、直後の
+  再取得には変更が反映されなかった。Chromeでの成功操作との比較により、完了ダイアログ
+  「マイ本棚の更新処理が完了しました。」を閉じた後に、固定
+  `WOpacSdiBookListDispAction.do`への第3 POSTが必要であることを確認した。
+  今回、UPDATEのみ、2段階目応答の検証済みフォームを同じ排他列でexactly-once送信する実装を追加した。
+  フォームは先頭8項目、資料数ぶんの`bookcmnt`/`eachcmnt`/`sortno`/`eachsortno`各群、末尾
+  `okCodes=OPACSDI011`を2段階目送信値と完全照合する。完了scriptは、同一無属性inline script内の
+  一意な`createConfirmDialog`と`window.onload`接続を確認し、`prevRequestForm`操作を固定表示actionへの
+  代入1回と`submit()`1回だけに限定する一方、完了ダイアログ等のフォーム非参照処理は許容する。
+  第3 POST開始後の通信失敗・取消では再送せず再取得だけで照合する。全単体テストは`gradlew test`で成功。
+  実サイトで資料メモ編集・本棚名変更ともに第3 POST後に反映されることは未確認のため、修正を含むビルドで再検証すること。
 - **要修正・別件**: 本棚操作の結果ダイアログ内テキストを長押しするとアプリがクラッシュした。
   メモ編集の通信障害とは分離し、結果ダイアログの選択可能テキスト／長押し処理の再現テスト、
   例外ログ、対象Composableを確認して修正すること。

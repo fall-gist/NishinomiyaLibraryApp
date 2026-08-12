@@ -341,6 +341,8 @@ internal object BookshelfConfirmationFormParser {
 internal enum class BookshelfConfirmationKind { CREATE, UPDATE, DELETE_ITEM, DELETE_SHELF }
 
 internal class BookshelfConfirmationForm(val action: String, private val fields: List<BookshelfFormField>, private val okName: String, private val code: String) {
+    fun fieldsWithConfirmationCode(): List<BookshelfFormField> = fields + BookshelfFormField(okName, code)
+
     fun buildForm(): FormBody = fields.toFormBody().let { body ->
         FormBody.Builder().apply { for (i in 0 until body.size) add(body.name(i), body.value(i)); add(okName, code) }.build()
     }

@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfConfirmationFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfConfirmationKind
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfCompletionFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfCreateFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfDeleteFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfDetailAddFormParser
@@ -258,7 +259,25 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
         if (confirm.action != path || confirm.action.contains('?')) return beforeStage2(before, success)
         try {
             val response = postExactlyOnce(confirm.action, form = confirm.buildForm(), onRequestStarted = stateChangePost::markStarted)
-            session.updateTokensIfPresent(response)
+            if (kind != BookshelfConfirmationKind.UPDATE) {
+                session.updateTokensIfPresent(response)
+                return afterPost(before, success)
+            }
+            // UPDATEだけは実測どおり、完了ダイアログを閉じる表示遷移POSTまでを同一の状態変更列として送る。
+            // フォームまたはscriptが検証できなければ、送信せず既存どおり操作後照合だけを行う。
+            val completion = try {
+                BookshelfCompletionFormParser.parse(response, confirm.fieldsWithConfirmationCode())
+            } catch (_: ParseException) {
+                return afterPost(before, success)
+            }
+            try {
+                val display = postExactlyOnce(
+                    "WOpacSdiBookListDispAction.do",
+                    form = completion.buildForm(),
+                    onRequestStarted = stateChangePost::markStarted,
+                )
+                session.updateTokensIfPresent(display)
+            } catch (_: LibraryError.Network) { }
         } catch (_: LibraryError.Network) { }
         return afterPost(before, success)
     }
