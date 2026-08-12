@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 
 import com.fallgist.nishinomiyalibrary.domain.model.Shelf
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfExpectedShelf
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfEditItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
@@ -196,7 +197,7 @@ class BookshelfGatewayTest {
         server.enqueue(page(shelfPage(1, "棚", items = listOf(item))))
         server.enqueue(page(editPage(1, "棚", listOf(item)).replace("<textarea name='eachcmnt'>表示メモ</textarea>", "<textarea name='eachcmnt'>改変</textarea>")))
 
-        val outcome = session().mutate(RemoteBookshelfMutation.RenameShelf(1, "変更後", expected()))
+        val outcome = session().mutate(edit(1, "変更後", listOf(item), expected()))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Failure)
         assertEquals(6, server.requestCount)
@@ -230,7 +231,7 @@ class BookshelfGatewayTest {
         server.enqueue(page(completionPage(editFields(1, "変更後", listOf(item)))))
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "変更後", items = listOf(item))))
-        val renamed = session().mutate(RemoteBookshelfMutation.RenameShelf(1, "変更後", expected()))
+        val renamed = session().mutate(edit(1, "変更後", listOf(item), expected()))
         assertTrue(renamed is RemoteBookshelfOutcome.Applied)
         assertEquals(10, server.requestCount)
         val requests = requests(10)
@@ -250,7 +251,7 @@ class BookshelfGatewayTest {
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "棚", items = listOf(updated))))
 
-        val outcome = session().mutate(RemoteBookshelfMutation.UpdateItemMemo(1, original.code, updated.memo, expected()))
+        val outcome = session().mutate(edit(1, "棚", listOf(original), expected(), listOf(updated.memo)))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
         assertEquals(10, server.requestCount)
@@ -271,7 +272,7 @@ class BookshelfGatewayTest {
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "改変された棚", items = listOf(updated))))
 
-        val outcome = session().mutate(RemoteBookshelfMutation.UpdateItemMemo(1, original.code, updated.memo, expected()))
+        val outcome = session().mutate(edit(1, "棚", listOf(original), expected(), listOf(updated.memo)))
 
         assertEquals(RemoteBookshelfOutcome.Unknown, outcome)
     }
@@ -449,6 +450,21 @@ class BookshelfGatewayTest {
 
     private fun expected(shelfCount: Int = 1) = BookshelfMutationExpectation("利用者", shelfCount)
 
+    private fun edit(
+        shelfNo: Int,
+        newName: String,
+        items: List<FixtureItem>,
+        expected: BookshelfMutationExpectation,
+        newMemos: List<String> = items.map(FixtureItem::memo),
+    ): RemoteBookshelfMutation.EditShelf = RemoteBookshelfMutation.EditShelf(
+        shelfNo = shelfNo,
+        newName = newName,
+        items = items.mapIndexed { index, item ->
+            BookshelfEditItem(item.code, item.title, item.memo, newMemos[index])
+        },
+        expected = expected,
+    )
+
     private fun enqueueLogin() {
         server.enqueue(page("<html>初期化</html>"))
         server.enqueue(page("<form action='j_security_check'><input type='text' name='username'><input type='hidden' name='j_username'><input type='password' name='j_password'></form>"))
@@ -495,12 +511,13 @@ class BookshelfGatewayTest {
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "棚", items = items)))
         server.enqueue(page(editPage(1, "棚", items)))
-        server.enqueue(page(inlineUpdateConfirmPage(groupUpdateFields(updateMemoFields(1, "棚", items, updated.memo)))))
+        // stage2と完了フォームの項目名間の順序が異なる実測形でも、第3POSTを一回だけ送る。
+        server.enqueue(page(inlineUpdateConfirmPage(updateMemoFields(1, "棚", items, updated.memo))))
         server.enqueue(page(completionPage(groupUpdateFields(updateMemoFields(1, "棚", items, updated.memo)))))
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "棚", items = listOf(updated, unchanged))))
 
-        val outcome = session().mutate(RemoteBookshelfMutation.UpdateItemMemo(1, original.code, updated.memo, expected()))
+        val outcome = session().mutate(edit(1, "棚", items, expected(), listOf(updated.memo, unchanged.memo)))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
         assertEquals(10, server.requestCount)
@@ -519,7 +536,7 @@ class BookshelfGatewayTest {
         server.enqueue(page(completionPage(editFields(1, "変更後", listOf(item))).replace("WOpacSdiBookListDispAction.do", "WOpacSdiBookListDispAction.do?next=1")))
         server.enqueue(page(shelfPage(1, "変更後", items = listOf(item))))
 
-        val outcome = session().mutate(RemoteBookshelfMutation.RenameShelf(1, "変更後", expected()))
+        val outcome = session().mutate(edit(1, "変更後", listOf(item), expected()))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
         assertEquals(9, server.requestCount)
@@ -537,7 +554,7 @@ class BookshelfGatewayTest {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
         server.enqueue(page(shelfPage(1, "変更後", items = listOf(item))))
 
-        val outcome = session().mutate(RemoteBookshelfMutation.RenameShelf(1, "変更後", expected()))
+        val outcome = session().mutate(edit(1, "変更後", listOf(item), expected()))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
         assertEquals(10, server.requestCount)
@@ -556,7 +573,7 @@ class BookshelfGatewayTest {
 
         var observed: RemoteBookshelfOutcome? = null
         val job = launch(Dispatchers.Default) {
-            observed = session().mutate(RemoteBookshelfMutation.RenameShelf(1, "変更後", expected()))
+            observed = session().mutate(edit(1, "変更後", listOf(item), expected()))
         }
         val requests = requests(9)
         job.cancel()

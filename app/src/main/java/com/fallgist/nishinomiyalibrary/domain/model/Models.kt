@@ -137,6 +137,14 @@ data class BookshelfExpectedItem(
     val memo: String,
 )
 
+/** 本棚を一括編集する際、送信前後で資料行を一意に照合するための値。 */
+data class BookshelfEditItem(
+    val tilcod: String,
+    val title: String,
+    val originalMemo: String,
+    val newMemo: String,
+)
+
 /** 明示的な本棚編集だけで使用する、メンバーを含む操作要求。 */
 sealed interface BookshelfMutation {
     val memberId: Long
@@ -144,9 +152,14 @@ sealed interface BookshelfMutation {
 
     data class AddItem(override val memberId: Long, val shelfNo: Int, val tilcod: String, val memo: String, override val expected: BookshelfMutationExpectation) : BookshelfMutation
     data class DeleteItem(override val memberId: Long, val shelfNo: Int, val tilcod: String, override val expected: BookshelfMutationExpectation) : BookshelfMutation
-    data class UpdateItemMemo(override val memberId: Long, val shelfNo: Int, val tilcod: String, val memo: String, override val expected: BookshelfMutationExpectation) : BookshelfMutation
     data class CreateShelf(override val memberId: Long, val name: String, override val expected: BookshelfMutationExpectation) : BookshelfMutation
-    data class RenameShelf(override val memberId: Long, val shelfNo: Int, val name: String, override val expected: BookshelfMutationExpectation) : BookshelfMutation
+    data class EditShelf(
+        override val memberId: Long,
+        val shelfNo: Int,
+        val newName: String,
+        val items: List<BookshelfEditItem>,
+        override val expected: BookshelfMutationExpectation,
+    ) : BookshelfMutation
     data class DeleteShelf(override val memberId: Long, val shelfNo: Int, override val expected: BookshelfMutationExpectation) : BookshelfMutation
 }
 

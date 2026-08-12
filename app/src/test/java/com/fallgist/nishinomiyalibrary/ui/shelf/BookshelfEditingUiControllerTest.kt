@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui.shelf
 
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfEditItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
@@ -27,7 +28,7 @@ class BookshelfEditingUiControllerTest {
     private val father = Member(1, "父", "#111111", "card", 0)
     private val child = Member(2, "子", "#222222", "card", 1)
 
-    private val shelfTarget = BookshelfShelfTarget(1, 3, "父", "技術書", 2, shelfCount = 1)
+    private val shelfTarget = BookshelfShelfTarget(1, 3, "父", "技術書", 2, shelfCount = 1, items = listOf(BookshelfEditItem("t-1", "資料A", "既存メモ", "既存メモ"), BookshelfEditItem("t-2", "資料B", "", "")))
     private val itemTarget = BookshelfItemTarget(1, 3, "技術書", "t-1", "資料A", "既存メモ", itemCount = 2, shelfCount = 1)
     private val testExpectation = com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation("父", 1)
 
@@ -63,15 +64,15 @@ class BookshelfEditingUiControllerTest {
         val controller = controller(repo, StandardTestDispatcher(testScheduler))
         advanceUntilIdle()
 
-        controller.requestRenameShelf(shelfTarget)
+        controller.requestEditShelf(shelfTarget)
         controller.updateInput("名前変更")
         controller.requestInputConfirmation()
         assertEquals(0, repo.calls.size)
         controller.confirmPending()
         advanceUntilIdle()
 
-        controller.requestEditItemMemo(itemTarget)
-        controller.updateInput("変更メモ")
+        controller.requestEditShelf(shelfTarget)
+        controller.updateEditShelfMemo("t-1", "変更メモ")
         controller.requestInputConfirmation()
         assertEquals(1, repo.calls.size)
         controller.confirmPending()
@@ -97,8 +98,8 @@ class BookshelfEditingUiControllerTest {
 
         assertEquals(
             listOf(
-                BookshelfMutation.RenameShelf::class,
-                BookshelfMutation.UpdateItemMemo::class,
+                BookshelfMutation.EditShelf::class,
+                BookshelfMutation.EditShelf::class,
                 BookshelfMutation.DeleteItem::class,
                 BookshelfMutation.DeleteShelf::class,
                 BookshelfMutation.CreateShelf::class,
@@ -114,7 +115,7 @@ class BookshelfEditingUiControllerTest {
         val controller = controller(FakeBookshelfRepository(), StandardTestDispatcher(testScheduler))
         advanceUntilIdle()
 
-        controller.requestRenameShelf(shelfTarget)
+        controller.requestEditShelf(shelfTarget)
         controller.updateInput("   ")
         controller.requestInputConfirmation()
         assertEquals("本棚名を入力してください", controller.state.value.inputError)
@@ -127,22 +128,22 @@ class BookshelfEditingUiControllerTest {
 
         controller.updateInput(fifty)
         controller.requestInputConfirmation()
-        assertEquals(fifty, (controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.RenameShelf).newName)
+        assertEquals(fifty, (controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.EditShelf).newName)
         controller.dismissConfirmation()
 
-        controller.requestRenameShelf(shelfTarget)
+        controller.requestEditShelf(shelfTarget)
         controller.updateInput(" 前後空白を残す ")
         controller.requestInputConfirmation()
-        assertEquals(" 前後空白を残す ", (controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.RenameShelf).newName)
+        assertEquals(" 前後空白を残す ", (controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.EditShelf).newName)
         controller.dismissConfirmation()
 
-        controller.requestEditItemMemo(itemTarget)
-        controller.updateInput("m".repeat(1000))
+        controller.requestEditShelf(shelfTarget)
+        controller.updateEditShelfMemo("t-1", "m".repeat(1000))
         controller.requestInputConfirmation()
-        assertEquals("m".repeat(1000), (controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.EditItemMemo).newMemo)
+        assertEquals("m".repeat(1000), (controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.EditShelf).items.first().newMemo)
         controller.dismissConfirmation()
-        controller.requestEditItemMemo(itemTarget)
-        controller.updateInput("m".repeat(1001))
+        controller.requestEditShelf(shelfTarget)
+        controller.updateEditShelfMemo("t-1", "m".repeat(1001))
         controller.requestInputConfirmation()
         assertEquals("資料メモは1000文字以内で入力してください", controller.state.value.inputError)
         controller.close()
@@ -208,8 +209,8 @@ class BookshelfEditingUiControllerTest {
         controller.confirmPending()
         controller.requestAddItem("t-2", "資料B")
         controller.requestCreateShelf()
-        controller.requestRenameShelf(shelfTarget)
-        controller.requestEditItemMemo(itemTarget)
+        controller.requestEditShelf(shelfTarget)
+        controller.requestEditShelf(shelfTarget)
         controller.requestDeleteShelf(shelfTarget)
         assertNull(controller.state.value.dialog)
         assertNull(controller.state.value.pendingConfirmation)

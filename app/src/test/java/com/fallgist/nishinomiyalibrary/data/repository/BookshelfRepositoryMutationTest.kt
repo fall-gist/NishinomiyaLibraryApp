@@ -16,6 +16,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.UserData
 import com.fallgist.nishinomiyalibrary.data.sync.PostSyncNotifier
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfEditItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
@@ -69,16 +70,15 @@ class BookshelfRepositoryMutationTest {
     }
 
     @Test
-    fun `6種類のdomain操作をremote操作へ変換する`() = runBlocking {
+    fun `5種類のdomain操作をremote操作へ変換する`() = runBlocking {
         val received = mutableListOf<RemoteBookshelfMutation>()
         val repository = repository { mutation -> received += mutation; RemoteBookshelfOutcome.Unknown }
 
         listOf(
             BookshelfMutation.AddItem(member.id, 1, "a", "memo", expected()),
             BookshelfMutation.DeleteItem(member.id, 1, "b", expected()),
-            BookshelfMutation.UpdateItemMemo(member.id, 1, "c", "updated", expected()),
+            BookshelfMutation.EditShelf(member.id, 1, "棚", listOf(BookshelfEditItem("c", "資料", "old", "updated")), expected()),
             BookshelfMutation.CreateShelf(member.id, "new", expected()),
-            BookshelfMutation.RenameShelf(member.id, 2, "renamed", expected()),
             BookshelfMutation.DeleteShelf(member.id, 3, expected()),
         ).forEach { mutation -> assertEquals(BookshelfMutationOutcome.Unknown, repository.mutate(mutation)) }
 
@@ -86,9 +86,8 @@ class BookshelfRepositoryMutationTest {
             listOf(
                 RemoteBookshelfMutation.AddItem(1, "a", "memo", expected()),
                 RemoteBookshelfMutation.DeleteItem(1, "b", expected()),
-                RemoteBookshelfMutation.UpdateItemMemo(1, "c", "updated", expected()),
+                RemoteBookshelfMutation.EditShelf(1, "棚", listOf(BookshelfEditItem("c", "資料", "old", "updated")), expected()),
                 RemoteBookshelfMutation.CreateShelf("new", expected()),
-                RemoteBookshelfMutation.RenameShelf(2, "renamed", expected()),
                 RemoteBookshelfMutation.DeleteShelf(3, expected()),
             ),
             received,

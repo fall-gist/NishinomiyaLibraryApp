@@ -4,6 +4,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfExpectedItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfExpectedShelf
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfEditItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
@@ -29,6 +30,7 @@ data class BookshelfShelfTarget(
     val shelfName: String,
     val itemCount: Int,
     val shelfCount: Int = 0,
+    val items: List<BookshelfEditItem> = emptyList(),
 )
 
 /** 資料カードで選んだ操作対象。 */
@@ -53,8 +55,11 @@ sealed interface BookshelfEditingDialog {
         val shelfNo: Int? = null,
         val memo: String = "",
     ) : BookshelfEditingDialog
-    data class RenameShelf(val target: BookshelfShelfTarget, val name: String = target.shelfName) : BookshelfEditingDialog
-    data class EditItemMemo(val target: BookshelfItemTarget, val memo: String = target.memo) : BookshelfEditingDialog
+    data class EditShelf(
+        val target: BookshelfShelfTarget,
+        val name: String = target.shelfName,
+        val items: List<BookshelfEditItem> = target.items,
+    ) : BookshelfEditingDialog
 }
 
 /** 最終確認に表示する、操作対象を固定済みの要求。 */
@@ -75,16 +80,11 @@ sealed interface BookshelfEditingConfirmation {
         override val mutation: BookshelfMutation.AddItem,
     ) : BookshelfEditingConfirmation
 
-    data class RenameShelf(
+    data class EditShelf(
         val target: BookshelfShelfTarget,
         val newName: String,
-        override val mutation: BookshelfMutation.RenameShelf,
-    ) : BookshelfEditingConfirmation
-
-    data class EditItemMemo(
-        val target: BookshelfItemTarget,
-        val newMemo: String,
-        override val mutation: BookshelfMutation.UpdateItemMemo,
+        val items: List<BookshelfEditItem>,
+        override val mutation: BookshelfMutation.EditShelf,
     ) : BookshelfEditingConfirmation
 
     data class DeleteItem(
@@ -249,12 +249,8 @@ class BookshelfEditingUiController(
         }
     }
 
-    fun requestRenameShelf(target: BookshelfShelfTarget) {
-        _state.update { current -> if (current.processing) current else current.copy(dialog = BookshelfEditingDialog.RenameShelf(target), inputError = null) }
-    }
-
-    fun requestEditItemMemo(target: BookshelfItemTarget) {
-        _state.update { current -> if (current.processing) current else current.copy(dialog = BookshelfEditingDialog.EditItemMemo(target), inputError = null) }
+    fun requestEditShelf(target: BookshelfShelfTarget) {
+        _state.update { current -> if (current.processing) current else current.copy(dialog = BookshelfEditingDialog.EditShelf(target), inputError = null) }
     }
 
     fun requestDeleteItem(target: BookshelfItemTarget) {
@@ -293,10 +289,18 @@ class BookshelfEditingUiController(
             val updated = when (dialog) {
                 is BookshelfEditingDialog.CreateShelf -> dialog.copy(name = value)
                 is BookshelfEditingDialog.AddItem -> dialog.copy(memo = value)
-                is BookshelfEditingDialog.RenameShelf -> dialog.copy(name = value)
-                is BookshelfEditingDialog.EditItemMemo -> dialog.copy(memo = value)
+                is BookshelfEditingDialog.EditShelf -> dialog.copy(name = value)
             }
             current.copy(dialog = updated, inputError = null)
+        }
+    }
+
+    /** 本棚編集画面の資料メモを資料IDで更新する。重複IDは確認前に安全に拒否する。 */
+    fun updateEditShelfMemo(tilcod: String, value: String) {
+        _state.update { current ->
+            val dialog = current.dialog as? BookshelfEditingDialog.EditShelf ?: return@update current
+            if (current.processing || dialog.items.count { it.tilcod == tilcod } != 1) current
+            else current.copy(dialog = dialog.copy(items = dialog.items.map { if (it.tilcod == tilcod) it.copy(newMemo = value) else it }), inputError = null)
         }
     }
 
@@ -358,42 +362,29 @@ class BookshelfEditingUiController(
                     )
                 }
             }
-            is BookshelfEditingDialog.RenameShelf -> {
+            is BookshelfEditingDialog.EditShelf -> {
                 if (!isValidShelfName(dialog.name)) {
                     current.copy(inputError = shelfNameError(dialog.name))
+                } else if (dialog.items.any { it.newMemo.length > MAX_MEMO_LENGTH }) {
+                    current.copy(inputError = "資料メモは${MAX_MEMO_LENGTH}文字以内で入力してください")
+                } else if (dialog.items.map { it.tilcod }.distinct().size != dialog.items.size || dialog.items.size != dialog.target.itemCount) {
+                    current.copy(inputError = "本棚の資料構成が一致しません。画面を更新してやり直してください")
+                } else if (dialog.name == dialog.target.shelfName && dialog.items.all { it.newMemo == it.originalMemo }) {
+                    current.copy(inputError = "変更内容がありません。名前または資料メモを変更してください")
                 } else {
                     current.copy(
                         dialog = null,
                         inputError = null,
-                        pendingConfirmation = BookshelfEditingConfirmation.RenameShelf(
+                        pendingConfirmation = BookshelfEditingConfirmation.EditShelf(
                             target = dialog.target,
                             newName = dialog.name,
-                            mutation = BookshelfMutation.RenameShelf(
+                            items = dialog.items,
+                            mutation = BookshelfMutation.EditShelf(
                                 dialog.target.memberId,
                                 dialog.target.shelfNo,
                                 dialog.name,
+                                dialog.items,
                                 dialog.target.expectation(),
-                            ),
-                        ),
-                    )
-                }
-            }
-            is BookshelfEditingDialog.EditItemMemo -> {
-                if (dialog.memo.length > MAX_MEMO_LENGTH) {
-                    current.copy(inputError = "資料メモは${MAX_MEMO_LENGTH}文字以内で入力してください")
-                } else {
-                    current.copy(
-                        dialog = null,
-                        inputError = null,
-                        pendingConfirmation = BookshelfEditingConfirmation.EditItemMemo(
-                            target = dialog.target,
-                            newMemo = dialog.memo,
-                            mutation = BookshelfMutation.UpdateItemMemo(
-                                dialog.target.memberId,
-                                dialog.target.shelfNo,
-                                dialog.target.tilcod,
-                                dialog.memo,
-                                dialog.target.expectation(current.members.find { it.id == dialog.target.memberId }?.name ?: ""),
                             ),
                         ),
                     )
@@ -572,8 +563,7 @@ object BookshelfEditingContentBuilder {
     fun confirmationTitle(confirmation: BookshelfEditingConfirmation): String = when (confirmation) {
         is BookshelfEditingConfirmation.CreateShelf -> "本棚を作成しますか？"
         is BookshelfEditingConfirmation.AddItem -> "本棚に追加しますか？"
-        is BookshelfEditingConfirmation.RenameShelf -> "本棚名を変更しますか？"
-        is BookshelfEditingConfirmation.EditItemMemo -> "資料メモを変更しますか？"
+        is BookshelfEditingConfirmation.EditShelf -> "本棚を編集しますか？"
         is BookshelfEditingConfirmation.DeleteItem -> "本棚から資料を削除しますか？"
         is BookshelfEditingConfirmation.DeleteShelf -> "本棚を削除しますか？"
     }
@@ -583,10 +573,8 @@ object BookshelfEditingContentBuilder {
             "対象メンバー：${confirmation.memberName}\n本棚名：${confirmation.shelfName}"
         is BookshelfEditingConfirmation.AddItem ->
             "対象メンバー：${confirmation.memberName}\n本棚：${confirmation.shelfName}\n資料名：${confirmation.title}\nメモ：${confirmation.memo.ifEmpty { "（なし）" }}"
-        is BookshelfEditingConfirmation.RenameShelf ->
-            "対象本棚：${confirmation.target.shelfName}\n新しい名前：${confirmation.newName}"
-        is BookshelfEditingConfirmation.EditItemMemo ->
-            "資料名：${confirmation.target.title}\n本棚：${confirmation.target.shelfName}\n\nメモを変更しますか？"
+        is BookshelfEditingConfirmation.EditShelf ->
+            "対象本棚：${confirmation.target.shelfName}\n新しい名前：${confirmation.newName}\n資料メモ：${confirmation.items.count { it.originalMemo != it.newMemo }}件変更"
         is BookshelfEditingConfirmation.DeleteItem ->
             "資料名：${confirmation.target.title}\n本棚：${confirmation.target.shelfName}\n\nこの資料を本棚から削除しますか？"
         is BookshelfEditingConfirmation.DeleteShelf ->
@@ -596,8 +584,7 @@ object BookshelfEditingContentBuilder {
     fun confirmLabel(confirmation: BookshelfEditingConfirmation): String = when (confirmation) {
         is BookshelfEditingConfirmation.CreateShelf -> "本棚を作成"
         is BookshelfEditingConfirmation.AddItem -> "この本棚に追加"
-        is BookshelfEditingConfirmation.RenameShelf -> "名前を変更"
-        is BookshelfEditingConfirmation.EditItemMemo -> "メモを変更"
+        is BookshelfEditingConfirmation.EditShelf -> "本棚を編集"
         is BookshelfEditingConfirmation.DeleteItem -> "本棚から削除"
         is BookshelfEditingConfirmation.DeleteShelf -> "本棚と${confirmation.target.itemCount}件を削除"
     }

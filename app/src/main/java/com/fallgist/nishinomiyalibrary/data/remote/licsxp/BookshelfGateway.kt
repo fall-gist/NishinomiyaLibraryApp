@@ -15,6 +15,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfParseResul
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfParser
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfEditItem
 import com.fallgist.nishinomiyalibrary.domain.model.Shelf
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import kotlinx.coroutines.CancellationException
@@ -27,9 +28,13 @@ sealed interface RemoteBookshelfMutation {
 
     data class AddItem(val shelfNo: Int, val tilcod: String, val memo: String, override val expected: BookshelfMutationExpectation) : RemoteBookshelfMutation
     data class DeleteItem(val shelfNo: Int, val tilcod: String, override val expected: BookshelfMutationExpectation) : RemoteBookshelfMutation
-    data class UpdateItemMemo(val shelfNo: Int, val tilcod: String, val memo: String, override val expected: BookshelfMutationExpectation) : RemoteBookshelfMutation
     data class CreateShelf(val name: String, override val expected: BookshelfMutationExpectation) : RemoteBookshelfMutation
-    data class RenameShelf(val shelfNo: Int, val name: String, override val expected: BookshelfMutationExpectation) : RemoteBookshelfMutation
+    data class EditShelf(
+        val shelfNo: Int,
+        val newName: String,
+        val items: List<BookshelfEditItem>,
+        override val expected: BookshelfMutationExpectation,
+    ) : RemoteBookshelfMutation
     data class DeleteShelf(val shelfNo: Int, override val expected: BookshelfMutationExpectation) : RemoteBookshelfMutation
 }
 
@@ -98,19 +103,7 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
         return when (mutation) {
             is RemoteBookshelfMutation.AddItem -> add(before, mutation, stateChangePost)
             is RemoteBookshelfMutation.CreateShelf -> create(before, mutation, stateChangePost)
-            is RemoteBookshelfMutation.RenameShelf -> edit(
-                before = before,
-                shelfNo = mutation.shelfNo,
-                kind = BookshelfConfirmationKind.UPDATE,
-                transform = { it.rename(mutation.name) },
-                success = { after ->
-                    after.shelves == before.shelves.map { shelf -> if (shelf.no == mutation.shelfNo) shelf.copy(name = mutation.name) else shelf } &&
-                        sameItems(before.itemsFor(mutation.shelfNo), after.itemsFor(mutation.shelfNo)) &&
-                        unchangedOutsideShelf(before, after, mutation.shelfNo)
-                },
-                stateChangePost = stateChangePost,
-            )
-            is RemoteBookshelfMutation.UpdateItemMemo -> updateMemo(before, mutation, stateChangePost)
+            is RemoteBookshelfMutation.EditShelf -> editShelf(before, mutation, stateChangePost)
             is RemoteBookshelfMutation.DeleteItem -> deleteItem(before, mutation, stateChangePost)
             is RemoteBookshelfMutation.DeleteShelf -> deleteShelf(before, mutation, stateChangePost)
         }
@@ -177,31 +170,35 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
         return twoStage(before, "WOpacSdiBookListUpdateAction.do", emptyMap(), stage1, kind, stateChangePost) { after -> success?.invoke(after) ?: false }
     }
 
-    private suspend fun LicsXpSession.ExclusiveRequestSequence.updateMemo(before: BookshelfSnapshot, mutation: RemoteBookshelfMutation.UpdateItemMemo, stateChangePost: StateChangePostTracker): RemoteBookshelfOutcome {
-        val target = before.itemsFor(mutation.shelfNo).withIndex().filter { it.value.tilcod == mutation.tilcod }
-        if (target.size != 1) return changedFailure()
-        val targetIndex = target.single().index
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.editShelf(before: BookshelfSnapshot, mutation: RemoteBookshelfMutation.EditShelf, stateChangePost: StateChangePostTracker): RemoteBookshelfOutcome {
         val beforeItems = before.itemsFor(mutation.shelfNo)
+        if (mutation.items.size != beforeItems.size || mutation.items.map { it.tilcod }.distinct().size != mutation.items.size) return changedFailure()
+        if (!mutation.items.indices.all { index ->
+                val expected = mutation.items[index]
+                val actual = beforeItems[index]
+                actual.tilcod == expected.tilcod && actual.title == expected.title && normalized(actual.memo) == normalized(expected.originalMemo)
+            }) return changedFailure()
         return edit(
             before = before,
             shelfNo = mutation.shelfNo,
             kind = BookshelfConfirmationKind.UPDATE,
             transform = { form ->
-            if (form.itemCount != beforeItems.size) throw ParseException("bookshelf-edit", "表示ページと編集フォームの資料数が一致しません")
-            form.updateMemo(targetIndex, mutation.memo)
+                if (form.itemCount != beforeItems.size) throw ParseException("bookshelf-edit", "表示ページと編集フォームの資料数が一致しません")
+                form.edit(mutation.newName, mutation.items.map { it.newMemo })
             },
             success = { after ->
             val items = after.itemsFor(mutation.shelfNo)
-            after.shelves == before.shelves &&
+            after.shelves == before.shelves.map { shelf -> if (shelf.no == mutation.shelfNo) shelf.copy(name = mutation.newName) else shelf } &&
                 items.size == beforeItems.size && items.indices.all { index ->
                 val old = beforeItems[index]; val new = items[index]
                 old.tilcod == new.tilcod && old.title == new.title && old.registeredDate == new.registeredDate &&
-                    normalized(new.memo) == normalized(if (index == targetIndex) mutation.memo else old.memo)
+                    normalized(new.memo) == normalized(mutation.items[index].newMemo)
             } && unchangedOutsideShelf(before, after, mutation.shelfNo)
             },
             stateChangePost = stateChangePost,
         )
     }
+
 
     private suspend fun LicsXpSession.ExclusiveRequestSequence.deleteItem(before: BookshelfSnapshot, mutation: RemoteBookshelfMutation.DeleteItem, stateChangePost: StateChangePostTracker): RemoteBookshelfOutcome {
         val beforeItems = before.itemsFor(mutation.shelfNo)

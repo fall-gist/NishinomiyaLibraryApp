@@ -120,13 +120,16 @@ internal class BookshelfEditForm(
             }
         }
     }
-    fun rename(name: String): FormBody = fields.toFormBody { field, _ -> if (field.name == "listname") name else field.value }
-    fun updateMemo(index: Int, memo: String): FormBody {
-        if (index !in 0 until itemCount) throw ParseException("bookshelf-edit", "資料位置が不正です")
+    /** listnameと全資料のeachcmntだけを、同じLBFormのまま一度に置換する。 */
+    fun edit(name: String, memos: List<String>): FormBody {
+        if (memos.size != itemCount) throw ParseException("bookshelf-edit", "資料メモ件数が一致しません")
         var rowIndex = -1
         return fields.toFormBody { field, _ ->
-            if (field.name == "eachcmnt") rowIndex++
-            if (field.name == "eachcmnt" && rowIndex == index) memo else field.value
+            when (field.name) {
+                "listname" -> name
+                "eachcmnt" -> memos[++rowIndex]
+                else -> field.value
+            }
         }
     }
     fun delete(tilcod: String): FormBody = fields.toFormBody { field, _ -> if (field.name == "tilcod") tilcod else field.value }

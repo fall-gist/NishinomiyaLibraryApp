@@ -25,13 +25,14 @@ class BookshelfFormsTest {
     }
 
     @Test
-    fun `編集フォームは繰返し4項目の対象メモだけを置換する`() {
+    fun `編集フォームは名称と繰返し資料メモ全件を置換する`() {
         val html = form(listOf("hash", "returnid", "gamenid", "tilcod", "dispflg", "otherbook", "listname", "commnt", "bookcmnt", "eachcmnt", "sortno", "eachsortno", "bookcmnt", "eachcmnt", "sortno", "eachsortno"))
             .replace("name='otherbook' value='otherbook'", "name='otherbook' value='4'")
-        val body = BookshelfEditFormParser.parse(html).updateMemo(1, "新しい\r\nメモ")
+        val body = BookshelfEditFormParser.parse(html).edit("変更後の棚", listOf("一件目", "新しい\r\nメモ"))
+        assertEquals("変更後の棚", body.value(6))
         assertEquals("eachcmnt", body.name(9))
         assertEquals("eachcmnt", body.name(13))
-        assertEquals("eachcmnt", body.value(9))
+        assertEquals("一件目", body.value(9))
         assertEquals("新しい\r\nメモ", body.value(13))
     }
 
@@ -221,6 +222,15 @@ class BookshelfFormsTest {
         assertEquals(
             "eachcmnt",
             BookshelfCompletionFormParser.parse(completionHtml(grouped), grouped).buildForm().name(10),
+        )
+        // 完了画面では、確認送信時と異なる項目名の間だけDOM順が変わる実測形を受理する。
+        val crossNameReordered = grouped.take(8) + listOf(
+            grouped[8], grouped[10], grouped[12], grouped[14],
+            grouped[9], grouped[11], grouped[13], grouped[15],
+        ) + grouped.last()
+        assertEquals(
+            17,
+            BookshelfCompletionFormParser.parse(completionHtml(crossNameReordered), grouped).buildForm().size,
         )
         val emptyShelf = completionFields().take(8) + completionFields().last()
         assertEquals(9, BookshelfCompletionFormParser.parse(completionHtml(emptyShelf), emptyShelf).buildForm().size)

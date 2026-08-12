@@ -21,7 +21,7 @@ internal object BookshelfCompletionFormParser {
         val form = forms.single()
         if (form.hasAttr("action")) throw ParseException(screen, "prevRequestFormのHTML actionは受理しません")
         val fields = form.bookshelfFields()
-        if (!matchesFormContract(fields) || fields != expectedStage2Fields) {
+        if (!matchesFormContract(fields) || !matchesStage2Fields(fields, expectedStage2Fields)) {
             throw ParseException(screen, "第3POSTフォームが2段階目送信内容または実測契約と一致しません")
         }
         if (!hasOnlyExpectedSubmit(document.select("script"))) {
@@ -30,7 +30,10 @@ internal object BookshelfCompletionFormParser {
         return BookshelfCompletionForm(fields)
     }
 
-    /** prefix8 + 項目名ごとの資料行値列(N件) + okCodes の実測順。N=0の空棚も受理する。 */
+    /**
+     * prefix8 + 資料行4項目(N件) + okCodes の実測契約。N=0の空棚も受理する。
+     * 異なる項目名の並びはサイト側で変化し得るが、許可するのはその並び替えだけである。
+     */
     private fun matchesFormContract(fields: List<BookshelfFormField>): Boolean {
         if (fields.size < prefixNames.size + 1 || fields.take(prefixNames.size).map(BookshelfFormField::name) != prefixNames ||
             fields.last() != BookshelfFormField("okCodes", "OPACSDI011")
@@ -39,9 +42,20 @@ internal object BookshelfCompletionFormParser {
         if (rowFields.any { it.name !in rowNames }) return false
         val counts = rowNames.map { name -> rowFields.count { it.name == name } }
         val itemCount = counts.firstOrNull() ?: return false
-        return counts.all { it == itemCount } &&
-            rowFields.map(BookshelfFormField::name) == rowNames.flatMap { name -> List(itemCount) { name } }
+        return counts.all { it == itemCount }
     }
+
+    /**
+     * 確認フォームと同じく、項目名ごとの値列は完全一致させる。
+     * よって未知項目、項目の追加・削除、同名項目内の値改変または並び替えは受理しない。
+     */
+    private fun matchesStage2Fields(
+        fields: List<BookshelfFormField>,
+        expectedStage2Fields: List<BookshelfFormField>,
+    ): Boolean = fields.valuesByName() == expectedStage2Fields.valuesByName()
+
+    private fun List<BookshelfFormField>.valuesByName(): Map<String, List<String>> =
+        groupBy({ it.name }, { it.value })
 
     /**
      * 共通scriptは無関係なら許容する。対象のnamed関数とonload接続は全script中でそれぞれ一意で、

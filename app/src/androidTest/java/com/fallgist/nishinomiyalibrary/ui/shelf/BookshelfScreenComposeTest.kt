@@ -36,7 +36,7 @@ class BookshelfScreenComposeTest {
         opened = null
         composeRule.onNodeWithTag(BookshelfScreenTestTags.bookMenu(1, 3, "t-1")).performClick()
         assertEquals(null, opened)
-        composeRule.onNodeWithText("メモを編集").assertExists()
+        composeRule.onNodeWithText("本棚から削除").assertExists()
     }
 
     @Test
@@ -129,9 +129,8 @@ class BookshelfScreenComposeTest {
                     onOpenMenu = {},
                     onOpenDetail = onOpenDetail,
                     onRequestCreateShelf = {},
-                    onRequestRenameShelf = {},
+                    onRequestEditShelf = {},
                     onRequestDeleteShelf = {},
-                    onRequestEditMemo = {},
                     onRequestDeleteItem = {},
                 )
             }
@@ -147,6 +146,7 @@ class BookshelfScreenComposeTest {
                     onSelectAddItemMember = {},
                     onSelectAddItemShelf = {},
                     onUpdateInput = {},
+                    onUpdateEditShelfMemo = { _, _ -> },
                     onRequestInputConfirmation = {},
                     onDismissDialog = {},
                     onConfirm = {},
