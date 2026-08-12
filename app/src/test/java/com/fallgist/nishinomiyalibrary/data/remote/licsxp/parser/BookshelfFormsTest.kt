@@ -211,6 +211,78 @@ class BookshelfFormsTest {
         append("</form>")
     }
 
+    @Test
+    fun `確認フォームは異なる項目名間だけのDOM順変更を受理する`() {
+        val expected = stage1FieldsForOrderingTest()
+        val reordered = listOf(expected.first()) + listOf("bookcmnt", "eachcmnt", "sortno", "eachsortno").flatMap { name ->
+            expected.filter { it.name == name }
+        }
+
+        val form = BookshelfConfirmationFormParser.parse(
+            confirmationHtml(reordered),
+            expected,
+            BookshelfConfirmationKind.UPDATE,
+        )
+
+        assertEquals("WOpacSdiBookListUpdateAction.do", form.action)
+    }
+
+    @Test
+    fun `確認フォームは同名内の値順変更と項目の改変を拒否する`() {
+        val expected = stage1FieldsForOrderingTest()
+        val grouped = listOf(expected.first()) + listOf("bookcmnt", "eachcmnt", "sortno", "eachsortno").flatMap { name ->
+            expected.filter { it.name == name }
+        }
+        val sameNameOrderChanged = grouped.map {
+            when (it) {
+                BookshelfFormField("bookcmnt", "book-1") -> BookshelfFormField("bookcmnt", "book-2")
+                BookshelfFormField("bookcmnt", "book-2") -> BookshelfFormField("bookcmnt", "book-1")
+                else -> it
+            }
+        }
+        val invalidFields = listOf(
+            grouped.map { if (it == BookshelfFormField("eachcmnt", "item-1")) BookshelfFormField("eachcmnt", "changed") else it },
+            grouped.dropLast(1),
+            grouped + BookshelfFormField("bookcmnt", "extra"),
+            grouped + BookshelfFormField("unknown", "value"),
+            sameNameOrderChanged,
+        )
+
+        invalidFields.forEach { fields ->
+            assertTrue(
+                runCatching {
+                    BookshelfConfirmationFormParser.parse(confirmationHtml(fields), expected, BookshelfConfirmationKind.UPDATE)
+                }.exceptionOrNull() is ParseException,
+            )
+        }
+    }
+
+    @Test
+    fun `確認フォームは空および一項目の境界値を受理する`() {
+        listOf(emptyList(), listOf(BookshelfFormField("hash", "masked"))).forEach { expected ->
+            assertEquals(
+                "WOpacSdiBookListUpdateAction.do",
+                BookshelfConfirmationFormParser.parse(
+                    confirmationHtml(expected),
+                    expected,
+                    BookshelfConfirmationKind.UPDATE,
+                ).action,
+            )
+        }
+    }
+
+    private fun stage1FieldsForOrderingTest() = listOf(
+        BookshelfFormField("hash", "masked"),
+        BookshelfFormField("bookcmnt", "book-1"),
+        BookshelfFormField("eachcmnt", "item-1"),
+        BookshelfFormField("sortno", "0"),
+        BookshelfFormField("eachsortno", "0"),
+        BookshelfFormField("bookcmnt", "book-2"),
+        BookshelfFormField("eachcmnt", "item-2"),
+        BookshelfFormField("sortno", "1"),
+        BookshelfFormField("eachsortno", "1"),
+    )
+
     /** 実測済み共通構造を縮約した合成fixture。 */
     private fun confirmationHtml(fields: List<BookshelfFormField>, prefix: String = "") = """
         <form name='prevRequestForm'>${fields.joinToString("") { "<input name='${it.name}' value='${it.value}'>" }}</form>

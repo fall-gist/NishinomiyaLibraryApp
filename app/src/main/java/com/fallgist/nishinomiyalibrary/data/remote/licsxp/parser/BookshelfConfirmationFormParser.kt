@@ -20,7 +20,7 @@ internal object BookshelfConfirmationFormParser {
         val form = forms.single()
         if (form.hasAttr("action")) throw ParseException(screen, "prevRequestFormのHTML actionは受理しません")
         val fields = form.bookshelfFields()
-        if (fields != expectedStage1Fields) throw ParseException(screen, "prevRequestFormが1段階目送信内容と一致しません")
+        if (!matchesStage1Fields(fields, expectedStage1Fields)) throw ParseException(screen, "prevRequestFormが1段階目送信内容と一致しません")
 
         val contract = contracts.getValue(kind)
         val signatures = document.select("script")
@@ -33,6 +33,19 @@ internal object BookshelfConfirmationFormParser {
         if (fields.any { it.name == signature.okName }) throw ParseException(screen, "OK_CODES_NAMEが既存項目と衝突します")
         return BookshelfConfirmationForm(signature.action, fields, signature.okName, contract.code)
     }
+
+    /**
+     * 確認画面では異なる項目名どうしだけがサーバー側で並び替えられることがある。
+     * 項目名の集合、各項目名の出現数、同名項目の値列は完全一致させるため、
+     * 未知項目・追加削除・値改変・同名項目内の並び替えは受理しない。
+     */
+    private fun matchesStage1Fields(
+        fields: List<BookshelfFormField>,
+        expectedStage1Fields: List<BookshelfFormField>,
+    ): Boolean = fields.valuesByName() == expectedStage1Fields.valuesByName()
+
+    private fun List<BookshelfFormField>.valuesByName(): Map<String, List<String>> =
+        groupBy({ it.name }, { it.value })
 
     /**
      * 実際に onload から起動される単一関数の内部だけを受理する。

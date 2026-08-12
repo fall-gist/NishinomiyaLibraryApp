@@ -293,7 +293,7 @@ class BookshelfGatewayTest {
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "作成前")))
         server.enqueue(page(createPage()))
-        server.enqueue(page(confirmPage(createFields("新しい棚").reversed(), "OPACSDI017")))
+        server.enqueue(page(confirmPage(createFields("異なる棚"), "OPACSDI017")))
         server.enqueue(page(shelfPage(1, "作成前")))
 
         val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected()))
@@ -309,7 +309,7 @@ class BookshelfGatewayTest {
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "作成前")))
         server.enqueue(page(createPage()))
-        server.enqueue(page(confirmPage(createFields("新しい棚").reversed(), "OPACSDI017")))
+        server.enqueue(page(confirmPage(createFields("異なる棚"), "OPACSDI017")))
         server.enqueue(page(shelfPage(2, "新しい棚", shelves = shelves)))
         server.enqueue(page(shelfPage(1, "作成前", shelves = shelves)))
 
@@ -325,7 +325,7 @@ class BookshelfGatewayTest {
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "作成前")))
         server.enqueue(page(createPage()))
-        server.enqueue(page(confirmPage(createFields("新しい棚").reversed(), "OPACSDI017")))
+        server.enqueue(page(confirmPage(createFields("異なる棚"), "OPACSDI017")))
         server.enqueue(page(shelfPage(1, "他の変更")))
 
         val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected()))
@@ -479,7 +479,39 @@ class BookshelfGatewayTest {
         items.forEachIndexed { index, item -> add("bookcmnt" to item.memo); add("eachcmnt" to item.memo); add("sortno" to index.toString()); add("eachsortno" to index.toString()) }
     }
     private fun deleteItemFields(no: Int, name: String, items: List<FixtureItem>, code: String) = editFields(no, name, items).map { if (it.first == "tilcod") "tilcod" to code else it }.let { listOf("flg" to "1") + it }
-    private fun updateMemoFields(no: Int, name: String, items: List<FixtureItem>, memo: String) = editFields(no, name, items).map { if (it.first == "eachcmnt") "eachcmnt" to memo else it }
+    @Test
+    fun `資料メモ更新は実測順に並べ替えられた確認フォームを受理する`() = runBlocking {
+        val original = FixtureItem("1000000000001", "資料一件目", "変更前")
+        val unchanged = FixtureItem("1000000000002", "資料二件目", "そのまま")
+        val updated = original.copy(memo = "変更後")
+        val items = listOf(original, unchanged)
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "棚", items = items)))
+        server.enqueue(page(editPage(1, "棚", items)))
+        server.enqueue(page(inlineUpdateConfirmPage(groupUpdateFields(updateMemoFields(1, "棚", items, updated.memo)))))
+        server.enqueue(page("<html>完了</html>"))
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(updated, unchanged))))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.UpdateItemMemo(1, original.code, updated.memo, expected()))
+
+        assertTrue(outcome is RemoteBookshelfOutcome.Applied)
+        assertEquals(9, server.requestCount)
+        assertEquals(1, requests(9).count { it.path == "/WOpacSdiBookListUpdateAction.do" && it.body.readUtf8().contains("okCodes=OPACSDI011") })
+    }
+
+    private fun updateMemoFields(no: Int, name: String, items: List<FixtureItem>, memo: String): List<Pair<String, String>> {
+        var index = -1
+        return editFields(no, name, items).map { field ->
+            if (field.first == "eachcmnt") index++
+            if (field.first == "eachcmnt" && index == 0) "eachcmnt" to memo else field
+        }
+    }
+
+    /** UPDATE確認画面の実測順は、prefix後に項目名ごとの全資料分を配置する。 */
+    private fun groupUpdateFields(fields: List<Pair<String, String>>): List<Pair<String, String>> =
+        fields.take(8) + listOf("bookcmnt", "eachcmnt", "sortno", "eachsortno").flatMap { name ->
+            fields.drop(8).filter { it.first == name }
+        }
     private fun deleteShelfFields(no: Int) = listOf("delflg" to "1", "hash" to "masked", "returnid" to "tiles.WSdiBookList", "gamenid" to "tiles.WSdiBookList", "tilcod" to "", "btnflg" to "", "otherbook" to no.toString())
 
     /** 実測済み共通構造を縮約した合成fixture。 */
