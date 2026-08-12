@@ -123,6 +123,21 @@ class BookshelfRepositoryMutationTest {
     }
 
     @Test
+    fun `Gatewayの安全停止診断コードをFailureへ伝播しRoomを変更しない`() = runBlocking {
+        database.shelfDao().insertAll(listOf(ShelfEntity(member.id, 1, "既存棚")))
+
+        val result = repository {
+            RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, "BS_EDIT_ITEM_ID")
+        }.mutate(BookshelfMutation.DeleteShelf(member.id, 1, expected()))
+
+        assertEquals(
+            BookshelfMutationOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, "BS_EDIT_ITEM_ID"),
+            result,
+        )
+        assertEquals(listOf("既存棚"), database.shelfDao().observeForMember(member.id).first().map { it.name })
+    }
+
+    @Test
     fun `Room反映失敗はサイト成功を失敗へ変換せず再取得を要求する`() = runBlocking {
         val result = repository {
             RemoteBookshelfOutcome.Applied(emptyList(), listOf(item(shelfNo = 99)))

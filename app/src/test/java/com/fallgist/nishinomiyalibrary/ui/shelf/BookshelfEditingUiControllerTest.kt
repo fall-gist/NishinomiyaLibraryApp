@@ -187,6 +187,11 @@ class BookshelfEditingUiControllerTest {
                 BookshelfMutationOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED),
             ).message.contains("変更された可能性"),
         )
+        assertTrue(
+            BookshelfEditingContentBuilder.resultMessage(
+                BookshelfMutationOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, "BS_EDIT_ITEM_ID"),
+            ).message.endsWith("\n診断コード: BS_EDIT_ITEM_ID"),
+        )
     }
 
     @Test

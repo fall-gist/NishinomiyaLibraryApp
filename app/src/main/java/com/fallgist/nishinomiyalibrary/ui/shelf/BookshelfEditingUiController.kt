@@ -606,7 +606,7 @@ object BookshelfEditingContentBuilder {
         )
         is BookshelfMutationOutcome.Failure -> BookshelfEditingResultMessage(
             title = "本棚の操作を完了できませんでした",
-            message = outcome.reason.bookshelfLabel(),
+            message = outcome.reason.bookshelfLabel() + outcome.diagnosticCode?.let { "\n診断コード: $it" }.orEmpty(),
             kind = BookshelfEditingResultKind.FAILURE,
         )
     }

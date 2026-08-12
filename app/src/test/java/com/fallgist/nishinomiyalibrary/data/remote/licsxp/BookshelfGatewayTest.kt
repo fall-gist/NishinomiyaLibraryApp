@@ -4,12 +4,14 @@ import com.fallgist.nishinomiyalibrary.domain.model.Shelf
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfExpectedShelf
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfEditItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
+import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
@@ -150,7 +152,10 @@ class BookshelfGatewayTest {
             ),
         )
 
-        assertEquals(RemoteBookshelfOutcome.Failure(com.fallgist.nishinomiyalibrary.domain.model.FailureReason.SITE_RESPONSE_CHANGED), outcome)
+        assertEquals(
+            RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, BookshelfStopDiagnosticCode.PRECONDITION_MISMATCH.value),
+            outcome,
+        )
         assertEquals(5, server.requestCount)
         assertEquals(0, requests(5).count { it.path == "/WOpacTifDetailAddBookListAction.do" })
     }
@@ -258,6 +263,90 @@ class BookshelfGatewayTest {
         val requests = requests(10)
         assertEquals("/WOpacSdiBookListDispAction.do", requests[8].path)
         assertTrue(requests[8].body.readUtf8().contains("eachcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C"))
+    }
+
+    @Test
+    fun `本棚編集は表示順がDOM順と逆でもDOM順のメモで第3POSTまで進める`() = runBlocking {
+        val domFirst = FixtureItem("1000000000001", "先に登録した資料", "先頭メモ")
+        val domLast = FixtureItem("1000000000002", "後に登録した資料", "末尾メモ")
+        val domItems = listOf(domFirst, domLast)
+        val updatedFirst = domFirst.copy(memo = "先頭の新メモ")
+        val updatedLast = domLast.copy(memo = "末尾の新メモ")
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "棚", items = domItems)))
+        server.enqueue(page(editPage(1, "棚", domItems)))
+        server.enqueue(page(inlineUpdateConfirmPage(updateMemosFields(1, "棚", domItems, listOf(updatedFirst.memo, updatedLast.memo)))))
+        server.enqueue(page(completionPage(updateMemosFields(1, "棚", domItems, listOf(updatedFirst.memo, updatedLast.memo)))))
+        server.enqueue(page("<html>完了</html>"))
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(updatedFirst, updatedLast))))
+
+        val outcome = session().mutate(
+            edit(
+                shelfNo = 1,
+                newName = "棚",
+                items = listOf(domLast, domFirst),
+                expected = expected(),
+                newMemos = listOf(updatedLast.memo, updatedFirst.memo),
+            ),
+        )
+
+        assertTrue(outcome is RemoteBookshelfOutcome.Applied)
+        val requests = requests(10)
+        assertEquals("/WOpacSdiBookListDispAction.do", requests[8].path)
+        val displayBody = requests[8].body.readUtf8()
+        assertTrue(
+            displayBody.indexOf("eachcmnt=%E5%85%88%E9%A0%AD%E3%81%AE%E6%96%B0%E3%83%A1%E3%83%A2") <
+                displayBody.indexOf("eachcmnt=%E6%9C%AB%E5%B0%BE%E3%81%AE%E6%96%B0%E3%83%A1%E3%83%A2"),
+        )
+    }
+
+    @Test
+    fun `本棚編集は不正なtilcodや事前内容の不一致でPOST前に診断コード付き停止する`() = runBlocking {
+        val first = FixtureItem("1000000000001", "同名資料", "メモ1")
+        val second = FixtureItem("1000000000002", "同名資料", "メモ2")
+        val cases = listOf(
+            listOf(BookshelfEditItem(first.code, first.title, first.memo, first.memo)) to BookshelfStopDiagnosticCode.EDIT_ITEM_COUNT.value,
+            listOf(BookshelfEditItem("", first.title, first.memo, first.memo), BookshelfEditItem(second.code, second.title, second.memo, second.memo)) to BookshelfStopDiagnosticCode.EDIT_ITEM_ID.value,
+            listOf(BookshelfEditItem(first.code, first.title, first.memo, first.memo), BookshelfEditItem(first.code, second.title, second.memo, second.memo)) to BookshelfStopDiagnosticCode.EDIT_ITEM_ID.value,
+            listOf(BookshelfEditItem(first.code, first.title, first.memo, first.memo), BookshelfEditItem("unknown", second.title, second.memo, second.memo)) to BookshelfStopDiagnosticCode.EDIT_ITEM_ID.value,
+            listOf(BookshelfEditItem(first.code, "改変資料名", first.memo, first.memo), BookshelfEditItem(second.code, second.title, second.memo, second.memo)) to BookshelfStopDiagnosticCode.EDIT_ITEM_CONTENT.value,
+            listOf(BookshelfEditItem(first.code, first.title, "変更前メモ", first.memo), BookshelfEditItem(second.code, second.title, second.memo, second.memo)) to BookshelfStopDiagnosticCode.EDIT_ITEM_CONTENT.value,
+        )
+        cases.forEachIndexed { index, (items, diagnosticCode) ->
+            enqueueLogin()
+            server.enqueue(page(shelfPage(1, "棚", items = listOf(first, second))))
+
+            val outcome = session().mutate(RemoteBookshelfMutation.EditShelf(1, "棚", items, expected()))
+
+            assertEquals(RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, diagnosticCode), outcome)
+            assertEquals((index + 1) * 5, server.requestCount)
+            assertEquals(0, requests(5).count { it.path == "/WOpacSdiBookListUpdateAction.do" })
+        }
+    }
+
+    @Test
+    fun `本棚安全停止は個人データを含まない固定診断を記録する`() = runBlocking {
+        val notes = mutableListOf<Pair<String, String>>()
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "実棚名")))
+
+        val outcome = diagnosticSession(notes).mutate(
+            RemoteBookshelfMutation.AddItem(
+                shelfNo = 1,
+                tilcod = "1000000000002",
+                memo = "メモ",
+                expected = BookshelfMutationExpectation("利用者", 1, BookshelfExpectedShelf(1, "確認時の棚名", 0)),
+            ),
+        )
+
+        assertEquals(
+            RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, BookshelfStopDiagnosticCode.PRECONDITION_MISMATCH.value),
+            outcome,
+        )
+        assertEquals(
+            listOf("bookshelf-stop" to "code=BS_PRECONDITION_MISMATCH screen=bookshelf-mutation reason=precondition-mismatch"),
+            notes,
+        )
     }
 
     @Test
@@ -446,6 +535,20 @@ class BookshelfGatewayTest {
     private suspend fun session() = LicsXpBookshelfGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {}))
         .openAuthenticatedSession("1234", "test-password")
 
+    private suspend fun diagnosticSession(notes: MutableList<Pair<String, String>>) = LicsXpBookshelfGateway(
+        LicsXpSession(
+            server.url("/"),
+            OkHttpClient(),
+            diagnosticObserver = object : LicsXpDiagnosticObserver by LicsXpDiagnosticObserver.None {
+                override val enabled: Boolean = true
+                override fun onNote(stage: String, detail: String) {
+                    notes += stage to detail
+                }
+            },
+            waitForRequestSlot = {},
+        ),
+    ).openAuthenticatedSession("1234", "test-password")
+
     private fun requests(count: Int) = List(count) { server.takeRequest() }
 
     private fun expected(shelfCount: Int = 1) = BookshelfMutationExpectation("利用者", shelfCount)
@@ -589,6 +692,14 @@ class BookshelfGatewayTest {
         return editFields(no, name, items).map { field ->
             if (field.first == "eachcmnt") index++
             if (field.first == "eachcmnt" && index == 0) "eachcmnt" to memo else field
+        }
+    }
+
+    private fun updateMemosFields(no: Int, name: String, items: List<FixtureItem>, memos: List<String>): List<Pair<String, String>> {
+        var index = -1
+        return editFields(no, name, items).map { field ->
+            if (field.first == "eachcmnt") index++
+            if (field.first == "eachcmnt") "eachcmnt" to memos[index] else field
         }
     }
 

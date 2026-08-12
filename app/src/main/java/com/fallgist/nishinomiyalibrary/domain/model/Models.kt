@@ -167,7 +167,7 @@ sealed interface BookshelfMutationOutcome {
     data class Applied(val localRefreshRequired: Boolean = false) : BookshelfMutationOutcome
     data class AlreadyRegistered(val localRefreshRequired: Boolean = false) : BookshelfMutationOutcome
     data object Unknown : BookshelfMutationOutcome
-    data class Failure(val reason: FailureReason) : BookshelfMutationOutcome
+    data class Failure(val reason: FailureReason, val diagnosticCode: String? = null) : BookshelfMutationOutcome
 }
 
 data class UserSummary(

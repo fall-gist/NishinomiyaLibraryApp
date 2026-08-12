@@ -106,7 +106,7 @@ class BookshelfRepositoryImpl @Inject constructor(
                 remoteOutcome.items,
             ) { localRefreshRequired -> BookshelfMutationOutcome.AlreadyRegistered(localRefreshRequired) }
             RemoteBookshelfOutcome.Unknown -> BookshelfMutationOutcome.Unknown
-            is RemoteBookshelfOutcome.Failure -> BookshelfMutationOutcome.Failure(remoteOutcome.reason)
+            is RemoteBookshelfOutcome.Failure -> BookshelfMutationOutcome.Failure(remoteOutcome.reason, remoteOutcome.diagnosticCode)
         }
     }
 
