@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
@@ -39,7 +40,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +67,10 @@ object BookshelfScreenTestTags {
 
 object BookshelfEditingDialogTestTags {
     const val ADD_ITEM_CONFIRM = "bookshelf-add-item-confirm"
+    const val ERROR_COPY = "bookshelf-error-copy"
+    const val ERROR_CLOSE = "bookshelf-error-close"
+    const val RESULT_COPY = "bookshelf-result-copy"
+    const val RESULT_CLOSE = "bookshelf-result-close"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -342,13 +349,27 @@ fun BookshelfEditingDialogs(
     onClearError: () -> Unit,
 ) {
     val colors = LocalAppColors.current
+    val clipboardManager = LocalClipboardManager.current
     editingState.errorMessage?.let { message ->
-        AlertDialog(
-            onDismissRequest = onClearError,
-            title = { Text("本棚の操作を完了できませんでした") },
-            text = { Text(message, color = colors.alert) },
-            confirmButton = { Button(onClick = onClearError) { Text("閉じる") } },
-        )
+        DisableSelection {
+            AlertDialog(
+                onDismissRequest = onClearError,
+                title = { Text("本棚の操作を完了できませんでした") },
+                text = { Text(message, color = colors.alert) },
+                confirmButton = {
+                    Button(
+                        onClick = onClearError,
+                        modifier = Modifier.testTag(BookshelfEditingDialogTestTags.ERROR_CLOSE),
+                    ) { Text("閉じる") }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = { clipboardManager.setText(AnnotatedString(message)) },
+                        modifier = Modifier.testTag(BookshelfEditingDialogTestTags.ERROR_COPY),
+                    ) { Text("メッセージをコピー") }
+                },
+            )
+        }
     }
     editingState.dialog?.let { dialog ->
         if (dialog is BookshelfEditingDialog.AddItem) {
@@ -403,11 +424,12 @@ private fun AddItemDialog(
     val confirmEnabled = dialog.memberId != null && shelvesLoaded && shelves.isNotEmpty() &&
         dialog.shelfNo != null && shelves.any { it.shelfNo == dialog.shelfNo } &&
         dialog.memo.length <= BookshelfEditingUiController.MAX_MEMO_LENGTH
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("本棚へ追加") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    DisableSelection {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("本棚へ追加") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("資料名：${dialog.title}", fontSize = 12.sp)
                 Text("対象メンバー", color = LocalAppColors.current.ink2, fontSize = 12.sp)
                 Text(
@@ -453,17 +475,18 @@ private fun AddItemDialog(
                     maxLines = 6,
                 )
                 inputError?.let { Text(it, color = LocalAppColors.current.alert, fontSize = 12.sp) }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                enabled = confirmEnabled,
-                modifier = Modifier.testTag(BookshelfEditingDialogTestTags.ADD_ITEM_CONFIRM),
-            ) { Text("確認へ") }
-        },
-        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
-    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = onConfirm,
+                    enabled = confirmEnabled,
+                    modifier = Modifier.testTag(BookshelfEditingDialogTestTags.ADD_ITEM_CONFIRM),
+                ) { Text("確認へ") }
+            },
+            dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
+        )
+    }
 }
 
 @Composable
@@ -483,11 +506,12 @@ private fun BookshelfEditingInputDialog(
         is BookshelfEditingDialog.AddItem -> "本棚へ追加"
         is BookshelfEditingDialog.EditShelf -> "本棚を編集"
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    DisableSelection {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(title) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (dialog is BookshelfEditingDialog.CreateShelf) {
                     val memberName = members.find { it.id == dialog.memberId }?.name ?: "メンバーを選択"
                     Text("対象メンバー", color = LocalAppColors.current.ink2, fontSize = 12.sp)
@@ -537,11 +561,12 @@ private fun BookshelfEditingInputDialog(
                     }
                 }
                 inputError?.let { Text(it, color = LocalAppColors.current.alert, fontSize = 12.sp) }
-            }
-        },
-        confirmButton = { Button(onClick = onConfirm) { Text("確認へ") } },
-        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
-    )
+                }
+            },
+            confirmButton = { Button(onClick = onConfirm) { Text("確認へ") } },
+            dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
+        )
+    }
 }
 
 @Composable
@@ -552,33 +577,49 @@ private fun BookshelfEditingConfirmDialog(
 ) {
     val colors = LocalAppColors.current
     val destructive = BookshelfEditingContentBuilder.isDestructive(confirmation)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(BookshelfEditingContentBuilder.confirmationTitle(confirmation)) },
-        text = { Text(BookshelfEditingContentBuilder.confirmationMessage(confirmation)) },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                colors = if (destructive) ButtonDefaults.buttonColors(containerColor = colors.alert, contentColor = colors.card) else ButtonDefaults.buttonColors(),
-            ) { Text(BookshelfEditingContentBuilder.confirmLabel(confirmation)) }
-        },
-        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
-    )
+    DisableSelection {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(BookshelfEditingContentBuilder.confirmationTitle(confirmation)) },
+            text = { Text(BookshelfEditingContentBuilder.confirmationMessage(confirmation)) },
+            confirmButton = {
+                Button(
+                    onClick = onConfirm,
+                    colors = if (destructive) ButtonDefaults.buttonColors(containerColor = colors.alert, contentColor = colors.card) else ButtonDefaults.buttonColors(),
+                ) { Text(BookshelfEditingContentBuilder.confirmLabel(confirmation)) }
+            },
+            dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
+        )
+    }
 }
 
 @Composable
 private fun BookshelfEditingResultDialog(result: BookshelfEditingResultMessage, onClose: () -> Unit) {
     val colors = LocalAppColors.current
+    val clipboardManager = LocalClipboardManager.current
     val color = when (result.kind) {
         BookshelfEditingResultKind.APPLIED -> colors.greenInk
         BookshelfEditingResultKind.ALREADY_REGISTERED -> colors.cautionInk
         BookshelfEditingResultKind.UNKNOWN -> colors.cautionInk
         BookshelfEditingResultKind.FAILURE -> colors.alert
     }
-    AlertDialog(
-        onDismissRequest = onClose,
-        title = { Text(result.title) },
-        text = { Text(result.message, color = color) },
-        confirmButton = { Button(onClick = onClose) { Text("閉じる") } },
-    )
+    DisableSelection {
+        AlertDialog(
+            onDismissRequest = onClose,
+            title = { Text(result.title) },
+            text = { Text(result.message, color = color) },
+            confirmButton = {
+                Button(
+                    onClick = onClose,
+                    modifier = Modifier.testTag(BookshelfEditingDialogTestTags.RESULT_CLOSE),
+                ) { Text("閉じる") }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { clipboardManager.setText(AnnotatedString(result.message)) },
+                    modifier = Modifier.testTag(BookshelfEditingDialogTestTags.RESULT_COPY),
+                ) { Text("メッセージをコピー") }
+            },
+        )
+    }
 }

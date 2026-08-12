@@ -1,5 +1,8 @@
 package com.fallgist.nishinomiyalibrary.ui.shelf
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -108,6 +111,66 @@ class BookshelfScreenComposeTest {
         composeRule.onNodeWithText("本棚：父の棚", substring = true).assertExists()
         composeRule.onNodeWithText("資料名：資料A", substring = true).assertExists()
         composeRule.onNodeWithText("メモ：メモA", substring = true).assertExists()
+    }
+
+    @Test
+    fun `空のエラーでもコピーと閉じるを表示しコピー操作後もダイアログを維持する`() {
+        var errorState by mutableStateOf(BookshelfEditingUiState(errorMessage = ""))
+        composeRule.setContent {
+            NishinomiyaLibraryTheme(darkTheme = false) {
+                BookshelfEditingDialogs(
+                    editingState = errorState,
+                    onSelectCreateMember = {},
+                    onSelectAddItemMember = {},
+                    onSelectAddItemShelf = {},
+                    onUpdateInput = {},
+                    onUpdateEditShelfMemo = { _, _ -> },
+                    onRequestInputConfirmation = {},
+                    onDismissDialog = {},
+                    onConfirm = {},
+                    onDismissConfirmation = {},
+                    onClearResult = {},
+                    onClearError = { errorState = errorState.copy(errorMessage = null) },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(BookshelfEditingDialogTestTags.ERROR_COPY).performClick()
+        composeRule.onNodeWithText("本棚の操作を完了できませんでした").assertExists()
+        composeRule.onNodeWithTag(BookshelfEditingDialogTestTags.ERROR_CLOSE).performClick()
+        composeRule.onNodeWithText("本棚の操作を完了できませんでした").assertDoesNotExist()
+    }
+
+    @Test
+    fun `空の結果でもコピーと閉じるを表示しコピー操作後もダイアログを維持する`() {
+        var resultState by mutableStateOf(
+            BookshelfEditingUiState(
+                result = BookshelfEditingResultMessage("結果", "", BookshelfEditingResultKind.APPLIED),
+            ),
+        )
+        composeRule.setContent {
+            NishinomiyaLibraryTheme(darkTheme = false) {
+                BookshelfEditingDialogs(
+                    editingState = resultState,
+                    onSelectCreateMember = {},
+                    onSelectAddItemMember = {},
+                    onSelectAddItemShelf = {},
+                    onUpdateInput = {},
+                    onUpdateEditShelfMemo = { _, _ -> },
+                    onRequestInputConfirmation = {},
+                    onDismissDialog = {},
+                    onConfirm = {},
+                    onDismissConfirmation = {},
+                    onClearResult = { resultState = resultState.copy(result = null) },
+                    onClearError = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(BookshelfEditingDialogTestTags.RESULT_COPY).performClick()
+        composeRule.onNodeWithText("結果").assertExists()
+        composeRule.onNodeWithTag(BookshelfEditingDialogTestTags.RESULT_CLOSE).performClick()
+        composeRule.onNodeWithText("結果").assertDoesNotExist()
     }
 
     private fun setScreen(
