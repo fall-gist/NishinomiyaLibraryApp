@@ -894,7 +894,15 @@ class ReservationGatewayTest {
         server.enqueue(page("<html>取消受付</html>"))
         server.enqueue(page(menuWithReservationCount(18)))
         server.enqueue(page(cancelled))
-        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY))
+        // DISCONNECT_DURING_REQUEST_BODYは切断位置が送信バイト数や実時間に左右され、
+        // サーバ側にリクエストが記録されるか(requestCount)が不安定でCIでのみ稀に失敗する。
+        // 同じ「送信後の接続断は再送しない」を検証する取消系の兄弟テスト(本ファイル内、
+        // 例えば「取消2段階目の接続断でも再送せずIndeterminateAfterPostになる」)は
+        // DISCONNECT_AFTER_REQUESTを使っており、これはリクエストを完全に読み終えた後に
+        // 切断するため記録は常に確定する。本番側はIOExceptionの発生タイミングを区別せず
+        // 一律LibraryError.Networkとして扱う(LicsXpSession.executeInExclusiveSequence)ため、
+        // 切断位置を変えても検証したい分岐(通信断→再送せずINDETERMINATE/Unknown)は変わらない。
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
 
@@ -945,7 +953,15 @@ class ReservationGatewayTest {
         val cancelled = cancelledFirstRowUsrrsvHtml()
         enqueueCancelThenCancelledList(cancelled)
         server.enqueue(page(hideConfirmationStage(cancelled, "1013074729")))
-        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY))
+        // DISCONNECT_DURING_REQUEST_BODYは切断位置が送信バイト数や実時間に左右され、
+        // サーバ側にリクエストが記録されるか(requestCount)が不安定でCIでのみ稀に失敗する。
+        // 同じ「送信後の接続断は再送しない」を検証する取消系の兄弟テスト(本ファイル内、
+        // 例えば「取消2段階目の接続断でも再送せずIndeterminateAfterPostになる」)は
+        // DISCONNECT_AFTER_REQUESTを使っており、これはリクエストを完全に読み終えた後に
+        // 切断するため記録は常に確定する。本番側はIOExceptionの発生タイミングを区別せず
+        // 一律LibraryError.Networkとして扱う(LicsXpSession.executeInExclusiveSequence)ため、
+        // 切断位置を変えても検証したい分岐(通信断→再送せずINDETERMINATE/Unknown)は変わらない。
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
 
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
 
@@ -2399,7 +2415,15 @@ class ReservationGatewayTest {
         val rows = ReservationListParser.parseRows(before)
         val target = requireNotNull(rows.singleOrNull { it.hideCode == "555" })
         enqueueList(before, rows)
-        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY))
+        // DISCONNECT_DURING_REQUEST_BODYは切断位置が送信バイト数や実時間に左右され、
+        // サーバ側にリクエストが記録されるか(requestCount)が不安定でCIでのみ稀に失敗する。
+        // 同じ「送信後の接続断は再送しない」を検証する取消系の兄弟テスト(本ファイル内、
+        // 例えば「取消2段階目の接続断でも再送せずIndeterminateAfterPostになる」)は
+        // DISCONNECT_AFTER_REQUESTを使っており、これはリクエストを完全に読み終えた後に
+        // 切断するため記録は常に確定する。本番側はIOExceptionの発生タイミングを区別せず
+        // 一律LibraryError.Networkとして扱う(LicsXpSession.executeInExclusiveSequence)ため、
+        // 切断位置を変えても検証したい分岐(通信断→再送せずINDETERMINATE/Unknown)は変わらない。
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
         assertEquals(ReservationHideDiagnosticResult.INDETERMINATE_AFTER_POST, session.hideCancelledReservationForDiagnostic(target.reservation.tilcod))
         assertEquals(1, drainRequests().count { it.path?.startsWith("/WOpacUsrRsvHiddenAction.do") == true })
@@ -2412,7 +2436,15 @@ class ReservationGatewayTest {
         val target = requireNotNull(rows.singleOrNull { it.hideCode == "555" })
         enqueueList(before, rows)
         server.enqueue(page(hideConfirmationStage(before)))
-        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY))
+        // DISCONNECT_DURING_REQUEST_BODYは切断位置が送信バイト数や実時間に左右され、
+        // サーバ側にリクエストが記録されるか(requestCount)が不安定でCIでのみ稀に失敗する。
+        // 同じ「送信後の接続断は再送しない」を検証する取消系の兄弟テスト(本ファイル内、
+        // 例えば「取消2段階目の接続断でも再送せずIndeterminateAfterPostになる」)は
+        // DISCONNECT_AFTER_REQUESTを使っており、これはリクエストを完全に読み終えた後に
+        // 切断するため記録は常に確定する。本番側はIOExceptionの発生タイミングを区別せず
+        // 一律LibraryError.Networkとして扱う(LicsXpSession.executeInExclusiveSequence)ため、
+        // 切断位置を変えても検証したい分岐(通信断→再送せずINDETERMINATE/Unknown)は変わらない。
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
         val session = LicsXpReservationSession(LicsXpSession(server.url("/"), waitForRequestSlot = {}), ReservationSequenceHooks())
         assertEquals(ReservationHideDiagnosticResult.INDETERMINATE_AFTER_POST, session.hideCancelledReservationForDiagnostic(target.reservation.tilcod))
         assertEquals(4, server.requestCount)

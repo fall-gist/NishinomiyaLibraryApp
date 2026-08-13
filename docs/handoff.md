@@ -2359,3 +2359,53 @@ DIモジュール・`LibraryApp.kt`は無変更である。
 
 分類は`else`なしの`when`で全列挙してあり、`FailureReason`が増えたらコンパイルエラーになる。
 `Unknown`を再試行側へ分類し直す劣化注入で該当テストが赤くなることを確認済み。
+
+### 既知のフレーキーテスト（2026-08-13、未解決）
+
+CIが3回連続で失敗し、**毎回落ちるテストが違った**ことから調査した。最初の失敗は`docs/`しか変更していない
+コミットで起きており、機能の退行ではない。
+
+#### 対応済み: `ReservationGatewayTest`の通信断テスト（4箇所）
+
+`MockWebServer`の`SocketPolicy.DISCONNECT_DURING_REQUEST_BODY`は、リクエストボディ送信中の任意の
+タイミングで切断するため、サーバがそのリクエストを`RecordedRequest`として記録し終える前に切れることがある。
+`server.requestCount`やPOST回数の固定値アサーションが不安定になり、CIの遅い環境で顕在化した。
+
+**`DISCONNECT_AFTER_REQUEST`（リクエストを完全に読み終えてから切断）へ統一した。** 同ファイル内の
+兄弟テスト「取消2段階目の接続断でも再送せずIndeterminateAfterPostになる」が既にこれを使っていて
+安定していたため、そちらへ揃えた形である。本番側は`retryOnIOException=false`でIOExceptionの発生位置を
+区別せず一律`LibraryError.Network`として扱うため、**検証したい分岐（通信断→再送しない）は変わらない。**
+単独で6回連続実行して全て緑を確認済み。
+
+#### 未解決: `SettingsScreenControllerTest`の初回ルール読込テスト
+
+`初回ルール読込中の追加とONは読込完了後に既存ルールを保持して保存する`は、**修正前から約20%の頻度で
+落ちる**（変更前のコードで5回中1回再現。`controller.state.first { it.settings.autoReservationEnabled }`で
+`TimeoutCancellationException`）。今回のCI失敗より前から潜在していた。
+
+**一度は「呼び出し直後の未実行チェックを最終状態の検査へ置き換える」修正を試みたが、かえって悪化させたため
+破棄した**（15回中13回失敗）。削除した`assertFalse(settingsStore.settings.first().autoReservationEnabled)`が、
+DataStoreの初回読込を待つ**隠れた同期点**として機能しており、失敗率を下げていたためである。
+
+真因は、テストが制御している`initialRulesGate`/`rulesMutex`とは**別経路の非同期初期化**にある。
+`SettingsScreenController`の`combine(familyRepository.members(), settingsStore.settings, ...)`は
+全ソースが最低1回発行するまで`members`を更新せず、`settingsStore`は実DataStore（実ディスクI/O）である。
+その完了が遅れると`setAutoReservationEnabled`の検証が空の`members`を読み、
+`autoReservationError = "メンバーを1人以上登録してください"`へ倒れる。ウォームアップの追加だけでは解消しなかった。
+
+**次に着手するときの注意**: テスト側の同期点を足すだけでは足りない可能性が高く、Controllerの初期化完了を
+テストから決定論的に観測できるようにする必要がある。**片手間の書き換えは今回のように悪化させる。**
+検出力を落とす変更をする場合は、劣化注入（初回読込待ちガードを外して赤くなること）で実証すること。
+
+#### 同種の箇所（未修正・報告のみ）
+
+`SettingsScreenControllerTest`の`初回ルール読込失敗後はルール操作とONを保存せず読込エラーを維持する`に
+`withTimeoutOrNull(250) { ... }`という実時間待機がある。こちらは`initialRulesLoaded`が恒久的に
+失敗確定のケースなので理論上は安全側だが、実時間依存である点は同種である。
+
+#### 検証時の注意（実際に踏んだ）
+
+**同一プロジェクトで複数のGradleを並行実行してはならない。** 本調査では管理セッションと実装セッションが
+同時にテストを回し、`mergeDebugResources`・`transformDebugClassesWithAsm`で
+`Unable to delete directory`が多発して、双方ともテストに到達できなかった。
+「8回中6回失敗」という誤った観測もこれが原因である。検証は必ず単独で行うこと。
