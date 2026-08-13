@@ -890,3 +890,55 @@ method、完全URL、全フォーム項目、Referer/Origin/Cookie、redirect、
 # Stage 15 非表示ライブ診断
 
 診断専用internal capabilityは、取消済みかつ一意な対象だけに対して二段階の非表示POSTを行う。通常API、Room、UI、永続化には接続しない。各POSTはno-retryで、確認フォームまたは署名の不一致時は第2段階を送らない。
+
+### 11.12 貸出延長
+
+機能要件は`docs/spec.md`§3.12、実装可能な技術設計は
+[`docs/design/loan-extension.md`](design/loan-extension.md)を正とする。2026-08-05に全7段階が完了し、
+所有者が実機（CIのAPK）でアプリの通常操作による延長の実サイト成立を確認済みである。
+
+予約系とは独立した`LoanExtensionGateway`／`LoanExtensionRepository`へ隔離する。予約データに触れないため、
+予約系の共通書込ゲート（`ReservationOperationGate`）には参加させない。通信は予約取消・非表示と同型の
+二段階POSTで、`prevRequestForm`＋確認コード`OPACUSR005`を使う。確認コードはハードコードせず
+`okArray`代入からの字句走査で都度抽出し、想定値と照合してfail-closeする。
+
+対象識別は`extend(mngcod)`が設定する`para`フィールドで、`tilcod`とは別物である。延長可否の表示には
+Room保存の`Loan.extendable`（v8→v9で追加）を使い、実際の送信に使う`renewalCode`は実行時に取得し直す。
+古いコードで送信する事故を構造的に防ぐための分離である。
+
+成否は**返却期限日の変化**で判定する。サイトの成功メッセージが空であることをHARで確認済みのため、
+文言には依存しない。延長成功後は対象行が延長ボタンを失い、一覧の並び順も変わるため、送信後の照合は
+ボタンの有無で絞らず全行を保持し、資料コードで突き合わせる。
+
+拒否時（延長回数上限・予約有り資料等）のサイト応答は未実測であり、`FailureReason`の細分類は
+拒否例を実測できるまで作らない。
+
+### 11.13 マイ本棚の編集
+
+機能要件は`docs/spec.md`§3.13、実装可能な技術設計は
+[`docs/design/bookshelf-editing.md`](design/bookshelf-editing.md)、サイト側の通信の一次情報は
+`docs/site-research.md`§13を正とする。2026-08-12に実サイトでの資料メモ編集・本棚名変更の成立を
+所有者が実機で確認済みである。
+
+`BookshelfGateway`／`BookshelfRepository`を新設し、既存の`LibraryGateway`へ書込みAPIを追加しない。
+予約データに触れないため`ReservationOperationGate`には参加せず、代わりに`BookshelfStateGate`
+（Singletonの`Mutex`）で**通常同期と本棚編集を直列化**する。編集成功後に、編集前から走っていた同期が
+古い本棚スナップショットをRoomへ書き戻す競合を防ぐためである。ロック順は
+`StatusRepository.syncMutex` → `BookshelfStateGate` → `LicsXpSession`のrequest limiter → Room に固定する。
+
+操作は6種（本棚の作成・削除、資料の追加・削除、本棚名と資料メモの一括編集）。**資料追加だけが一段階**で、
+他は二段階POSTである。段階数は`prevRequestForm`の有無ではなく`createConfirmDialog`の構造で判定する
+（重複エラーのalert応答にも`prevRequestForm`が現れるため）。確認コードは操作ごとに固定
+（作成`OPACSDI017`、更新`OPACSDI011`、資料削除`OPACSDI033`、本棚削除`OPACSDI010`）。
+本棚更新だけは、二段階目の完了ダイアログを閉じたあとに`WOpacSdiBookListDispAction.do`への**第3 POST**が
+必要である。
+
+**資料メモは`bookcmnt`(hidden)と`eachcmnt`(textarea)の両方へ新しい値を入れて送る。** サイトの
+`changcmnt`が両方を書き換えるためで、`eachcmnt`だけを更新するとサーバが旧値で上書きし変更が反映されない
+（2026-08-12に実測して修正。詳細はsite-research.md§13.9）。編集画面は本棚単位の一括フォームであり、
+資料ごとの部分送信ができないため、全資料の行をDOM順のまま送る。
+
+成否はサイトのalert文言に依存せず、**操作前後の全本棚スナップショットを取得して照合**する。成功を
+証明できた場合だけ`AppDatabase.replaceShelfSnapshot`でRoomへ原子的に全置換する。`Unknown`と`Failure`では
+Roomを書き換えない。Room置換だけ失敗した場合はリモート成功を失敗へ読み替えず`localRefreshRequired=true`
+として返す。

@@ -38,7 +38,7 @@
 | 書誌詳細 | 3.2 | [search.html](mockups/search.html)(同ファイル内) | **Compose実装済**(`ui/detail/` の共通オーバーレイ。tilcodを持つ全画面=ホーム/本棚/貸出中/予約中/読書記録/新着資料/蔵書検索の行タップで開く。タイトル直下に公式サイト詳細リンクと予約順番待ち人数を表示) | `SearchRepository.bookDetail() / coverUrl()`, 既読判定は読書記録 |
 | 貸出中(下部タブ) | 3.3 | [loans.html](mockups/loans.html) | **Compose実装済** | `StatusRepository.loans()` |
 | 予約中(下部タブ) | 3.3 | [reservations.html](mockups/reservations.html) | **Compose実装済** | `StatusRepository.reservations()` |
-| 本棚(マイ本棚・下部タブ) | 3.4 | [bookshelf.html](mockups/bookshelf.html) | **Compose実装済**(みんなチップ+全員の本棚を横並び・本棚タイトル頭に識別色) | `StatusRepository.shelf(memberId)` |
+| 本棚(マイ本棚・下部タブ) | 3.4, 3.13 | [bookshelf.html](mockups/bookshelf.html) | **Compose実装済**(みんなチップ+全員の本棚を横並び・本棚タイトル頭に識別色)。**編集機能あり**(下記「方針: マイ本棚の編集」) | `BookshelfRepository.observeShelves() / mutate()` |
 | 開館カレンダー(ハンバーガー) | 3.5 | [calendar.html](mockups/calendar.html) | **Compose実装済**(`ui/calendar/`・案B=3ヶ月縦スクロール) | `CalendarRepository.closedDays() / refreshClosedDays() / libraries` |
 | 読書記録(下部タブ・一覧・検索) | 3.5b | [reading-records.html](mockups/reading-records.html) | **Compose実装済** | `ReadingRecordRepository`(一覧/メンバー絞り込み/正規化検索/既読判定) |
 | 設定(メンバー管理・同期時刻・通知) | 2, 3.6, 3.7 | [settings.html](mockups/settings.html) | **Compose実装済**(`ui/settings/`)。返却期限の**通知日数(既定:前日)設定**を含む | `FamilyRepository.*`, `SettingsStore`, `StatusRepository.lastSync()` |
@@ -592,3 +592,54 @@ Column {
 - 一度に一館のみ表示(カレンダー、spec §3.5)
 - 読書記録が0件のメンバーには「履歴が有効化されていない可能性」を表示(spec §3.5b)
 - 認証情報(カード番号・パスワード)は画面・ログに出さない
+
+## 方針: マイ本棚の編集（2026-08-12、実装済み・実機確認済み）
+
+機能要件は`docs/spec.md`§3.13、技術設計は`docs/design/bookshelf-editing.md`が正本。ここには
+画面上の決定だけを残す。
+
+### 導線
+
+- **資料の追加**は書誌詳細から。メンバーと追加先の本棚を**毎回選ばせる**（予約カートの受取館選択と同じ形）。
+  前回の選択を既定値として記憶しない。メンバーを変えたら本棚選択は解除する。
+  設定に既定本棚を持つ案は採用しない（2026-08-08所有者決定）
+- **本棚の作成**は本棚画面上部のアクションから。「みんな」表示中でもダイアログ内でメンバーを選ぶ
+- **本棚ヘッダーの3点リーダ**に「本棚を編集」「本棚を削除」を置く
+- **本棚名と全資料メモは同じ「本棚を編集」ダイアログでまとめて編集する。** 実サイトが単一フォームで
+  送信する構成に合わせたもので、1回の確認・1回の更新列で送る
+- **資料の削除は本棚編集ダイアログの各資料行**に置く（2026-08-12変更）。以前は書誌カードごとの
+  3点リーダに置いていたが、実サイトの編集画面と同じ構成へ集約した。書誌カードのタップは従来どおり
+  書誌詳細を開く
+
+### 表示・確認の規則
+
+- **個別の行・本棚ヘッダーにメンバー名を出さない**（カラードットのみ）。予約中・貸出中・読書記録の
+  一覧と同じ方針に揃えた（2026-08-12）
+- 空の本棚も列として表示し、「登録資料はありません」を出す
+- **本棚の削除は他より重い確認**とし、本文に正確な本棚名と消える資料件数、確定ボタンに
+  「本棚とN件を削除」を出す。破壊色を使う
+- **資料削除の確認には「編集ダイアログで入力中の本棚名・資料メモは保存されません」を明記する。**
+  資料削除は編集の一括更新とは別の送信経路であり、入力中のメモを一緒に送らないためである。
+  確定したら編集ダイアログを閉じてから削除へ進む（開いたままだと削除後の資料構成と食い違う）
+- 送信中はすべての本棚編集入口を無効化する。同時に送れる操作は1件
+
+### 結果表示（この意味を崩さないこと）
+
+再試行を促してよいかどうかで3分類する。**二重登録・二重削除を防ぐための分類であり、
+一律に「もう一度お試しください」と出してはならない。**
+
+| 分類 | 対象 | 付加する文 |
+|---|---|---|
+| 再試行を促す | `NETWORK`・`SITE_MAINTENANCE`・`AUTH`・`SESSION_EXPIRED_BEFORE_SUBMIT`・`REJECTED_BY_SITE`・`RESERVATION_LIMIT_EXCEEDED`・`INVALID_PICKUP_LIBRARY` | 本棚を更新してから、もう一度お試しください。 |
+| 結果確認を促す | `Unknown`・`MEMBER_ABORTED_AFTER_SITE_CHANGE`・`localRefreshRequired=true` | 本棚を更新して、結果をご確認ください。 |
+| 何も足さない | `SITE_RESPONSE_CHANGED` | （なし。再試行を促さない） |
+
+`AlreadyRegistered`はエラーとして扱わず「すでに登録済みです」と伝える。
+
+### 実装上の注意
+
+- **`DropdownMenu`は`Text`等のアンカーと一緒に`Box`で包むこと。** 親が`Arrangement.spacedBy`を持つ
+  Row/Columnの直下に兄弟として置くと、展開時に`DropdownMenu`が子として数えられ、アンカーの位置が動く
+  （2026-08-12に3点リーダで実際に発生し修正）
+- ダイアログは`DisableSelection`で囲む。全画面の`SelectionContainer`と別Windowのダイアログで
+  選択状態を共有すると、本文の長押しでクラッシュする（2026-08-12対応済み）
