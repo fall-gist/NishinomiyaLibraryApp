@@ -2313,3 +2313,26 @@ DIモジュール・`LibraryApp.kt`は無変更である。
   Sol(low)初回レビューのテスト構造指摘を修正後、再レビューは指摘なし。
 - ADB端末／エミュレータがないためinstrumented test実行と実機長押し再現は未検証。次APKで、
   長押ししてもクラッシュしないことと、コピーボタンから本文を共有できることを確認する。
+
+### 本棚メモ編集が反映されなかった原因と修正（2026-08-12、実機再検証待ち）
+
+- **確定した原因**: サイトのJS`changcmnt`が`bookcmnt`(hidden)と`eachcmnt`(textarea)の両方へ
+  新しいメモを書き込むのに対し、アプリは`eachcmnt`だけを更新し`bookcmnt`に旧値を送っていた。
+  一次情報は`docs/site-research.md`§13.9。本棚名だけが反映されていたのは、`listname`に
+  対になるhiddenが無いためである
+- **修正**（commit `2d819e3`）: `BookshelfEditForm.edit`で`bookcmnt`も新メモへ置換する。
+  あわせて、checked時だけ現れる`disp_chk`を含む項目列を受理し（**既定表示ONの棚は
+  それまで編集不能だった**）、表示メモとフォーム生値の比較を同じ正規化へ揃えた
+  （**改行を含むメモがある棚は編集が丸ごと停止していた**）
+- 検証: `testDebugUnitTest`全緑、`assembleDebug`成功。`eachcmnt`だけ更新する旧実装へ戻すと
+  5件が赤くなることを劣化注入で確認済み。**実サイトでの反映は未確認**
+- **見送り**: 資料行の対応付けはDOM順のまま。実測でidが`<項目名><tilcod>`と分かったため、
+  id単位の照合にすればDOM順依存を解消できる
+- **未修正のまま残る既知の問題**（別途対応が必要）:
+  1. `create`/`deleteShelf`/`openEditPage`が、全棚巡回中に保存した**古いページHTMLの`hash`**で
+     フォームを組み立てている。棚が複数あり対象が最後の棚でないとき、古いトークンを送る
+  2. `isBookshelfMaintenance`がHTML全体への`contains`で、JS定数に反応しうる
+  3. `BookshelfRepositoryImpl.mutate`の`requireNotNull(bookshelfStateGate)`がtryの外にあり、
+     DI漏れ時に`Failure`ではなく例外が伝播する
+  4. **本棚編集画面の実測fixtureが無い**（進行指示13の未達）。今回の原因も実物のJSを
+     読むまで発見できなかった

@@ -1150,3 +1150,39 @@ value は本棚を指す文字列）
 認証セッションで1段階目まで1回だけ送信し、応答HTMLの実行可能scriptにある`okArray`代入を抽出した。
 診断コードには2段階目の送信処理を実装せず、採取後はブラウザからテスト資料とテスト棚を削除した。
 本棚数が6件から既存の5件へ戻り、テスト棚が一覧に存在しないことを確認済みである。
+
+### 13.9 本棚編集画面のJSがhiddenを同期する（2026-08-12、ブラウザ実測）
+
+**メモが反映されなかった原因の一次情報。** 編集画面(`tiles.WSdiBookListMainte`)の資料メモ欄には
+`onchange`が付いており、その関数はhiddenと入力欄の両方へ同じ値を書き込む。
+
+```html
+<textarea name="eachcmnt" id="eachcmnt<tilcod>" onchange="changcmnt(this.value,'<tilcod>');">
+<input type="text" name="eachsortno" id="eachsortno<tilcod>" onchange="changsortno(this.value,'<tilcod>');">
+```
+
+```js
+function changcmnt(cmtValue, valcod) {
+  document.getElementById("bookcmnt" + valcod).value = cmtValue;
+  document.getElementById("eachcmnt" + valcod).value = cmtValue;
+}
+function changsortno(cmtValue, valcod) {
+  document.getElementById("sortno" + valcod).value = cmtValue;
+}
+```
+
+- **ブラウザは`bookcmnt`(hidden)と`eachcmnt`(textarea)の両方に新しいメモを入れて送信する。**
+  `eachcmnt`だけを新値にすると、サーバは`bookcmnt`の旧値でメモを上書きし、**変更が反映されない**。
+  本棚名`listname`は対になるhiddenが無いため、この誤りでも反映されていた
+- 並び順も同じ構造で、入力欄は`eachsortno`、サーバが読むのは`sortno`(hidden)
+- **資料行の各要素のidは`<項目名><tilcod>`である**（`sortno1000001654099`を実測）。
+  行の識別にDOM順ではなく`tilcod`を使える
+- `commnt`(本棚メモ)のtextareaには`onchange`が無い
+- 編集画面のDOM順は`hash, returnid, gamenid, tilcod, dispflg, otherbook, listname, commnt`、
+  続いて**`disp_chk`（checkbox「最初に表示されるリストにする」。checkedのときだけ送信対象）**、
+  そのあと資料1件につき`bookcmnt, eachcmnt, sortno, eachsortno`。`disp_chk`の値は`その1`
+- `sortno`は`1, 2`のような連番の棚もある（1000刻みとは限らない）
+- メモが空文字の資料が実在する
+
+**この節の内容は、実物のJSを読むまで誰も気づけなかった。** 本棚編集画面の実測fixtureは
+まだ存在せず、テストは合成HTMLだけで書かれている（進行指示13の未達）。
