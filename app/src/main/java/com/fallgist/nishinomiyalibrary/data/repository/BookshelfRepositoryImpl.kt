@@ -59,10 +59,13 @@ class BookshelfRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun mutate(mutation: BookshelfMutation): BookshelfMutationOutcome =
-        requireNotNull(bookshelfStateGate) { "本棚編集用の依存関係が設定されていません" }.withLock {
-            mutateLocked(mutation)
-        }
+    override suspend fun mutate(mutation: BookshelfMutation): BookshelfMutationOutcome {
+        // memberDao/credentialStore/gateway/database と同様、DI漏れも例外を投げずFailureとして返す。
+        // 該当するFailureReasonが無いため、toFailureReasonのelse節と同じMEMBER_ABORTED_AFTER_SITE_CHANGEを用いる。
+        val gate = bookshelfStateGate
+            ?: return BookshelfMutationOutcome.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE)
+        return gate.withLock { mutateLocked(mutation) }
+    }
 
     private suspend fun mutateLocked(mutation: BookshelfMutation): BookshelfMutationOutcome {
         val member = try {

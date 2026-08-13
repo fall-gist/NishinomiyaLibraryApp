@@ -352,6 +352,30 @@ class BookshelfGatewayTest {
     }
 
     @Test
+    fun `メンテナンス文言がscript内だけの応答はメンテナンス扱いにしない`() = runBlocking {
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "棚") + "<script>var msg = 'ただいまメンテナンス中';</script>"))
+
+        // 存在しない棚2への追加は、メンテナンス誤検出さえなければ通常のchangedFailure(STATE_CHANGED)に落ちる。
+        val outcome = session().mutate(RemoteBookshelfMutation.AddItem(2, "1000000000002", "メモ", expected()))
+
+        assertEquals(
+            RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, BookshelfStopDiagnosticCode.STATE_CHANGED.value),
+            outcome,
+        )
+    }
+
+    @Test
+    fun `メンテナンス文言が本文に現れる応答はメンテナンス扱いにする`() = runBlocking {
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "棚") + "<p>ただいまメンテナンス中です</p>"))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.AddItem(2, "1000000000002", "メモ", expected()))
+
+        assertEquals(RemoteBookshelfOutcome.Failure(FailureReason.SITE_MAINTENANCE), outcome)
+    }
+
+    @Test
     fun `資料メモ更新中に対象棚のメタデータが改変された応答を成功扱いしない`() = runBlocking {
         val original = FixtureItem("1000000000001", "資料", "変更前")
         val updated = original.copy(memo = "変更後")

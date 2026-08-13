@@ -392,33 +392,38 @@ private fun AddItemDialog(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("資料名：${dialog.title}", fontSize = 12.sp)
                 Text("対象メンバー", color = LocalAppColors.current.ink2, fontSize = 12.sp)
-                Text(
-                    memberName,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalAppColors.current.card)
-                        .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp))
-                        .clickable { memberMenuExpanded = true }.padding(12.dp),
-                )
-                DropdownMenu(expanded = memberMenuExpanded, onDismissRequest = { memberMenuExpanded = false }) {
-                    members.forEach { member ->
-                        DropdownMenuItem(text = { Text(member.name) }, onClick = {
-                            memberMenuExpanded = false
-                            onSelectMember(member.id)
-                        })
+                // Text と DropdownMenu を Box で包み、展開時に周囲のレイアウトが動かないようにする(修正3と同じ理由)。
+                Box {
+                    Text(
+                        memberName,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalAppColors.current.card)
+                            .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp))
+                            .clickable { memberMenuExpanded = true }.padding(12.dp),
+                    )
+                    DropdownMenu(expanded = memberMenuExpanded, onDismissRequest = { memberMenuExpanded = false }) {
+                        members.forEach { member ->
+                            DropdownMenuItem(text = { Text(member.name) }, onClick = {
+                                memberMenuExpanded = false
+                                onSelectMember(member.id)
+                            })
+                        }
                     }
                 }
                 Text("追加先の本棚", color = LocalAppColors.current.ink2, fontSize = 12.sp)
-                Text(
-                    shelfName,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalAppColors.current.card)
-                        .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp))
-                        .clickable(enabled = dialog.memberId != null && shelvesLoaded && shelves.isNotEmpty()) { shelfMenuExpanded = true }.padding(12.dp),
-                )
-                DropdownMenu(expanded = shelfMenuExpanded, onDismissRequest = { shelfMenuExpanded = false }) {
-                    shelves.forEach { shelf ->
-                        DropdownMenuItem(text = { Text(shelf.name) }, onClick = {
-                            shelfMenuExpanded = false
-                            onSelectShelf(shelf.shelfNo)
-                        })
+                Box {
+                    Text(
+                        shelfName,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalAppColors.current.card)
+                            .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp))
+                            .clickable(enabled = dialog.memberId != null && shelvesLoaded && shelves.isNotEmpty()) { shelfMenuExpanded = true }.padding(12.dp),
+                    )
+                    DropdownMenu(expanded = shelfMenuExpanded, onDismissRequest = { shelfMenuExpanded = false }) {
+                        shelves.forEach { shelf ->
+                            DropdownMenuItem(text = { Text(shelf.name) }, onClick = {
+                                shelfMenuExpanded = false
+                                onSelectShelf(shelf.shelfNo)
+                            })
+                        }
                     }
                 }
                 if (dialog.memberId != null && !shelvesLoaded) {

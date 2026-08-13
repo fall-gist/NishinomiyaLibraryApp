@@ -429,7 +429,14 @@ private fun sameItems(left: List<ShelfItem>, right: List<ShelfItem>): Boolean = 
 
 /** 表示由来のメモと利用者入力メモの比較にだけ使う正規化。ShelfParser の表示メモ正規化と揃える。 */
 private fun normalized(value: String): String = ParserSupport.normalizeWhitespace(value)
-private fun isBookshelfMaintenance(html: String): Boolean = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス").any(html::contains)
+// HTML全文へのcontainsだと、共通JavaScript定数や非表示要素中の語で誤検出しうるため、
+// script/styleを除いた表示テキストだけを判定対象にする。
+private fun isBookshelfMaintenance(html: String): Boolean {
+    val document = Jsoup.parse(html)
+    document.select("script, style").remove()
+    val visibleText = document.text()
+    return listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス").any(visibleText::contains)
+}
 private fun requireBookshelfNotMaintenance(html: String) { if (isBookshelfMaintenance(html)) throw LibraryError.Maintenance() }
 private fun isBookshelfLoginForm(html: String): Boolean = Jsoup.parse(html).selectFirst("input[name=j_password], input[name=j_username], form[action*=j_security_check]") != null
 private fun classifyBookshelfLogin(html: String) {
