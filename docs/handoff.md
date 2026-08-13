@@ -2336,3 +2336,26 @@ DIモジュール・`LibraryApp.kt`は無変更である。
      DI漏れ時に`Failure`ではなく例外が伝播する
   4. **本棚編集画面の実測fixtureが無い**（進行指示13の未達）。今回の原因も実物のJSを
      読むまで発見できなかった
+
+### バージョン1.1の確定（2026-08-12）
+
+所有者判断により、**`versionName = 1.1` を「通知タップ導線＋マイ本棚編集機能を含む版」として確定**した。
+対応表は`docs/design/release-build.md`「versionNameの履歴」に記録した。次の機能追加・修正から1.2へ上げる。
+
+1.1の完成にあたり実機で確認済みの事項:
+
+- 資料メモの編集（1書誌単独、および本棚名＋2書誌メモの同時編集）が実サイトへ反映される
+- 本棚画面の行レイアウト、3点リーダの表示位置、資料削除導線の編集ダイアログへの集約
+
+最後に、結果ダイアログの案内文言を再試行可否で3分類した（commit `fb8e7c4`）。
+
+- **再試行を促す**（`NETWORK`・`SITE_MAINTENANCE`・`AUTH`・`SESSION_EXPIRED_BEFORE_SUBMIT`・
+  `REJECTED_BY_SITE`・`RESERVATION_LIMIT_EXCEEDED`・`INVALID_PICKUP_LIBRARY`）: 送信前に停止したか
+  サイトが明確に拒否した場合で、サイト側の状態は変わっていない
+- **結果確認を促す**（`Unknown`・`MEMBER_ABORTED_AFTER_SITE_CHANGE`・`localRefreshRequired=true`）:
+  送信後で結果不明、またはサイト側は成功済み。**再試行を促してはならない**。二重登録・二重削除の防止という
+  本機能の不変条件を文言レベルでも守るための分類である
+- **何も足さない**（`SITE_RESPONSE_CHANGED`）: 設計§7.4の「再試行を促さない」を維持
+
+分類は`else`なしの`when`で全列挙してあり、`FailureReason`が増えたらコンパイルエラーになる。
+`Unknown`を再試行側へ分類し直す劣化注入で該当テストが赤くなることを確認済み。
