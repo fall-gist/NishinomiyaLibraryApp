@@ -603,29 +603,67 @@ object BookshelfEditingContentBuilder {
         is BookshelfMutationOutcome.Applied -> successMessage("本棚へ反映しました", outcome.localRefreshRequired)
         is BookshelfMutationOutcome.AlreadyRegistered -> BookshelfEditingResultMessage(
             title = "すでに登録済みです",
-            message = appendRefreshWarning("この資料はすでに選択した本棚に登録されています", outcome.localRefreshRequired),
+            message = appendRefreshGuidance("この資料はすでに選択した本棚に登録されています", outcome.localRefreshRequired),
             kind = BookshelfEditingResultKind.ALREADY_REGISTERED,
         )
         BookshelfMutationOutcome.Unknown -> BookshelfEditingResultMessage(
             title = "処理結果を確認できません",
-            message = "処理結果を確認できません。自動では再送しません。本棚を更新して確認してください",
+            message = appendGuidance("処理結果を確認できません。自動では再送しません。", ResultGuidance.CHECK_RESULT),
             kind = BookshelfEditingResultKind.UNKNOWN,
         )
         is BookshelfMutationOutcome.Failure -> BookshelfEditingResultMessage(
             title = "本棚の操作を完了できませんでした",
-            message = outcome.reason.bookshelfLabel() + outcome.diagnosticCode?.let { "\n診断コード: $it" }.orEmpty(),
+            message = appendGuidance(
+                outcome.reason.bookshelfLabel() + outcome.diagnosticCode?.let { "\n診断コード: $it" }.orEmpty(),
+                outcome.reason.resultGuidance(),
+            ),
             kind = BookshelfEditingResultKind.FAILURE,
         )
     }
 
     private fun successMessage(message: String, refreshRequired: Boolean) = BookshelfEditingResultMessage(
         title = "本棚へ反映しました",
-        message = appendRefreshWarning(message, refreshRequired),
+        message = appendRefreshGuidance(message, refreshRequired),
         kind = BookshelfEditingResultKind.APPLIED,
     )
 
-    private fun appendRefreshWarning(message: String, refreshRequired: Boolean): String =
-        if (refreshRequired) "$message\n表示更新に失敗しました。画面を更新してください" else message
+    /**
+     * サイトへは反映済みだが端末の表示（本棚一覧のキャッシュ）が古い可能性がある場合の案内。
+     * サイト側は成功済みのため、再試行ではなく結果確認を促す（B分類）。
+     */
+    private fun appendRefreshGuidance(message: String, refreshRequired: Boolean): String =
+        if (refreshRequired) {
+            appendGuidance("$message\nサイトへは反映済みですが、端末の表示が古い可能性があります。", ResultGuidance.CHECK_RESULT)
+        } else {
+            message
+        }
+
+    private fun appendGuidance(message: String, guidance: ResultGuidance): String = when (guidance) {
+        ResultGuidance.RETRY -> "$message\n本棚を更新してから、もう一度お試しください。"
+        ResultGuidance.CHECK_RESULT -> "$message\n本棚を更新して、結果をご確認ください。"
+        ResultGuidance.NONE -> message
+    }
+}
+
+/**
+ * 結果ダイアログの末尾に付ける案内の分類。
+ * RETRY: 送信前に停止した、またはサイトが明確に拒否した（サイト側の状態は変化していない）→再試行を促してよい。
+ * CHECK_RESULT: 送信後の結果が不明、またはサイト側はすでに成功済み→再試行させず、まず結果確認を促す。
+ * NONE: サイト構造変更の疑いなど、自動再試行の案内自体を出さないと設計で決定済み。
+ */
+private enum class ResultGuidance { RETRY, CHECK_RESULT, NONE }
+
+/** [FailureReason] を案内の分類へ振り分ける。新しい理由が増えたらここでコンパイルエラーになる。 */
+private fun FailureReason.resultGuidance(): ResultGuidance = when (this) {
+    FailureReason.NETWORK -> ResultGuidance.RETRY
+    FailureReason.SITE_MAINTENANCE -> ResultGuidance.RETRY
+    FailureReason.AUTH -> ResultGuidance.RETRY
+    FailureReason.SESSION_EXPIRED_BEFORE_SUBMIT -> ResultGuidance.RETRY
+    FailureReason.REJECTED_BY_SITE -> ResultGuidance.RETRY
+    FailureReason.RESERVATION_LIMIT_EXCEEDED -> ResultGuidance.RETRY
+    FailureReason.INVALID_PICKUP_LIBRARY -> ResultGuidance.RETRY
+    FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE -> ResultGuidance.CHECK_RESULT
+    FailureReason.SITE_RESPONSE_CHANGED -> ResultGuidance.NONE
 }
 
 private fun FailureReason.bookshelfLabel(): String = when (this) {
@@ -633,9 +671,9 @@ private fun FailureReason.bookshelfLabel(): String = when (this) {
     FailureReason.INVALID_PICKUP_LIBRARY -> "操作内容が無効です"
     FailureReason.REJECTED_BY_SITE -> "図書館サイトが本棚の操作を受け付けませんでした"
     FailureReason.RESERVATION_LIMIT_EXCEEDED -> "本棚の操作を受け付けられませんでした"
-    FailureReason.SESSION_EXPIRED_BEFORE_SUBMIT -> "ログイン状態が失効しました。内容を確認してからやり直してください"
+    FailureReason.SESSION_EXPIRED_BEFORE_SUBMIT -> "ログイン状態が失効しました"
     FailureReason.SITE_RESPONSE_CHANGED -> "図書館サイトの表示が変更された可能性があるため、安全に停止しました。自動では再試行しません"
     FailureReason.SITE_MAINTENANCE -> "図書館サイトがメンテナンス中です"
     FailureReason.NETWORK -> "通信に失敗しました。接続を確認してください"
-    FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE -> "サイト上の本棚の状態が変わったため、操作を停止しました。更新して確認してください"
+    FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE -> "サイト上の本棚の状態が変わったため、操作を停止しました"
 }

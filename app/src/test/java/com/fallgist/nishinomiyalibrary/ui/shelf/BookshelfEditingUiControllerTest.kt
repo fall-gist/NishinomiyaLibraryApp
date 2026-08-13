@@ -197,14 +197,14 @@ class BookshelfEditingUiControllerTest {
         assertEquals("本棚へ反映しました", BookshelfEditingContentBuilder.resultMessage(BookshelfMutationOutcome.Applied()).message)
         assertTrue(
             BookshelfEditingContentBuilder.resultMessage(BookshelfMutationOutcome.Applied(localRefreshRequired = true)).message
-                .contains("表示更新に失敗しました。画面を更新してください"),
+                .contains("サイトへは反映済みですが、端末の表示が古い可能性があります。"),
         )
         assertEquals(
             "この資料はすでに選択した本棚に登録されています",
             BookshelfEditingContentBuilder.resultMessage(BookshelfMutationOutcome.AlreadyRegistered()).message,
         )
         assertEquals(
-            "処理結果を確認できません。自動では再送しません。本棚を更新して確認してください",
+            "処理結果を確認できません。自動では再送しません。\n本棚を更新して、結果をご確認ください。",
             BookshelfEditingContentBuilder.resultMessage(BookshelfMutationOutcome.Unknown).message,
         )
         assertTrue(
@@ -216,6 +216,64 @@ class BookshelfEditingUiControllerTest {
             BookshelfEditingContentBuilder.resultMessage(
                 BookshelfMutationOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, "BS_EDIT_ITEM_ID"),
             ).message.endsWith("\n診断コード: BS_EDIT_ITEM_ID"),
+        )
+    }
+
+    @Test
+    fun `A分類の理由は本棚更新とやり直しを促す`() {
+        val retryReasons = listOf(
+            FailureReason.NETWORK,
+            FailureReason.SITE_MAINTENANCE,
+            FailureReason.AUTH,
+            FailureReason.SESSION_EXPIRED_BEFORE_SUBMIT,
+            FailureReason.REJECTED_BY_SITE,
+            FailureReason.RESERVATION_LIMIT_EXCEEDED,
+            FailureReason.INVALID_PICKUP_LIBRARY,
+        )
+        for (reason in retryReasons) {
+            val message = BookshelfEditingContentBuilder.resultMessage(BookshelfMutationOutcome.Failure(reason)).message
+            assertTrue(
+                "理由=$reason の文言に再試行案内がありません: $message",
+                message.endsWith("\n本棚を更新してから、もう一度お試しください。"),
+            )
+        }
+    }
+
+    @Test
+    fun `B分類は結果確認のみを促し再試行は促さない`() {
+        val unknownMessage = BookshelfEditingContentBuilder.resultMessage(BookshelfMutationOutcome.Unknown).message
+        assertFalse(unknownMessage.contains("もう一度お試しください"))
+        assertTrue(unknownMessage.endsWith("\n本棚を更新して、結果をご確認ください。"))
+
+        val abortedMessage = BookshelfEditingContentBuilder.resultMessage(
+            BookshelfMutationOutcome.Failure(FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE),
+        ).message
+        assertFalse(abortedMessage.contains("もう一度お試しください"))
+        assertTrue(abortedMessage.endsWith("\n本棚を更新して、結果をご確認ください。"))
+
+        val appliedRefreshMessage = BookshelfEditingContentBuilder.resultMessage(
+            BookshelfMutationOutcome.Applied(localRefreshRequired = true),
+        ).message
+        assertFalse(appliedRefreshMessage.contains("もう一度お試しください"))
+        assertTrue(appliedRefreshMessage.endsWith("\n本棚を更新して、結果をご確認ください。"))
+
+        val alreadyRegisteredRefreshMessage = BookshelfEditingContentBuilder.resultMessage(
+            BookshelfMutationOutcome.AlreadyRegistered(localRefreshRequired = true),
+        ).message
+        assertFalse(alreadyRegisteredRefreshMessage.contains("もう一度お試しください"))
+        assertTrue(alreadyRegisteredRefreshMessage.endsWith("\n本棚を更新して、結果をご確認ください。"))
+    }
+
+    @Test
+    fun `C分類のSITE_RESPONSE_CHANGEDは案内文を追加しない`() {
+        val message = BookshelfEditingContentBuilder.resultMessage(
+            BookshelfMutationOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED),
+        ).message
+        assertFalse(message.contains("もう一度お試しください"))
+        assertFalse(message.contains("結果をご確認ください"))
+        assertEquals(
+            "図書館サイトの表示が変更された可能性があるため、安全に停止しました。自動では再試行しません",
+            message,
         )
     }
 
