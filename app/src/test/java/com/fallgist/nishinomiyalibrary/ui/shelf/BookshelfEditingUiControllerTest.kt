@@ -168,6 +168,31 @@ class BookshelfEditingUiControllerTest {
     }
 
     @Test
+    fun `資料削除の確認文には編集中の内容が保存されない旨を含める`() {
+        val deleteItem = BookshelfEditingConfirmation.DeleteItem(
+            itemTarget,
+            BookshelfMutation.DeleteItem(1, 3, "t-1", testExpectation),
+        )
+        assertTrue(BookshelfEditingContentBuilder.confirmationMessage(deleteItem).contains("保存されません"))
+    }
+
+    @Test
+    fun `本棚編集ダイアログを開いたまま資料削除を要求すると編集ダイアログを閉じて確認へ進む`() = runTest {
+        val controller = controller(FakeBookshelfRepository(), StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestEditShelf(shelfTarget)
+        assertEquals(BookshelfEditingDialog.EditShelf(shelfTarget), controller.state.value.dialog)
+
+        controller.requestDeleteItem(itemTarget)
+
+        assertNull(controller.state.value.dialog)
+        val confirmation = controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.DeleteItem
+        assertEquals(itemTarget, confirmation.target)
+        controller.close()
+    }
+
+    @Test
     fun `Outcomeの意味を崩さず更新警告とサイト変更の注意を表示する`() {
         assertEquals("本棚へ反映しました", BookshelfEditingContentBuilder.resultMessage(BookshelfMutationOutcome.Applied()).message)
         assertTrue(

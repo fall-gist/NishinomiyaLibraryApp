@@ -253,9 +253,15 @@ class BookshelfEditingUiController(
         _state.update { current -> if (current.processing) current else current.copy(dialog = BookshelfEditingDialog.EditShelf(target), inputError = null) }
     }
 
+    /**
+     * 資料削除の確認へ進む。本棚編集ダイアログの資料行から呼ばれる想定のため、
+     * 開いていた編集ダイアログ(名前・メモの入力中の内容)は確認へ切り替わる時点で閉じる。
+     * 資料削除は編集の一括更新とは別のPOST経路であり、入力中のメモを一緒に送ることはない。
+     */
     fun requestDeleteItem(target: BookshelfItemTarget) {
         _state.update { current ->
             if (current.processing) current else current.copy(
+                dialog = null,
                 pendingConfirmation = BookshelfEditingConfirmation.DeleteItem(
                     target,
                     BookshelfMutation.DeleteItem(
@@ -576,7 +582,8 @@ object BookshelfEditingContentBuilder {
         is BookshelfEditingConfirmation.EditShelf ->
             "対象本棚：${confirmation.target.shelfName}\n新しい名前：${confirmation.newName}\n資料メモ：${confirmation.items.count { it.originalMemo != it.newMemo }}件変更"
         is BookshelfEditingConfirmation.DeleteItem ->
-            "資料名：${confirmation.target.title}\n本棚：${confirmation.target.shelfName}\n\nこの資料を本棚から削除しますか？"
+            "資料名：${confirmation.target.title}\n本棚：${confirmation.target.shelfName}\n\nこの資料を本棚から削除しますか？\n" +
+                "編集ダイアログで入力中の本棚名・資料メモは保存されません。"
         is BookshelfEditingConfirmation.DeleteShelf ->
             "本棚「${confirmation.target.shelfName}」と登録資料${confirmation.target.itemCount}件を削除します。\nこの操作は元に戻せません。"
     }

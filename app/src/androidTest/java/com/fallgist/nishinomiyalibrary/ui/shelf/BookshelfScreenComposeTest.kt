@@ -9,6 +9,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfEditItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
 import com.fallgist.nishinomiyalibrary.domain.model.Member
@@ -28,22 +29,17 @@ class BookshelfScreenComposeTest {
     private val expected = BookshelfMutationExpectation("父", 1)
 
     @Test
-    fun `資料カード外側に詳細クリックがありoverflowクリックは伝播しない`() {
+    fun `資料カード外側に詳細クリックがある`() {
         var opened: Pair<String, String>? = null
         setScreen(onOpenDetail = { tilcod, title -> opened = tilcod to title })
 
         val cardTag = BookshelfScreenTestTags.bookCard(1, 3, "t-1")
         composeRule.onNodeWithTag(cardTag).assertHasClickAction().performClick()
         assertEquals("t-1" to "資料A", opened)
-
-        opened = null
-        composeRule.onNodeWithTag(BookshelfScreenTestTags.bookMenu(1, 3, "t-1")).performClick()
-        assertEquals(null, opened)
-        composeRule.onNodeWithText("本棚から削除").assertExists()
     }
 
     @Test
-    fun `処理中は作成と資料overflow入口が無効になる`() {
+    fun `処理中は作成が無効になる`() {
         setScreen(
             editingState = BookshelfEditingUiState(
                 initialized = true,
@@ -53,7 +49,56 @@ class BookshelfScreenComposeTest {
         )
 
         composeRule.onNodeWithTag(BookshelfScreenTestTags.CREATE_SHELF).assertIsNotEnabled()
-        composeRule.onNodeWithTag(BookshelfScreenTestTags.bookMenu(1, 3, "t-1")).assertIsNotEnabled()
+    }
+
+    @Test
+    fun `本棚編集ダイアログの資料行から削除確認へ進み編集内容が保存されない旨を表示する`() {
+        var requested: BookshelfItemTarget? = null
+        val target = BookshelfShelfTarget(
+            memberId = 1,
+            shelfNo = 3,
+            memberName = "父",
+            shelfName = "技術書",
+            itemCount = 1,
+            shelfCount = 1,
+            items = listOf(BookshelfEditItem("t-1", "資料A", "メモ", "メモ")),
+        )
+        setEditingDialogs(
+            BookshelfEditingUiState(
+                initialized = true,
+                members = listOf(father),
+                dialog = BookshelfEditingDialog.EditShelf(target),
+            ),
+            onRequestDeleteItem = { requested = it },
+        )
+
+        composeRule.onNodeWithTag(BookshelfEditingDialogTestTags.editItemDelete("t-1")).assertHasClickAction().performClick()
+        assertEquals("t-1", requested?.tilcod)
+        assertEquals(1, requested?.memberId)
+        assertEquals(3, requested?.shelfNo)
+    }
+
+    @Test
+    fun `処理中は本棚編集ダイアログの削除ボタンが無効になる`() {
+        val target = BookshelfShelfTarget(
+            memberId = 1,
+            shelfNo = 3,
+            memberName = "父",
+            shelfName = "技術書",
+            itemCount = 1,
+            shelfCount = 1,
+            items = listOf(BookshelfEditItem("t-1", "資料A", "メモ", "メモ")),
+        )
+        setEditingDialogs(
+            BookshelfEditingUiState(
+                initialized = true,
+                members = listOf(father),
+                dialog = BookshelfEditingDialog.EditShelf(target),
+                processingMutation = BookshelfMutation.DeleteItem(1, 3, "t-2", expected),
+            ),
+        )
+
+        composeRule.onNodeWithTag(BookshelfEditingDialogTestTags.editItemDelete("t-1")).assertIsNotEnabled()
     }
 
     @Test
@@ -194,13 +239,15 @@ class BookshelfScreenComposeTest {
                     onRequestCreateShelf = {},
                     onRequestEditShelf = {},
                     onRequestDeleteShelf = {},
-                    onRequestDeleteItem = {},
                 )
             }
         }
     }
 
-    private fun setEditingDialogs(editingState: BookshelfEditingUiState) {
+    private fun setEditingDialogs(
+        editingState: BookshelfEditingUiState,
+        onRequestDeleteItem: (BookshelfItemTarget) -> Unit = {},
+    ) {
         composeRule.setContent {
             NishinomiyaLibraryTheme(darkTheme = false) {
                 BookshelfEditingDialogs(
@@ -216,6 +263,7 @@ class BookshelfScreenComposeTest {
                     onDismissConfirmation = {},
                     onClearResult = {},
                     onClearError = {},
+                    onRequestDeleteItem = onRequestDeleteItem,
                 )
             }
         }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -60,9 +61,6 @@ object BookshelfScreenTestTags {
 
     fun bookCard(memberId: Long, shelfNo: Int, tilcod: String): String =
         "bookshelf-book-$memberId-$shelfNo-$tilcod"
-
-    fun bookMenu(memberId: Long, shelfNo: Int, tilcod: String): String =
-        "${bookCard(memberId, shelfNo, tilcod)}-menu"
 }
 
 object BookshelfEditingDialogTestTags {
@@ -71,6 +69,8 @@ object BookshelfEditingDialogTestTags {
     const val ERROR_CLOSE = "bookshelf-error-close"
     const val RESULT_COPY = "bookshelf-result-copy"
     const val RESULT_CLOSE = "bookshelf-result-close"
+
+    fun editItemDelete(tilcod: String): String = "bookshelf-edit-item-delete-$tilcod"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,7 +86,6 @@ fun BookshelfScreen(
     onRequestCreateShelf: () -> Unit,
     onRequestEditShelf: (BookshelfShelfTarget) -> Unit,
     onRequestDeleteShelf: (BookshelfShelfTarget) -> Unit,
-    onRequestDeleteItem: (BookshelfItemTarget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -135,7 +134,6 @@ fun BookshelfScreen(
                             onOpenDetail = onOpenDetail,
                             onRequestEditShelf = onRequestEditShelf,
                             onRequestDeleteShelf = onRequestDeleteShelf,
-                            onRequestDeleteItem = onRequestDeleteItem,
                         )
                     }
                 }
@@ -151,7 +149,6 @@ private fun ShelfColumnView(
     onOpenDetail: (tilcod: String, title: String) -> Unit,
     onRequestEditShelf: (BookshelfShelfTarget) -> Unit,
     onRequestDeleteShelf: (BookshelfShelfTarget) -> Unit,
-    onRequestDeleteItem: (BookshelfItemTarget) -> Unit,
 ) {
     val colors = LocalAppColors.current
     Column(
@@ -181,7 +178,6 @@ private fun ShelfColumnView(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Text(text = column.memberName, color = colors.ink2, fontSize = 11.sp)
             ShelfOverflowMenu(
                 enabled = !editingDisabled,
                 onEdit = {
@@ -225,9 +221,7 @@ private fun ShelfColumnView(
                     ShelfBookView(
                         book = book,
                         shelf = column,
-                        editingDisabled = editingDisabled,
                         onClick = { onOpenDetail(book.tilcod, book.title) },
-                        onRequestDeleteItem = onRequestDeleteItem,
                     )
                 }
             }
@@ -239,9 +233,7 @@ private fun ShelfColumnView(
 private fun ShelfBookView(
     book: ShelfBook,
     shelf: ShelfColumn,
-    editingDisabled: Boolean,
     onClick: () -> Unit,
-    onRequestDeleteItem: (BookshelfItemTarget) -> Unit,
 ) {
     val colors = LocalAppColors.current
     Column(
@@ -274,62 +266,27 @@ private fun ShelfBookView(
                 Spacer(Modifier.height(2.dp))
                 Text(text = "登録 ${book.registeredDateLabel}", color = colors.ink2, fontSize = 10.sp)
             }
-            ShelfBookOverflowMenu(
-                enabled = !editingDisabled && book.tilcod.isNotBlank(),
-                testTag = BookshelfScreenTestTags.bookMenu(shelf.memberId, shelf.shelfNo, book.tilcod),
-                onDelete = {
-                    onRequestDeleteItem(book.toItemTarget(shelf))
-                },
-            )
         }
     }
 }
 
-private fun ShelfBook.toItemTarget(shelf: ShelfColumn) = BookshelfItemTarget(
-    memberId = shelf.memberId,
-    shelfNo = shelf.shelfNo,
-    shelfName = shelf.shelfName,
-    tilcod = tilcod,
-    title = title,
-    memo = memo,
-    itemCount = shelf.books.size,
-    shelfCount = shelf.memberShelfCount,
-)
-
 @Composable
 private fun ShelfOverflowMenu(enabled: Boolean, onEdit: () -> Unit, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Text(
-        text = "⋮",
-        color = LocalAppColors.current.ink2,
-        fontSize = 20.sp,
-        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = enabled) { expanded = true }.padding(horizontal = 5.dp),
-    )
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        DropdownMenuItem(text = { Text("本棚を編集") }, onClick = { expanded = false; onEdit() })
-        DropdownMenuItem(text = { Text("本棚を削除", color = LocalAppColors.current.alert) }, onClick = { expanded = false; onDelete() })
-    }
-}
-
-@Composable
-private fun ShelfBookOverflowMenu(
-    enabled: Boolean,
-    testTag: String,
-    onDelete: () -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Text(
-        text = "⋮",
-        color = LocalAppColors.current.ink2,
-        fontSize = 18.sp,
-        modifier = Modifier
-            .testTag(testTag)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(enabled = enabled) { expanded = true }
-            .padding(horizontal = 4.dp),
-    )
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        DropdownMenuItem(text = { Text("本棚から削除", color = LocalAppColors.current.alert) }, onClick = { expanded = false; onDelete() })
+    // Text と DropdownMenu を Box で包み、親Rowから見た子要素数を展開状態によらず1つに保つ。
+    // 兄弟のままだと親の Arrangement.spacedBy が DropdownMenu も子として数え、
+    // 展開時に⋮の位置がずれる(修正3)。
+    Box {
+        Text(
+            text = "⋮",
+            color = LocalAppColors.current.ink2,
+            fontSize = 20.sp,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = enabled) { expanded = true }.padding(horizontal = 5.dp),
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("本棚を編集") }, onClick = { expanded = false; onEdit() })
+            DropdownMenuItem(text = { Text("本棚を削除", color = LocalAppColors.current.alert) }, onClick = { expanded = false; onDelete() })
+        }
     }
 }
 
@@ -347,6 +304,7 @@ fun BookshelfEditingDialogs(
     onDismissConfirmation: () -> Unit,
     onClearResult: () -> Unit,
     onClearError: () -> Unit,
+    onRequestDeleteItem: (BookshelfItemTarget) -> Unit = {},
 ) {
     val colors = LocalAppColors.current
     val clipboardManager = LocalClipboardManager.current
@@ -390,11 +348,13 @@ fun BookshelfEditingDialogs(
                 dialog = dialog,
                 members = editingState.members,
                 inputError = editingState.inputError,
+                editingDisabled = editingState.processing,
                 onSelectCreateMember = onSelectCreateMember,
                 onInputChange = onUpdateInput,
                 onEditMemoChange = onUpdateEditShelfMemo,
                 onConfirm = onRequestInputConfirmation,
                 onDismiss = onDismissDialog,
+                onRequestDeleteItem = onRequestDeleteItem,
             )
         }
     }
@@ -489,16 +449,30 @@ private fun AddItemDialog(
     }
 }
 
+/** 本棚編集ダイアログの資料行から、既存の資料削除フローが使う確認対象を組み立てる。 */
+private fun BookshelfShelfTarget.toItemTarget(item: BookshelfEditItem) = BookshelfItemTarget(
+    memberId = memberId,
+    shelfNo = shelfNo,
+    shelfName = shelfName,
+    tilcod = item.tilcod,
+    title = item.title,
+    memo = item.originalMemo,
+    itemCount = itemCount,
+    shelfCount = shelfCount,
+)
+
 @Composable
 private fun BookshelfEditingInputDialog(
     dialog: BookshelfEditingDialog,
     members: List<com.fallgist.nishinomiyalibrary.domain.model.Member>,
     inputError: String?,
+    editingDisabled: Boolean,
     onSelectCreateMember: (Long) -> Unit,
     onInputChange: (String) -> Unit,
     onEditMemoChange: (String, String) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    onRequestDeleteItem: (BookshelfItemTarget) -> Unit,
 ) {
     var memberMenuExpanded by remember(dialog) { mutableStateOf(false) }
     val title = when (dialog) {
@@ -515,18 +489,21 @@ private fun BookshelfEditingInputDialog(
                 if (dialog is BookshelfEditingDialog.CreateShelf) {
                     val memberName = members.find { it.id == dialog.memberId }?.name ?: "メンバーを選択"
                     Text("対象メンバー", color = LocalAppColors.current.ink2, fontSize = 12.sp)
-                    Text(
-                        memberName,
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalAppColors.current.card)
-                            .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp))
-                            .clickable { memberMenuExpanded = true }.padding(12.dp),
-                    )
-                    DropdownMenu(expanded = memberMenuExpanded, onDismissRequest = { memberMenuExpanded = false }) {
-                        members.forEach { member ->
-                            DropdownMenuItem(text = { Text(member.name) }, onClick = {
-                                memberMenuExpanded = false
-                                onSelectCreateMember(member.id)
-                            })
+                    // Text と DropdownMenu を Box で包み、展開時に周囲のレイアウトが動かないようにする(修正3と同じ理由)。
+                    Box {
+                        Text(
+                            memberName,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalAppColors.current.card)
+                                .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp))
+                                .clickable { memberMenuExpanded = true }.padding(12.dp),
+                        )
+                        DropdownMenu(expanded = memberMenuExpanded, onDismissRequest = { memberMenuExpanded = false }) {
+                            members.forEach { member ->
+                                DropdownMenuItem(text = { Text(member.name) }, onClick = {
+                                    memberMenuExpanded = false
+                                    onSelectCreateMember(member.id)
+                                })
+                            }
                         }
                     }
                 }
@@ -548,7 +525,26 @@ private fun BookshelfEditingInputDialog(
                     Text("資料メモ（1000文字以内）", color = LocalAppColors.current.ink2, fontSize = 12.sp)
                     Column(modifier = Modifier.height(280.dp).verticalScroll(rememberScrollState())) {
                         dialog.items.forEach { item ->
-                            Text(item.title, fontSize = 12.sp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(item.title, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                // 資料削除は本棚編集(名前+メモの一括更新)とは別の送信経路のため、
+                                // ここでの削除は編集中の入力を保存しない(修正1)。
+                                Text(
+                                    text = "削除",
+                                    color = LocalAppColors.current.alert,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier
+                                        .testTag(BookshelfEditingDialogTestTags.editItemDelete(item.tilcod))
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable(enabled = !editingDisabled) {
+                                            onRequestDeleteItem(dialog.target.toItemTarget(item))
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
                             OutlinedTextField(
                                 value = item.newMemo,
                                 onValueChange = { onEditMemoChange(item.tilcod, it) },

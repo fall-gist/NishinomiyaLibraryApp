@@ -400,7 +400,6 @@ fun LibraryApp(
                                 onRequestCreateShelf = bookshelfEditingUiController::requestCreateShelf,
                                 onRequestEditShelf = bookshelfEditingUiController::requestEditShelf,
                                 onRequestDeleteShelf = bookshelfEditingUiController::requestDeleteShelf,
-                                onRequestDeleteItem = bookshelfEditingUiController::requestDeleteItem,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -565,6 +564,7 @@ fun LibraryApp(
                         onDismissConfirmation = bookshelfEditingUiController::dismissConfirmation,
                         onClearResult = bookshelfEditingUiController::clearResult,
                         onClearError = bookshelfEditingUiController::clearError,
+                        onRequestDeleteItem = bookshelfEditingUiController::requestDeleteItem,
                     )
                     reservationState.pendingConfirmation?.let { request ->
                         ReservationConfirmDialog(
