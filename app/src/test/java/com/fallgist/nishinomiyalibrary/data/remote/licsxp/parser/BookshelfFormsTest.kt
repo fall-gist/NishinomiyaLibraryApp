@@ -1,5 +1,8 @@
 package com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser
 
+import com.fallgist.nishinomiyalibrary.domain.model.Shelf
+import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
+import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,15 +28,44 @@ class BookshelfFormsTest {
     }
 
     @Test
-    fun `編集フォームは名称と繰返し資料メモ全件を置換する`() {
+    fun `編集フォームは名称とbookcmnt_eachcmntの両方を新しいメモで置換する`() {
+        // サイトのchangcmnt(cmtValue, valcod)は hidden bookcmnt と textarea eachcmnt の両方に
+        // 同じ新値を入れて送信する。eachcmntだけを新値にするとbookcmntの旧値でサーバがメモを
+        // 上書きしてしまうため、両方が新値になることをここで固定する（今回の修正の本体）。
         val html = form(listOf("hash", "returnid", "gamenid", "tilcod", "dispflg", "otherbook", "listname", "commnt", "bookcmnt", "eachcmnt", "sortno", "eachsortno", "bookcmnt", "eachcmnt", "sortno", "eachsortno"))
             .replace("name='otherbook' value='otherbook'", "name='otherbook' value='4'")
         val body = BookshelfEditFormParser.parse(html).edit("変更後の棚", listOf("一件目", "新しい\r\nメモ"))
         assertEquals("変更後の棚", body.value(6))
+        assertEquals("bookcmnt", body.name(8))
         assertEquals("eachcmnt", body.name(9))
+        assertEquals("bookcmnt", body.name(12))
         assertEquals("eachcmnt", body.name(13))
+        assertEquals("一件目", body.value(8))
         assertEquals("一件目", body.value(9))
+        assertEquals("新しい\r\nメモ", body.value(12))
         assertEquals("新しい\r\nメモ", body.value(13))
+    }
+
+    @Test
+    fun `編集フォームはdisp_chkの有無どちらの項目列も受理する`() {
+        val withoutDispChk = form(listOf("hash", "returnid", "gamenid", "tilcod", "dispflg", "otherbook", "listname", "commnt", "bookcmnt", "eachcmnt", "sortno", "eachsortno"))
+            .replace("name='otherbook' value='otherbook'", "name='otherbook' value='4'")
+        val withDispChk = form(listOf("hash", "returnid", "gamenid", "tilcod", "dispflg", "otherbook", "listname", "commnt"))
+            .replace("</form>", "<input type='checkbox' name='disp_chk' value='on' checked><input type='hidden' name='bookcmnt' value='bookcmnt'><input type='hidden' name='eachcmnt' value='eachcmnt'><input type='hidden' name='sortno' value='sortno'><input type='hidden' name='eachsortno' value='eachsortno'></form>")
+            .replace("name='otherbook' value='otherbook'", "name='otherbook' value='4'")
+
+        val withoutForm = BookshelfEditFormParser.parse(withoutDispChk)
+        val withForm = BookshelfEditFormParser.parse(withDispChk)
+
+        assertEquals(1, withoutForm.itemCount)
+        assertEquals(1, withForm.itemCount)
+        val withBody = withForm.edit("変更後の棚", listOf("新メモ"))
+        assertEquals("disp_chk", withBody.name(8))
+        assertEquals("on", withBody.value(8))
+        assertEquals("bookcmnt", withBody.name(9))
+        assertEquals("新メモ", withBody.value(9))
+        assertEquals("eachcmnt", withBody.name(10))
+        assertEquals("新メモ", withBody.value(10))
     }
 
     @Test
@@ -330,6 +362,70 @@ class BookshelfFormsTest {
         ).forEach { html ->
             assertTrue(runCatching { BookshelfCompletionFormParser.parse(html, fields) }.exceptionOrNull() is ParseException)
         }
+    }
+
+    @Test
+    fun `requireMatchesは改行を含むメモと空文字メモを表示メモの正規化と揃えて通す`() {
+        // ShelfParserはJsoup#text()で表示メモを作るため改行が空白に潰れ連続空白がまとめられ前後がtrimされる。
+        // フォームの生値（改行を保持）とその正規化を揃えて比較しないと、改行を含むメモの資料が
+        // 1件でもあると編集が丸ごと停止してしまう。
+        // 1件目: 改行入りメモ（表示側は空白1つに潰れる想定）、2件目: 空文字メモ
+        val htmlWithRows = buildString {
+            append("<form name='LBForm'>")
+            append("<input type='hidden' name='hash' value='hash'>")
+            append("<input type='hidden' name='returnid' value='returnid'>")
+            append("<input type='hidden' name='gamenid' value='gamenid'>")
+            append("<input type='hidden' name='tilcod' value='tilcod'>")
+            append("<input type='hidden' name='dispflg' value='dispflg'>")
+            append("<input type='hidden' name='otherbook' value='4'>")
+            append("<input type='hidden' name='listname' value='棚'>")
+            append("<input type='hidden' name='commnt' value='commnt'>")
+            append("<input type='hidden' name='bookcmnt' value='改行&#10;混じり&#10;メモ'>")
+            append("<textarea name='eachcmnt'>改行&#10;混じり&#10;メモ</textarea>")
+            append("<input type='hidden' name='sortno' value='1'>")
+            append("<input type='hidden' name='eachsortno' value='1'>")
+            append("<input type='hidden' name='bookcmnt' value=''>")
+            append("<textarea name='eachcmnt'></textarea>")
+            append("<input type='hidden' name='sortno' value='2'>")
+            append("<input type='hidden' name='eachsortno' value='2'>")
+            append("</form>")
+        }
+        val form = BookshelfEditFormParser.parse(htmlWithRows)
+        val shelf = Shelf(4, "棚")
+        val items = listOf(
+            ShelfItem(memberId = 0, tilcod = "t1", title = "本1", memo = "改行 混じり メモ", registeredDate = LocalDate.of(2026, 1, 1), shelfNo = 4, shelfName = "棚"),
+            ShelfItem(memberId = 0, tilcod = "t2", title = "本2", memo = "", registeredDate = LocalDate.of(2026, 1, 1), shelfNo = 4, shelfName = "棚"),
+        )
+
+        // 例外が飛ばなければ成功
+        form.requireMatches(shelf, items)
+    }
+
+    @Test
+    fun `requireMatchesは正規化しても異なるメモなら拒否する`() {
+        val htmlWithRows = buildString {
+            append("<form name='LBForm'>")
+            append("<input type='hidden' name='hash' value='hash'>")
+            append("<input type='hidden' name='returnid' value='returnid'>")
+            append("<input type='hidden' name='gamenid' value='gamenid'>")
+            append("<input type='hidden' name='tilcod' value='tilcod'>")
+            append("<input type='hidden' name='dispflg' value='dispflg'>")
+            append("<input type='hidden' name='otherbook' value='4'>")
+            append("<input type='hidden' name='listname' value='棚'>")
+            append("<input type='hidden' name='commnt' value='commnt'>")
+            append("<input type='hidden' name='bookcmnt' value='元のメモ'>")
+            append("<textarea name='eachcmnt'>元のメモ</textarea>")
+            append("<input type='hidden' name='sortno' value='1'>")
+            append("<input type='hidden' name='eachsortno' value='1'>")
+            append("</form>")
+        }
+        val form = BookshelfEditFormParser.parse(htmlWithRows)
+        val shelf = Shelf(4, "棚")
+        val items = listOf(
+            ShelfItem(memberId = 0, tilcod = "t1", title = "本1", memo = "異なるメモ", registeredDate = LocalDate.of(2026, 1, 1), shelfNo = 4, shelfName = "棚"),
+        )
+
+        assertTrue(runCatching { form.requireMatches(shelf, items) }.exceptionOrNull() is ParseException)
     }
 
     private fun form(names: List<String>): String = buildString {

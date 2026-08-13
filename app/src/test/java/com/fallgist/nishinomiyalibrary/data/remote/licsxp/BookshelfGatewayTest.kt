@@ -628,7 +628,8 @@ class BookshelfGatewayTest {
         assertEquals(10, server.requestCount)
         val requests = requests(10)
         assertEquals("/WOpacSdiBookListDispAction.do", requests[8].path)
-        assertTrue(requests[8].body.readUtf8().contains("bookcmnt=%E5%A4%89%E6%9B%B4%E5%89%8D&bookcmnt=%E3%81%9D%E3%81%AE%E3%81%BE%E3%81%BE&eachcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C&eachcmnt=%E3%81%9D%E3%81%AE%E3%81%BE%E3%81%BE"))
+        // bookcmntも新値になることを固定する（eachcmntだけ新値にする実装に戻すと赤くなる）。
+        assertTrue(requests[8].body.readUtf8().contains("bookcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C&bookcmnt=%E3%81%9D%E3%81%AE%E3%81%BE%E3%81%BE&eachcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C&eachcmnt=%E3%81%9D%E3%81%AE%E3%81%BE%E3%81%BE"))
     }
 
     @Test
@@ -689,19 +690,21 @@ class BookshelfGatewayTest {
         assertEquals(1, requests.count { it.path == "/WOpacSdiBookListDispAction.do" })
     }
 
+    // サイトのchangcmnt(cmtValue, valcod)はhidden bookcmntとtextarea eachcmntの両方に同じ新値を
+    // 入れて送信するため、確認・完了ページのfixtureもbookcmnt/eachcmnt双方を新値にして作る。
     private fun updateMemoFields(no: Int, name: String, items: List<FixtureItem>, memo: String): List<Pair<String, String>> {
         var index = -1
         return editFields(no, name, items).map { field ->
-            if (field.first == "eachcmnt") index++
-            if (field.first == "eachcmnt" && index == 0) "eachcmnt" to memo else field
+            if (field.first == "bookcmnt") index++
+            if ((field.first == "bookcmnt" || field.first == "eachcmnt") && index == 0) field.first to memo else field
         }
     }
 
     private fun updateMemosFields(no: Int, name: String, items: List<FixtureItem>, memos: List<String>): List<Pair<String, String>> {
         var index = -1
         return editFields(no, name, items).map { field ->
-            if (field.first == "eachcmnt") index++
-            if (field.first == "eachcmnt") "eachcmnt" to memos[index] else field
+            if (field.first == "bookcmnt") index++
+            if (field.first == "bookcmnt" || field.first == "eachcmnt") field.first to memos[index] else field
         }
     }
 

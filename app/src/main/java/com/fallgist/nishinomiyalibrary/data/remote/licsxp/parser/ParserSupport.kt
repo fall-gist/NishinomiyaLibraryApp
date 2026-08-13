@@ -67,6 +67,14 @@ internal object ParserSupport {
     private val SHORT_DATE_REGEX = Regex("\\d{2}/\\d{2}/\\d{2}")
 
     fun String.normalized(): String = replace('\u00a0', ' ').replace('\u3000', ' ').replace(Regex("\\s+"), " ").trim()
+
+    /**
+     * \u6539\u884c\u30fb\u9023\u7d9a\u7a7a\u767d\u30fb\u524d\u5f8c\u7a7a\u767d\u306e\u5dee\u7570\u3092\u5438\u53ce\u3057\u3066\u6bd4\u8f03\u3059\u308b\u305f\u3081\u306e\u6b63\u898f\u5316\u3002
+     * ShelfParser \u304c\u8868\u793a\u30e1\u30e2\u3092\u4f5c\u308b\u969b\u306b\u4f7f\u3046 normalized() \u3068\u540c\u3058\u30ed\u30b8\u30c3\u30af\u3092\u3001
+     * \u62e1\u5f35\u95a2\u6570\u306e `run {}` \u306a\u3057\u3067\u4ed6\u30d1\u30c3\u30b1\u30fc\u30b8\u304b\u3089\u3082\u547c\u3079\u308b\u3088\u3046\u306b\u3057\u305f\u3082\u306e\u3002
+     * \u6bd4\u8f03\u5c02\u7528\u3067\u3042\u308a\u3001\u9001\u4fe1\u5024\u305d\u306e\u3082\u306e\u306e\u6b63\u898f\u5316\u306b\u306f\u4f7f\u308f\u306a\u3044\u3002
+     */
+    fun normalizeWhitespace(value: String): String = value.normalized()
 }
 
 internal fun Element.cell(index: Int, screen: String, label: String): String =

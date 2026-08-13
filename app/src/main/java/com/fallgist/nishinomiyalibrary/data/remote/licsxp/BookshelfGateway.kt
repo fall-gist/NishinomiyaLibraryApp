@@ -10,6 +10,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfEditFo
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfFormField
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoginFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParserSupport
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfParseResult
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfParser
@@ -426,7 +427,8 @@ private fun sameItems(left: List<ShelfItem>, right: List<ShelfItem>): Boolean = 
     a.tilcod == b.tilcod && a.title == b.title && normalized(a.memo) == normalized(b.memo) && a.registeredDate == b.registeredDate
 }
 
-private fun normalized(value: String): String = value.replace("\r\n", "\n")
+/** 表示由来のメモと利用者入力メモの比較にだけ使う正規化。ShelfParser の表示メモ正規化と揃える。 */
+private fun normalized(value: String): String = ParserSupport.normalizeWhitespace(value)
 private fun isBookshelfMaintenance(html: String): Boolean = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス").any(html::contains)
 private fun requireBookshelfNotMaintenance(html: String) { if (isBookshelfMaintenance(html)) throw LibraryError.Maintenance() }
 private fun isBookshelfLoginForm(html: String): Boolean = Jsoup.parse(html).selectFirst("input[name=j_password], input[name=j_username], form[action*=j_security_check]") != null

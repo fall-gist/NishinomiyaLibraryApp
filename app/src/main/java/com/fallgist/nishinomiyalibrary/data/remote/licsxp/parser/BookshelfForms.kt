@@ -81,19 +81,27 @@ internal class BookshelfCreateForm(private val fields: List<BookshelfFormField>)
     fun buildForm(name: String): FormBody = fields.toFormBody { field, _ -> when (field.name) { "listname" -> name; "commnt" -> ""; else -> field.value } }
 }
 
-/** 本棚編集フォーム。資料行は必ず4項目の繰返しであることを確認する。 */
+/**
+ * 本棚編集フォーム。資料行は必ず4項目の繰返しであることを確認する。
+ * `disp_chk`（「最初に表示されるリストにする」チェックボックス）は checked のときだけ
+ * successful control になるため、commnt の直後に有無どちらでも受理する。
+ */
 internal object BookshelfEditFormParser {
     private val prefix = listOf("hash", "returnid", "gamenid", "tilcod", "dispflg", "otherbook", "listname", "commnt")
     private val row = listOf("bookcmnt", "eachcmnt", "sortno", "eachsortno")
     fun parse(html: String): BookshelfEditForm {
         val fields = parseNamedForm(html, "bookshelf-edit") { true }
         val names = fields.map { it.name }
-        if (names.take(prefix.size) != prefix || (names.size - prefix.size) % row.size != 0 ||
-            names.drop(prefix.size).chunked(row.size).any { it != row }) {
+        if (names.take(prefix.size) != prefix) {
+            throw ParseException("bookshelf-edit", "編集LBFormの項目または資料行順が実測契約と一致しません")
+        }
+        val prefixSize = if (names.getOrNull(prefix.size) == "disp_chk") prefix.size + 1 else prefix.size
+        val rowNames = names.drop(prefixSize)
+        if (rowNames.size % row.size != 0 || rowNames.chunked(row.size).any { it != row }) {
             throw ParseException("bookshelf-edit", "編集LBFormの項目または資料行順が実測契約と一致しません")
         }
         val shelfNo = fields[5].value.toIntOrNull() ?: throw ParseException("bookshelf-edit", "otherbookが不正です")
-        return BookshelfEditForm(fields, shelfNo, (names.size - prefix.size) / row.size)
+        return BookshelfEditForm(fields, shelfNo, rowNames.size / row.size, prefixSize)
     }
 }
 
@@ -101,33 +109,47 @@ internal class BookshelfEditForm(
     private val fields: List<BookshelfFormField>,
     val shelfNo: Int,
     val itemCount: Int,
+    private val prefixSize: Int,
 ) {
     /**
      * 表示した本棚と編集ページが同一であることを、送信前に fail-closed で照合する。
      * ShelfItem にサイト固有の sort 値は保存しないため、行順・資料メモと、各行の hidden/editable
      * sort 値の一致までを検証する。すべての control 自体は buildForm でそのまま保持する。
+     * メモの比較は、表示メモ（改行が空白に潰れ前後trimされたもの）とフォームの生値（改行を保持）を
+     * 同じ正規化を通してから突き合わせる。正規化は比較にのみ使い、送信値そのものは加工しない。
      */
     fun requireMatches(shelf: Shelf, items: List<ShelfItem>) {
         if (shelfNo != shelf.no || fields[6].value != shelf.name || itemCount != items.size) {
             throw ParseException("bookshelf-edit", "編集フォームの対象本棚が表示内容と一致しません")
         }
-        val rows = fields.drop(8).chunked(4)
+        val rows = fields.drop(prefixSize).chunked(4)
         rows.forEachIndexed { index, values ->
             val (bookComment, eachComment, sortNo, eachSortNo) = values.map(BookshelfFormField::value)
-            if (bookComment != items[index].memo || eachComment != items[index].memo ||
+            val expectedMemo = ParserSupport.normalizeWhitespace(items[index].memo)
+            if (ParserSupport.normalizeWhitespace(bookComment) != expectedMemo ||
+                ParserSupport.normalizeWhitespace(eachComment) != expectedMemo ||
                 sortNo != eachSortNo || sortNo.toIntOrNull() == null) {
                 throw ParseException("bookshelf-edit", "編集フォームの資料行が表示内容と一致しません")
             }
         }
     }
-    /** listnameと全資料のeachcmntだけを、同じLBFormのまま一度に置換する。 */
+    /**
+     * listnameと全資料のメモを、同じLBFormのまま一度に置換する。
+     * サイトの changcmnt(cmtValue, valcod) は hidden の bookcmnt と textarea の eachcmnt の
+     * 両方に同じ新値を入れて送信するため、ここでも両方を新しいメモ値に置換する
+     * （eachcmnt だけを新値にすると bookcmnt の旧値でサーバがメモを上書きしてしまう）。
+     * sortno/eachsortno はこの機能のスコープ外なのでサイト取得値のまま保持する。
+     * 行の対応付けは、資料行が必ず bookcmnt→eachcmnt→sortno→eachsortno の順で繰り返す
+     * という parse() 時点のDOM順検証に依拠する（tilcod による id 単位の検証は行っていない）。
+     */
     fun edit(name: String, memos: List<String>): FormBody {
         if (memos.size != itemCount) throw ParseException("bookshelf-edit", "資料メモ件数が一致しません")
         var rowIndex = -1
         return fields.toFormBody { field, _ ->
             when (field.name) {
                 "listname" -> name
-                "eachcmnt" -> memos[++rowIndex]
+                "bookcmnt" -> { rowIndex++; memos[rowIndex] }
+                "eachcmnt" -> memos[rowIndex]
                 else -> field.value
             }
         }
