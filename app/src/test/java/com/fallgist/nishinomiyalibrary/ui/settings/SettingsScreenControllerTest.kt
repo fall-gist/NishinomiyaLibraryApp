@@ -32,13 +32,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -132,6 +133,27 @@ class SettingsScreenControllerTest {
         awaitInitialized(controller)
         awaitRuleIds(controller, listOf(1))
 
+        controller.setAutoReservationEnabled(true)
+        withTimeout(5_000) { controller.state.first { it.settings.autoReservationEnabled } }
+
+        assertTrue(settingsStore.settings.first().autoReservationEnabled)
+        assertEquals(null, controller.state.value.autoReservationError)
+        controller.close()
+    }
+
+    @Test
+    fun `初期化完了前のON操作は初期化完了を待ってから検証され保存される`() = runBlocking {
+        val settingsStore = settingsStore()
+        val controller = controller(
+            diagnosticLog = DiagnosticLog(fixedClock()),
+            familyRepository = DelayedMembersFamilyRepository(listOf(member()), 500),
+            settingsStore = settingsStore,
+            autoReservationRepository = FakeAutoReservationRepository(listOf(rule(1, "AI"))),
+        )
+
+        // 初期化完了前(awaitInitialized・awaitRuleIds未実施)にONを押しても、membersが空のまま
+        // 検証が走って誤ったエラーへ倒れないこと。setAutoReservationEnabledのinitialStateLoaded.await()
+        // がこれを担保する。
         controller.setAutoReservationEnabled(true)
         withTimeout(5_000) { controller.state.first { it.settings.autoReservationEnabled } }
 
@@ -235,6 +257,9 @@ class SettingsScreenControllerTest {
             settingsStore = settingsStore,
             autoReservationRepository = autoReservationRepository,
         )
+        // combineの初回発行(members/settingsの確定)を待つ。初回ルール読込ゲートとは独立した経路であり、
+        // テストの意図(初回ルール読込中の追加・ONが読込完了後まで保存されないこと)は変わらない。
+        awaitInitialized(controller)
         withTimeout(5_000) { autoReservationRepository.firstRulesReadStarted.await() }
 
         controller.saveAutoReservationRule(null, listOf("追加"), emptyList())
@@ -268,10 +293,16 @@ class SettingsScreenControllerTest {
             controller.state.first { it.autoReservationError == "ルールを読み込めませんでした" }.autoReservationError
         }
 
+        // initialRulesSettledは初回ルール読込の決着(成功/失敗)を表すDeferred。失敗確定後はfalseで
+        // 完了済みのため、ここでのawaitは中断しない。mutateRulesはCoroutineStart.UNDISPATCHEDで
+        // 起動するため、完了済みDeferredのawait()は呼び出しスレッドで同期的に返り、この後の
+        // saveAutoReservationRule呼び出しは戻ってきた時点でreplaceRulesまでの判定が完了している。
+        // したがって実時間待機(withTimeoutOrNull)なしに直後のアサーションが決定論的になる。
+        assertFalse(withTimeout(5_000) { controller.initialRulesSettled.await() })
+
         controller.saveAutoReservationRule(null, listOf("追加"), emptyList())
         controller.setAutoReservationEnabled(true)
 
-        assertEquals(null, withTimeoutOrNull(250) { autoReservationRepository.replaceRulesAttempted.await() })
         assertEquals(0, autoReservationRepository.replaceRulesCalls)
         assertFalse(settingsStore.settings.first().autoReservationEnabled)
         assertEquals(initialError, controller.state.value.autoReservationError)
@@ -415,6 +446,17 @@ class SettingsScreenControllerTest {
         override suspend fun removeMember(memberId: Long) = Unit
     }
 
+    /** membersの初回発行を遅らせ、combine購読の初期化完了前の操作を再現する。 */
+    private class DelayedMembersFamilyRepository(
+        private val members: List<Member>,
+        private val delayMillis: Long,
+    ) : FamilyRepository {
+        override fun members(): Flow<List<Member>> = flow { delay(delayMillis); emit(members) }
+        override suspend fun addMember(name: String, colorHex: String, cardNumber: String, password: String) = Unit
+        override suspend fun updateMember(member: Member, newPassword: String?) = Unit
+        override suspend fun removeMember(memberId: Long) = Unit
+    }
+
     private class FakeStatusRepository : StatusRepository {
         override fun loans(): Flow<List<Loan>> = flowOf(emptyList())
         override fun reservations(): Flow<List<Reservation>> = flowOf(emptyList())
@@ -447,7 +489,6 @@ class SettingsScreenControllerTest {
         var replaceRulesCalls: Int = 0
             private set
         val firstRulesReadStarted = CompletableDeferred<Unit>()
-        val replaceRulesAttempted = CompletableDeferred<Unit>()
         private var rulesCalls = 0
 
         override suspend fun rules(): List<AutoReservationRule> {
@@ -461,7 +502,6 @@ class SettingsScreenControllerTest {
         }
 
         override suspend fun replaceRules(rules: List<AutoReservationRule>) {
-            replaceRulesAttempted.complete(Unit)
             replaceRulesCalls += 1
             currentRules = rules.sortedBy { it.sortOrder }
         }

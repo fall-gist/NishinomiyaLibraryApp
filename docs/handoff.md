@@ -2380,7 +2380,7 @@ DIモジュール・`LibraryApp.kt`は無変更である。
 分類は`else`なしの`when`で全列挙してあり、`FailureReason`が増えたらコンパイルエラーになる。
 `Unknown`を再試行側へ分類し直す劣化注入で該当テストが赤くなることを確認済み。
 
-### 既知のフレーキーテスト（2026-08-13、未解決）
+### 既知のフレーキーテスト（2026-08-13、解決済み）
 
 CIが3回連続で失敗し、**毎回落ちるテストが違った**ことから調査した。最初の失敗は`docs/`しか変更していない
 コミットで起きており、機能の退行ではない。
@@ -2397,7 +2397,61 @@ CIが3回連続で失敗し、**毎回落ちるテストが違った**ことか�
 区別せず一律`LibraryError.Network`として扱うため、**検証したい分岐（通信断→再送しない）は変わらない。**
 単独で6回連続実行して全て緑を確認済み。
 
-#### 未解決: `SettingsScreenControllerTest`の初回ルール読込テスト
+#### 解決済み: `SettingsScreenControllerTest`の初回ルール読込テスト（2026-08-13）
+
+**結論から言うと、これはテストの書き方の問題ではなく、`SettingsScreenController`の初期化順序の欠陥が2つあった。**
+テスト側の同期点を足すだけでは直らないという前回の見立ては正しかった。
+
+**ベースライン（実測）**: 対象クラスを単独で20回連続実行し1回失敗（5%）。失敗は必ず
+`初回ルール読込中の追加とONは読込完了後に既存ルールを保持して保存する`の
+`controller.state.first { it.settings.autoReservationEnabled }`の5秒タイムアウトだった。
+
+**原因1（本番の欠陥）**: `setAutoReservationEnabled(true)`は`initialRulesLoaded`だけを待ち、
+`members`と`_state.value.settings`を待たなかった。この2つは`init`の`combine`購読の初回発行でしか
+埋まらず（`settingsStore`は実DataStore＝実ディスクI/O）、ゲート解放直後に検証が走ると`members`が
+空のまま`autoReservationEnableReason`が「メンバーを1人以上登録してください」へ倒れる。
+**実アプリでも、初期化が終わる前に自動予約のトグルを押すと同じ誤ったエラーが出る。**
+
+**原因2（本番の欠陥）**: `reloadRules()`が`autoReservationRepository.rules()`の**suspend区間全体で
+`rulesMutex`を保持**していた。`combine`の`collect`本体も同じmutexを取るため、
+**ルール読込が終わるまで設定画面全体が初期化されない。** 当初「テストに`awaitInitialized`を足す」
+という修正を試みたところ、読込をゲートで止めているこのテストでは`awaitInitialized`自体が
+mutex解放待ちになり、**確率的失敗から決定論的なデッドロックへ悪化した**（この観測で原因2が判明した）。
+
+**対応**:
+
+1. `initialStateLoaded`（`combine`初回発行の完了）を追加し、`setAutoReservationEnabled(enabled=true)`の
+   検証前に待つ。OFF経路は待たせない
+2. `reloadRules()`はリポジトリ読込を`rulesMutex`の**外**で行い、代入・状態反映・
+   `initialRulesLoaded.complete`だけをロック内に残す。`reloadRules`は`init`から1回だけ呼ばれ、
+   `mutateRules`は`initialRulesLoaded`完了まで動けない（その完了はロック内の代入後）ため、
+   **更新が失われる窓は生じない**
+3. 対象テストへ`awaitInitialized(controller)`を追加（1・2があれば無くても通るが、
+   2を将来戻したときにデッドロックとして検知するカナリアになる）
+4. `initialRulesSettled`を`internal`で公開し、`初回ルール読込失敗後は…`の
+   `withTimeoutOrNull(250)`という実時間待機を廃止した。`mutateRules`は`CoroutineStart.UNDISPATCHED`
+   なので、完了済みDeferredの`await()`は中断せず、`saveAutoReservationRule`が戻った時点で判定が
+   終わっている。**旧方式より検出力は上がっている**（ガードを外すと同期的に`replaceRules`が呼ばれ確実に赤くなる）
+5. `initialStateLoaded`の必要性を実証する専用テスト
+   `初期化完了前のON操作は初期化完了を待ってから検証され保存される`を追加した
+   （`DelayedMembersFamilyRepository`でmembersの初回発行を500ms遅らせる）
+
+**検証**: 劣化注入3種（1のガード除去→新規テストが赤、`mutateRules`のガード除去→2件が赤、
+2を元に戻す→対象テストが赤）をすべて実証。対象クラスを単独で**30回連続実行して失敗0**
+（実装セッション20回＋管理セッション10回）。全単体テスト761件成功、`assembleDebug`成功。
+独立レビューで重大の指摘なし。
+
+**注意**: `initialStateLoaded.await()`は上限を持たない。`combine`の4ソースのいずれかが初回発行を
+止めると、ONの操作が無言でハングする。これは既存の`initialRulesLoaded.await()`と同じ性質であり、
+その設計方針を踏襲した結果である（独立レビューの中程度指摘。現行のリポジトリ実装はいずれも即時発行する）。
+
+**残る非対称（未修正・報告のみ）**: `mutateRules`は依然として`replaceRules`と再取得の
+I/O区間全体を`rulesMutex`で保持している。`combine`購読も同じmutexを取るため、
+ルール保存中はメンバー変更・同期時刻・診断ログ件数の表示更新がブロックされうる。
+初回読込側だけロック外へ出したので挙動が非対称になっている。実害は軽微だが、
+`mutateRules`にも同じ整理を入れるかは別途判断すること。
+
+#### 参考: 修正前の分析（当時の記録）
 
 `初回ルール読込中の追加とONは読込完了後に既存ルールを保持して保存する`は、**修正前から約20%の頻度で
 落ちる**（変更前のコードで5回中1回再現。`controller.state.first { it.settings.autoReservationEnabled }`で
@@ -2417,11 +2471,10 @@ DataStoreの初回読込を待つ**隠れた同期点**として機能してお�
 テストから決定論的に観測できるようにする必要がある。**片手間の書き換えは今回のように悪化させる。**
 検出力を落とす変更をする場合は、劣化注入（初回読込待ちガードを外して赤くなること）で実証すること。
 
-#### 同種の箇所（未修正・報告のみ）
+#### 同種の箇所（対応済み）
 
 `SettingsScreenControllerTest`の`初回ルール読込失敗後はルール操作とONを保存せず読込エラーを維持する`に
-`withTimeoutOrNull(250) { ... }`という実時間待機がある。こちらは`initialRulesLoaded`が恒久的に
-失敗確定のケースなので理論上は安全側だが、実時間依存である点は同種である。
+あった`withTimeoutOrNull(250) { ... }`という実時間待機は、上記の対応4で撤去した。
 
 #### 検証時の注意（実際に踏んだ）
 

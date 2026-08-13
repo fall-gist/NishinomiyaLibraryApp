@@ -27,6 +27,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -118,6 +119,15 @@ class SettingsScreenController(
     private val rulesMutex = Mutex()
     private val initialRulesLoaded = CompletableDeferred<Boolean>(scope.coroutineContext[Job])
 
+    /** テストが初回ルール読込の決着を決定論的に待つための観測点。本番コードからは参照しない。 */
+    internal val initialRulesSettled: Deferred<Boolean> get() = initialRulesLoaded
+
+    // combine購読の初回発行(members/settingsが確定するタイミング)を待てるようにする。
+    // members・settingsはinitのcombine購読の初回発行でしか埋まらない(settingsStoreは実DataStore
+    // =実ディスクI/O)ため、これより前に検証すると実アプリでも初期化前のトグル操作で誤ったエラー文言
+    // (「メンバーを1人以上登録してください」)を出しうる。検証はこの2つが確定してから行う。
+    private val initialStateLoaded = CompletableDeferred<Unit>(scope.coroutineContext[Job])
+
     init {
         scope.launch {
             combine(
@@ -143,6 +153,7 @@ class SettingsScreenController(
                     diagnosticLogEnabled = combined.settings.diagnosticLogEnabled,
                     diagnosticLogLineCount = combined.diagnosticEntries.size,
                     ), combined.settings, combined.memberList, currentRules)
+                initialStateLoaded.complete(Unit)
             }
         }
         scope.launch { reloadRules() }
@@ -237,6 +248,7 @@ class SettingsScreenController(
     fun setAutoReservationEnabled(enabled: Boolean) {
         scope.launch {
             if (enabled) {
+                initialStateLoaded.await()
                 if (!initialRulesLoaded.await()) return@launch
                 val reason = rulesMutex.withLock {
                     autoReservationEnableReason(_state.value.settings, members, rules, _state.value.libraries)
@@ -309,8 +321,12 @@ class SettingsScreenController(
 
     private suspend fun reloadRules() {
         try {
+            // 読込のsuspend区間ではrulesMutexを保持しない。combine購読の本体も同じmutexを取るため、
+            // 保持したままだと設定画面全体の初期化がルール読込の完了までブロックされる(実アプリでも
+            // 読込が遅い間は画面が初期化されない)。
+            val loaded = autoReservationRepository.rules().sortedBy { it.sortOrder }
             rulesMutex.withLock {
-                rules = autoReservationRepository.rules().sortedBy { it.sortOrder }
+                rules = loaded
                 _state.value = buildState(_state.value.copy(autoReservationRules = rules), _state.value.settings, members, rules)
                 initialRulesLoaded.complete(true)
             }
