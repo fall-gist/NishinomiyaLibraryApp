@@ -1,5 +1,8 @@
 package com.fallgist.nishinomiyalibrary.ui.settings
 
+import com.fallgist.nishinomiyalibrary.data.backup.BackupExportPort
+import com.fallgist.nishinomiyalibrary.data.backup.BackupImportPort
+import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
 import com.fallgist.nishinomiyalibrary.data.diagnostics.DiagnosticLog
 import com.fallgist.nishinomiyalibrary.data.diagnostics.DiagnosticLogEntry
 import com.fallgist.nishinomiyalibrary.data.local.AppSettings
@@ -38,6 +41,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
+/** [SettingsScreenController.exportBackup]の結果。 */
+sealed interface BackupExportOutcome {
+    data class Success(val json: String) : BackupExportOutcome
+    data class Failed(val message: String) : BackupExportOutcome
+}
 
 /** 設定画面のメンバー一覧1行。 */
 data class SettingsMemberRow(
@@ -101,6 +110,8 @@ class SettingsScreenController(
     private val scheduleStarter: SyncScheduleStarter,
     private val diagnosticLog: DiagnosticLog,
     private val autoReservationRepository: AutoReservationRepository = NoOpSettingsAutoReservationRepository,
+    private val backupExporter: BackupExportPort = NoOpBackupExportPort,
+    private val backupImporter: BackupImportPort = NoOpBackupImportPort,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -354,6 +365,25 @@ class SettingsScreenController(
         scope.launch { runCatching { settingsStore.updateDiagnosticLogEnabled(enabled) } }
     }
 
+    /**
+     * バックアップJSONを組み立てる。SAFのファイル書き込み自体はCompose側(BackupSection)が行い、
+     * ここでは文字列を返すだけに留める。
+     */
+    suspend fun exportBackup(): BackupExportOutcome = withContext(dispatcher) {
+        try {
+            BackupExportOutcome.Success(backupExporter.export())
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (_: Exception) {
+            BackupExportOutcome.Failed("書き出しに失敗しました")
+        }
+    }
+
+    /** バックアップJSONを検証し、全置換でインポートする。既存データが壊れないことは実装側で担保する。 */
+    suspend fun importBackup(jsonText: String): BackupImportResult = withContext(dispatcher) {
+        backupImporter.import(jsonText)
+    }
+
     /** クリップボードへコピーする文字列を返す純粋な取得。副作用はない。 */
     fun formattedDiagnosticLog(): String = diagnosticLog.formatted()
 
@@ -397,4 +427,15 @@ private object NoOpSettingsAutoReservationRepository : AutoReservationRepository
     override fun latestRun() = kotlinx.coroutines.flow.flowOf<com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun?>(null)
     override suspend fun replaceLatestRun(run: com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun) = Unit
     override suspend fun markLatestRunAcknowledged(runId: Long) = false
+}
+
+/** backupExporterが未設定のテスト等での既定実装。呼ばれることを想定しない。 */
+private object NoOpBackupExportPort : BackupExportPort {
+    override suspend fun export(): String = error("バックアップのエクスポートが設定されていません")
+}
+
+/** backupImporterが未設定のテスト等での既定実装。呼ばれることを想定しない。 */
+private object NoOpBackupImportPort : BackupImportPort {
+    override suspend fun import(jsonText: String): BackupImportResult =
+        error("バックアップのインポートが設定されていません")
 }

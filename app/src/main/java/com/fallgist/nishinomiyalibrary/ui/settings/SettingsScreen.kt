@@ -44,6 +44,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
 import com.fallgist.nishinomiyalibrary.data.local.RETURN_REMINDER_DAYS_RANGE
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationRule
@@ -82,6 +83,8 @@ fun SettingsScreen(
     onRemoveAutoReservationRule: (Long) -> Unit,
     onSetAutoReservationRuleEnabled: (Long, Boolean) -> Unit,
     onMoveAutoReservationRule: (Long, Int) -> Unit,
+    onExportBackup: suspend () -> BackupExportOutcome,
+    onImportBackup: suspend (String) -> BackupImportResult,
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -310,6 +313,20 @@ fun SettingsScreen(
                 if (index < state.autoReservationRules.lastIndex) DividerLine()
             }
             Text("+ ルールを追加", color = colors.green, fontSize = 12.sp, modifier = Modifier.clickable { autoRuleEditor = AutoReservationRule(0, true, state.autoReservationRules.size, emptyList()) }.padding(vertical = 6.dp))
+        }
+
+        SectionTitle("端末の移行")
+        SectionCard {
+            BackupSection(
+                memberCount = state.memberRows.size,
+                onExport = onExportBackup,
+                onImport = onImportBackup,
+                onImportSucceeded = { requestNotificationPermission ->
+                    if (requestNotificationPermission) {
+                        notificationPermissionController.requestOrOpenSettings()
+                    }
+                },
+            )
         }
 
         SectionTitle("診断")

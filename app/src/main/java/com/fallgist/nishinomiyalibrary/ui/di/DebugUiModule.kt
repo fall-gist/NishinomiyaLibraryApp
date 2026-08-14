@@ -1,5 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui.di
 
+import com.fallgist.nishinomiyalibrary.data.backup.BackupExportPort
+import com.fallgist.nishinomiyalibrary.data.backup.BackupImportPort
 import com.fallgist.nishinomiyalibrary.data.diagnostics.DiagnosticLog
 import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.repository.ReservationOperationGate
@@ -215,6 +217,8 @@ object DebugUiProvisionModule {
         scheduleStarter: SyncScheduleStarter,
         diagnosticLog: DiagnosticLog,
         autoReservationRepository: AutoReservationRepository,
+        backupExportPort: BackupExportPort,
+        backupImportPort: BackupImportPort,
     ): SettingsScreenController = SettingsScreenController(
         familyRepository = familyRepository,
         statusRepository = statusRepository,
@@ -223,6 +227,8 @@ object DebugUiProvisionModule {
         scheduleStarter = scheduleStarter,
         diagnosticLog = diagnosticLog,
         autoReservationRepository = autoReservationRepository,
+        backupExporter = backupExportPort,
+        backupImporter = backupImportPort,
     )
 
     @Provides

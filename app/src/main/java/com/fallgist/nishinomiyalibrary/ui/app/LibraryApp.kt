@@ -460,6 +460,8 @@ fun LibraryApp(
                                 onRemoveAutoReservationRule = settingsController::removeAutoReservationRule,
                                 onSetAutoReservationRuleEnabled = settingsController::setAutoReservationRuleEnabled,
                                 onMoveAutoReservationRule = settingsController::moveAutoReservationRule,
+                                onExportBackup = settingsController::exportBackup,
+                                onImportBackup = settingsController::importBackup,
                                 onOpenMenu = openMenu,
                                 modifier = Modifier.fillMaxSize(),
                             )
