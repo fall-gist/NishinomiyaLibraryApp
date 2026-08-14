@@ -47,4 +47,16 @@ interface ReadingRecordDao {
 
     @Query("DELETE FROM reading_history_checkpoints WHERE memberId = :memberId")
     suspend fun deleteHistoryCheckpointsForMember(memberId: Long)
+
+    /** バックアップのエクスポート専用。全件を書き出す。 */
+    @Query("SELECT * FROM reading_history_checkpoints")
+    suspend fun getAllHistoryCheckpoints(): List<ReadingHistoryCheckpointEntity>
+
+    /** 設定インポート(全置換)専用。 */
+    @Query("DELETE FROM reading_records")
+    suspend fun clearAllRecords()
+
+    /** 設定インポート(全置換)専用。 */
+    @Query("DELETE FROM reading_history_checkpoints")
+    suspend fun clearAllHistoryCheckpoints()
 }

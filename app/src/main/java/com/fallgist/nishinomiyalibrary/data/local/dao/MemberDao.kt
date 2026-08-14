@@ -34,4 +34,8 @@ interface MemberDao {
 
     @Delete
     suspend fun delete(member: MemberEntity)
+
+    /** 設定インポート(全置換)専用。バックアップ復元前に既存メンバーを一括削除する。 */
+    @Query("DELETE FROM members")
+    suspend fun clearAll()
 }

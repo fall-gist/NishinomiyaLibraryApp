@@ -22,6 +22,10 @@ interface ReservationCartDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnoreDuplicate(item: ReservationCartItemEntity): Long
 
+    /** 設定インポート(全置換)専用。検証済みの投入なので衝突は失敗として扱う。 */
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertAll(items: List<ReservationCartItemEntity>): List<Long>
+
     @Delete
     suspend fun delete(item: ReservationCartItemEntity)
 
@@ -30,4 +34,8 @@ interface ReservationCartDao {
 
     @Query("DELETE FROM reservation_cart_items WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
+
+    /** 設定インポート(全置換)専用。 */
+    @Query("DELETE FROM reservation_cart_items")
+    suspend fun clearAll()
 }

@@ -35,11 +35,23 @@ interface AutoReservationDao {
     @Query("DELETE FROM auto_reservation_rules")
     suspend fun clearRules()
 
+    /** 設定インポート(全置換)専用。ルール本体より先に呼ぶ(外部キーを満たすため)。 */
+    @Query("DELETE FROM auto_reservation_terms")
+    suspend fun clearTerms()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertControl(control: AutoReservationControlEntity)
 
     @Query("SELECT * FROM auto_reservation_controls WHERE tilcod = :tilcod")
     suspend fun getControl(tilcod: String): AutoReservationControlEntity?
+
+    /** バックアップのエクスポート専用。全件を書き出す。 */
+    @Query("SELECT * FROM auto_reservation_controls")
+    suspend fun getAllControls(): List<AutoReservationControlEntity>
+
+    /** 設定インポート(全置換)専用。 */
+    @Query("DELETE FROM auto_reservation_controls")
+    suspend fun clearControls()
 
     @Query("DELETE FROM auto_reservation_controls WHERE expiresOn <= :today")
     suspend fun deleteExpiredControls(today: LocalDate): Int

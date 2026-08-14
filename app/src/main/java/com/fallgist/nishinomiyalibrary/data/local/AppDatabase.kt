@@ -38,6 +38,13 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.UserSummaryEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationPickupSubmissionEntity
 import java.time.LocalDate
 
+/**
+ * `@Database(version = ...)`と同じ値を保つ複製定数。バックアップの`sourceDbVersion`(診断用の
+ * 情報であり読み込みの可否判定には使わない)に使う。アノテーション引数への自己参照を避けるため、
+ * `@Database`側は引き続きリテラルの9を書き、こちらは手動で同期させる。
+ */
+const val APP_DATABASE_VERSION = 9
+
 @Database(
     entities = [
         MemberEntity::class,
@@ -261,6 +268,46 @@ abstract class AppDatabase : RoomDatabase() {
     @Transaction
     suspend fun insertMemberAtEnd(member: MemberEntity): Long = withTransaction {
         memberDao().insert(member.copy(id = 0, sortOrder = memberDao().nextSortOrder()))
+    }
+
+    /**
+     * 設定インポート(全置換)。docs/design/settings-export-import.md §6の対象テーブルを削除してから、
+     * 検証済みの新データを単一トランザクションで投入する。呼び出し側([BackupImporter])が
+     * 投入前に全件検証を終えている前提であり、ここでは検証を行わない。
+     *
+     * members.id と auto_reservation_rules.id は元の値のまま挿入する(MemberDao.insert /
+     * AutoReservationDao.insertRule を直接呼ぶ。sortOrder再採番は行わない)。外部キーを満たすため
+     * membersを最初に投入し、削除は逆順(子テーブルから先)に行う。
+     */
+    @Transaction
+    suspend fun replaceBackupData(
+        members: List<MemberEntity>,
+        autoReservationRules: List<AutoReservationRuleEntity>,
+        autoReservationTerms: List<AutoReservationTermEntity>,
+        autoReservationControls: List<AutoReservationControlEntity>,
+        readingRecords: List<ReadingRecordEntity>,
+        readingHistoryCheckpoints: List<ReadingHistoryCheckpointEntity>,
+        reservationCartItems: List<ReservationCartItemEntity>,
+    ) {
+        withTransaction {
+            // 外部キーを満たすため、子テーブルから先に削除する。
+            reservationCartDao().clearAll()
+            autoReservationDao().clearTerms()
+            autoReservationDao().clearRules()
+            autoReservationDao().clearControls()
+            readingRecordDao().clearAllRecords()
+            readingRecordDao().clearAllHistoryCheckpoints()
+            memberDao().clearAll()
+
+            // 外部キーを満たすため、membersを最初に投入する。idは元の値のまま挿入する。
+            members.forEach { memberDao().insert(it) }
+            autoReservationRules.forEach { autoReservationDao().insertRule(it) }
+            if (autoReservationTerms.isNotEmpty()) autoReservationDao().insertTerms(autoReservationTerms)
+            autoReservationControls.forEach { autoReservationDao().upsertControl(it) }
+            readingRecordDao().upsertAll(readingRecords)
+            readingRecordDao().upsertHistoryCheckpoints(readingHistoryCheckpoints)
+            if (reservationCartItems.isNotEmpty()) reservationCartDao().insertAll(reservationCartItems)
+        }
     }
 
     private fun ReservationEntity.notificationKey(): ReservationNotificationKey = ReservationNotificationKey(
