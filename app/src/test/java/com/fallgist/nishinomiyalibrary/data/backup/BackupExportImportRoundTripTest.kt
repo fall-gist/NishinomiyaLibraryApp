@@ -1,6 +1,8 @@
 package com.fallgist.nishinomiyalibrary.data.backup
 
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.room.Room
 import com.fallgist.nishinomiyalibrary.data.local.AppDatabase
@@ -19,6 +21,7 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingHistoryCheckpoin
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReadingRecordEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationCartItemEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationEntity
+import com.fallgist.nishinomiyalibrary.data.local.entity.ReservationPickupSubmissionEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.ShelfItemEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.SyncLogEntity
@@ -26,6 +29,7 @@ import com.fallgist.nishinomiyalibrary.data.local.entity.UserSummaryEntity
 import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationControlStatus
 import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationTermKind
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionOrigin
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import java.io.File
 import java.io.IOException
@@ -302,6 +306,118 @@ class BackupExportImportRoundTripTest {
     }
 
     @Test
+    fun `CredentialStore全消去に失敗した場合はパスワード再設定を促す案内になり後続処理は行われない(§6_3)`() = runBlocking {
+        seedSourceData()
+        val exported = exporter.export()
+
+        val failingCredentialStore = CredentialStore(FailingSharedPreferencesContext(context))
+        val localScheduleStarter = FakeScheduleStarter()
+        val warningImporter = BackupImporter(database, settingsStore, localScheduleStarter, failingCredentialStore)
+
+        val result = warningImporter.import(exported)
+        assertTrue("AppliedWithWarningになるはずが $result でした", result is BackupImportResult.AppliedWithWarning)
+        result as BackupImportResult.AppliedWithWarning
+
+        assertTrue(
+            "パスワード消去失敗の案内でない: ${result.message}",
+            result.message.contains("パスワードが残っている可能性があります"),
+        )
+        assertFalse(
+            "パスワード消去失敗が同期の再設定失敗として案内されています(利用者が誤った対処へ誘導される): ${result.message}",
+            result.message.contains("自動同期の再設定"),
+        )
+        assertEquals(
+            "パスワード消去失敗後に後続の同期スケジュール再構成が呼ばれています",
+            0,
+            localScheduleStarter.calls,
+        )
+
+        // Roomトランザクションは確定済みなので、データ自体は適用されているはず。
+        val members = database.memberDao().getAll()
+        assertEquals(listOf(1L, 2L), members.map { it.id })
+    }
+
+    @Test
+    fun `設定の書き込みに失敗した場合は設定確認を促す案内になり同期スケジュールは再構成されない(§6_3)`() = runBlocking {
+        seedSourceData()
+        val exported = exporter.export()
+
+        val brokenScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        dataStoreScopes += brokenScope
+        // produceFileがディレクトリを返すようにし、書き込み(FileOutputStream)を必ず失敗させる。
+        // 存在しないパスはDataStoreが親ディレクトリを自動作成するため失敗させられない。
+        val brokenTarget = File(context.filesDir, "broken-settings-${UUID.randomUUID()}").apply { mkdirs() }
+        val brokenSettingsStore = SettingsStore(
+            PreferenceDataStoreFactory.create(
+                scope = brokenScope,
+                produceFile = { brokenTarget },
+            ),
+        )
+        val localScheduleStarter = FakeScheduleStarter()
+        val warningImporter = BackupImporter(database, brokenSettingsStore, localScheduleStarter, credentialStore)
+
+        val result = warningImporter.import(exported)
+        assertTrue("AppliedWithWarningになるはずが $result でした", result is BackupImportResult.AppliedWithWarning)
+        result as BackupImportResult.AppliedWithWarning
+
+        assertTrue(
+            "設定書き込み失敗の案内でない: ${result.message}",
+            result.message.contains("設定の保存に失敗しました"),
+        )
+        assertEquals(
+            "設定書き込み失敗後に同期スケジュール再構成が呼ばれています",
+            0,
+            localScheduleStarter.calls,
+        )
+    }
+
+    @Test
+    fun `同期スケジュールの再構成に失敗した場合は同期時刻を開き直す案内になる(§6_3)`() = runBlocking {
+        seedSourceData()
+        val exported = exporter.export()
+
+        val failingScheduleStarter = FailingScheduleStarter()
+        val warningImporter = BackupImporter(database, settingsStore, failingScheduleStarter, credentialStore)
+
+        val result = warningImporter.import(exported)
+        assertTrue("AppliedWithWarningになるはずが $result でした", result is BackupImportResult.AppliedWithWarning)
+        result as BackupImportResult.AppliedWithWarning
+
+        assertTrue(
+            "スケジュール再構成失敗の案内でない: ${result.message}",
+            result.message.contains("自動同期の再設定に失敗しました"),
+        )
+    }
+
+    @Test
+    fun `reservation_pickup_submissionsは外部キーCASCADEで消える(§6_1、§9)`() = runBlocking {
+        seedSourceData()
+        val exported = exporter.export()
+
+        database.reservationPickupSubmissionDao().upsert(
+            ReservationPickupSubmissionEntity(
+                memberId = 1,
+                tilcod = "9000000000002",
+                pickupLibraryCode = "106",
+                origin = ReservationPickupSubmissionOrigin.CONFIRMED_SUBMISSION,
+            ),
+        )
+        assertEquals(
+            "テスト前提が崩れています(投入した行が見当たりません)",
+            1,
+            database.reservationPickupSubmissionDao().observeAll().first().size,
+        )
+
+        val result = importer.import(exported)
+        assertTrue("Successになるはずが $result でした", result is BackupImportResult.Success)
+
+        assertTrue(
+            "reservation_pickup_submissionsがCASCADE削除されず残っています",
+            database.reservationPickupSubmissionDao().observeAll().first().isEmpty(),
+        )
+    }
+
+    @Test
     fun `主キー・unique制約の重複はREPLACE系テーブルも含め検証フェーズで拒否される`() = runBlocking {
         seedSourceData()
         val before = snapshot()
@@ -407,6 +523,19 @@ class BackupExportImportRoundTripTest {
     private class FailingScheduleStarter : SyncScheduleStarter {
         override suspend fun scheduleFromSettings() {
             throw IOException("スケジュール再構成に失敗しました(テスト用)")
+        }
+    }
+
+    /**
+     * [CredentialStore.clearAll]失敗(§6.3)を再現するためのContext。`EncryptedSharedPreferences.create`は
+     * 内部で`context.getSharedPreferences`を呼ぶため、ここで例外を投げれば`CredentialStore`本体には
+     * 手を入れずにテストできる。MasterKeyの生成自体は素通しし、Keystoreまわりの正常経路は変えない。
+     */
+    private class FailingSharedPreferencesContext(base: Context) : ContextWrapper(base) {
+        override fun getApplicationContext(): Context = this
+
+        override fun getSharedPreferences(name: String?, mode: Int): SharedPreferences {
+            throw RuntimeException("SharedPreferencesを開けませんでした(テスト用)")
         }
     }
 }

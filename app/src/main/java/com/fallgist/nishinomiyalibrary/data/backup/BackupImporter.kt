@@ -99,32 +99,56 @@ class BackupImporter(
 
         // ここから先はRoomトランザクションが確定済み。以降の失敗はロールバックされないため、
         // Rejectedへ丸めず、データは置き換わったことが伝わるAppliedWithWarningとして扱う(§6.3)。
+        // 後処理は3つあり、失敗した処理ごとに実際に起きている状態と対処が異なるため、
+        // 個別のtryで囲み案内文を分ける(§6.3表)。1つ目が失敗した時点で以降は行わない
+        // (原則の順序: 全消去→設定書き込み→スケジュール再構成を守るため)。
         val requestNotificationPermission = payload.settings.notifyReturnReminder || payload.settings.notifyPickupReady
-        return try {
-            // §6.2: パスワード書き込み(第2段)の前に必ず全消去する順序。第1段では書き込みを
-            // 行わないが、全消去自体は第1段でも必須。
+        fun appliedWithWarning(message: String) = BackupImportResult.AppliedWithWarning(
+            importedMemberCount = members.size,
+            requestNotificationPermission = requestNotificationPermission,
+            message = "取り込みは完了しましたが、$message",
+        )
+
+        // §6.2: パスワード書き込み(第2段)の前に必ず全消去する順序。第1段では書き込みを
+        // 行わないが、全消去自体は第1段でも必須。失敗すると旧端末のパスワードが残ったままになり、
+        // §6.2で防ごうとした「同じidの別人のパスワードが使われる」状態そのものになる。
+        try {
             credentialStore.clearAll()
-
-            // DataStoreの設定を書き込む。値域はBackupPayloadCodec.decodeで検証済みのため
-            // SettingsStore.update内のrequireで例外にはならない想定。
-            settingsStore.update(payload.settings.toAppSettings())
-
-            // 同期時刻を移行しても、WorkManagerへの登録は端末ごとに別のため必ず引き直す。
-            scheduleStarter.scheduleFromSettings()
-
-            BackupImportResult.Success(
-                importedMemberCount = members.size,
-                requestNotificationPermission = requestNotificationPermission,
-            )
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
-            BackupImportResult.AppliedWithWarning(
-                importedMemberCount = members.size,
-                requestNotificationPermission = requestNotificationPermission,
-                message = "取り込みは完了しましたが、自動同期の再設定に失敗しました。設定画面で同期時刻を開き直してください",
+            return appliedWithWarning(
+                "保存済みのパスワードが残っている可能性があります。各メンバーのパスワードを設定し直してください",
             )
         }
+
+        // DataStoreの設定を書き込む。値域はBackupPayloadCodec.decodeで検証済みのため
+        // SettingsStore.update内のrequireで例外にはならない想定。
+        try {
+            settingsStore.update(payload.settings.toAppSettings())
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            return appliedWithWarning(
+                "設定の保存に失敗しました。設定画面で同期時刻と通知設定を確認してください",
+            )
+        }
+
+        // 同期時刻を移行しても、WorkManagerへの登録は端末ごとに別のため必ず引き直す。
+        try {
+            scheduleStarter.scheduleFromSettings()
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            return appliedWithWarning(
+                "自動同期の再設定に失敗しました。設定画面で同期時刻を開き直してください",
+            )
+        }
+
+        return BackupImportResult.Success(
+            importedMemberCount = members.size,
+            requestNotificationPermission = requestNotificationPermission,
+        )
     }
 }
 
