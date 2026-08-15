@@ -27,6 +27,13 @@ class BackupReferentialIntegrityException(message: String) : BackupValidationExc
 
 class BackupValueRangeException(message: String) : BackupValidationException(message)
 
+/**
+ * 日付がISO-8601として解釈できない場合の拒否理由。どの項目の日付かを[subject]でメッセージに含める
+ * (docs/design/settings-export-import.md §7: 「汎用の『破損しています』に丸めない」)。
+ */
+class BackupInvalidDateException(subject: String, value: String) :
+    BackupValidationException("$subject が日付として解釈できません(\"$value\")。ISO-8601形式(例: 2026-08-15)である必要があります")
+
 /** JSON⇔[BackupPayload]。パース検証と拒否理由の判定を担う純Kotlin実装。 */
 object BackupPayloadCodec {
     private val json = Json {
@@ -82,6 +89,38 @@ object BackupPayloadCodec {
         if (ruleIds.distinct().size != ruleIds.size) {
             throw BackupValueRangeException("自動予約ルールのidが重複しています")
         }
+        val ruleSortOrders = payload.autoReservation.rules.map { it.sortOrder }
+        if (ruleSortOrders.distinct().size != ruleSortOrders.size) {
+            throw BackupValueRangeException("自動予約ルールの表示順(sortOrder)が重複しています")
+        }
+
+        // REPLACE挿入のため、検証しないと制約違反にもならず黙って行が減る(§7)。
+        val termKeys = payload.autoReservation.rules.flatMap { rule ->
+            rule.terms.map { term -> Triple(rule.id, term.kind, term.sortOrder) }
+        }
+        if (termKeys.distinct().size != termKeys.size) {
+            throw BackupValueRangeException("自動予約ルールの検索語(ruleId, kind, sortOrder)が重複しています")
+        }
+
+        val controlTilcods = payload.autoReservation.controls.map { it.tilcod }
+        if (controlTilcods.distinct().size != controlTilcods.size) {
+            throw BackupValueRangeException("自動予約制御のtilcodが重複しています")
+        }
+
+        val cartKeys = payload.reservationCartItems.map { it.memberId to it.tilcod }
+        if (cartKeys.distinct().size != cartKeys.size) {
+            throw BackupValueRangeException("予約カート項目(memberId, tilcod)が重複しています")
+        }
+
+        val readingRecordKeys = payload.readingRecords.map { Triple(it.memberId, it.tilcod, it.loanDate) }
+        if (readingRecordKeys.distinct().size != readingRecordKeys.size) {
+            throw BackupValueRangeException("読書記録(memberId, tilcod, loanDate)が重複しています")
+        }
+
+        val checkpointKeys = payload.readingHistoryCheckpoints.map { Triple(it.memberId, it.tilcod, it.loanDate) }
+        if (checkpointKeys.distinct().size != checkpointKeys.size) {
+            throw BackupValueRangeException("読書履歴チェックポイント(memberId, tilcod, loanDate)が重複しています")
+        }
 
         payload.autoReservation.rules.forEach { rule ->
             rule.terms.forEach { term -> requireKnownTermKind(term.kind) }
@@ -90,6 +129,8 @@ object BackupPayloadCodec {
             requireKnownControlStatus(control.status)
             requireIsoDate(control.firstCandidateDate, "自動予約制御の firstCandidateDate")
             requireIsoDate(control.expiresOn, "自動予約制御の expiresOn")
+            // nullは「準備中のメンバーなし」を意味するため検査対象外(§7)。
+            control.preparedMemberId?.let { requireExistingMember(memberIds, it, "自動予約制御の preparedMemberId") }
         }
         payload.readingRecords.forEach { record ->
             requireIsoDate(record.loanDate, "読書記録の loanDate")
@@ -132,7 +173,7 @@ object BackupPayloadCodec {
         try {
             LocalDate.parse(value)
         } catch (exception: DateTimeParseException) {
-            throw BackupMalformedException()
+            throw BackupInvalidDateException(subject, value)
         }
     }
 
