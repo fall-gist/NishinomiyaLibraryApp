@@ -188,6 +188,8 @@ class StatusRepositoryImpl @Inject constructor(
                 summary = userData.summary.toEntity(userData.summary.memberId),
                 readingRecords = recordsToUpsert.map { it.toEntity() },
                 readingHistoryCheckpoints = historyCheckpoints,
+                // 本棚を取得できなかった同期では、誤って0件と断定しローカルの本棚を消さない。
+                updateShelves = userData.shelvesAvailable,
             )
             MemberSyncOutcome(memberId, null)
         } catch (exception: CancellationException) {

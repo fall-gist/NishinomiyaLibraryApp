@@ -18,6 +18,7 @@ import okhttp3.mockwebserver.SocketPolicy
 import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -183,6 +184,7 @@ class BookshelfGatewayTest {
         val last = FixtureItem("1000000000003", "三冊目", "メモ3")
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "棚", items = listOf(first, target, last))))
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(first, target, last))))
         server.enqueue(page(editPage(1, "棚", listOf(first, target, last))))
         server.enqueue(page(confirmPage(deleteItemFields(1, "棚", listOf(first, target, last), target.code), "OPACSDI033")))
         server.enqueue(page("<html>完了</html>"))
@@ -191,8 +193,8 @@ class BookshelfGatewayTest {
         val outcome = session().mutate(RemoteBookshelfMutation.DeleteItem(1, target.code, expected()))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
-        assertEquals(9, server.requestCount)
-        assertEquals("/WOpacSdiBookDelAction.do?flg=1", requests(9)[6].path)
+        assertEquals(10, server.requestCount)
+        assertEquals("/WOpacSdiBookDelAction.do?flg=1", requests(10)[7].path)
     }
 
     @Test
@@ -200,13 +202,14 @@ class BookshelfGatewayTest {
         val item = FixtureItem("1000000000001", "資料", "表示メモ")
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "棚", items = listOf(item))))
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(item))))
         server.enqueue(page(editPage(1, "棚", listOf(item)).replace("<textarea name='eachcmnt'>表示メモ</textarea>", "<textarea name='eachcmnt'>改変</textarea>")))
 
         val outcome = session().mutate(edit(1, "変更後", listOf(item), expected()))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Failure)
-        assertEquals(6, server.requestCount)
-        assertEquals(0, requests(6).count { it.path == "/WOpacSdiBookListUpdateAction.do" })
+        assertEquals(7, server.requestCount)
+        assertEquals(0, requests(7).count { it.path == "/WOpacSdiBookListUpdateAction.do" })
     }
 
     @Test
@@ -215,6 +218,7 @@ class BookshelfGatewayTest {
         val target = FixtureItem("1000000000002", "削除対象", "メモ2")
         val last = FixtureItem("1000000000003", "三冊目", "メモ3")
         enqueueLogin()
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(first, target, last))))
         server.enqueue(page(shelfPage(1, "棚", items = listOf(first, target, last))))
         server.enqueue(page(editPage(1, "棚", listOf(first, target, last))))
         server.enqueue(page(confirmPage(deleteItemFields(1, "棚", listOf(first, target, last), target.code), "OPACSDI033")))
@@ -231,6 +235,7 @@ class BookshelfGatewayTest {
         val item = FixtureItem("1000000000001", "資料", "変更前")
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
+        server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
         server.enqueue(page(editPage(1, "変更前", listOf(item))))
         server.enqueue(page(inlineUpdateConfirmPage(editFields(1, "変更後", listOf(item)))))
         server.enqueue(page(completionPage(editFields(1, "変更後", listOf(item)))))
@@ -238,10 +243,10 @@ class BookshelfGatewayTest {
         server.enqueue(page(shelfPage(1, "変更後", items = listOf(item))))
         val renamed = session().mutate(edit(1, "変更後", listOf(item), expected()))
         assertTrue(renamed is RemoteBookshelfOutcome.Applied)
-        assertEquals(10, server.requestCount)
-        val requests = requests(10)
-        assertEquals("/WOpacSdiBookListDispAction.do", requests[8].path)
-        val thirdPostBody = requests[8].body.readUtf8()
+        assertEquals(11, server.requestCount)
+        val requests = requests(11)
+        assertEquals("/WOpacSdiBookListDispAction.do", requests[9].path)
+        val thirdPostBody = requests[9].body.readUtf8()
         assertTrue(thirdPostBody.endsWith("jp.co.necsoft.licsxp.base.util.validation.MessageUtil.CONFIRM_DIALOG_SEND_REDIRECT=true"))
         assertEquals("hash=masked&returnid=tiles.WSdiBookList&gamenid=tiles.WSdiBookList&tilcod=&dispflg=&otherbook=1&listname=%E5%A4%89%E6%9B%B4%E5%BE%8C&commnt=&bookcmnt=%E5%A4%89%E6%9B%B4%E5%89%8D&eachcmnt=%E5%A4%89%E6%9B%B4%E5%89%8D&sortno=0&eachsortno=0&okCodes=OPACSDI011&jp.co.necsoft.licsxp.base.util.validation.MessageUtil.CONFIRM_DIALOG_SEND_REDIRECT=true", thirdPostBody)
     }
@@ -252,6 +257,7 @@ class BookshelfGatewayTest {
         val updated = original.copy(memo = "変更後")
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "棚", items = listOf(original))))
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(original))))
         server.enqueue(page(editPage(1, "棚", listOf(original))))
         server.enqueue(page(inlineUpdateConfirmPage(updateMemoFields(1, "棚", listOf(original), updated.memo))))
         server.enqueue(page(completionPage(updateMemoFields(1, "棚", listOf(original), updated.memo))))
@@ -261,10 +267,10 @@ class BookshelfGatewayTest {
         val outcome = session().mutate(edit(1, "棚", listOf(original), expected(), listOf(updated.memo)))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
-        assertEquals(10, server.requestCount)
-        val requests = requests(10)
-        assertEquals("/WOpacSdiBookListDispAction.do", requests[8].path)
-        assertTrue(requests[8].body.readUtf8().contains("eachcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C"))
+        assertEquals(11, server.requestCount)
+        val requests = requests(11)
+        assertEquals("/WOpacSdiBookListDispAction.do", requests[9].path)
+        assertTrue(requests[9].body.readUtf8().contains("eachcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C"))
     }
 
     @Test
@@ -275,6 +281,7 @@ class BookshelfGatewayTest {
         val updatedFirst = domFirst.copy(memo = "先頭の新メモ")
         val updatedLast = domLast.copy(memo = "末尾の新メモ")
         enqueueLogin()
+        server.enqueue(page(shelfPage(1, "棚", items = domItems)))
         server.enqueue(page(shelfPage(1, "棚", items = domItems)))
         server.enqueue(page(editPage(1, "棚", domItems)))
         server.enqueue(page(inlineUpdateConfirmPage(updateMemosFields(1, "棚", domItems, listOf(updatedFirst.memo, updatedLast.memo)))))
@@ -293,9 +300,9 @@ class BookshelfGatewayTest {
         )
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
-        val requests = requests(10)
-        assertEquals("/WOpacSdiBookListDispAction.do", requests[8].path)
-        val displayBody = requests[8].body.readUtf8()
+        val requests = requests(11)
+        assertEquals("/WOpacSdiBookListDispAction.do", requests[9].path)
+        val displayBody = requests[9].body.readUtf8()
         assertTrue(
             displayBody.indexOf("eachcmnt=%E5%85%88%E9%A0%AD%E3%81%AE%E6%96%B0%E3%83%A1%E3%83%A2") <
                 displayBody.indexOf("eachcmnt=%E6%9C%AB%E5%B0%BE%E3%81%AE%E6%96%B0%E3%83%A1%E3%83%A2"),
@@ -381,6 +388,7 @@ class BookshelfGatewayTest {
         val updated = original.copy(memo = "変更後")
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "棚", items = listOf(original))))
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(original))))
         server.enqueue(page(editPage(1, "棚", listOf(original))))
         server.enqueue(page(confirmPage(updateMemoFields(1, "棚", listOf(original), updated.memo), "OPACSDI011")))
         server.enqueue(page(completionPage(updateMemoFields(1, "棚", listOf(original), updated.memo))))
@@ -400,6 +408,8 @@ class BookshelfGatewayTest {
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "残す棚", shelves, listOf(kept))))
         server.enqueue(page(shelfPage(2, "消す棚", shelves, listOf(removed))))
+        // 削除の直前に対象本棚(2)へ改めて切り替える(スナップショット巡回のキャッシュは使わない)。
+        server.enqueue(page(shelfPage(2, "消す棚", shelves, listOf(removed))))
         server.enqueue(page(confirmPage(deleteShelfFields(2), "OPACSDI010")))
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "残す棚", items = listOf(kept))))
@@ -407,9 +417,114 @@ class BookshelfGatewayTest {
         val outcome = session().mutate(RemoteBookshelfMutation.DeleteShelf(2, expected(2)))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
-        assertEquals(9, server.requestCount)
-        assertEquals("/WOpacSdiBookListDelAction.do?delflg=1", requests(9)[6].path)
+        assertEquals(10, server.requestCount)
+        assertEquals("/WOpacSdiBookListDelAction.do?delflg=1", requests(10)[7].path)
     }
+
+    @Test
+    fun `本棚削除は末尾以外を指定してもスナップショット巡回のキャッシュではなく直前の切り替え応答からフォームを組む`() = runBlocking {
+        // 実機不具合の再現: スナップショット巡回を終えるとカレントは一覧の末尾(3)になる。
+        // 末尾以外(2)を削除対象にしたとき、削除直前に対象へ再度切り替え、
+        // その応答(hashも切り替え後の値)からフォームを組むことを固定する。
+        val kept1 = FixtureItem("1000000000001", "一棚目の資料", "メモ1")
+        val target = FixtureItem("1000000000002", "二棚目の資料", "メモ2")
+        val kept3 = FixtureItem("1000000000003", "三棚目の資料", "メモ3")
+        val shelves = listOf(1 to "残す棚1", 2 to "消す棚", 3 to "残す棚3")
+        val remainingShelves = shelves.filter { it.first != 2 }
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "残す棚1", shelves, listOf(kept1))))
+        server.enqueue(page(shelfPage(2, "消す棚", shelves, listOf(target))))
+        server.enqueue(page(shelfPage(3, "残す棚3", shelves, listOf(kept3))))
+        // 削除直前の再切り替え。hashを別値にして、直後のstage1がこちらを使うことを区別する。
+        server.enqueue(page(shelfPage(2, "消す棚", shelves, listOf(target)).replace("value='masked'", "value='switch-fresh-hash'")))
+        server.enqueue(
+            page(
+                confirmPage(
+                    deleteShelfFields(2).map { if (it.first == "hash") "hash" to "switch-fresh-hash" else it },
+                    "OPACSDI010",
+                ),
+            ),
+        )
+        server.enqueue(page("<html>完了</html>"))
+        server.enqueue(page(shelfPage(1, "残す棚1", remainingShelves, listOf(kept1))))
+        server.enqueue(page(shelfPage(3, "残す棚3", remainingShelves, listOf(kept3))))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.DeleteShelf(2, expected(3)))
+
+        assertTrue(outcome is RemoteBookshelfOutcome.Applied)
+        val requests = requests(12)
+        val switchRequests = requests.filter { it.path == "/WOpacSdiBookListToOtherBookDispAction.do?flg=1" }
+        // before取得の巡回2件(2,3) + 削除直前の再切り替え(2) + 削除後の再取得の巡回1件(3)で計4件。
+        assertEquals(4, switchRequests.size)
+        assertEquals(
+            listOf("otherbook=2", "otherbook=3", "otherbook=2", "otherbook=3"),
+            switchRequests.map { request -> request.body.readUtf8().split('&').first { it.startsWith("otherbook=") } },
+        )
+        val stage1 = requests.first { it.path == "/WOpacSdiBookListDelAction.do?delflg=1" }
+        val stage1Body = stage1.body.readUtf8()
+        assertTrue(stage1Body.contains("hash=switch-fresh-hash"))
+        assertFalse(stage1Body.contains("hash=masked"))
+    }
+
+    @Test
+    fun `切り替え応答の本棚番号が対象と一致しない場合は状態変更POSTを送らず停止する`() = runBlocking {
+        val shelves = listOf(1 to "棚1", 2 to "棚2")
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "棚1", shelves)))
+        server.enqueue(page(shelfPage(2, "棚2", shelves)))
+        // 削除直前の再切り替えのはずが、応答が対象(2)と異なる本棚を返す(想定外応答)。
+        server.enqueue(page(shelfPage(1, "棚1", shelves)))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.DeleteShelf(2, expected(2)))
+
+        assertEquals(
+            RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, BookshelfStopDiagnosticCode.STATE_CHANGED.value),
+            outcome,
+        )
+        val requests = requests(7)
+        assertEquals(0, requests.count { it.path?.startsWith("/WOpacSdiBookListDelAction.do") == true })
+    }
+
+    @Test
+    fun `本棚1件からの削除で0件になった場合はAppliedとし2件以上から解析不能になった場合はUnknownのままにする`() = runBlocking {
+        // ケースA: 削除前がちょうど1件のとき、削除後の「otherbookのselect無し」応答を0件成立と解釈する。
+        val onlyItem = FixtureItem("1000000000001", "唯一の資料", "メモ")
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "唯一の棚", items = listOf(onlyItem))))
+        server.enqueue(page(shelfPage(1, "唯一の棚", items = listOf(onlyItem))))
+        server.enqueue(page(confirmPage(deleteShelfFields(1), "OPACSDI010")))
+        server.enqueue(page("<html>完了</html>"))
+        server.enqueue(page(noShelfSelectPage()))
+
+        val zeroOutcome = session().mutate(RemoteBookshelfMutation.DeleteShelf(1, expected(1)))
+
+        assertEquals(RemoteBookshelfOutcome.Applied(emptyList(), emptyList()), zeroOutcome)
+
+        // ケースB: 削除前が2件以上のときに同じ解析不能が起きても、0件と決め付けずUnknownのままにする。
+        val kept = FixtureItem("1000000000002", "残る資料", "メモ2")
+        val shelves = listOf(1 to "残る棚", 2 to "消す棚")
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "残る棚", shelves, listOf(kept))))
+        server.enqueue(page(shelfPage(2, "消す棚", shelves)))
+        server.enqueue(page(shelfPage(2, "消す棚", shelves)))
+        server.enqueue(page(confirmPage(deleteShelfFields(2), "OPACSDI010")))
+        server.enqueue(page("<html>完了</html>"))
+        server.enqueue(page(noShelfSelectPage()))
+
+        val unknownOutcome = session().mutate(RemoteBookshelfMutation.DeleteShelf(2, expected(2)))
+
+        assertEquals(RemoteBookshelfOutcome.Unknown, unknownOutcome)
+    }
+
+    /** 「マイ本棚」新規作成画面相当。form[name=LBForm]のhash/gamenidだけは持つが、otherbookのselectを持たない。 */
+    private fun noShelfSelectPage() = """
+        <html><body><h1>マイ本棚の新規作成</h1>
+        <form name="LBForm">
+          <input type="hidden" name="hash" value="masked" />
+          <input type="hidden" name="gamenid" value="tiles.WSdiBookListInput" />
+        </form>
+        </body></html>
+    """.trimIndent()
 
     @Test
     fun `stage1確認不成立ではstage2を送らず操作前と同一ならFailureにする`() = runBlocking {
@@ -639,6 +754,7 @@ class BookshelfGatewayTest {
         val items = listOf(original, unchanged)
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "棚", items = items)))
+        server.enqueue(page(shelfPage(1, "棚", items = items)))
         server.enqueue(page(editPage(1, "棚", items)))
         // stage2と完了フォームの項目名間の順序が異なる実測形でも、第3POSTを一回だけ送る。
         server.enqueue(page(inlineUpdateConfirmPage(updateMemoFields(1, "棚", items, updated.memo))))
@@ -649,17 +765,18 @@ class BookshelfGatewayTest {
         val outcome = session().mutate(edit(1, "棚", items, expected(), listOf(updated.memo, unchanged.memo)))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
-        assertEquals(10, server.requestCount)
-        val requests = requests(10)
-        assertEquals("/WOpacSdiBookListDispAction.do", requests[8].path)
+        assertEquals(11, server.requestCount)
+        val requests = requests(11)
+        assertEquals("/WOpacSdiBookListDispAction.do", requests[9].path)
         // bookcmntも新値になることを固定する（eachcmntだけ新値にする実装に戻すと赤くなる）。
-        assertTrue(requests[8].body.readUtf8().contains("bookcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C&bookcmnt=%E3%81%9D%E3%81%AE%E3%81%BE%E3%81%BE&eachcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C&eachcmnt=%E3%81%9D%E3%81%AE%E3%81%BE%E3%81%BE"))
+        assertTrue(requests[9].body.readUtf8().contains("bookcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C&bookcmnt=%E3%81%9D%E3%81%AE%E3%81%BE%E3%81%BE&eachcmnt=%E5%A4%89%E6%9B%B4%E5%BE%8C&eachcmnt=%E3%81%9D%E3%81%AE%E3%81%BE%E3%81%BE"))
     }
 
     @Test
     fun `UPDATEの第3フォームが不正なら表示POSTを送らず送信後照合だけを行う`() = runBlocking {
         val item = FixtureItem("1000000000001", "資料", "変更前")
         enqueueLogin()
+        server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
         server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
         server.enqueue(page(editPage(1, "変更前", listOf(item))))
         server.enqueue(page(inlineUpdateConfirmPage(editFields(1, "変更後", listOf(item)))))
@@ -669,14 +786,15 @@ class BookshelfGatewayTest {
         val outcome = session().mutate(edit(1, "変更後", listOf(item), expected()))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
-        assertEquals(9, server.requestCount)
-        assertEquals(0, requests(9).count { it.path == "/WOpacSdiBookListDispAction.do" })
+        assertEquals(10, server.requestCount)
+        assertEquals(0, requests(10).count { it.path == "/WOpacSdiBookListDispAction.do" })
     }
 
     @Test
     fun `UPDATEの第3POST通信断では再送せず送信後照合だけを行う`() = runBlocking {
         val item = FixtureItem("1000000000001", "資料", "変更前")
         enqueueLogin()
+        server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
         server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
         server.enqueue(page(editPage(1, "変更前", listOf(item))))
         server.enqueue(page(inlineUpdateConfirmPage(editFields(1, "変更後", listOf(item)))))
@@ -687,14 +805,15 @@ class BookshelfGatewayTest {
         val outcome = session().mutate(edit(1, "変更後", listOf(item), expected()))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
-        assertEquals(10, server.requestCount)
-        assertEquals(1, requests(10).count { it.path == "/WOpacSdiBookListDispAction.do" })
+        assertEquals(11, server.requestCount)
+        assertEquals(1, requests(11).count { it.path == "/WOpacSdiBookListDispAction.do" })
     }
 
     @Test
     fun `UPDATEの第3POST応答中取消はUnknownで再送しない`() = runBlocking {
         val item = FixtureItem("1000000000001", "資料", "変更前")
         enqueueLogin()
+        server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
         server.enqueue(page(shelfPage(1, "変更前", items = listOf(item))))
         server.enqueue(page(editPage(1, "変更前", listOf(item))))
         server.enqueue(page(inlineUpdateConfirmPage(editFields(1, "変更後", listOf(item)))))
@@ -705,7 +824,7 @@ class BookshelfGatewayTest {
         val job = launch(Dispatchers.Default) {
             observed = session().mutate(edit(1, "変更後", listOf(item), expected()))
         }
-        val requests = requests(9)
+        val requests = requests(10)
         job.cancel()
         job.join()
 

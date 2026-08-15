@@ -220,6 +220,51 @@ class LicsXpClientTest {
     }
 
     @Test
+    fun `otherbookのselectが無いmybooklist応答では本棚取得だけをスキップし他データは取得できる`() = runBlocking {
+        // 新規アカウント等、本棚0件のときの画面は新規作成フォームでotherbookのselectを持たない
+        // (docs/design/account-and-bookshelf-fixes.md §2)。実物は未取得のため、hash/gamenidだけ
+        // 実測どおりの形で持つ最小合成HTMLで代用する。
+        server.enqueue(html("<html><body>温めページ</body></html>", setCookie = true))
+        server.enqueue(html(fixture("login_form.html")))
+        server.enqueue(html(fixture("after_login.html")))
+        server.enqueue(html(fixture("menu.html")))
+        server.enqueue(html(fixture("usrlend.html")))
+        server.enqueue(html(fixture("usrrsv.html")))
+        server.enqueue(
+            html(
+                """
+                <html><body><h1>マイ本棚の新規作成</h1>
+                <form name="LBForm">
+                  <input type="hidden" name="hash" value="new-shelf-hash" />
+                  <input type="hidden" name="gamenid" value="tiles.WSdiBookListInput" />
+                  <input type="text" name="listname" value="" />
+                </form>
+                </body></html>
+                """.trimIndent(),
+            ),
+        )
+        server.enqueue(html(usrReadPage(hash = "history-open", records = emptyList())))
+        server.enqueue(html(emptyUsrReadPage()))
+
+        val result = client().fetchUserData(generatedCardNumber(), generatedPassword())
+
+        assertFalse(result.shelvesAvailable)
+        assertTrue(result.shelves.isEmpty())
+        assertTrue(result.shelfItems.isEmpty())
+        assertEquals(12, result.loans.size)
+        assertEquals(19, result.reservations.size)
+
+        val requests = List(9) { takeRequest() }
+        assertUserPageRequest(requests[6], "mybooklist", PageTokens("1249c619e529de0b66c5fb9d64dfb98392615089", "tiles.WUsrRsvList"))
+        // 本棚取得をスキップするため、切り替えPOSTは一切送らない。
+        assertTrue(requests.none { it.requestUrl!!.encodedPath == "/WOpacSdiBookListToOtherBookDispAction.do" })
+        assertEquals("/WOpacMnuTopToPwdLibraryAction.do", requests[7].requestUrl!!.encodedPath)
+        assertEquals("usrread", requests[7].requestUrl!!.queryParameter("gamen"))
+        assertEquals("history-open", formValue(requests[8], "hash"))
+        assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
     fun `利用状況取得は通常同期のusrrsvまでの厳密な接頭辞だけを実行する`() = runBlocking {
         server.enqueue(html("<html><body>温めページ</body></html>", setCookie = true))
         server.enqueue(html(fixture("login_form.html")))

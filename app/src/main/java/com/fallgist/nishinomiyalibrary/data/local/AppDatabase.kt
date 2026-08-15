@@ -99,18 +99,26 @@ abstract class AppDatabase : RoomDatabase() {
         summary: UserSummaryEntity,
         readingRecords: List<ReadingRecordEntity> = emptyList(),
         readingHistoryCheckpoints: List<ReadingHistoryCheckpointEntity> = emptyList(),
+        /**
+         * falseのときは本棚テーブルに一切触れない(削除も挿入もしない)。
+         * サイト応答から本棚0件と断定できなかった場合に、誤ってローカルの本棚を消さないための引数
+         * (docs/design/account-and-bookshelf-fixes.md §2)。
+         */
+        updateShelves: Boolean = true,
     ) {
         require(loans.all { it.memberId == memberId }) { "貸出データのmemberIdが一致しません" }
         require(reservations.all { it.memberId == memberId }) { "予約データのmemberIdが一致しません" }
-        require(shelfItems.all { it.memberId == memberId }) { "本棚データのmemberIdが一致しません" }
         require(summary.memberId == memberId) { "サマリのmemberIdが一致しません" }
         require(readingRecords.all { it.memberId == memberId }) { "読書記録のmemberIdが一致しません" }
         require(readingHistoryCheckpoints.all { it.memberId == memberId }) { "読書履歴チェックポイントのmemberIdが一致しません" }
 
-        require(shelves.all { it.memberId == memberId }) { "本棚データのmemberIdが一致しません" }
-        require(shelves.map { it.shelfNo }.distinct().size == shelves.size) { "本棚番号が重複しています" }
-        require(shelfItems.all { item -> shelves.any { it.shelfNo == item.shelfNo } }) {
-            "本棚項目に対応する本棚がありません"
+        if (updateShelves) {
+            require(shelfItems.all { it.memberId == memberId }) { "本棚データのmemberIdが一致しません" }
+            require(shelves.all { it.memberId == memberId }) { "本棚データのmemberIdが一致しません" }
+            require(shelves.map { it.shelfNo }.distinct().size == shelves.size) { "本棚番号が重複しています" }
+            require(shelfItems.all { item -> shelves.any { it.shelfNo == item.shelfNo } }) {
+                "本棚項目に対応する本棚がありません"
+            }
         }
 
         withTransaction {
@@ -134,8 +142,10 @@ abstract class AppDatabase : RoomDatabase() {
 
             loanDao().deleteForMember(memberId)
             reservationDao().deleteForMember(memberId)
-            shelfItemDao().deleteForMember(memberId)
-            shelfDao().deleteForMember(memberId)
+            if (updateShelves) {
+                shelfItemDao().deleteForMember(memberId)
+                shelfDao().deleteForMember(memberId)
+            }
             userSummaryDao().deleteForMember(memberId)
 
             loanDao().insertAll(loans)
@@ -153,8 +163,10 @@ abstract class AppDatabase : RoomDatabase() {
                     reservationPickupSubmissionDao().deleteMissingFromCompleteSnapshot(memberId, activeTilcods)
                 }
             }
-            shelfDao().insertAll(shelves)
-            shelfItemDao().insertAll(shelfItems)
+            if (updateShelves) {
+                shelfDao().insertAll(shelves)
+                shelfItemDao().insertAll(shelfItems)
+            }
             userSummaryDao().insert(summary)
             // 読書記録は同期で削除しない。新規・更新分だけを永続蓄積する。
             readingRecordDao().upsertAll(readingRecords)

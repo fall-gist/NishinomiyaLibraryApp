@@ -35,4 +35,10 @@ data class UserData(
     val shelves: List<Shelf>,
     val shelfItems: List<ShelfItem>,
     val readingRecords: List<ReadingRecord> = emptyList(),
+    /**
+     * 本棚を取得できたか。新規アカウント等でotherbookのselectが無い応答だと取得をスキップし、
+     * falseになる。falseのとき shelves/shelfItems は空リストだが、0件と断定した結果ではないため
+     * 同期側はローカルの本棚データを変更してはならない(docs/design/account-and-bookshelf-fixes.md §2)。
+     */
+    val shelvesAvailable: Boolean = true,
 )

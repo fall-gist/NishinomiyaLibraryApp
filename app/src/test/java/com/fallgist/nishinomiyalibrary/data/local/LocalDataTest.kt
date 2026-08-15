@@ -880,6 +880,31 @@ class LocalDataTest {
     }
 
     @Test
+    fun `replaceMemberSnapshotはupdateShelvesがfalseなら本棚テーブルに触れず貸出等だけ置換する`() = runBlocking {
+        // 本棚取得をスキップした同期(otherbookのselect無し等)で、誤って0件と断定しローカルの
+        // 本棚を消さないための引数(docs/design/account-and-bookshelf-fixes.md §2)。
+        val memberId = 21L
+        database.loanDao().insert(loan(memberId, "旧貸出", LocalDate.of(2030, 5, 1)))
+        database.shelfDao().insertAll(listOf(ShelfEntity(memberId, 1, "保持される棚")))
+        database.shelfItemDao().insert(shelf(memberId, "keep-item"))
+        database.userSummaryDao().insert(summary(memberId, loanCount = 1))
+
+        database.replaceMemberSnapshot(
+            memberId = memberId,
+            loans = listOf(loan(memberId, "新貸出", LocalDate.of(2030, 6, 10))),
+            reservations = emptyList(),
+            shelves = emptyList(),
+            shelfItems = emptyList(),
+            summary = summary(memberId, loanCount = 1),
+            updateShelves = false,
+        )
+
+        assertEquals(listOf("新貸出"), database.loanDao().observeForMember(memberId).first().map { it.title })
+        assertEquals(listOf("保持される棚"), database.shelfDao().observeForMember(memberId).first().map { it.name })
+        assertEquals(listOf("keep-item"), database.shelfItemDao().observeForMember(memberId).first().map { it.tilcod })
+    }
+
+    @Test
     fun `replaceShelfSnapshotは空棚を含めて置換し既存サマリの棚数だけを更新する`() = runBlocking {
         val memberId = 60L
         val otherMemberId = 61L

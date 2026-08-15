@@ -155,35 +155,48 @@ class LicsXpClient(
         val prefix = openCurrentCirculationPrefix(cardNumber, password)
         val userSession = prefix.session
         val shelfHtml = openUserPage(userSession, "mybooklist")
-        val listedShelves = ShelfListParser.parse(shelfHtml)
-        val currentShelf = ShelfParser.parse(shelfHtml)
-        val listedCurrentShelf = listedShelves.firstOrNull { it.no == currentShelf.shelf.no }
-            ?: throw ParseException("shelf", "現在の本棚が一覧にありません")
-        if (listedCurrentShelf.name != currentShelf.shelf.name) {
-            throw ParseException("shelf", "現在の本棚名が一覧と一致しません")
+        // otherbookのselectが無い応答(新規作成画面等)は本棚0件と断定せず、本棚取得だけをスキップする。
+        // 別理由の解析不能を0件と誤判定してローカルの本棚を消さないため、他データは通常どおり取得する
+        // (docs/design/account-and-bookshelf-fixes.md §2.3.A)。
+        val listedShelves = try {
+            ShelfListParser.parse(shelfHtml)
+        } catch (exception: ParseException) {
+            null
         }
-        val parsedShelves = mutableMapOf(currentShelf.shelf.no to currentShelf)
-        for (shelf in listedShelves) {
-            if (shelf.no == currentShelf.shelf.no) continue
-            val tokens = userSession.requireTokens()
-            val otherShelfHtml = userSession.post(
-                path = "WOpacSdiBookListToOtherBookDispAction.do",
-                query = mapOf("flg" to "1"),
-                form = FormBody.Builder()
-                    .add("hash", tokens.hash)
-                    .add("gamenid", "tiles.WSdiBookList")
-                    .add("otherbook", shelf.no.toString())
-                    .add("tilcod", "")
-                    .add("btnflg", "")
-                    .build(),
-            )
-            requireNotMaintenance(otherShelfHtml)
-            userSession.updateTokens(otherShelfHtml)
-            val parsedShelf = ShelfParser.parse(otherShelfHtml)
-            if (parsedShelf.shelf != shelf) {
-                throw ParseException("shelf", "切替後の本棚が要求した本棚と一致しません")
+        var shelves = emptyList<com.fallgist.nishinomiyalibrary.domain.model.Shelf>()
+        var shelfItems = emptyList<com.fallgist.nishinomiyalibrary.domain.model.ShelfItem>()
+        if (listedShelves != null) {
+            val currentShelf = ShelfParser.parse(shelfHtml)
+            val listedCurrentShelf = listedShelves.firstOrNull { it.no == currentShelf.shelf.no }
+                ?: throw ParseException("shelf", "現在の本棚が一覧にありません")
+            if (listedCurrentShelf.name != currentShelf.shelf.name) {
+                throw ParseException("shelf", "現在の本棚名が一覧と一致しません")
             }
-            parsedShelves[shelf.no] = parsedShelf
+            val parsedShelves = mutableMapOf(currentShelf.shelf.no to currentShelf)
+            for (shelf in listedShelves) {
+                if (shelf.no == currentShelf.shelf.no) continue
+                val tokens = userSession.requireTokens()
+                val otherShelfHtml = userSession.post(
+                    path = "WOpacSdiBookListToOtherBookDispAction.do",
+                    query = mapOf("flg" to "1"),
+                    form = FormBody.Builder()
+                        .add("hash", tokens.hash)
+                        .add("gamenid", "tiles.WSdiBookList")
+                        .add("otherbook", shelf.no.toString())
+                        .add("tilcod", "")
+                        .add("btnflg", "")
+                        .build(),
+                )
+                requireNotMaintenance(otherShelfHtml)
+                userSession.updateTokens(otherShelfHtml)
+                val parsedShelf = ShelfParser.parse(otherShelfHtml)
+                if (parsedShelf.shelf != shelf) {
+                    throw ParseException("shelf", "切替後の本棚が要求した本棚と一致しません")
+                }
+                parsedShelves[shelf.no] = parsedShelf
+            }
+            shelves = listedShelves
+            shelfItems = listedShelves.flatMap { shelf -> requireNotNull(parsedShelves[shelf.no]).items }
         }
         val readingRecords = fetchReadingRecords(userSession, knownReadingRecordKeys)
 
@@ -191,10 +204,9 @@ class LicsXpClient(
             summary = SummaryParser.parse(prefix.loansHtml),
             loans = prefix.loans,
             reservations = prefix.reservations,
-            shelves = listedShelves,
-            shelfItems = listedShelves.flatMap { shelf ->
-                requireNotNull(parsedShelves[shelf.no]).items
-            },
+            shelves = shelves,
+            shelfItems = shelfItems,
+            shelvesAvailable = listedShelves != null,
             readingRecords = readingRecords,
         )
     }
