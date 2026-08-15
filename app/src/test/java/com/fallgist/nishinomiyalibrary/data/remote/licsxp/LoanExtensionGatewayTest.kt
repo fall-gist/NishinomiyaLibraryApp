@@ -112,7 +112,7 @@ class LoanExtensionGatewayTest {
 
         assertEquals(LoanExtensionOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED), outcome)
         assertEquals(6, server.requestCount)
-        assertTrue(List(6) { server.takeRequest() }.none { it.path?.contains("WOpacUsrLendListExtendAction") == true })
+        assertTrue(List(6) { requireNotNull(server.takeRequest(5, TimeUnit.SECONDS)) }.none { it.path?.contains("WOpacUsrLendListExtendAction") == true })
     }
 
     // ------------------------------------------------------------------
@@ -140,7 +140,7 @@ class LoanExtensionGatewayTest {
 
         assertEquals(LoanExtensionOutcome.Extended(LocalDate.of(2026, 8, 1)), outcome)
         assertEquals(10, server.requestCount)
-        val stage2Request = List(8) { server.takeRequest() }[7]
+        val stage2Request = List(8) { requireNotNull(server.takeRequest(5, TimeUnit.SECONDS)) }[7]
         assertEquals("/licsxp-opac/WOpacUsrLendListExtendAction.do", stage2Request.path)
         val stage2Body = decodeFormFields(stage2Request.body.readUtf8())
         assertEquals(19, stage2Body.size)
@@ -290,7 +290,7 @@ class LoanExtensionGatewayTest {
         // 2段階目(WOpacUsrLendListExtendAction.doへのクエリ無しPOST)は送らない。
         assertEquals(9, server.requestCount)
         assertTrue(
-            List(9) { server.takeRequest() }
+            List(9) { requireNotNull(server.takeRequest(5, TimeUnit.SECONDS)) }
                 .none { it.path == "/licsxp-opac/WOpacUsrLendListExtendAction.do" },
         )
     }
@@ -319,7 +319,7 @@ class LoanExtensionGatewayTest {
         assertEquals(LoanExtensionOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED), outcome)
         assertEquals(9, server.requestCount)
         assertTrue(
-            List(9) { server.takeRequest() }
+            List(9) { requireNotNull(server.takeRequest(5, TimeUnit.SECONDS)) }
                 .none { it.path == "/licsxp-opac/WOpacUsrLendListExtendAction.do" },
         )
     }
@@ -349,7 +349,7 @@ class LoanExtensionGatewayTest {
         assertEquals(LoanExtensionOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED), outcome)
         assertEquals(9, server.requestCount)
         assertTrue(
-            List(9) { server.takeRequest() }
+            List(9) { requireNotNull(server.takeRequest(5, TimeUnit.SECONDS)) }
                 .none { it.path == "/licsxp-opac/WOpacUsrLendListExtendAction.do" },
         )
     }
@@ -374,7 +374,7 @@ class LoanExtensionGatewayTest {
         // 2段階目は送らない。
         assertEquals(8, server.requestCount)
         assertTrue(
-            List(8) { server.takeRequest() }
+            List(8) { requireNotNull(server.takeRequest(5, TimeUnit.SECONDS)) }
                 .none { it.path == "/licsxp-opac/WOpacUsrLendListExtendAction.do" },
         )
     }

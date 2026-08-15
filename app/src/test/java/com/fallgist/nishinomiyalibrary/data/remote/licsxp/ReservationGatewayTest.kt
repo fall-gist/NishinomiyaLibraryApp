@@ -234,8 +234,8 @@ class ReservationGatewayTest {
         server.enqueue(page("<div id='stat-login'></div>"))
         val session = LicsXpReservationGateway(LicsXpSession(server.url("/"), waitForRequestSlot = {})).openAuthenticatedSession("1", "p")
         assertEquals(DirectReservationAttempt.IndeterminateAfterPost, session.directReserve("1000000000001", "106"))
-        repeat(7) { server.takeRequest() }
-        val fields = decodeForm(requireNotNull(server.takeRequest()).body.readUtf8())
+        repeat(7) { requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)) }
+        val fields = decodeForm(requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)).body.readUtf8())
         assertEquals(listOf("keep-me"), fields["siteIssued"])
     }
 

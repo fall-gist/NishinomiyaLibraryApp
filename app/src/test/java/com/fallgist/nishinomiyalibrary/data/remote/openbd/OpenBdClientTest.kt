@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.data.remote.openbd
 
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -39,7 +40,7 @@ class OpenBdClientTest {
         assertNull(client.coverUrl("9784000000002"))
         assertNull(client.coverUrl("9784000000003"))
         repeat(4) { index ->
-            val request = server.takeRequest()
+            val request = requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
             assertEquals("GET", request.method)
             assertEquals("/v1/get", request.requestUrl!!.encodedPath)
             assertEquals("978400000000$index", request.requestUrl!!.queryParameter("isbn"))

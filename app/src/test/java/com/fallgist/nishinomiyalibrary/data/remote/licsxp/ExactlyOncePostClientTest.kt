@@ -1,5 +1,6 @@
 package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.mockwebserver.MockResponse
@@ -42,8 +43,8 @@ class ExactlyOncePostClientTest {
         session.postExactlyOnce("exec.do", form = FormBody.Builder().add("a", "b").build())
 
         // 初回はSet-Cookieを受け取る側なのでCookieを持たない。2回目の確定専用POSTが本題。
-        val first = requireNotNull(server.takeRequest())
-        val exactlyOnce = requireNotNull(server.takeRequest())
+        val first = requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+        val exactlyOnce = requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
         assertNull(first.getHeader("Cookie"))
         assertEquals("JSESSIONID=session-value", exactlyOnce.getHeader("Cookie"))
         assertEquals(LicsXpSession.USER_AGENT, exactlyOnce.getHeader("User-Agent"))

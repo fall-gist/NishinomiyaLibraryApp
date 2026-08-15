@@ -690,7 +690,13 @@ class BookshelfGatewayTest {
         ),
     ).openAuthenticatedSession("1234", "test-password")
 
-    private fun requests(count: Int) = List(count) { server.takeRequest() }
+    // MockWebServer.takeRequest()は引数無しだと無期限にブロックする。期待より実際のリクエストが
+    // 少ないと最後のtakeRequest()が永久に待ち、テストが「失敗」ではなく「ハング」してしまう
+    // (2026-08-16、変異注入検証で実際に4時間半ハングした)。タイムアウト付きで速やかに失敗させる。
+    private fun requests(count: Int) = List(count) { index ->
+        server.takeRequest(5, TimeUnit.SECONDS)
+            ?: throw AssertionError("${index + 1}件目(全${count}件中)のリクエストが5秒以内に届きませんでした")
+    }
 
     private fun expected(shelfCount: Int = 1) = BookshelfMutationExpectation("利用者", shelfCount)
 
