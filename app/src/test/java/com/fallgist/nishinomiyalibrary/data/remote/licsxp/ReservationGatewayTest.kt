@@ -115,7 +115,7 @@ class ReservationGatewayTest {
                 "returnValue" to "",
                 "bmtime_hide" to "",
                 "receivename" to "106",
-                "contact" to "4",
+                "contact" to "9",
             ),
             decodeFormFields(body),
         )
@@ -434,6 +434,8 @@ class ReservationGatewayTest {
                 "bmtime_hide" to "",
                 "siteIssued" to "keep-me",
                 "receivename" to "001",
+                // buildFormWithContactDirectWebは診断専用でcontactdirectweb以外を上書きしないため、
+                // サイト発行値(fixtureのselected="4")のまま送られる。buildForm(確定POST用)だけが9固定。
                 "contact" to "4",
             ),
             decodeFormFields(retryRequest.body.readUtf8()),
@@ -514,7 +516,7 @@ class ReservationGatewayTest {
                 "bmtime_hide" to "",
                 "siteIssued" to "keep-me",
                 "receivename" to "106",
-                "contact" to "4",
+                "contact" to "9",
             ),
             decodeFormFields(requests[7].body.readUtf8()),
         )

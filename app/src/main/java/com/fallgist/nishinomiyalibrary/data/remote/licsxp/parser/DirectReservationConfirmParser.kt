@@ -33,7 +33,9 @@ class DirectReservationConfirmationPage internal constructor(
         require(pickupLibraryCode in pickupLibraryCodes) { "受取館コードが確認画面にありません" }
         val controlledValues = mapOf(
             "receivename" to pickupLibraryCode,
-            "contact" to "4",
+            // 所有者判断により連絡不要(9)固定。メール登録済みアカウントでも一律9とする
+            // (アプリ自身が予約準備完了を通知するため、サイトのメール通知は冗長)。
+            "contact" to "9",
         )
         return FormBody.Builder().apply {
             fields.forEach { field ->
@@ -97,8 +99,9 @@ object DirectReservationConfirmParser {
             .toSet()
         if (pickup.isEmpty()) throw ParseException(SCREEN, "受取館の選択肢がありません")
         val contactSelect = requireSingleSelect(form, "contact")
-        if (contactSelect.select("option[value=4]:not([disabled])").isEmpty()) {
-            throw ParseException(SCREEN, "Email連絡方法が選択できません")
+        // receivenameと同様、選択肢に存在することを送信前に検証する。無ければPOST前に停止する。
+        if (contactSelect.select("option[value=9]:not([disabled])").isEmpty()) {
+            throw ParseException(SCREEN, "連絡不要が選択できません")
         }
 
         return DirectReservationConfirmationPage(

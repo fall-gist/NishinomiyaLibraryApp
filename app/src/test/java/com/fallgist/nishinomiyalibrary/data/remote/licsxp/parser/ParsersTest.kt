@@ -326,6 +326,13 @@ class ParsersTest {
     }
 
     @Test
+    fun `連絡方法に連絡不要(9)の選択肢が無ければ確認画面の解析で停止する`() = assertParseError("reservation-confirm") {
+        val html = fixture("reservation_confirm.html")
+            .replace("<select name=\"contact\"><option value=\"4\" selected>Email</option><option value=\"9\">連絡不要</option></select>", "<select name=\"contact\"><option value=\"4\" selected>Email</option></select>")
+        DirectReservationConfirmParser.parse(html, "1000000000001")
+    }
+
+    @Test
     fun `hidden contactdirectwebが無いフォームは特定できない`() = assertParseError("reservation-confirm") {
         val html = fixture("reservation_confirm.html")
             .replace("<input type=\"hidden\" name=\"contactdirectweb\" value=\"4\" />", "")
@@ -344,7 +351,7 @@ class ParsersTest {
 
         assertEquals("site-issued-value", fields["contactdirectweb"])
         assertEquals("106", fields["receivename"])
-        assertEquals("4", fields["contact"])
+        assertEquals("9", fields["contact"])
     }
 
     @Test
@@ -356,7 +363,7 @@ class ParsersTest {
         assertEquals(names.indexOf("receivename"), names.lastIndexOf("receivename"))
         assertEquals(names.indexOf("contact"), names.lastIndexOf("contact"))
         assertEquals("106", values[names.indexOf("receivename")])
-        assertEquals("4", values[names.indexOf("contact")])
+        assertEquals("9", values[names.indexOf("contact")])
     }
 
     @Test
@@ -373,7 +380,7 @@ class ParsersTest {
               <select name="receivename">
                 <option value="001">中央図書館</option><option value="106">高須分室</option>
               </select>
-              <select name="contact"><option value="4" selected>Email</option></select>
+              <select name="contact"><option value="4" selected>Email</option><option value="9">連絡不要</option></select>
               <select name="other"><option value="a" selected>A</option></select>
               <textarea name="note">備考</textarea>
             </form>
@@ -392,7 +399,7 @@ class ParsersTest {
                 "memo" to "めも",
                 "mailflg" to "1",
                 "receivename" to "106",
-                "contact" to "4",
+                "contact" to "9",
                 "other" to "a",
                 "note" to "備考",
             ),
@@ -416,7 +423,7 @@ class ParsersTest {
               <select name="receivename">
                 <option value="001">中央図書館</option><option value="106">高須分室</option>
               </select>
-              <select name="contact"><option value="4" selected>Email</option></select>
+              <select name="contact"><option value="4" selected>Email</option><option value="9">連絡不要</option></select>
             </form>
             </body></html>
         """.trimIndent()
