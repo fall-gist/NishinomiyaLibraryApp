@@ -99,15 +99,12 @@ class BackupImporter(
 
         // ここから先はRoomトランザクションが確定済み。以降の失敗はロールバックされないため、
         // Rejectedへ丸めず、データは置き換わったことが伝わるAppliedWithWarningとして扱う(§6.3)。
-        // 後処理は3つあり、失敗した処理ごとに実際に起きている状態と対処が異なるため、
-        // 個別のtryで囲み案内文を分ける(§6.3表)。1つ目が失敗した時点で以降は行わない
-        // (原則の順序: 全消去→設定書き込み→スケジュール再構成を守るため)。
+        // 後処理は3つあり、保存先も機構も独立している(EncryptedSharedPreferences/DataStore/
+        // WorkManager)ため、先の失敗で後続をスキップしない。すべて試みたうえで、
+        // 失敗したものをすべて案内に含める(第1.7段: 第1.6段は先頭の失敗で以降をスキップし、
+        // 案内もその1件しか伝わらない欠陥があった)。
         val requestNotificationPermission = payload.settings.notifyReturnReminder || payload.settings.notifyPickupReady
-        fun appliedWithWarning(message: String) = BackupImportResult.AppliedWithWarning(
-            importedMemberCount = members.size,
-            requestNotificationPermission = requestNotificationPermission,
-            message = "取り込みは完了しましたが、$message",
-        )
+        val warnings = mutableListOf<String>()
 
         // §6.2: パスワード書き込み(第2段)の前に必ず全消去する順序。第1段では書き込みを
         // 行わないが、全消去自体は第1段でも必須。失敗すると旧端末のパスワードが残ったままになり、
@@ -117,31 +114,34 @@ class BackupImporter(
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
-            return appliedWithWarning(
-                "保存済みのパスワードが残っている可能性があります。各メンバーのパスワードを設定し直してください",
-            )
+            warnings += "保存済みのパスワードが残っている可能性があります。各メンバーのパスワードを設定し直してください"
         }
 
         // DataStoreの設定を書き込む。値域はBackupPayloadCodec.decodeで検証済みのため
-        // SettingsStore.update内のrequireで例外にはならない想定。
+        // SettingsStore.update内のrequireで例外にはならない想定。全消去の成否に関わらず実行する。
         try {
             settingsStore.update(payload.settings.toAppSettings())
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
-            return appliedWithWarning(
-                "設定の保存に失敗しました。設定画面で同期時刻と通知設定を確認してください",
-            )
+            warnings += "設定の保存に失敗しました。設定画面で同期時刻と通知設定を確認してください"
         }
 
         // 同期時刻を移行しても、WorkManagerへの登録は端末ごとに別のため必ず引き直す。
+        // 上の2つの成否に関わらず実行する。
         try {
             scheduleStarter.scheduleFromSettings()
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
-            return appliedWithWarning(
-                "自動同期の再設定に失敗しました。設定画面で同期時刻を開き直してください",
+            warnings += "自動同期の再設定に失敗しました。設定画面で同期時刻を開き直してください"
+        }
+
+        if (warnings.isNotEmpty()) {
+            return BackupImportResult.AppliedWithWarning(
+                importedMemberCount = members.size,
+                requestNotificationPermission = requestNotificationPermission,
+                message = "取り込みは完了しましたが、" + warnings.joinToString("\n"),
             )
         }
 

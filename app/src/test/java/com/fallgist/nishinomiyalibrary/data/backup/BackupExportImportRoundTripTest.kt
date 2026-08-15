@@ -306,7 +306,7 @@ class BackupExportImportRoundTripTest {
     }
 
     @Test
-    fun `CredentialStore全消去に失敗した場合はパスワード再設定を促す案内になり後続処理は行われない(§6_3)`() = runBlocking {
+    fun `CredentialStore全消去に失敗しても後続の設定書き込みと同期スケジュール再構成は行われる(§6_3、第1_7段)`() = runBlocking {
         seedSourceData()
         val exported = exporter.export()
 
@@ -326,11 +326,15 @@ class BackupExportImportRoundTripTest {
             "パスワード消去失敗が同期の再設定失敗として案内されています(利用者が誤った対処へ誘導される): ${result.message}",
             result.message.contains("自動同期の再設定"),
         )
+        // §6.3・第1.7段: 全消去が失敗しても、独立した後続処理(設定書き込み・スケジュール再構成)は
+        // スキップせず実行する。第1.6段はここで先頭の失敗を理由に以降をスキップしていた欠陥がある。
         assertEquals(
-            "パスワード消去失敗後に後続の同期スケジュール再構成が呼ばれています",
-            0,
+            "パスワード消去失敗後も後続の同期スケジュール再構成が呼ばれるはずです",
+            1,
             localScheduleStarter.calls,
         )
+        val settingsAfter = settingsStore.settings.first()
+        assertEquals("パスワード消去失敗後も設定は書き込まれるはずです", 18, settingsAfter.syncHour)
 
         // Roomトランザクションは確定済みなので、データ自体は適用されているはず。
         val members = database.memberDao().getAll()
@@ -338,7 +342,7 @@ class BackupExportImportRoundTripTest {
     }
 
     @Test
-    fun `設定の書き込みに失敗した場合は設定確認を促す案内になり同期スケジュールは再構成されない(§6_3)`() = runBlocking {
+    fun `設定の書き込みに失敗しても同期スケジュールは再構成される(§6_3、第1_7段)`() = runBlocking {
         seedSourceData()
         val exported = exporter.export()
 
@@ -364,11 +368,44 @@ class BackupExportImportRoundTripTest {
             "設定書き込み失敗の案内でない: ${result.message}",
             result.message.contains("設定の保存に失敗しました"),
         )
+        // §6.3・第1.7段: 設定書き込みが失敗しても、独立した同期スケジュール再構成はスキップせず実行する。
         assertEquals(
-            "設定書き込み失敗後に同期スケジュール再構成が呼ばれています",
-            0,
+            "設定書き込み失敗後も同期スケジュール再構成が呼ばれるはずです",
+            1,
             localScheduleStarter.calls,
         )
+    }
+
+    @Test
+    fun `複数の後処理が失敗したときはすべてが案内に含まれる(§6_3、第1_7段)`() = runBlocking {
+        seedSourceData()
+        val exported = exporter.export()
+
+        // CredentialStoreの全消去と同期スケジュールの再構成の両方を失敗させる。
+        // 設定書き込みは成功させ、成功した後処理の案内が紛れ込まないことも合わせて確認する。
+        val failingCredentialStore = CredentialStore(FailingSharedPreferencesContext(context))
+        val failingScheduleStarter = FailingScheduleStarter()
+        val warningImporter = BackupImporter(database, settingsStore, failingScheduleStarter, failingCredentialStore)
+
+        val result = warningImporter.import(exported)
+        assertTrue("AppliedWithWarningになるはずが $result でした", result is BackupImportResult.AppliedWithWarning)
+        result as BackupImportResult.AppliedWithWarning
+
+        assertTrue(
+            "パスワード消去失敗の案内が含まれていません: ${result.message}",
+            result.message.contains("パスワードが残っている可能性があります"),
+        )
+        assertTrue(
+            "スケジュール再構成失敗の案内が含まれていません: ${result.message}",
+            result.message.contains("自動同期の再設定に失敗しました"),
+        )
+        assertFalse(
+            "成功したはずの設定書き込みの失敗案内が紛れ込んでいます: ${result.message}",
+            result.message.contains("設定の保存に失敗しました"),
+        )
+        // 設定書き込み自体は成功しているはず。
+        val settingsAfter = settingsStore.settings.first()
+        assertEquals("成功したはずの設定書き込みが行われていません", 18, settingsAfter.syncHour)
     }
 
     @Test
