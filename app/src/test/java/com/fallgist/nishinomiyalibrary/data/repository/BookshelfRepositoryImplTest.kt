@@ -37,6 +37,7 @@ class BookshelfRepositoryImplTest {
         override fun observeForMember(memberId: Long): Flow<List<ShelfEntity>> = shelves
         override suspend fun insertAll(shelves: List<ShelfEntity>) = Unit
         override suspend fun deleteForMember(memberId: Long) = Unit
+        override suspend fun clearAll() = Unit
     }
 
     private class FakeShelfItemDao(private val items: Flow<List<ShelfItemWithShelfName>>) : ShelfItemDao {
@@ -46,6 +47,7 @@ class BookshelfRepositoryImplTest {
         override suspend fun update(item: ShelfItemEntity) = Unit
         override suspend fun delete(item: ShelfItemEntity) = Unit
         override suspend fun deleteForMember(memberId: Long) = Unit
+        override suspend fun clearAll() = Unit
     }
 
     private fun item(shelfNo: Int, tilcod: String, date: LocalDate) = ShelfItemWithShelfName(

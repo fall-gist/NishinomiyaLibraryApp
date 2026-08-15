@@ -36,6 +36,20 @@ class CredentialStore(context: Context) {
         }
     }
 
+    /**
+     * 保存済みの全パスワードを消去する。設定インポート(全置換)専用
+     * (docs/design/settings-export-import.md §6.2)。
+     *
+     * インポートは[MemberDao.clearAll]を直接呼ぶため、通常のメンバー削除経路
+     * ([FamilyRepositoryImpl]の`credentialStore.delete`)を通らない。消去しないと、
+     * 同じidを持つ別人のパスワードが残ったまま新しいメンバーへ結び付いてしまう。
+     */
+    fun clearAll() {
+        check(preferences.edit().clear().commit()) {
+            "パスワードを全消去できませんでした"
+        }
+    }
+
     private fun passwordKey(memberId: Long): String = "pw_member_$memberId"
 
     internal companion object {

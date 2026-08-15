@@ -25,6 +25,13 @@ interface ReadingRecordDao {
     @Query("SELECT * FROM reading_records ORDER BY loanDate DESC, title ASC")
     fun observeAll(): Flow<List<ReadingRecordEntity>>
 
+    /**
+     * バックアップのエクスポート専用。[observeAll]のFlowはRoomのトランザクション境界に
+     * 参加できないため、単一トランザクション内の読み出し(§7.1)にはこちらを使う。
+     */
+    @Query("SELECT * FROM reading_records ORDER BY loanDate DESC, title ASC")
+    suspend fun getAll(): List<ReadingRecordEntity>
+
     @Query("SELECT * FROM reading_records WHERE memberId = :memberId ORDER BY loanDate DESC, title ASC")
     fun observeForMember(memberId: Long): Flow<List<ReadingRecordEntity>>
 

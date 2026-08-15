@@ -278,6 +278,13 @@ abstract class AppDatabase : RoomDatabase() {
      * members.id と auto_reservation_rules.id は元の値のまま挿入する(MemberDao.insert /
      * AutoReservationDao.insertRule を直接呼ぶ。sortOrder再採番は行わない)。外部キーを満たすため
      * membersを最初に投入し、削除は逆順(子テーブルから先)に行う。
+     *
+     * §6.1: `loans` / `reservations` / `shelves` / `shelf_items` / `user_summaries` は
+     * `MemberEntity` への外部キーを持たずカスケード削除されないため、移行対象でなくても
+     * ここで明示的に全消去する(消さないと旧メンバーのデータが同じidの新メンバーへ残る)。
+     * `auto_reservation_latest_run` / `auto_reservation_latest_items` / `sync_logs` も
+     * 前端末の記録として意味を持たないため削除する。**`closed_days` と `new_arrivals` は
+     * メンバー非依存であり削除しない。**
      */
     @Transaction
     suspend fun replaceBackupData(
@@ -297,6 +304,18 @@ abstract class AppDatabase : RoomDatabase() {
             autoReservationDao().clearControls()
             readingRecordDao().clearAllRecords()
             readingRecordDao().clearAllHistoryCheckpoints()
+
+            // §6.1: メンバー依存キャッシュ(外部キーを持たずカスケードされない)。
+            loanDao().clearAll()
+            reservationDao().clearAll()
+            shelfItemDao().clearAll()
+            shelfDao().clearAll()
+            userSummaryDao().clearAll()
+            autoReservationDao().clearLatestItems()
+            autoReservationDao().clearLatestRun()
+            syncLogDao().clearAll()
+            // reservation_pickup_submissions は members への外部キーCASCADEで自動的に消える。
+
             memberDao().clearAll()
 
             // 外部キーを満たすため、membersを最初に投入する。idは元の値のまま挿入する。
@@ -308,6 +327,26 @@ abstract class AppDatabase : RoomDatabase() {
             readingRecordDao().upsertHistoryCheckpoints(readingHistoryCheckpoints)
             if (reservationCartItems.isNotEmpty()) reservationCartDao().insertAll(reservationCartItems)
         }
+    }
+
+    /**
+     * バックアップのエクスポート専用。§7.1: 個別クエリを順に発行すると、その間に
+     * `SyncWorker` 等のバックグラウンド処理が割り込み、自己矛盾したJSON
+     * (例: `reservationCartItems.memberId` が `members` に存在しない)を書き出しうる。
+     * 単一トランザクション内で全件読み出すことでこれを防ぐ。
+     */
+    @Transaction
+    suspend fun readBackupSnapshot(): BackupSnapshot = withTransaction {
+        val rules = autoReservationDao().getRules()
+        BackupSnapshot(
+            members = memberDao().getAll(),
+            autoReservationRules = rules,
+            autoReservationTerms = autoReservationDao().getTerms(rules.map { it.id }),
+            autoReservationControls = autoReservationDao().getAllControls(),
+            readingRecords = readingRecordDao().getAll(),
+            readingHistoryCheckpoints = readingRecordDao().getAllHistoryCheckpoints(),
+            reservationCartItems = reservationCartDao().getAll(),
+        )
     }
 
     private fun ReservationEntity.notificationKey(): ReservationNotificationKey = ReservationNotificationKey(
@@ -324,3 +363,17 @@ abstract class AppDatabase : RoomDatabase() {
         val reservedDate: LocalDate,
     )
 }
+
+/**
+ * [AppDatabase.readBackupSnapshot]の戻り値。単一トランザクション内で読み出した、
+ * 相互に矛盾のない状態のバックアップ対象データ一式(docs/design/settings-export-import.md §7.1)。
+ */
+data class BackupSnapshot(
+    val members: List<MemberEntity>,
+    val autoReservationRules: List<AutoReservationRuleEntity>,
+    val autoReservationTerms: List<AutoReservationTermEntity>,
+    val autoReservationControls: List<AutoReservationControlEntity>,
+    val readingRecords: List<ReadingRecordEntity>,
+    val readingHistoryCheckpoints: List<ReadingHistoryCheckpointEntity>,
+    val reservationCartItems: List<ReservationCartItemEntity>,
+)

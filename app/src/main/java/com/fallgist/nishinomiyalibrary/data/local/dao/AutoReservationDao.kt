@@ -80,6 +80,13 @@ interface AutoReservationDao {
     @Query("DELETE FROM auto_reservation_latest_items")
     suspend fun clearLatestItems()
 
+    /**
+     * 設定インポート(全置換)専用。直近1回の実行報告は移行先で再現する意味がないため削除する
+     * (docs/design/settings-export-import.md §6.1)。[clearLatestItems]と併せて呼ぶこと。
+     */
+    @Query("DELETE FROM auto_reservation_latest_run")
+    suspend fun clearLatestRun()
+
     @Query("UPDATE auto_reservation_latest_run SET acknowledged = 1 WHERE id = :id AND runId = :expectedRunId")
     suspend fun markLatestRunAcknowledged(
         expectedRunId: Long,

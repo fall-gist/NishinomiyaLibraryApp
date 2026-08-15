@@ -1,11 +1,8 @@
 package com.fallgist.nishinomiyalibrary.data.backup
 
 import com.fallgist.nishinomiyalibrary.data.local.APP_DATABASE_VERSION
+import com.fallgist.nishinomiyalibrary.data.local.AppDatabase
 import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
-import com.fallgist.nishinomiyalibrary.data.local.dao.AutoReservationDao
-import com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
-import com.fallgist.nishinomiyalibrary.data.local.dao.ReadingRecordDao
-import com.fallgist.nishinomiyalibrary.data.local.dao.ReservationCartDao
 import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationControlEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationRuleEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationTermEntity
@@ -27,13 +24,14 @@ interface BackupExportPort {
 /**
  * 各Store/DAOから読み出して[BackupPayload]を組み、JSON文字列にする。
  * docs/design/settings-export-import.md §2の「含める」対象だけを読み出す(キャッシュ系は含めない)。
+ *
+ * Room側の読み出しは[AppDatabase.readBackupSnapshot]で単一トランザクション化している(§7.1)。
+ * DataStoreの設定はRoomのトランザクションに含められないが、他のデータと相互参照しないため
+ * 不整合の問題は生じない。
  */
 class BackupExporter(
-    private val memberDao: MemberDao,
+    private val database: AppDatabase,
     private val settingsStore: SettingsStore,
-    private val autoReservationDao: AutoReservationDao,
-    private val readingRecordDao: ReadingRecordDao,
-    private val reservationCartDao: ReservationCartDao,
     private val appVersion: String,
     private val sourceDbVersion: Int = APP_DATABASE_VERSION,
 ) : BackupExportPort {
@@ -41,29 +39,24 @@ class BackupExporter(
     override suspend fun export(): String = BackupPayloadCodec.encode(buildPayload())
 
     suspend fun buildPayload(now: OffsetDateTime = OffsetDateTime.now()): BackupPayload {
-        val members = memberDao.getAll()
+        val snapshot = database.readBackupSnapshot()
         val settings = settingsStore.settings.first()
-        val rules = autoReservationDao.getRules()
-        val termsByRuleId = autoReservationDao.getTerms(rules.map { it.id }).groupBy { it.ruleId }
-        val controls = autoReservationDao.getAllControls()
-        val readingRecords = readingRecordDao.observeAll().first()
-        val checkpoints = readingRecordDao.getAllHistoryCheckpoints()
-        val cartItems = reservationCartDao.getAll()
+        val termsByRuleId = snapshot.autoReservationTerms.groupBy { it.ruleId }
 
         return BackupPayload(
             formatVersion = BACKUP_FORMAT_VERSION,
             exportedAt = ISO_OFFSET_FORMATTER.format(now),
             appVersion = appVersion,
             sourceDbVersion = sourceDbVersion,
-            members = members.map { it.toBackup() },
+            members = snapshot.members.map { it.toBackup() },
             settings = settings.toBackup(),
             autoReservation = BackupAutoReservation(
-                rules = rules.map { rule -> rule.toBackup(termsByRuleId[rule.id].orEmpty()) },
-                controls = controls.map { it.toBackup() },
+                rules = snapshot.autoReservationRules.map { rule -> rule.toBackup(termsByRuleId[rule.id].orEmpty()) },
+                controls = snapshot.autoReservationControls.map { it.toBackup() },
             ),
-            readingRecords = readingRecords.map { it.toBackup() },
-            readingHistoryCheckpoints = checkpoints.map { it.toBackup() },
-            reservationCartItems = cartItems.map { it.toBackup() },
+            readingRecords = snapshot.readingRecords.map { it.toBackup() },
+            readingHistoryCheckpoints = snapshot.readingHistoryCheckpoints.map { it.toBackup() },
+            reservationCartItems = snapshot.reservationCartItems.map { it.toBackup() },
         )
     }
 

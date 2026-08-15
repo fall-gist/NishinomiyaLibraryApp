@@ -22,4 +22,8 @@ interface SyncLogDao {
 
     @Delete
     suspend fun delete(log: SyncLogEntity)
+
+    /** 設定インポート(全置換)専用。前端末の記録は移行先で意味を持たない(§6.1)。 */
+    @Query("DELETE FROM sync_logs")
+    suspend fun clearAll()
 }

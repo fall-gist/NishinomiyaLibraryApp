@@ -37,6 +37,14 @@ interface LoanDao {
     @Query("DELETE FROM loans WHERE memberId = :memberId")
     suspend fun deleteForMember(memberId: Long)
 
+    /**
+     * 設定インポート(全置換)専用。`loans`は`MemberEntity`への外部キーを持たないため
+     * カスケード削除されず、消さないと旧メンバーの貸出が同じidの新メンバーのものとして残る
+     * (docs/design/settings-export-import.md §6.1)。
+     */
+    @Query("DELETE FROM loans")
+    suspend fun clearAll()
+
     @Query("SELECT COUNT(*) FROM loans WHERE memberId = :memberId AND tilcod = :tilcod")
     suspend fun countByMemberAndTilcod(memberId: Long, tilcod: String): Int
 

@@ -44,6 +44,10 @@ interface ReservationDao {
     @Query("DELETE FROM reservations WHERE memberId = :memberId")
     suspend fun deleteForMember(memberId: Long)
 
+    /** 設定インポート(全置換)専用(docs/design/settings-export-import.md §6.1)。 */
+    @Query("DELETE FROM reservations")
+    suspend fun clearAll()
+
     /**
      * 取消成功が確認できた予約をローカルからも即時削除する。
      * `cancelCode` は画面上の一時コードなので、依頼時に固定した `tilcod` も併せて照合し、

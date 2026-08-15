@@ -17,4 +17,8 @@ interface ShelfDao {
 
     @Query("DELETE FROM shelves WHERE memberId = :memberId")
     suspend fun deleteForMember(memberId: Long)
+
+    /** 設定インポート(全置換)専用(docs/design/settings-export-import.md §6.1)。 */
+    @Query("DELETE FROM shelves")
+    suspend fun clearAll()
 }
