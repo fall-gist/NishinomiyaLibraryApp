@@ -115,6 +115,13 @@ fun BackupSection(
                     onImportSucceeded(result.requestNotificationPermission)
                 }
 
+                is BackupImportResult.AppliedWithWarning -> {
+                    // データの取り込み自体は完了している(Roomトランザクション確定後の後処理失敗)。
+                    statusIsError = true
+                    statusMessage = result.message
+                    onImportSucceeded(result.requestNotificationPermission)
+                }
+
                 is BackupImportResult.Rejected -> {
                     statusIsError = true
                     statusMessage = result.message

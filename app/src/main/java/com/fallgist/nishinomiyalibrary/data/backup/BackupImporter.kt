@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.data.backup
 
 import com.fallgist.nishinomiyalibrary.data.local.AppDatabase
 import com.fallgist.nishinomiyalibrary.data.local.AppSettings
+import com.fallgist.nishinomiyalibrary.data.local.CredentialStore
 import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationControlEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationRuleEntity
@@ -16,12 +17,26 @@ import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationTermKind
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 
-/** インポート結果。既存データを変更しない拒否は[Rejected]で表す。 */
+/**
+ * インポート結果。3値(docs/design/settings-export-import.md §6.3)。
+ * - [Rejected]: 検証で拒否。既存データは一切変更されていない
+ * - [Success]: すべて完了
+ * - [AppliedWithWarning]: Roomへの取り込みは完了したが、後処理
+ *   (`CredentialStore`の全消去・設定の書き込み・同期スケジュールの再構成のいずれか)に失敗した。
+ *   `replaceBackupData`のRoomトランザクション確定後はロールバックされないため、
+ *   「無変更の拒否」と同じ型で表さない。
+ */
 sealed interface BackupImportResult {
     data class Success(
         val importedMemberCount: Int,
         /** 通知設定がオンだった場合、インポート後に通知権限の導線を出す必要があるか。 */
         val requestNotificationPermission: Boolean,
+    ) : BackupImportResult
+
+    data class AppliedWithWarning(
+        val importedMemberCount: Int,
+        val requestNotificationPermission: Boolean,
+        val message: String,
     ) : BackupImportResult
 
     data class Rejected(val message: String) : BackupImportResult
@@ -35,12 +50,14 @@ interface BackupImportPort {
 /**
  * バックアップJSONを検証し、単一のRoomトランザクションで全置換する。
  * 方式は全置換のみ(docs/design/settings-export-import.md §6)。パスワードの書き込みは
- * 第1段のスコープ外のため行わない(読み込んでも無視する)。
+ * 第2段のスコープ外のため行わない(読み込んでも無視する)が、[CredentialStore]の全消去
+ * (§6.2)は第1段でも必須のため行う。
  */
 class BackupImporter(
     private val database: AppDatabase,
     private val settingsStore: SettingsStore,
     private val scheduleStarter: SyncScheduleStarter,
+    private val credentialStore: CredentialStore,
 ) : BackupImportPort {
 
     override suspend fun import(jsonText: String): BackupImportResult {
@@ -50,8 +67,9 @@ class BackupImporter(
             return BackupImportResult.Rejected(exception.message ?: "読み込めませんでした")
         }
 
-        return try {
-            val members = payload.members.map { it.toEntity() }
+        val members: List<MemberEntity>
+        try {
+            members = payload.members.map { it.toEntity() }
             val rules = payload.autoReservation.rules.map { it.toEntity() }
             val terms = payload.autoReservation.rules.flatMap { rule ->
                 rule.terms.map { it.toEntity(rule.id) }
@@ -71,9 +89,24 @@ class BackupImporter(
                 readingHistoryCheckpoints = checkpoints,
                 reservationCartItems = cartItems,
             )
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            // Roomトランザクションが確定していない(または始まってすらいない)ため、
+            // 既存データは変更されていない。Rejectedとして良い。
+            return BackupImportResult.Rejected("インポート中にエラーが発生しました。時間をおいて再試行してください")
+        }
+
+        // ここから先はRoomトランザクションが確定済み。以降の失敗はロールバックされないため、
+        // Rejectedへ丸めず、データは置き換わったことが伝わるAppliedWithWarningとして扱う(§6.3)。
+        val requestNotificationPermission = payload.settings.notifyReturnReminder || payload.settings.notifyPickupReady
+        return try {
+            // §6.2: パスワード書き込み(第2段)の前に必ず全消去する順序。第1段では書き込みを
+            // 行わないが、全消去自体は第1段でも必須。
+            credentialStore.clearAll()
 
             // DataStoreの設定を書き込む。値域はBackupPayloadCodec.decodeで検証済みのため
-            // SettingsStore.update内のrequireで例外にはならない。
+            // SettingsStore.update内のrequireで例外にはならない想定。
             settingsStore.update(payload.settings.toAppSettings())
 
             // 同期時刻を移行しても、WorkManagerへの登録は端末ごとに別のため必ず引き直す。
@@ -81,13 +114,16 @@ class BackupImporter(
 
             BackupImportResult.Success(
                 importedMemberCount = members.size,
-                requestNotificationPermission = payload.settings.notifyReturnReminder ||
-                    payload.settings.notifyPickupReady,
+                requestNotificationPermission = requestNotificationPermission,
             )
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
-            BackupImportResult.Rejected("インポート中にエラーが発生しました。時間をおいて再試行してください")
+            BackupImportResult.AppliedWithWarning(
+                importedMemberCount = members.size,
+                requestNotificationPermission = requestNotificationPermission,
+                message = "取り込みは完了しましたが、自動同期の再設定に失敗しました。設定画面で同期時刻を開き直してください",
+            )
         }
     }
 }
