@@ -103,6 +103,106 @@ class BackupPayloadCodecTest {
     }
 
     @Test
+    fun `自動予約制御のpreparedMemberIdが存在しないメンバーを参照する場合は拒否される`() {
+        val payload = samplePayload().copy(
+            autoReservation = samplePayload().autoReservation.copy(
+                controls = listOf(samplePayload().autoReservation.controls.first().copy(preparedMemberId = 999L)),
+            ),
+        )
+        val json = BackupPayloadCodec.encode(payload)
+        assertRejected<BackupReferentialIntegrityException> { BackupPayloadCodec.decode(json) }
+    }
+
+    @Test
+    fun `preparedMemberIdがnullの場合は準備中のメンバーなしとして検査対象外`() {
+        val payload = samplePayload().copy(
+            autoReservation = samplePayload().autoReservation.copy(
+                controls = listOf(samplePayload().autoReservation.controls.first().copy(preparedMemberId = null)),
+            ),
+        )
+        val json = BackupPayloadCodec.encode(payload)
+        // 例外を投げずに読み込めることを確認する。
+        assertEquals(payload, BackupPayloadCodec.decode(json))
+    }
+
+    @Test
+    fun `自動予約ルールのsortOrderが重複する場合は拒否される`() {
+        val rule = samplePayload().autoReservation.rules.first()
+        val payload = samplePayload().copy(
+            autoReservation = samplePayload().autoReservation.copy(
+                rules = listOf(rule, rule.copy(id = 2)),
+            ),
+        )
+        val json = BackupPayloadCodec.encode(payload)
+        assertRejected<BackupValueRangeException> { BackupPayloadCodec.decode(json) }
+    }
+
+    @Test
+    fun `自動予約ルールの検索語が複合キーで重複する場合は拒否される(REPLACE挿入のため黙って行が減る)`() {
+        val rule = samplePayload().autoReservation.rules.first()
+        val payload = samplePayload().copy(
+            autoReservation = samplePayload().autoReservation.copy(
+                rules = listOf(rule.copy(terms = rule.terms + rule.terms.first())),
+            ),
+        )
+        val json = BackupPayloadCodec.encode(payload)
+        assertRejected<BackupValueRangeException> { BackupPayloadCodec.decode(json) }
+    }
+
+    @Test
+    fun `自動予約制御のtilcodが重複する場合は拒否される`() {
+        val control = samplePayload().autoReservation.controls.first()
+        val payload = samplePayload().copy(
+            autoReservation = samplePayload().autoReservation.copy(
+                controls = listOf(control, control.copy(status = "UNKNOWN_AFTER_POST")),
+            ),
+        )
+        val json = BackupPayloadCodec.encode(payload)
+        assertRejected<BackupValueRangeException> { BackupPayloadCodec.decode(json) }
+    }
+
+    @Test
+    fun `予約カート項目がmemberIdとtilcodの組で重複する場合は拒否される(REPLACE挿入のため黙って行が減る)`() {
+        val item = samplePayload().reservationCartItems.first()
+        val payload = samplePayload().copy(reservationCartItems = listOf(item, item.copy(title = "複製")))
+        val json = BackupPayloadCodec.encode(payload)
+        assertRejected<BackupValueRangeException> { BackupPayloadCodec.decode(json) }
+    }
+
+    @Test
+    fun `読書記録がmemberId_tilcod_loanDateの組で重複する場合は拒否される(REPLACE挿入のため黙って行が減る)`() {
+        val record = samplePayload().readingRecords.first()
+        val payload = samplePayload().copy(readingRecords = listOf(record, record.copy(title = "複製")))
+        val json = BackupPayloadCodec.encode(payload)
+        assertRejected<BackupValueRangeException> { BackupPayloadCodec.decode(json) }
+    }
+
+    @Test
+    fun `読書履歴チェックポイントがmemberId_tilcod_loanDateの組で重複する場合は拒否される(REPLACE挿入のため黙って行が減る)`() {
+        val checkpoint = samplePayload().readingHistoryCheckpoints.first()
+        val payload = samplePayload().copy(readingHistoryCheckpoints = listOf(checkpoint, checkpoint))
+        val json = BackupPayloadCodec.encode(payload)
+        assertRejected<BackupValueRangeException> { BackupPayloadCodec.decode(json) }
+    }
+
+    @Test
+    fun `日付が不正な場合はどの項目かをメッセージに含めて拒否される(汎用メッセージに丸めない)`() {
+        val payload = samplePayload().copy(
+            readingRecords = listOf(samplePayload().readingRecords.first().copy(loanDate = "2026-13-99")),
+        )
+        val json = BackupPayloadCodec.encode(payload)
+        try {
+            BackupPayloadCodec.decode(json)
+            fail("拒否されるはずでした")
+        } catch (exception: BackupInvalidDateException) {
+            assertTrue(
+                "メッセージに項目名(loanDate)が含まれていません: ${exception.message}",
+                exception.message?.contains("loanDate") == true,
+            )
+        }
+    }
+
+    @Test
     fun `returnReminderDaysBeforeが範囲外の場合は拒否される`() {
         val payload = samplePayload().copy(
             settings = samplePayload().settings.copy(returnReminderDaysBefore = 8),
