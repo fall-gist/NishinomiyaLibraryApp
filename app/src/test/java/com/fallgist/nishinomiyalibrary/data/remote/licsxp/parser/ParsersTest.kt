@@ -770,6 +770,22 @@ class ParsersTest {
     }
 
     @Test
+    fun `本棚0件の実測フィクスチャはShelfListParserが成功しShelfParserが失敗する`() {
+        // docs/design/account-and-bookshelf-fixes.md §2.1 の実測で確定した落とし穴を固定する。
+        // 「otherbookのselectが無ければ0件」という当初の想定は誤りで、実物では
+        // select[name=otherbook]が存在しプレースホルダoption(value=0)1件を返すため
+        // ShelfListParserは成功してしまう。実際に失敗するのはShelfParserの側である。
+        val html = fixture("mybooklist_empty.html")
+
+        val shelves = ShelfListParser.parse(html)
+        assertEquals(listOf(0), shelves.map { it.no })
+
+        assertParseError("shelf") {
+            ShelfParser.parse(html)
+        }
+    }
+
+    @Test
     fun `利用状況サマリフィクスチャをパースできる`() {
         val result = SummaryParser.parse(fixture("usrlend.html"))
         assertEquals(UNASSIGNED_MEMBER_ID, result.memberId)

@@ -155,17 +155,15 @@ class LicsXpClient(
         val prefix = openCurrentCirculationPrefix(cardNumber, password)
         val userSession = prefix.session
         val shelfHtml = openUserPage(userSession, "mybooklist")
-        // otherbookのselectが無い応答(新規作成画面等)は本棚0件と断定せず、本棚取得だけをスキップする。
-        // 別理由の解析不能を0件と誤判定してローカルの本棚を消さないため、他データは通常どおり取得する
-        // (docs/design/account-and-bookshelf-fixes.md §2.3.A)。
-        val listedShelves = try {
-            ShelfListParser.parse(shelfHtml)
-        } catch (exception: ParseException) {
-            null
-        }
-        var shelves = emptyList<com.fallgist.nishinomiyalibrary.domain.model.Shelf>()
-        var shelfItems = emptyList<com.fallgist.nishinomiyalibrary.domain.model.ShelfItem>()
-        if (listedShelves != null) {
+        // 本棚解析ブロック全体(一覧の解析・現在本棚の解析・他本棚への切り替えと解析)をまとめて捕捉する。
+        // 実物のHTMLでは新規作成画面でもShelfListParserが成功してしまい、ShelfParserで初めて
+        // ParseExceptionが飛ぶため、ShelfListParserだけを囲んでも同期全体が落ちる。
+        // 捕捉するのはParseExceptionだけとし、ネットワーク・メンテナンス・認証の失敗は従来どおり伝播させる
+        // (通信障害を「本棚が無い」と誤読しないため)。
+        // 別理由の解析不能を0件と誤判定してローカルの本棚を消さないよう、失敗時は本棚取得だけをスキップし、
+        // 他データは通常どおり取得する (docs/design/account-and-bookshelf-fixes.md §2.3.A)。
+        val shelfSync = try {
+            val listedShelves = ShelfListParser.parse(shelfHtml)
             val currentShelf = ShelfParser.parse(shelfHtml)
             val listedCurrentShelf = listedShelves.firstOrNull { it.no == currentShelf.shelf.no }
                 ?: throw ParseException("shelf", "現在の本棚が一覧にありません")
@@ -195,8 +193,12 @@ class LicsXpClient(
                 }
                 parsedShelves[shelf.no] = parsedShelf
             }
-            shelves = listedShelves
-            shelfItems = listedShelves.flatMap { shelf -> requireNotNull(parsedShelves[shelf.no]).items }
+            ShelfSyncResult(
+                shelves = listedShelves,
+                shelfItems = listedShelves.flatMap { shelf -> requireNotNull(parsedShelves[shelf.no]).items },
+            )
+        } catch (exception: ParseException) {
+            null
         }
         val readingRecords = fetchReadingRecords(userSession, knownReadingRecordKeys)
 
@@ -204,9 +206,9 @@ class LicsXpClient(
             summary = SummaryParser.parse(prefix.loansHtml),
             loans = prefix.loans,
             reservations = prefix.reservations,
-            shelves = shelves,
-            shelfItems = shelfItems,
-            shelvesAvailable = listedShelves != null,
+            shelves = shelfSync?.shelves ?: emptyList(),
+            shelfItems = shelfSync?.shelfItems ?: emptyList(),
+            shelvesAvailable = shelfSync != null,
             readingRecords = readingRecords,
         )
     }
@@ -258,6 +260,11 @@ class LicsXpClient(
                 reservationCount == reservations.count { it.state != ReservationState.CANCELLED },
         )
     }
+
+    private data class ShelfSyncResult(
+        val shelves: List<com.fallgist.nishinomiyalibrary.domain.model.Shelf>,
+        val shelfItems: List<com.fallgist.nishinomiyalibrary.domain.model.ShelfItem>,
+    )
 
     private data class AuthenticatedUserPrefix(
         val session: LicsXpSession,

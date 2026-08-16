@@ -220,29 +220,18 @@ class LicsXpClientTest {
     }
 
     @Test
-    fun `otherbookのselectが無いmybooklist応答では本棚取得だけをスキップし他データは取得できる`() = runBlocking {
-        // 新規アカウント等、本棚0件のときの画面は新規作成フォームでotherbookのselectを持たない
-        // (docs/design/account-and-bookshelf-fixes.md §2)。実物は未取得のため、hash/gamenidだけ
-        // 実測どおりの形で持つ最小合成HTMLで代用する。
+    fun `本棚0件の実測フィクスチャ応答では本棚取得だけをスキップし他データは取得できる`() = runBlocking {
+        // 新規アカウント等、本棚0件のときの画面は実物では新規作成フォーム(見出し「マイ本棚の新規作成」)を返す。
+        // select[name=otherbook]自体はプレースホルダoption(value=0)を持って存在するためShelfListParserは
+        // 成功してしまい、input[name=otherbook]が無いことでShelfParserがParseExceptionを投げて初めて
+        // 本棚取得ブロック全体がスキップされる (docs/design/account-and-bookshelf-fixes.md §2.1, §2.3.A)。
         server.enqueue(html("<html><body>温めページ</body></html>", setCookie = true))
         server.enqueue(html(fixture("login_form.html")))
         server.enqueue(html(fixture("after_login.html")))
         server.enqueue(html(fixture("menu.html")))
         server.enqueue(html(fixture("usrlend.html")))
         server.enqueue(html(fixture("usrrsv.html")))
-        server.enqueue(
-            html(
-                """
-                <html><body><h1>マイ本棚の新規作成</h1>
-                <form name="LBForm">
-                  <input type="hidden" name="hash" value="new-shelf-hash" />
-                  <input type="hidden" name="gamenid" value="tiles.WSdiBookListInput" />
-                  <input type="text" name="listname" value="" />
-                </form>
-                </body></html>
-                """.trimIndent(),
-            ),
-        )
+        server.enqueue(html(fixture("mybooklist_empty.html")))
         server.enqueue(html(usrReadPage(hash = "history-open", records = emptyList())))
         server.enqueue(html(emptyUsrReadPage()))
 
@@ -260,6 +249,7 @@ class LicsXpClientTest {
         assertTrue(requests.none { it.requestUrl!!.encodedPath == "/WOpacSdiBookListToOtherBookDispAction.do" })
         assertEquals("/WOpacMnuTopToPwdLibraryAction.do", requests[7].requestUrl!!.encodedPath)
         assertEquals("usrread", requests[7].requestUrl!!.queryParameter("gamen"))
+        assertEquals("masked-hash-token-2026-08-17", formValue(requests[7], "hash"))
         assertEquals("history-open", formValue(requests[8], "hash"))
         assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
     }
