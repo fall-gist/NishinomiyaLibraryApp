@@ -434,6 +434,56 @@ class BookshelfFormsTest {
         append("</form>")
     }
 
+    /**
+     * 実測HAR(2026-08-15採取、本棚1「a」を削除)由来のフィクスチャによる正常系試験
+     * (handoff.md 進行指示13、docs/design/account-and-bookshelf-fixes.md §4)。
+     *
+     * - `mybooklist_delete_before.html` はHAR entry1の応答(`WOpacMnuTopToPwdLibraryAction.do?gamen=mybooklist`)。
+     *   本棚切り替え(`WOpacSdiBookListToOtherBookDispAction.do`)の応答そのものはHARに含まれていないため、
+     *   同じ「マイ本棚」画面を返すこのentryで代用する。両アクションが同一画面テンプレートを返すことは
+     *   ヘッダ・本棚属性テーブル・LBFormの構造が一致することから確認済みだが、代用である事実は変えない。
+     * - `bookshelf_delete_confirm.html` はHAR entry32の応答で、1段階目POST
+     *   (`WOpacSdiBookListDelAction.do?delflg=1`)が返す削除確認ページそのもの(代用ではない)。
+     * - `mybooklist_delete_after.html` はHAR entry92の応答(削除完了後の`WOpacSdiBookMyListDispAction.do`)。
+     *   削除前は本棚1「a」・2「b」・3「c」、削除後は2「b」・3「c」に減っていることを実データで確認する。
+     * - `hash`の実値は秘匿ポリシーによりマスク済み(`masked-hash-token-2026-08-15`)。他の個人情報
+     *   (氏名・カード番号・メールアドレス等)はHAR採取時点でページ自体に含まれていなかった。
+     */
+    @Test
+    fun `実測HARの削除確認ページを1段階目フォームの実測値でそのまま検証できる`() {
+        val beforeHtml = fixture("mybooklist_delete_before.html")
+
+        val shelves = ShelfListParser.parse(beforeHtml)
+        assertEquals(listOf(Shelf(1, "a"), Shelf(2, "b"), Shelf(3, "c")), shelves)
+
+        val current = ShelfParser.parse(beforeHtml)
+        assertEquals(Shelf(1, "a"), current.shelf)
+        assertTrue(current.items.isEmpty())
+
+        val deleteForm = BookshelfDeleteFormParser.parse(beforeHtml)
+        assertEquals(1, deleteForm.shelfNo)
+
+        val stage1 = deleteForm.buildForm()
+        val expected = listOf(BookshelfFormField("delflg", "1")) +
+            (0 until stage1.size).map { BookshelfFormField(stage1.name(it), stage1.value(it)) }
+
+        val confirmHtml = fixture("bookshelf_delete_confirm.html")
+        val confirm = BookshelfConfirmationFormParser.parse(confirmHtml, expected, BookshelfConfirmationKind.DELETE_SHELF)
+
+        assertEquals("WOpacSdiBookListDelAction.do", confirm.action)
+        val confirmBody = confirm.buildForm()
+        assertEquals("okCodes", confirmBody.name(confirmBody.size - 1))
+        assertEquals("OPACSDI010", confirmBody.value(confirmBody.size - 1))
+
+        // 削除後一覧(実測)で、本棚1が実際に消えていたことを裏付ける。
+        val afterHtml = fixture("mybooklist_delete_after.html")
+        assertEquals(listOf(Shelf(2, "b"), Shelf(3, "c")), ShelfListParser.parse(afterHtml))
+        assertEquals(Shelf(2, "b"), ShelfParser.parse(afterHtml).shelf)
+    }
+
+    private fun fixture(name: String): String =
+        requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
+
     @Test
     fun `確認フォームは異なる項目名間だけのDOM順変更を受理する`() {
         val expected = stage1FieldsForOrderingTest()
