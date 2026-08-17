@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpSession
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreen
@@ -109,6 +110,7 @@ fun LibraryApp(
     onManualSync: () -> Unit,
     onConsumeSyncMessage: (Long) -> Unit,
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
+    onImportBackup: suspend (String) -> BackupImportResult,
     onHomeVisible: () -> Unit,
     onHomeHidden: () -> Unit,
     onAcknowledgeAutoReservation: (Long) -> Unit,
@@ -293,6 +295,7 @@ fun LibraryApp(
                             onManualSync = onManualSync,
                             onRefresh = onManualSync,
                             onRegister = onRegister,
+                            onImportBackup = onImportBackup,
                             onOpenMenu = openMenu,
                             // ホーム画面から書誌詳細を開くのは「うけとれる予約」「返す本」の2箇所のみ
                             // (readyGroups・dueGroups)。どちらも既に予約済み・貸出中の資料を見ているため、

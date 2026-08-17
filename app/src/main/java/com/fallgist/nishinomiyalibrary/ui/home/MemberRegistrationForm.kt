@@ -1,5 +1,8 @@
 package com.fallgist.nishinomiyalibrary.ui.home
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,6 +20,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,16 +33,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.OutlinedTextField
+import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationErrors
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
+import java.io.IOException
 import kotlinx.coroutines.launch
 import android.graphics.Color as AndroidColor
 
@@ -52,9 +60,12 @@ private val PresetColors = listOf(
 @Composable
 fun MemberRegistrationForm(
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
+    onImportBackup: suspend (String) -> BackupImportResult,
+    onImportSucceeded: (requestNotificationPermission: Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     // rememberSaveableは使わない: カード番号・パスワードを端末の保存状態に残さないため。
@@ -65,6 +76,63 @@ fun MemberRegistrationForm(
     var errors by remember { mutableStateOf(RegistrationErrors()) }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+
+    // バックアップからの復元(§5.1)。メンバー0人なので破棄されるものが無く、確認ダイアログは出さない。
+    var importBusy by remember { mutableStateOf(false) }
+    var importMessage by remember { mutableStateOf<String?>(null) }
+    var importIsError by remember { mutableStateOf(false) }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        importBusy = true
+        importMessage = null
+        scope.launch {
+            val jsonText = try {
+                context.contentResolver.openInputStream(uri)
+                    ?.bufferedReader(Charsets.UTF_8)
+                    ?.use { it.readText() }
+            } catch (exception: IOException) {
+                null
+            } catch (exception: SecurityException) {
+                null
+            }
+            if (jsonText == null) {
+                importIsError = true
+                importMessage = "ファイルを読み込めませんでした。保存先の権限を確認してください"
+                importBusy = false
+                return@launch
+            }
+            // 結果の3値・パスワード復元失敗の案内は設定画面(BackupSection)と同じ文言にする
+            // (docs/design/settings-export-import.md §5.1: 同じ処理の結果を画面ごとに別の言葉で説明しない)。
+            when (val result = onImportBackup(jsonText)) {
+                is BackupImportResult.Success -> {
+                    importIsError = result.passwordRestoreFailedCount > 0
+                    val passwordNote = importPasswordRestoreMessage(result.passwordRestoreFailedCount)
+                    importMessage = if (passwordNote != null) {
+                        "${result.importedMemberCount}人分のメンバーと設定を読み込みました。$passwordNote"
+                    } else {
+                        "${result.importedMemberCount}人分のメンバーと設定、パスワードを読み込みました"
+                    }
+                    onImportSucceeded(result.requestNotificationPermission)
+                }
+
+                is BackupImportResult.AppliedWithWarning -> {
+                    importIsError = true
+                    val passwordNote = importPasswordRestoreMessage(result.passwordRestoreFailedCount)
+                    importMessage = if (passwordNote != null) "${result.message}\n$passwordNote" else result.message
+                    onImportSucceeded(result.requestNotificationPermission)
+                }
+
+                is BackupImportResult.Rejected -> {
+                    importIsError = true
+                    importMessage = result.message
+                }
+            }
+            importBusy = false
+        }
+    }
 
     Column(
         modifier = modifier
@@ -183,8 +251,50 @@ fun MemberRegistrationForm(
             color = colors.ink2,
             fontSize = 11.sp,
         )
+
+        Spacer(Modifier.height(24.dp))
+        HorizontalDivider(color = colors.line)
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "以前の端末のバックアップファイルをお持ちの場合",
+            color = colors.ink,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "設定は既定値からファイルの内容に置き換わります。",
+            color = colors.ink2,
+            fontSize = 11.sp,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = {
+                if (importBusy) return@OutlinedButton
+                importLauncher.launch(arrayOf("application/json"))
+            },
+            enabled = !importBusy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(if (importBusy) "読み込み中…" else "バックアップから復元")
+        }
+        importMessage?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = it,
+                color = if (importIsError) colors.alert else colors.ink2,
+                fontSize = 11.sp,
+            )
+        }
     }
 }
+
+/**
+ * パスワード復元失敗の案内文(§4)。1人以上が復元できなかった場合だけメッセージを返す。
+ * 設定画面(BackupSection.passwordRestoreMessage)と文言を一致させること。
+ */
+private fun importPasswordRestoreMessage(failedCount: Int): String? =
+    if (failedCount > 0) "${failedCount}人分のパスワードを復元できませんでした。再入力してください" else null
 
 @Composable
 private fun ColorSwatch(hex: String, selected: Boolean, onClick: () -> Unit) {

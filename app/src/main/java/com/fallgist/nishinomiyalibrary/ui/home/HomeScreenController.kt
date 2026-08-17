@@ -1,5 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui.home
 
+import com.fallgist.nishinomiyalibrary.data.backup.BackupImportPort
+import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
 import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
@@ -38,6 +40,8 @@ class HomeScreenController(
     private val autoReservationRepository: AutoReservationRepository = NoOpAutoReservationRepository,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val today: () -> LocalDate = { LocalDate.now(ZoneId.of("Asia/Tokyo")) },
+    // 初期画面(メンバー未登録)からのバックアップ復元(§5.1)用。設定画面と同じPortをそのまま使う。
+    private val backupImporter: BackupImportPort = NoOpBackupImportPort,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val _state = MutableStateFlow(HomeUiState())
@@ -162,6 +166,16 @@ class HomeScreenController(
         }
     }
 
+    /**
+     * 初期画面(メンバー未登録)からのバックアップ復元(§5.1)。処理は設定画面の
+     * [com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController.importBackup] と
+     * 完全に同一であり、新しい取り込み経路は作らない。成功すると[familyRepository.members]の
+     * Flowが更新され、ホームは自動で通常表示へ切り替わる(呼び出し側で画面遷移は組まない)。
+     */
+    suspend fun importBackup(jsonText: String): BackupImportResult = withContext(dispatcher) {
+        backupImporter.import(jsonText)
+    }
+
     /** 画面表示時に一度だけ自動同期スケジュールを確立する。失敗は静かに次回へ持ち越す。 */
     suspend fun onScreenLaunched() = launchMutex.withLock {
         if (scheduleCompleted) return@withLock
@@ -199,4 +213,10 @@ private object NoOpAutoReservationRepository : AutoReservationRepository {
     override fun latestRun() = flowOf<com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun?>(null)
     override suspend fun replaceLatestRun(run: com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun) = Unit
     override suspend fun markLatestRunAcknowledged(runId: Long) = false
+}
+
+/** backupImporterが未設定のテスト等での既定実装。呼ばれることを想定しない(SettingsScreenControllerと同じ流儀)。 */
+private object NoOpBackupImportPort : BackupImportPort {
+    override suspend fun import(jsonText: String): BackupImportResult =
+        error("バックアップのインポートが設定されていません")
 }

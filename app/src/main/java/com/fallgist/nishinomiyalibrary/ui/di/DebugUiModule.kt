@@ -62,11 +62,13 @@ object DebugUiProvisionModule {
         statusRepository: StatusRepository,
         scheduleStarter: SyncScheduleStarter,
         autoReservationRepository: AutoReservationRepository,
+        backupImportPort: BackupImportPort,
     ): HomeScreenController = HomeScreenController(
         familyRepository = familyRepository,
         statusRepository = statusRepository,
         scheduleStarter = scheduleStarter,
         autoReservationRepository = autoReservationRepository,
+        backupImporter = backupImportPort,
     )
 
     @Provides

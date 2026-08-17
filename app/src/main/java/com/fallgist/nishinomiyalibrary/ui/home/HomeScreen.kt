@@ -40,10 +40,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.ui.components.HamburgerButton
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
+import com.fallgist.nishinomiyalibrary.ui.settings.rememberNotificationPermissionController
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import android.graphics.Color as AndroidColor
 import com.fallgist.nishinomiyalibrary.ui.autoreservation.AutoReservationRunView
@@ -61,6 +63,7 @@ fun HomeScreen(
     onManualSync: () -> Unit,
     onRefresh: () -> Unit,
     onRegister: suspend (RegistrationForm) -> MemberRegistrationResult,
+    onImportBackup: suspend (String) -> BackupImportResult,
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
     onAcknowledgeAutoReservation: (Long) -> Unit,
@@ -68,11 +71,22 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
+    // メンバー未登録画面のバックアップ復元(§5.1)後の通知権限導線。設定画面と同じ導線を使う。
+    val notificationPermissionController = rememberNotificationPermissionController()
     when {
         // 初回ロード前のちらつきを避ける。
         !state.initialized -> Box(modifier.background(colors.paper))
         // 認証済みメンバーが1人もいなければ、その場で完結する登録フォームだけを出す。
-        state.members.isEmpty() -> MemberRegistrationForm(onRegister = onRegister, modifier = modifier)
+        state.members.isEmpty() -> MemberRegistrationForm(
+            onRegister = onRegister,
+            onImportBackup = onImportBackup,
+            onImportSucceeded = { requestNotificationPermission ->
+                if (requestNotificationPermission) {
+                    notificationPermissionController.requestOrOpenSettings()
+                }
+            },
+            modifier = modifier,
+        )
         else -> HomeContent(state, isRefreshing, onSelectMember, onManualSync, onRefresh, onOpenMenu, onOpenDetail, onAcknowledgeAutoReservation, onOpenReservations, modifier)
     }
 }

@@ -1,5 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui.home
 
+import com.fallgist.nishinomiyalibrary.data.backup.BackupImportPort
+import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
 import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Member
@@ -238,6 +240,77 @@ class HomeScreenControllerTest {
         override fun lastSync(): Flow<SyncLog?> = lastSync
 
         override suspend fun syncAll(trigger: SyncTrigger): SyncResult = syncResult
+    }
+
+    // 第3段(§5.1): 初期画面(メンバー未登録)からのバックアップ復元導線。
+    // 処理そのものはBackupImportPortの委譲先(設定画面と共通)なので、ここではControllerが
+    // 正しく委譲すること・失敗時にmembersが変化しない(登録フォームが残る)ことを検証する。
+    private class FakeBackupImportPort(
+        private val onImport: (String) -> BackupImportResult,
+    ) : BackupImportPort {
+        val importedJsonTexts = mutableListOf<String>()
+
+        override suspend fun import(jsonText: String): BackupImportResult {
+            importedJsonTexts += jsonText
+            return onImport(jsonText)
+        }
+    }
+
+    @Test
+    fun importBackup_success_delegatesToPortAndReflectsMembers() = runTest {
+        // 実装(BackupImporter)はRoomトランザクションでmembersを書き換え、
+        // familyRepository.members()のFlowがそれを反映する。ここではそのFlowをテスト側で
+        // 直接更新することで同じ観測結果を再現する。
+        val membersFlow = MutableStateFlow<List<Member>>(emptyList())
+        val family = FakeFamilyRepository(membersFlow)
+        val importer = FakeBackupImportPort { json ->
+            membersFlow.value = listOf(papa)
+            BackupImportResult.Success(importedMemberCount = 1, requestNotificationPermission = false)
+        }
+        val controller = HomeScreenController(
+            familyRepository = family,
+            statusRepository = FakeStatusRepository(),
+            scheduleStarter = FakeScheduleStarter(),
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
+            today = { today },
+            backupImporter = importer,
+        )
+        advanceUntilIdle()
+        assertTrue(controller.state.value.members.isEmpty())
+
+        val result = controller.importBackup("{\"formatVersion\":1}")
+        advanceUntilIdle()
+
+        assertTrue(result is BackupImportResult.Success)
+        assertEquals(listOf("{\"formatVersion\":1}"), importer.importedJsonTexts)
+        assertEquals(listOf(papa), controller.state.value.members)
+        controller.close()
+    }
+
+    @Test
+    fun importBackup_rejected_leavesMembersEmpty() = runTest {
+        val membersFlow = MutableStateFlow<List<Member>>(emptyList())
+        val family = FakeFamilyRepository(membersFlow)
+        val importer = FakeBackupImportPort { BackupImportResult.Rejected("パースできませんでした") }
+        val controller = HomeScreenController(
+            familyRepository = family,
+            statusRepository = FakeStatusRepository(),
+            scheduleStarter = FakeScheduleStarter(),
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
+            today = { today },
+            backupImporter = importer,
+        )
+        advanceUntilIdle()
+
+        val result = controller.importBackup("broken")
+        advanceUntilIdle()
+
+        assertTrue(result is BackupImportResult.Rejected)
+        assertEquals("パースできませんでした", (result as BackupImportResult.Rejected).message)
+        // 拒否は既存データを一切変更しない(§7)。membersが空のままであることは、
+        // HomeScreenのwhen分岐(state.members.isEmpty())により登録フォームが残ることに対応する。
+        assertTrue(controller.state.value.members.isEmpty())
+        controller.close()
     }
 
     private class FakeScheduleStarter : SyncScheduleStarter {

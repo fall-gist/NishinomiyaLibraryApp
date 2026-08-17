@@ -95,6 +95,7 @@ open class MainActivity : ComponentActivity() {
                     onManualSync = syncUiController::requestManualSync,
                     onConsumeSyncMessage = syncUiController::consumeMessage,
                     onRegister = controller::register,
+                    onImportBackup = controller::importBackup,
                     onHomeVisible = controller::onHomeVisible,
                     onHomeHidden = controller::onHomeHidden,
                     onAcknowledgeAutoReservation = controller::acknowledgeLatestAutoReservationRun,
