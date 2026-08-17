@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.home
 
 import com.fallgist.nishinomiyalibrary.data.backup.BackupImportPort
 import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
+import com.fallgist.nishinomiyalibrary.data.backup.NoOpBackupImportPort
 import com.fallgist.nishinomiyalibrary.data.sync.SyncScheduleStarter
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
@@ -213,10 +214,4 @@ private object NoOpAutoReservationRepository : AutoReservationRepository {
     override fun latestRun() = flowOf<com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun?>(null)
     override suspend fun replaceLatestRun(run: com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun) = Unit
     override suspend fun markLatestRunAcknowledged(runId: Long) = false
-}
-
-/** backupImporterが未設定のテスト等での既定実装。呼ばれることを想定しない(SettingsScreenControllerと同じ流儀)。 */
-private object NoOpBackupImportPort : BackupImportPort {
-    override suspend fun import(jsonText: String): BackupImportResult =
-        error("バックアップのインポートが設定されていません")
 }

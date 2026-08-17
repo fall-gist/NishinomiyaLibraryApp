@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.OutlinedTextField
 import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
+import com.fallgist.nishinomiyalibrary.data.backup.passwordRestoreMessage
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationErrors
 import com.fallgist.nishinomiyalibrary.ui.member.RegistrationForm
@@ -85,9 +86,12 @@ fun MemberRegistrationForm(
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        importBusy = true
-        importMessage = null
+        if (uri == null) {
+            // SAFがキャンセルされた場合。onClickで立てたフラグをここで解除しないと
+            // ボタンが二度と押せなくなる(docs/design/settings-export-import.md §5.1)。
+            importBusy = false
+            return@rememberLauncherForActivityResult
+        }
         scope.launch {
             val jsonText = try {
                 context.contentResolver.openInputStream(uri)
@@ -109,7 +113,7 @@ fun MemberRegistrationForm(
             when (val result = onImportBackup(jsonText)) {
                 is BackupImportResult.Success -> {
                     importIsError = result.passwordRestoreFailedCount > 0
-                    val passwordNote = importPasswordRestoreMessage(result.passwordRestoreFailedCount)
+                    val passwordNote = passwordRestoreMessage(result.passwordRestoreFailedCount)
                     importMessage = if (passwordNote != null) {
                         "${result.importedMemberCount}人分のメンバーと設定を読み込みました。$passwordNote"
                     } else {
@@ -120,7 +124,7 @@ fun MemberRegistrationForm(
 
                 is BackupImportResult.AppliedWithWarning -> {
                     importIsError = true
-                    val passwordNote = importPasswordRestoreMessage(result.passwordRestoreFailedCount)
+                    val passwordNote = passwordRestoreMessage(result.passwordRestoreFailedCount)
                     importMessage = if (passwordNote != null) "${result.message}\n$passwordNote" else result.message
                     onImportSucceeded(result.requestNotificationPermission)
                 }
@@ -271,6 +275,10 @@ fun MemberRegistrationForm(
         OutlinedButton(
             onClick = {
                 if (importBusy) return@OutlinedButton
+                // 「登録する」ボタンと同様、onClick内で同期的にフラグを立てる。SAFのピッカーが
+                // 前面に出るまでの間も連打を防ぐ(docs/design/settings-export-import.md §5.1)。
+                importBusy = true
+                importMessage = null
                 importLauncher.launch(arrayOf("application/json"))
             },
             enabled = !importBusy,
@@ -288,13 +296,6 @@ fun MemberRegistrationForm(
         }
     }
 }
-
-/**
- * パスワード復元失敗の案内文(§4)。1人以上が復元できなかった場合だけメッセージを返す。
- * 設定画面(BackupSection.passwordRestoreMessage)と文言を一致させること。
- */
-private fun importPasswordRestoreMessage(failedCount: Int): String? =
-    if (failedCount > 0) "${failedCount}人分のパスワードを復元できませんでした。再入力してください" else null
 
 @Composable
 private fun ColorSwatch(hex: String, selected: Boolean, onClick: () -> Unit) {

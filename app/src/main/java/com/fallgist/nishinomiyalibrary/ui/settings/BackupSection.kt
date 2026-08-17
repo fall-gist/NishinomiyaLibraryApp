@@ -25,17 +25,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.data.backup.BackupFileNaming
 import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
+import com.fallgist.nishinomiyalibrary.data.backup.passwordRestoreMessage
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import java.io.IOException
 import java.time.LocalDateTime
 import kotlinx.coroutines.launch
-
-/**
- * パスワード復元失敗の案内文(§4)。1人以上が復元できなかった場合だけメッセージを返す。
- * 復号失敗はそのメンバーだけの問題であり、インポート全体の成否には影響しない。
- */
-private fun passwordRestoreMessage(failedCount: Int): String? =
-    if (failedCount > 0) "${failedCount}人分のパスワードを復元できませんでした。再入力してください" else null
 
 /**
  * 設定のエクスポート/インポート(端末間移行)。docs/design/settings-export-import.md 参照。

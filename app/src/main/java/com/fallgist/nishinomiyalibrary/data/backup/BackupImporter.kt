@@ -252,3 +252,25 @@ private fun BackupSettings.toAppSettings() = AppSettings(
     diagnosticLogEnabled = diagnosticLogEnabled,
     autoReservationEnabled = autoReservationEnabled,
 )
+
+/**
+ * パスワード復元失敗の案内文(§4)。1人以上が復元できなかった場合だけメッセージを返す。
+ * 復号失敗はそのメンバーだけの問題であり、インポート全体の成否には影響しない。
+ *
+ * 設定画面([com.fallgist.nishinomiyalibrary.ui.settings.BackupSection])と初期画面
+ * ([com.fallgist.nishinomiyalibrary.ui.home.MemberRegistrationForm])の両方から参照する
+ * 共通の文言(docs/design/settings-export-import.md §5.1: 同じ処理の結果を画面ごとに
+ * 別の言葉で説明しない)。片方だけ直して静かにズレることを防ぐため、ここへ集約する。
+ */
+internal fun passwordRestoreMessage(failedCount: Int): String? =
+    if (failedCount > 0) "${failedCount}人分のパスワードを復元できませんでした。再入力してください" else null
+
+/**
+ * backupImporterが未設定のテスト等での既定実装。呼ばれることを想定しない。
+ * [com.fallgist.nishinomiyalibrary.ui.settings.SettingsScreenController]と
+ * [com.fallgist.nishinomiyalibrary.ui.home.HomeScreenController]の両方から参照する共通実装。
+ */
+internal object NoOpBackupImportPort : BackupImportPort {
+    override suspend fun import(jsonText: String): BackupImportResult =
+        error("バックアップのインポートが設定されていません")
+}

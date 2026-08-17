@@ -3,6 +3,7 @@ package com.fallgist.nishinomiyalibrary.ui.settings
 import com.fallgist.nishinomiyalibrary.data.backup.BackupExportPort
 import com.fallgist.nishinomiyalibrary.data.backup.BackupImportPort
 import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
+import com.fallgist.nishinomiyalibrary.data.backup.NoOpBackupImportPort
 import com.fallgist.nishinomiyalibrary.data.diagnostics.DiagnosticLog
 import com.fallgist.nishinomiyalibrary.data.diagnostics.DiagnosticLogEntry
 import com.fallgist.nishinomiyalibrary.data.local.AppSettings
@@ -434,8 +435,3 @@ private object NoOpBackupExportPort : BackupExportPort {
     override suspend fun export(): String = error("バックアップのエクスポートが設定されていません")
 }
 
-/** backupImporterが未設定のテスト等での既定実装。呼ばれることを想定しない。 */
-private object NoOpBackupImportPort : BackupImportPort {
-    override suspend fun import(jsonText: String): BackupImportResult =
-        error("バックアップのインポートが設定されていません")
-}
