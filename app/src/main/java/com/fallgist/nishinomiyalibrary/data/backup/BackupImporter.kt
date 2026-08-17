@@ -31,12 +31,18 @@ sealed interface BackupImportResult {
         val importedMemberCount: Int,
         /** 通知設定がオンだった場合、インポート後に通知権限の導線を出す必要があるか。 */
         val requestNotificationPermission: Boolean,
+        /**
+         * パスワードの復号に失敗し、未設定のまま残ったメンバー数(§4)。0なら全員復元できている。
+         * 復号失敗は該当メンバーだけの問題であり、インポート全体は失敗させない。
+         */
+        val passwordRestoreFailedCount: Int = 0,
     ) : BackupImportResult
 
     data class AppliedWithWarning(
         val importedMemberCount: Int,
         val requestNotificationPermission: Boolean,
         val message: String,
+        val passwordRestoreFailedCount: Int = 0,
     ) : BackupImportResult
 
     data class Rejected(val message: String) : BackupImportResult
@@ -49,9 +55,11 @@ interface BackupImportPort {
 
 /**
  * バックアップJSONを検証し、単一のRoomトランザクションで全置換する。
- * 方式は全置換のみ(docs/design/settings-export-import.md §6)。パスワードの書き込みは
- * 第2段のスコープ外のため行わない(読み込んでも無視する)が、[CredentialStore]の全消去
- * (§6.2)は第1段でも必須のため行う。
+ * 方式は全置換のみ(docs/design/settings-export-import.md §6)。
+ *
+ * パスワードは[CredentialStore]を全消去した後に書き込む(§6.2・§6.3)。全消去に失敗した場合は
+ * パスワード書き込みだけをスキップする(消せていない場所へ書くと新旧が混在するため)。
+ * メンバーごとの復号失敗はそのメンバーだけを未設定として扱い、インポート全体を失敗させない(§4)。
  */
 class BackupImporter(
     private val database: AppDatabase,
@@ -105,16 +113,36 @@ class BackupImporter(
         // 案内もその1件しか伝わらない欠陥があった)。
         val requestNotificationPermission = payload.settings.notifyReturnReminder || payload.settings.notifyPickupReady
         val warnings = mutableListOf<String>()
+        var passwordRestoreFailedCount = 0
 
-        // §6.2: パスワード書き込み(第2段)の前に必ず全消去する順序。第1段では書き込みを
-        // 行わないが、全消去自体は第1段でも必須。失敗すると旧端末のパスワードが残ったままになり、
-        // §6.2で防ごうとした「同じidの別人のパスワードが使われる」状態そのものになる。
-        try {
+        // §6.2: パスワード書き込み(第2段)の前に必ず全消去する順序。失敗すると旧端末のパスワードが
+        // 残ったままになり、§6.2で防ごうとした「同じidの別人のパスワードが使われる」状態そのものになる。
+        val clearAllSucceeded = try {
             credentialStore.clearAll()
+            true
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Exception) {
             warnings += "保存済みのパスワードが残っている可能性があります。各メンバーのパスワードを設定し直してください"
+            false
+        }
+
+        // §6.3: clearAllが失敗したときはパスワード書き込みだけをスキップする(消せていない場所へ
+        // 書くと新旧が混在するため)。設定の書き込みと同期スケジュールの再構成は、そのときも実行する。
+        if (clearAllSucceeded) {
+            payload.members.forEach { member ->
+                val encrypted = member.password ?: return@forEach
+                if (!member.passwordEncrypted) return@forEach
+                try {
+                    credentialStore.savePassword(member.id, BackupSecret.decrypt(encrypted))
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Exception) {
+                    // 復号(または書き込み)に失敗したパスワードは、そのメンバーのみ未設定として扱う。
+                    // 他の移行データを道連れにせず、インポート全体は失敗させない(§4)。
+                    passwordRestoreFailedCount += 1
+                }
+            }
         }
 
         // DataStoreの設定を書き込む。値域はBackupPayloadCodec.decodeで検証済みのため
@@ -141,15 +169,24 @@ class BackupImporter(
             return BackupImportResult.AppliedWithWarning(
                 importedMemberCount = members.size,
                 requestNotificationPermission = requestNotificationPermission,
-                message = "取り込みは完了しましたが、" + warnings.joinToString("\n"),
+                message = formatWarningMessage(warnings),
+                passwordRestoreFailedCount = passwordRestoreFailedCount,
             )
         }
 
         return BackupImportResult.Success(
             importedMemberCount = members.size,
             requestNotificationPermission = requestNotificationPermission,
+            passwordRestoreFailedCount = passwordRestoreFailedCount,
         )
     }
+
+    /**
+     * 複数の後処理が失敗した場合の案内文を整形する(§6.3、§11)。改行で連ねるだけだと2件目以降が
+     * 「取り込みは完了しましたが、」との接続を失うため、導入文を1回だけ出し、各項目を箇条書きにする。
+     */
+    private fun formatWarningMessage(warnings: List<String>): String =
+        "取り込みは完了しましたが、次の問題が発生しました。\n" + warnings.joinToString("\n") { "・$it" }
 }
 
 private fun BackupMember.toEntity() = MemberEntity(

@@ -7,9 +7,8 @@ import kotlinx.serialization.Serializable
  * Roomエンティティを直接シリアライズせず、この専用DTOへ写す。DBスキーマ変更が
  * エクスポート形式の破壊に直結しないよう結合を切るためである。
  *
- * 第1段ではパスワードを含めない。[BackupMember.password] / [BackupMember.passwordEncrypted] は
- * 第2段(§4のアプリ内固定鍵AES-GCM暗号化)で使う欄を先取りしたものであり、現時点では
- * 常に出力せず、読み込み時も無視する。
+ * パスワードを含む(§4)。[BackupMember.password] は[BackupSecret]によるAES-256-GCM暗号化済みの
+ * Base64文字列であり、[BackupMember.passwordEncrypted] が `true` のときだけ有効な値を持つ。
  */
 const val BACKUP_FORMAT_VERSION = 1
 
@@ -37,9 +36,9 @@ data class BackupMember(
     val colorHex: String,
     val cardNumber: String,
     val sortOrder: Int,
-    /** 第2段用の予約欄。第1段では常にfalseで出力し、読み込み時も無視する。 */
+    /** trueのとき[password]がBase64(IV || ciphertext || tag)形式の暗号化済み値であることを示す(§4)。 */
     val passwordEncrypted: Boolean = false,
-    /** 第2段用の予約欄。第1段では常にnullで出力し、読み込み時も無視する。 */
+    /** [BackupSecret.encrypt]による暗号化済みパスワード。未設定のメンバーはnull。 */
     val password: String? = null,
 )
 

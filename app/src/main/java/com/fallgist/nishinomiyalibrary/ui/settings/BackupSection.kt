@@ -31,9 +31,16 @@ import java.time.LocalDateTime
 import kotlinx.coroutines.launch
 
 /**
- * 設定のエクスポート/インポート(端末間移行、第1段)。docs/design/settings-export-import.md 参照。
+ * パスワード復元失敗の案内文(§4)。1人以上が復元できなかった場合だけメッセージを返す。
+ * 復号失敗はそのメンバーだけの問題であり、インポート全体の成否には影響しない。
+ */
+private fun passwordRestoreMessage(failedCount: Int): String? =
+    if (failedCount > 0) "${failedCount}人分のパスワードを復元できませんでした。再入力してください" else null
+
+/**
+ * 設定のエクスポート/インポート(端末間移行)。docs/design/settings-export-import.md 参照。
  * SAFのURI取得(Android依存)はここで行い、Controllerへは文字列だけを渡す境界にする。
- * パスワードは第1段の対象外のため、このファイルには含まれない旨をUIに明記する。
+ * ファイルにはログインパスワードが暗号化(§4)されて含まれるため、取り扱いに注意する旨をUIに明記する。
  */
 @Composable
 fun BackupSection(
@@ -109,16 +116,21 @@ fun BackupSection(
             }
             when (val result = onImport(jsonText)) {
                 is BackupImportResult.Success -> {
-                    statusIsError = false
-                    statusMessage = "${result.importedMemberCount}人分のメンバーと設定を読み込みました" +
-                        "。パスワードは含まれないため、メンバーごとに再入力してください"
+                    statusIsError = result.passwordRestoreFailedCount > 0
+                    val passwordNote = passwordRestoreMessage(result.passwordRestoreFailedCount)
+                    statusMessage = if (passwordNote != null) {
+                        "${result.importedMemberCount}人分のメンバーと設定を読み込みました。$passwordNote"
+                    } else {
+                        "${result.importedMemberCount}人分のメンバーと設定、パスワードを読み込みました"
+                    }
                     onImportSucceeded(result.requestNotificationPermission)
                 }
 
                 is BackupImportResult.AppliedWithWarning -> {
                     // データの取り込み自体は完了している(Roomトランザクション確定後の後処理失敗)。
                     statusIsError = true
-                    statusMessage = result.message
+                    val passwordNote = passwordRestoreMessage(result.passwordRestoreFailedCount)
+                    statusMessage = if (passwordNote != null) "${result.message}\n$passwordNote" else result.message
                     onImportSucceeded(result.requestNotificationPermission)
                 }
 
@@ -134,7 +146,7 @@ fun BackupSection(
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = "端末を買い替えるとき、この端末の内容を1つのファイルに書き出し、新しい端末で読み込めます。" +
-                "ログインパスワードはファイルに含まれません。読み込み後、メンバーごとに再入力してください。",
+                "このファイルにはログインパスワードが含まれます。取り扱いに注意してください。",
             color = colors.ink2,
             fontSize = 11.sp,
         )
@@ -174,8 +186,8 @@ fun BackupSection(
             title = { Text("設定を読み込みますか?") },
             text = {
                 Text(
-                    "現在のメンバー${memberCount}人と設定、保存済みのパスワードは破棄され、" +
-                        "ファイルの内容に置き換わります。この操作は取り消せません。",
+                    "現在のメンバー${memberCount}人と設定は破棄され、ファイルの内容に置き換わります。" +
+                        "保存済みのパスワードもファイルの内容で上書きされます。この操作は取り消せません。",
                 )
             },
             confirmButton = {

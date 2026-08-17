@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.data.backup
 
 import com.fallgist.nishinomiyalibrary.data.local.APP_DATABASE_VERSION
 import com.fallgist.nishinomiyalibrary.data.local.AppDatabase
+import com.fallgist.nishinomiyalibrary.data.local.CredentialStore
 import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationControlEntity
 import com.fallgist.nishinomiyalibrary.data.local.entity.AutoReservationRuleEntity
@@ -28,10 +29,15 @@ interface BackupExportPort {
  * Room側の読み出しは[AppDatabase.readBackupSnapshot]で単一トランザクション化している(§7.1)。
  * DataStoreの設定はRoomのトランザクションに含められないが、他のデータと相互参照しないため
  * 不整合の問題は生じない。
+ *
+ * パスワードは[CredentialStore]から読み出し、[BackupSecret.encrypt]でメンバーごとに暗号化して
+ * 格納する(§4、第2段)。パスワード未設定のメンバーは `password = null` / `passwordEncrypted = false`
+ * のまま出力する。
  */
 class BackupExporter(
     private val database: AppDatabase,
     private val settingsStore: SettingsStore,
+    private val credentialStore: CredentialStore,
     private val appVersion: String,
     private val sourceDbVersion: Int = APP_DATABASE_VERSION,
 ) : BackupExportPort {
@@ -48,7 +54,7 @@ class BackupExporter(
             exportedAt = ISO_OFFSET_FORMATTER.format(now),
             appVersion = appVersion,
             sourceDbVersion = sourceDbVersion,
-            members = snapshot.members.map { it.toBackup() },
+            members = snapshot.members.map { it.toBackup(credentialStore) },
             settings = settings.toBackup(),
             autoReservation = BackupAutoReservation(
                 rules = snapshot.autoReservationRules.map { rule -> rule.toBackup(termsByRuleId[rule.id].orEmpty()) },
@@ -73,15 +79,18 @@ object BackupFileNaming {
         "nishinomiya-library-backup-${formatter.format(now)}.json"
 }
 
-private fun MemberEntity.toBackup() = BackupMember(
-    id = id,
-    name = name,
-    colorHex = colorHex,
-    cardNumber = cardNumber,
-    sortOrder = sortOrder,
-    passwordEncrypted = false,
-    password = null,
-)
+private fun MemberEntity.toBackup(credentialStore: CredentialStore): BackupMember {
+    val plainPassword = credentialStore.getPassword(id)
+    return BackupMember(
+        id = id,
+        name = name,
+        colorHex = colorHex,
+        cardNumber = cardNumber,
+        sortOrder = sortOrder,
+        passwordEncrypted = plainPassword != null,
+        password = plainPassword?.let(BackupSecret::encrypt),
+    )
+}
 
 private fun com.fallgist.nishinomiyalibrary.data.local.AppSettings.toBackup() = BackupSettings(
     syncHour = syncHour,

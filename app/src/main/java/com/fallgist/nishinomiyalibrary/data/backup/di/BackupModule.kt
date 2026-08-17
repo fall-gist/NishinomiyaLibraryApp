@@ -23,9 +23,11 @@ object BackupModule {
     fun provideBackupExporter(
         database: AppDatabase,
         settingsStore: SettingsStore,
+        credentialStore: CredentialStore,
     ): BackupExportPort = BackupExporter(
         database = database,
         settingsStore = settingsStore,
+        credentialStore = credentialStore,
         appVersion = BuildConfig.VERSION_NAME,
     )
 

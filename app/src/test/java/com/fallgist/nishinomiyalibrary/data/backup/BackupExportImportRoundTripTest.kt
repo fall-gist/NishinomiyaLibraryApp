@@ -87,6 +87,7 @@ class BackupExportImportRoundTripTest {
         exporter = BackupExporter(
             database = database,
             settingsStore = settingsStore,
+            credentialStore = credentialStore,
             appVersion = "1.1",
             sourceDbVersion = 9,
         )
@@ -209,9 +210,9 @@ class BackupExportImportRoundTripTest {
     }
 
     @Test
-    fun `インポート時にCredentialStoreが全消去される(第2段でパスワードを書く前でも第1段の時点で必須)`() = runBlocking {
-        // 旧端末で id=1 だった別人のパスワードが残っている状態を模す。
-        credentialStore.savePassword(1L, "旧端末の花子のパスワード")
+    fun `インポート時にCredentialStoreが全消去される(エクスポートファイルに含まれない残留パスワードは消える)`() = runBlocking {
+        // エクスポートファイルに含まれない、この端末だけの残留パスワード(id=99は移行対象に無い)。
+        credentialStore.savePassword(99L, "無関係な残留パスワード")
         seedSourceData()
         val exported = exporter.export()
 
@@ -219,9 +220,104 @@ class BackupExportImportRoundTripTest {
         assertTrue("Successになるはずが $result でした", result is BackupImportResult.Success)
 
         assertNull(
-            "インポート後もCredentialStoreに旧端末のパスワードが残っています(id衝突で別人に使われる恐れ)",
-            credentialStore.getPassword(1L),
+            "インポート後もCredentialStoreに無関係な残留パスワードが残っています(id衝突で別人に使われる恐れ)",
+            credentialStore.getPassword(99L),
         )
+    }
+
+    @Test
+    fun `エクスポートしたパスワードはインポート後に同じ平文へ復元される(§4)`() = runBlocking {
+        credentialStore.savePassword(1L, "いちろうのダミーパスワード")
+        credentialStore.savePassword(2L, "じろうのダミーパスワード")
+        seedSourceData()
+        val exported = exporter.export()
+
+        assertTrue(
+            "エクスポートJSONにpasswordEncrypted=trueが含まれていません(平文のまま出力されている疑い)",
+            exported.contains("\"passwordEncrypted\": true"),
+        )
+        assertFalse(
+            "エクスポートJSONに平文パスワードが含まれています",
+            exported.contains("いちろうのダミーパスワード") || exported.contains("じろうのダミーパスワード"),
+        )
+
+        val result = importer.import(exported)
+        assertTrue("Successになるはずが $result でした", result is BackupImportResult.Success)
+        result as BackupImportResult.Success
+        assertEquals(0, result.passwordRestoreFailedCount)
+
+        assertEquals("いちろうのダミーパスワード", credentialStore.getPassword(1L))
+        assertEquals("じろうのダミーパスワード", credentialStore.getPassword(2L))
+    }
+
+    @Test
+    fun `復号に失敗したパスワードはそのメンバーだけ未設定になりインポート全体は成功する(§4)`() = runBlocking {
+        credentialStore.savePassword(1L, "いちろうのダミーパスワード")
+        credentialStore.savePassword(2L, "じろうのダミーパスワード")
+        seedSourceData()
+        val exported = exporter.export()
+
+        // id=1のpasswordだけ壊れたBase64へ差し替え、id=2は正常な値のまま残す。
+        val corrupted = corruptFirstMemberPassword(exported)
+
+        val result = importer.import(corrupted)
+        assertTrue("Successになるはずが $result でした", result is BackupImportResult.Success)
+        result as BackupImportResult.Success
+        assertEquals(1, result.passwordRestoreFailedCount)
+
+        assertNull("復号失敗のメンバーはパスワード未設定のはずです", credentialStore.getPassword(1L))
+        assertEquals(
+            "復号に成功した他メンバーのパスワードまで失われています",
+            "じろうのダミーパスワード",
+            credentialStore.getPassword(2L),
+        )
+    }
+
+    @Test
+    fun `CredentialStore全消去に失敗した場合はパスワード書き込みだけがスキップされる(§6_3)`() = runBlocking {
+        // エクスポート元にはパスワードを設定しておく(正常なcredentialStoreを使って書き出す)。
+        credentialStore.savePassword(1L, "いちろうのダミーパスワード")
+        credentialStore.savePassword(2L, "じろうのダミーパスワード")
+        seedSourceData()
+        val exported = exporter.export()
+
+        // インポート先のCredentialStoreは全消去を含む全操作が失敗する。§6.3の実装が正しければ
+        // clearAll失敗を理由にパスワード書き込みの試行自体をスキップするため、savePasswordは
+        // 一度も呼ばれず、passwordRestoreFailedCountは0のままになる(「試みて失敗した」件数では
+        // ない)。もし誤って書き込みを試みれば、failingCredentialStoreへのsavePasswordが例外を
+        // 投げ、2件とも復元失敗としてカウントされてしまうはずである。
+        val failingCredentialStore = CredentialStore(FailingSharedPreferencesContext(context))
+        val localScheduleStarter = FakeScheduleStarter()
+        val warningImporter = BackupImporter(database, settingsStore, localScheduleStarter, failingCredentialStore)
+
+        val result = warningImporter.import(exported)
+        assertTrue("AppliedWithWarningになるはずが $result でした", result is BackupImportResult.AppliedWithWarning)
+        result as BackupImportResult.AppliedWithWarning
+
+        assertEquals(
+            "clearAll失敗時にパスワード書き込みが試みられ、復元失敗としてカウントされています" +
+                "(§6.3: 書き込み自体をスキップすべき)",
+            0,
+            result.passwordRestoreFailedCount,
+        )
+
+        // 設定書き込みと同期スケジュール再構成は、そのときも実行される(§6.3)。
+        assertEquals(1, localScheduleStarter.calls)
+        val settingsAfter = settingsStore.settings.first()
+        assertEquals(18, settingsAfter.syncHour)
+
+        val members = database.memberDao().getAll()
+        assertEquals(listOf(1L, 2L), members.map { it.id })
+    }
+
+    /** [BackupPayload]のmembers配列先頭要素のpasswordだけを壊れたBase64へ差し替える(テスト専用)。 */
+    private fun corruptFirstMemberPassword(json: String): String {
+        val passwordMarker = "\"password\": \""
+        val start = json.indexOf(passwordMarker)
+        require(start >= 0) { "テスト前提が崩れています: passwordフィールドが見つかりません" }
+        val valueStart = start + passwordMarker.length
+        val valueEnd = json.indexOf('"', valueStart)
+        return json.substring(0, valueStart) + "***not-valid-base64***" + json.substring(valueEnd)
     }
 
     @Test
