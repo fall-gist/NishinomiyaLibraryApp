@@ -255,6 +255,33 @@ class LicsXpClientTest {
     }
 
     @Test
+    fun `本棚切替中のメンテナンス検知は本棚スキップに倒れずMaintenanceとして伝播する`() = runBlocking {
+        // docs/design/account-and-bookshelf-fixes.md §2.3.A: 本棚解析ブロックで捕捉するのは
+        // ParseExceptionだけであり、メンテナンス・通信・認証の失敗は従来どおり伝播させる。
+        // ここを`catch (exception: Exception)`へ広げる劣化が起きても、他の本棚関連テストは
+        // 1件も落ちないことがレビューで判明したため、切替ループ2件目でのメンテナンス検知を
+        // 専用に固定する。
+        server.enqueue(html("<html><body>温めページ</body></html>", setCookie = true))
+        server.enqueue(html(fixture("login_form.html")))
+        server.enqueue(html(fixture("after_login.html")))
+        server.enqueue(html(fixture("menu.html")))
+        server.enqueue(html(fixture("usrlend.html")))
+        server.enqueue(html(fixture("usrrsv.html")))
+        server.enqueue(html(fixture("mybooklist.html")))
+        server.enqueue(html(shelfPage(2, "高須にあるやつ", "shelf-hash-2")))
+        // 2件目の切替応答(本棚3への切替)をメンテナンス画面にする。
+        server.enqueue(html("<html><body>システムメンテナンス中です</body></html>"))
+        // 本棚スキップへ倒れて後続処理が続行してしまう劣化が起きても、実時間のタイムアウト待ちに
+        // 頼らず即座に検出できるよう、後続の読書履歴ページも用意しておく(正常系では未消費のまま残る)。
+        server.enqueue(html(usrReadPage(hash = "history-open", records = emptyList())))
+        server.enqueue(html(emptyUsrReadPage()))
+
+        val error = libraryError { client().fetchUserData(generatedCardNumber(), generatedPassword()) }
+
+        assertTrue(error is LibraryError.Maintenance)
+    }
+
+    @Test
     fun `利用状況取得は通常同期のusrrsvまでの厳密な接頭辞だけを実行する`() = runBlocking {
         server.enqueue(html("<html><body>温めページ</body></html>", setCookie = true))
         server.enqueue(html(fixture("login_form.html")))
