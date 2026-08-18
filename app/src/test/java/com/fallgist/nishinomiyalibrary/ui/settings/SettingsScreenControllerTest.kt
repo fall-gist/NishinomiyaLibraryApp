@@ -40,10 +40,12 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -53,6 +55,11 @@ import org.robolectric.RuntimeEnvironment
 /** 設定画面Controllerの、診断ログのオン/オフ・件数表示が設定と連動することの確認。 */
 @RunWith(RobolectricTestRunner::class)
 class SettingsScreenControllerTest {
+    // 2026-08-16のCI再発(調査結果は2026-08-18、docs/handoff.md参照)を受けての値。ローカル20回連続で
+    // 失敗0/0%、実測12〜18msのため根本原因ではなく先延ばしの対処。次回調整はこの1箇所で済む。
+    private companion object {
+        const val STATE_TIMEOUT_MILLIS = 15_000L
+    }
     private lateinit var context: Context
     private val dataStoreScopes = mutableListOf<CoroutineScope>()
 
@@ -85,13 +92,13 @@ class SettingsScreenControllerTest {
         awaitInitialized(controller)
 
         controller.setDiagnosticLogEnabled(true)
-        withTimeout(5_000) { controller.state.first { it.diagnosticLogEnabled } }
+        awaitState(controller, "setDiagnosticLogEnabled(true)後のdiagnosticLogEnabled反映") { it.diagnosticLogEnabled }
 
         assertTrue(controller.state.value.diagnosticLogEnabled)
         assertTrue(diagnosticLog.recording)
 
         controller.setDiagnosticLogEnabled(false)
-        withTimeout(5_000) { controller.state.first { !it.diagnosticLogEnabled } }
+        awaitState(controller, "setDiagnosticLogEnabled(false)後のdiagnosticLogEnabled反映") { !it.diagnosticLogEnabled }
 
         assertFalse(controller.state.value.diagnosticLogEnabled)
         assertFalse(diagnosticLog.recording)
@@ -105,16 +112,16 @@ class SettingsScreenControllerTest {
         awaitInitialized(controller)
 
         controller.setDiagnosticLogEnabled(true)
-        withTimeout(5_000) { controller.state.first { it.diagnosticLogEnabled } }
+        awaitState(controller, "setDiagnosticLogEnabled(true)後のdiagnosticLogEnabled反映") { it.diagnosticLogEnabled }
         diagnosticLog.record("request", "GET /foo")
         diagnosticLog.record("response", "GET /foo status=200 redirect=-")
-        withTimeout(5_000) { controller.state.first { it.diagnosticLogLineCount == 2 } }
+        awaitState(controller, "record 2件後のdiagnosticLogLineCount反映") { it.diagnosticLogLineCount == 2 }
 
         assertEquals(2, controller.state.value.diagnosticLogLineCount)
         assertTrue(controller.formattedDiagnosticLog().contains("GET /foo"))
 
         controller.clearDiagnosticLog()
-        withTimeout(5_000) { controller.state.first { it.diagnosticLogLineCount == 0 } }
+        awaitState(controller, "clearDiagnosticLog後のdiagnosticLogLineCount反映") { it.diagnosticLogLineCount == 0 }
 
         assertEquals(0, controller.state.value.diagnosticLogLineCount)
         controller.close()
@@ -134,7 +141,9 @@ class SettingsScreenControllerTest {
         awaitRuleIds(controller, listOf(1))
 
         controller.setAutoReservationEnabled(true)
-        withTimeout(5_000) { controller.state.first { it.settings.autoReservationEnabled } }
+        awaitState(controller, "setAutoReservationEnabled(true)後のautoReservationEnabled反映") {
+            it.settings.autoReservationEnabled
+        }
 
         assertTrue(settingsStore.settings.first().autoReservationEnabled)
         assertEquals(null, controller.state.value.autoReservationError)
@@ -155,7 +164,9 @@ class SettingsScreenControllerTest {
         // 検証が走って誤ったエラーへ倒れないこと。setAutoReservationEnabledのinitialStateLoaded.await()
         // がこれを担保する。
         controller.setAutoReservationEnabled(true)
-        withTimeout(5_000) { controller.state.first { it.settings.autoReservationEnabled } }
+        awaitState(controller, "初期化完了前のON操作後のautoReservationEnabled反映") {
+            it.settings.autoReservationEnabled
+        }
 
         assertTrue(settingsStore.settings.first().autoReservationEnabled)
         assertEquals(null, controller.state.value.autoReservationError)
@@ -173,7 +184,7 @@ class SettingsScreenControllerTest {
         awaitInitialized(controller)
 
         controller.setAutoReservationEnabled(true)
-        withTimeout(5_000) { controller.state.first { it.autoReservationError != null } }
+        awaitState(controller, "有効なルールがない場合のautoReservationError表示") { it.autoReservationError != null }
 
         assertFalse(settingsStore.settings.first().autoReservationEnabled)
         assertTrue(controller.state.value.autoReservationError!!.contains("有効"))
@@ -192,7 +203,7 @@ class SettingsScreenControllerTest {
         awaitRuleIds(controller, listOf(1))
 
         controller.setAutoReservationEnabled(true)
-        withTimeout(5_000) { controller.state.first { it.autoReservationError != null } }
+        awaitState(controller, "メンバーがいない場合のautoReservationError表示") { it.autoReservationError != null }
 
         assertFalse(settingsStore.settings.first().autoReservationEnabled)
         assertTrue(controller.state.value.autoReservationError!!.contains("メンバー"))
@@ -213,7 +224,7 @@ class SettingsScreenControllerTest {
         awaitRuleIds(controller, listOf(1))
 
         controller.setAutoReservationEnabled(true)
-        withTimeout(5_000) { controller.state.first { it.autoReservationError != null } }
+        awaitState(controller, "既定館が無効な場合のautoReservationError表示") { it.autoReservationError != null }
 
         assertFalse(settingsStore.settings.first().autoReservationEnabled)
         assertTrue(controller.state.value.autoReservationError!!.contains("既定受取館"))
@@ -235,7 +246,7 @@ class SettingsScreenControllerTest {
         awaitRuleIds(controller, listOf(1))
 
         controller.setAutoReservationRuleEnabled(1, false)
-        withTimeout(5_000) { controller.state.first { it.autoReservationWarning != null } }
+        awaitState(controller, "最後の有効ルールOFF後のautoReservationWarning表示") { it.autoReservationWarning != null }
 
         assertTrue(settingsStore.settings.first().autoReservationEnabled)
         assertFalse(autoReservationRepository.currentRules.single().enabled)
@@ -260,7 +271,7 @@ class SettingsScreenControllerTest {
         // combineの初回発行(members/settingsの確定)を待つ。初回ルール読込ゲートとは独立した経路であり、
         // テストの意図(初回ルール読込中の追加・ONが読込完了後まで保存されないこと)は変わらない。
         awaitInitialized(controller)
-        withTimeout(5_000) { autoReservationRepository.firstRulesReadStarted.await() }
+        withTimeout(STATE_TIMEOUT_MILLIS) { autoReservationRepository.firstRulesReadStarted.await() }
 
         controller.saveAutoReservationRule(null, listOf("追加"), emptyList())
         controller.setAutoReservationEnabled(true)
@@ -270,7 +281,9 @@ class SettingsScreenControllerTest {
 
         initialRulesGate.complete(Unit)
         awaitRuleIds(controller, listOf(1, 2))
-        withTimeout(5_000) { controller.state.first { it.settings.autoReservationEnabled } }
+        awaitState(controller, "初回ルール読込完了後のautoReservationEnabled反映") {
+            it.settings.autoReservationEnabled
+        }
 
         val expected = listOf(rule(1, "既存"), rule(2, "追加", sortOrder = 1))
         assertEquals(expected, autoReservationRepository.currentRules)
@@ -289,16 +302,16 @@ class SettingsScreenControllerTest {
             autoReservationRepository = autoReservationRepository,
         )
         awaitInitialized(controller)
-        val initialError = withTimeout(5_000) {
-            controller.state.first { it.autoReservationError == "ルールを読み込めませんでした" }.autoReservationError
-        }
+        val initialError = awaitState(controller, "初回ルール読込失敗後のautoReservationError表示") {
+            it.autoReservationError == "ルールを読み込めませんでした"
+        }.autoReservationError
 
         // initialRulesSettledは初回ルール読込の決着(成功/失敗)を表すDeferred。失敗確定後はfalseで
         // 完了済みのため、ここでのawaitは中断しない。mutateRulesはCoroutineStart.UNDISPATCHEDで
         // 起動するため、完了済みDeferredのawait()は呼び出しスレッドで同期的に返り、この後の
         // saveAutoReservationRule呼び出しは戻ってきた時点でreplaceRulesまでの判定が完了している。
         // したがって実時間待機(withTimeoutOrNull)なしに直後のアサーションが決定論的になる。
-        assertFalse(withTimeout(5_000) { controller.initialRulesSettled.await() })
+        assertFalse(withTimeout(STATE_TIMEOUT_MILLIS) { controller.initialRulesSettled.await() })
 
         controller.saveAutoReservationRule(null, listOf("追加"), emptyList())
         controller.setAutoReservationEnabled(true)
@@ -361,7 +374,7 @@ class SettingsScreenControllerTest {
         val replaceRulesCallsBeforeMutation = autoReservationRepository.replaceRulesCalls
 
         controller.saveAutoReservationRule(null, listOf(" "), emptyList())
-        withTimeout(5_000) { controller.state.first { it.autoReservationError != null } }
+        awaitState(controller, "空の含める語保存後のautoReservationError表示") { it.autoReservationError != null }
 
         assertEquals(replaceRulesCallsBeforeMutation, autoReservationRepository.replaceRulesCalls)
         assertTrue(controller.state.value.autoReservationError!!.contains("含める語"))
@@ -391,11 +404,40 @@ class SettingsScreenControllerTest {
     }
 
     private suspend fun awaitInitialized(controller: SettingsScreenController) {
-        withTimeout(5_000) { controller.state.first { it.initialized } }
+        awaitState(controller, "初期化完了(initialized=true)") { it.initialized }
     }
 
     private suspend fun awaitRuleIds(controller: SettingsScreenController, ids: List<Long>) {
-        withTimeout(5_000) { controller.state.first { it.autoReservationRules.map(AutoReservationRule::id) == ids } }
+        awaitState(controller, "autoReservationRulesがid=${ids}になること") {
+            it.autoReservationRules.map(AutoReservationRule::id) == ids
+        }
+    }
+
+    /**
+     * controller.stateが条件を満たすまで待つ共通ヘルパー。
+     * タイムアウト時は`TimeoutCancellationException`だけでなく、判断材料になる状態の要点を
+     * メッセージに含めて失敗させる(2026-08-16 CI再発・2026-08-18調査、docs/handoff.md参照)。
+     * 機微情報(カード番号等)は含めない。
+     */
+    private suspend fun awaitState(
+        controller: SettingsScreenController,
+        description: String,
+        predicate: (SettingsUiState) -> Boolean,
+    ): SettingsUiState {
+        val result = withTimeoutOrNull(STATE_TIMEOUT_MILLIS) { controller.state.first(predicate) }
+        if (result != null) return result
+        val current = controller.state.value
+        fail(
+            "「$description」が${STATE_TIMEOUT_MILLIS}ms以内に成立しませんでした。" +
+                "現在値: initialized=${current.initialized}, " +
+                "autoReservationEnabled=${current.settings.autoReservationEnabled}, " +
+                "autoReservationError=${current.autoReservationError}, " +
+                "autoReservationWarning=${current.autoReservationWarning}, " +
+                "autoReservationRuleIds=${current.autoReservationRules.map(AutoReservationRule::id)}, " +
+                "diagnosticLogEnabled=${current.diagnosticLogEnabled}, " +
+                "diagnosticLogLineCount=${current.diagnosticLogLineCount}"
+        )
+        error("到達しない: org.junit.Assert.failは例外を投げる")
     }
 
     private fun fixedClock(): Clock = Clock.fixed(Instant.parse("2026-07-25T00:00:00Z"), ZoneOffset.UTC)
