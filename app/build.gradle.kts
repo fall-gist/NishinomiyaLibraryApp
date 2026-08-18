@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.gradle.api.tasks.testing.Test
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -141,6 +142,19 @@ val liveLoanExtensionDiagnosticClass = "**/LiveLoanExtensionDiagnosticTest.class
 
 // 通常の unit test / CI は本番通信を行う診断クラスを発見対象から除外する。
 tasks.withType<Test>().configureEach {
+    // CIの既定(exceptionFormat=SHORT)は例外クラス名と行番号しか出さず、assertのメッセージを捨てる。
+    // 2026-08-18のae83b63で追加した診断メッセージ(SettingsScreenControllerTestのawaitState)が
+    // 直後のCI再発で発火したのに読めなかったため、通常のunit testだけFULLへ上げる。
+    // liveタスクは本番の認証情報を環境変数で受け取るため対象外にし、標準出力も流さない
+    // (公開リポジトリなのでCIログは誰でも読める。docs/handoff.md「既知のフレーキーテスト」参照)。
+    if (!name.startsWith("live")) {
+        testLogging {
+            exceptionFormat = TestExceptionFormat.FULL
+            showExceptions = true
+            showCauses = true
+            showStackTraces = true
+        }
+    }
     if (name != "liveReservationDiagnostic") {
         exclude(liveReservationDiagnosticClass)
     }
