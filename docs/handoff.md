@@ -2407,10 +2407,15 @@ DIモジュール・`LibraryApp.kt`は無変更である。
 分類は`else`なしの`when`で全列挙してあり、`FailureReason`が増えたらコンパイルエラーになる。
 `Unknown`を再試行側へ分類し直す劣化注入で該当テストが赤くなることを確認済み。
 
-### 既知のフレーキーテスト（2026-08-13、解決済み）
+### 既知のフレーキーテスト（2026-08-13に着手、`SettingsScreenControllerTest`は**未解決**）
 
 CIが3回連続で失敗し、**毎回落ちるテストが違った**ことから調査した。最初の失敗は`docs/`しか変更していない
 コミットで起きており、機能の退行ではない。
+
+**現状（2026-08-18）**: `ReservationGatewayTest`は解決済み。`SettingsScreenControllerTest`は
+2026-08-13の修正後も**3回再発しており、まだ緑が確認できていない**。最新の調査・対応と、
+CIが赤くなったときに最初に見るべき診断メッセージの読み方は
+「3回目の再発（2026-08-18 CI・ae83b63）と原因候補の特定」以降にある。
 
 #### 対応済み: `ReservationGatewayTest`の通信断テスト（4箇所）
 
@@ -2497,6 +2502,107 @@ CI再実行でも成功した**ため、コードの退行ではない（`4990e3
 **実ディスクI/Oの経路を変えないため2026-08-13が担保した検出力は失わない**。
 次に再発したとき、診断メッセージから原因を切り分けられるようにすることが主目的である。
 
+#### 3回目の再発（2026-08-18 CI・ae83b63）と原因候補の特定（2026-08-18）
+
+**タイムアウトの15秒化（ae83b63）は効かなかった。** 導入した当のコミットのCIで、同じクラスの
+`初回ルール読込失敗後はルール操作とONを保存せず読込エラーを維持する`が
+`SettingsScreenControllerTest.kt:430`（`awaitState`内の`fail()`）で落ちた
+（[run 32145453143](https://github.com/fall-gist/nishinomiyalibraryapp/actions/runs/32145453143)、
+815件中1件失敗。`assembleRelease`は成功しており、ビルドの壊れではない）。
+
+**あわせて、handoffに記録されていなかった再発が1件見つかった。** CIログを遡ると次の3回である。
+
+| 日付 | コミット | 落ちたテスト | 例外 | タイムアウト |
+|---|---|---|---|---|
+| 2026-08-15 | `f95bf9e`（[run 31876683118](https://github.com/fall-gist/nishinomiyalibraryapp/actions/runs/31876683118)） | 初回ルール読込失敗後は… | `TimeoutCancellationException` | 5秒 |
+| 2026-08-16 | （上節に記録済み・再実行で緑） | 有効なルールとメンバーと既定館が… | `TimeoutCancellationException` | 5秒 |
+| 2026-08-18 | `ae83b63` | 初回ルール読込失敗後は…（08-15と同一） | `AssertionError`（`awaitState`） | 15秒 |
+
+08-15の失敗は2026-08-13の修正（`b8f3f57`）より**後**である。つまりあの修正では塞ぎ切れていなかった。
+そして**実測12〜18msのテストが15,000msを超えた**以上、「CIが遅い」では説明できない。
+**待っている状態が永久に来ない**と考えるべきである。
+
+**原因候補（有力・未確証）: `_state`のlost update。**
+`SettingsScreenController`は`_state`への read-modify-write を複数コルーチンから排他なしで行っていた。
+
+- コルーチンA: `init`の`combine{}.collect{}` — `_state.value = buildState(_state.value.copy(initialized = true, …), …)`
+- コルーチンB: `reloadRules()`の失敗経路 — `_state.value = _state.value.copy(autoReservationError = "ルールを読み込めませんでした")`
+
+`rulesMutex`はAでは状態書き込みより**前に解放されており**、Bの失敗経路はそもそもロックを取らない。
+したがって`_state`の書き込みは一切直列化されていない。落ちるインタリーブはこうである。
+
+1. Aが`_state.value`を読む（`autoReservationError`はまだnull）
+2. Bが`autoReservationError`を書く
+3. Aが手元の古いコピーを書き戻す → **Bの書き込みが消える**
+
+この後、当該テストの`combine`の4ソースは**いずれも初回1回しか発行しない**（`MutableStateFlow`3本＋実DataStore）。
+`reloadRules`も1回きりである。よって`autoReservationError`は二度と復活せず、テストはタイムアウトまで待つ。
+**5秒でも15秒でも同じ**という観測と一致する。
+
+2026-08-16に落ちた`有効なルールと…ONに保存できる`も同型で説明できる。Aが
+`settings.autoReservationEnabled = true`を書くのと、`setAutoReservationEnabled`側の
+`_state.value = _state.value.copy(autoReservationError = null)`が競合し、Aの書き込みが消えると
+`it.settings.autoReservationEnabled`は永久にtrueにならない。
+
+ローカルで再現しないのも整合的である。窓は「Aが読んでから書くまでの数ナノ秒」で、2 vCPUのランナーで
+Aがその位置でプリエンプトされたときだけ当たる。
+
+**これは本番の欠陥でもある。** 実機でも、初期化完了とルール読込失敗が同時に着地すると
+「ルールを読み込めませんでした」が表示されないまま消える、トグルのONが画面上で戻る、といった事象が起こりうる。
+
+**対応（2026-08-18）**:
+
+1. `_state`の更新を全10箇所`MutableStateFlow.update {}`（CASループ）へ統一した。
+   `_state.value = ...`は**書いてはならない**。同趣旨の注意書きを`_state`の宣言直下に置いた
+2. `setAutoReservationEnabled`の判定で`_state.value`を2回読んでいた箇所を、単一スナップショットからの読みに変えた
+3. `private var members`を`@Volatile`にした。購読コルーチンが書き別コルーチンが読むが非volatileだったため、
+   古い空リストを読んで誤って「メンバーを1人以上登録してください」へ倒れうる（原因1と同じ症状の別経路）
+4. 通常のunit testタスクだけ`testLogging.exceptionFormat = FULL`にした（下記）
+
+**未確証である点を明示しておく。** 上のインタリーブはコードを読めば成立するが、
+「08-15・08-18のCI失敗が実際にこれだった」ことは確認できていない。次にCIが赤くなったとき、
+`awaitState`の診断メッセージが`initialized=true, autoReservationError=null, …`であれば
+この仮説はほぼ確定する。**逆にそれ以外なら仮説は誤りなので、この節を書き換えること。**
+
+#### 観測手段の欠落（2026-08-18に修正）: 診断メッセージがCIログに出ていなかった
+
+ae83b63で`fail()`のメッセージに状態要点を入れたのに、**次のCIで実際に発火したのに読めなかった**。理由は2つ。
+
+- `app/build.gradle.kts`の`testLogging`はlive診断タスクにしか付いておらず、`testDebugUnitTest`は
+  Gradle既定の`exceptionFormat = SHORT`。この形式は**例外クラス名と行番号しか出さず、メッセージを捨てる**
+- `.github/workflows`の`upload-artifact`はAPKのみが対象で`if: always()`も無く、テスト失敗時には実行されない。
+  当該runのartifactsは0件だった
+
+**対応**: `tasks.withType<Test>().configureEach`で、名前が`live`で始まらないタスクだけ
+`exceptionFormat = FULL`（＋`showExceptions`/`showCauses`/`showStackTraces`）にした。
+
+**テストレポートのartifact化は意図的に見送った。** このリポジトリは**公開**であり、
+`app/build/test-results/`のXMLは全815件分の`system-out`を含む。カード番号流出（進行指示19の直下に記録あり）の
+前例がある以上、失敗した1件のメッセージを読むために全テストの標準出力を公開URLへ置く必要はない。
+`exceptionFormat = FULL`は失敗したassertのメッセージとスタックトレースだけをログへ出すので、これで足りる。
+`showStandardStreams`も**有効にしていない**（有効にすると全テストの標準出力がログへ出る）。
+liveタスクを対象外にしたのは、本番の認証情報を環境変数で受け取るためである。
+
+#### 検証状況（正直に記録する）
+
+**2026-08-18のこの対応は、ローカルで一度もビルド・テストできていない。** 作業環境の
+ネットワークポリシーが`services.gradle.org`・`dl.google.com`・`repo1.maven.org`への接続を
+拒否しており（proxyがCONNECTに403）、GradleもAndroid SDKも取得できなかった。**検証はCIが初回である。**
+
+**進行指示19が求める「修正前後の失敗率の比較」は、今回も測れていない。** 上節のとおりローカルの
+ベースラインは0/20（0%）で、そもそも比較にならない。代わりに次の手順で**劣化注入**による実証ができる
+（ビルドできる環境で行うこと）。
+
+1. `_state.update { … }`を1箇所だけ`_state.value = _state.value.copy(…)`へ戻す
+2. AとBの読み→書きの間に遅延を差し込めるようにして（テスト専用のフックか、デバッガのブレークポイント）、
+   `初回ルール読込失敗後は…`が**決定論的に赤くなる**ことを確認する
+3. `update {}`へ戻すと緑になることを確認する
+
+**フックなしの決定論的な再現テストは書けない。** AもBも読みと書きの間に中断点が無く、
+`rulesMutex`はむしろ「Bが先に書く」側の順序しか作れないためである。確率的なストレステストを
+足すことは**しなかった**——フレーキーに悩んでいるテストスイートへ、さらにフレーキーなテストを
+持ち込むことになるからである。
+
 #### 残課題A（現状は対応不要・発火条件つき）: `initialStateLoaded.await()`に上限が無い
 
 `combine`の4ソースのいずれかが初回発行を止めると、ONの操作が無言でハングする
@@ -2528,6 +2634,25 @@ CI再実行でも成功した**ため、コードの退行ではない（`4990e3
 `@Volatile`なスナップショット（または`rules`用の`StateFlow`）を読む形にする。実害は
 ローカルRoom書込み（数ms）の間だけ表示更新が止まることなので、この画面に次に手を入れるときで
 差し支えない。
+
+#### 残課題C（未対応）: 同じlost updateパターンが他のControllerにもある
+
+`_state.value = _state.value.copy(…)`は他の6ファイルにも残っている（`grep -rn "\.value = _state\.value" app/src/main/java`）。
+
+| ファイル | 箇所数 |
+|---|---|
+| `ReservationUiController.kt` | 17 |
+| `NewArrivalsScreenController.kt` | 9 |
+| `SearchScreenController.kt` | 8 |
+| `ReservationCancelUiController.kt` | 4 |
+| `LoanExtensionUiController.kt` | 3 |
+| `CalendarScreenController.kt` | 3 |
+
+`LoanExtensionUiController`以外は`launch`が複数あり、同じ競合が成立しうる。
+今回まとめて直さなかったのは、**ビルドもテストもできない環境で44箇所を機械的に書き換えるのは
+割に合わない**と判断したためである。`SettingsScreenController`の修正がCIで緑になったら、
+同じ書き換えを1ファイルずつ、テストを回しながら進めること。
+
 
 #### 付随して判明したこと
 

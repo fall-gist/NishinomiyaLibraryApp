@@ -38,6 +38,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -126,6 +127,15 @@ class SettingsScreenController(
     )
     val state: StateFlow<SettingsUiState> = _state
 
+    // _stateは複数のコルーチン(init購読・reloadRules・mutateRules・setAutoReservationEnabled)から
+    // 更新される。`_state.value = _state.value.copy(...)`は読みと書きの間に別コルーチンの書きが挟まると
+    // それを取りこぼす(lost update)。取りこぼした値は再発行されないため、待っている側は永久に待つ。
+    // **必ず`update {}`(CASループ)を使うこと。`_state.value = ...`を書いてはならない。**
+    // 2026-08-15/08-18のCI失敗(SettingsScreenControllerTest)の原因候補。docs/handoff.md参照。
+
+    // 購読コルーチンが書き、setAutoReservationEnabled/mutateRules/reloadRulesの別コルーチンが読む。
+    // 非volatileだと古い空リストを読み、誤って「メンバーを1人以上登録してください」へ倒れうる。
+    @Volatile
     private var members: List<Member> = emptyList()
     private var rules: List<AutoReservationRule> = emptyList()
     private val rulesMutex = Mutex()
@@ -154,17 +164,19 @@ class SettingsScreenController(
                 // 設定の diagnosticLogEnabled を記録可否の唯一の正とし、アプリ再起動時もここで反映する。
                 diagnosticLog.recording = combined.settings.diagnosticLogEnabled
                 val currentRules = rulesMutex.withLock { rules }
-                _state.value = buildState(
-                    _state.value.copy(
-                    initialized = true,
-                    memberRows = SettingsContentBuilder.memberRows(combined.memberList),
-                    canAddMember = combined.memberList.size < MAX_MEMBERS,
-                    settings = combined.settings,
-                    lastSyncText = SettingsContentBuilder.lastSyncText(combined.lastSync),
-                    lastSyncFailed = combined.lastSync?.succeeded == false,
-                    diagnosticLogEnabled = combined.settings.diagnosticLogEnabled,
-                    diagnosticLogLineCount = combined.diagnosticEntries.size,
-                    ), combined.settings, combined.memberList, currentRules)
+                _state.update { current ->
+                    buildState(
+                        current.copy(
+                            initialized = true,
+                            memberRows = SettingsContentBuilder.memberRows(combined.memberList),
+                            canAddMember = combined.memberList.size < MAX_MEMBERS,
+                            settings = combined.settings,
+                            lastSyncText = SettingsContentBuilder.lastSyncText(combined.lastSync),
+                            lastSyncFailed = combined.lastSync?.succeeded == false,
+                            diagnosticLogEnabled = combined.settings.diagnosticLogEnabled,
+                            diagnosticLogLineCount = combined.diagnosticEntries.size,
+                        ), combined.settings, combined.memberList, currentRules)
+                }
                 initialStateLoaded.complete(Unit)
             }
         }
@@ -263,20 +275,22 @@ class SettingsScreenController(
                 initialStateLoaded.await()
                 if (!initialRulesLoaded.await()) return@launch
                 val reason = rulesMutex.withLock {
-                    autoReservationEnableReason(_state.value.settings, members, rules, _state.value.libraries)
+                    // settingsとlibrariesは同一スナップショットから読む(2回読むと途中で差し替わりうる)。
+                    val snapshot = _state.value
+                    autoReservationEnableReason(snapshot.settings, members, rules, snapshot.libraries)
                 }
                 if (reason != null) {
-                    _state.value = _state.value.copy(autoReservationError = reason)
+                    _state.update { it.copy(autoReservationError = reason) }
                     return@launch
                 }
             }
             try {
                 settingsStore.updateAutoReservationEnabled(enabled)
-                _state.value = _state.value.copy(autoReservationError = null)
+                _state.update { it.copy(autoReservationError = null) }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(autoReservationError = "自動予約の設定を保存できませんでした")
+                _state.update { it.copy(autoReservationError = "自動予約の設定を保存できませんでした") }
             }
         }
     }
@@ -318,14 +332,14 @@ class SettingsScreenController(
                 next.forEach(AutoReservationMatcher::validate)
                 autoReservationRepository.replaceRules(next)
                 rules = autoReservationRepository.rules().sortedBy { it.sortOrder }
-                _state.value = buildState(_state.value.copy(autoReservationRules = rules), _state.value.settings, members, rules)
-                _state.value = _state.value.copy(autoReservationError = null)
+                _state.update { current -> buildState(current.copy(autoReservationRules = rules), current.settings, members, rules) }
+                _state.update { it.copy(autoReservationError = null) }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: IllegalArgumentException) {
-                _state.value = _state.value.copy(autoReservationError = exception.message ?: "ルールを保存できませんでした")
+                _state.update { it.copy(autoReservationError = exception.message ?: "ルールを保存できませんでした") }
             } catch (_: Exception) {
-                _state.value = _state.value.copy(autoReservationError = "ルールを保存できませんでした")
+                _state.update { it.copy(autoReservationError = "ルールを保存できませんでした") }
               }
             }
         }
@@ -339,13 +353,13 @@ class SettingsScreenController(
             val loaded = autoReservationRepository.rules().sortedBy { it.sortOrder }
             rulesMutex.withLock {
                 rules = loaded
-                _state.value = buildState(_state.value.copy(autoReservationRules = rules), _state.value.settings, members, rules)
+                _state.update { current -> buildState(current.copy(autoReservationRules = rules), current.settings, members, rules) }
                 initialRulesLoaded.complete(true)
             }
         } catch (exception: CancellationException) {
             throw exception
         } catch (_: Exception) {
-            _state.value = _state.value.copy(autoReservationError = "ルールを読み込めませんでした")
+            _state.update { it.copy(autoReservationError = "ルールを読み込めませんでした") }
             initialRulesLoaded.complete(false)
         }
     }
