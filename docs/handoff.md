@@ -2589,6 +2589,11 @@ liveタスクを対象外にしたのは、本番の認証情報を環境変数�
 ネットワークポリシーが`services.gradle.org`・`dl.google.com`・`repo1.maven.org`への接続を
 拒否しており（proxyがCONNECTに403）、GradleもAndroid SDKも取得できなかった。**検証はCIが初回である。**
 
+**CI初回結果（[run 32193623756](https://github.com/fall-gist/NishinomiyaLibraryApp/actions/runs/32193623756)、`fce60f2`）: 緑。**
+`BUILD SUCCESSFUL in 4m 1s`、`testDebugUnitTest`・`assembleRelease`とも成功。
+**ただしこれは「退行が無い」ことしか示さない。** 元の失敗はCI50回に1回程度の頻度であり、
+緑1回では競合が解消した証拠にならない。**しばらく緑が続くことを確認するまで解決済みにしないこと。**
+
 **進行指示19が求める「修正前後の失敗率の比較」は、今回も測れていない。** 上節のとおりローカルの
 ベースラインは0/20（0%）で、そもそも比較にならない。代わりに次の手順で**劣化注入**による実証ができる
 （ビルドできる環境で行うこと）。
