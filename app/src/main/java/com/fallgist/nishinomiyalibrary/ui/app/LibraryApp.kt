@@ -450,7 +450,12 @@ fun LibraryApp(
                                 onSelectLibrary = calendarController::selectLibrary,
                                 // 貸出中画面へ遷移し、対象日を強調する(遷移案2、設計§4.6)。
                                 // 「カレンダーから移動しました」等の説明バナー・日付見出しは出さない(所有者確定事項)。
+                                // メンバー絞り込みは解除する(2026-08-20レビュー反映)。カレンダーのドットは絞り込みと
+                                // 無関係に家族全員ぶんを表示するため、遷移先も全員表示に揃える。順序: 絞り込み解除→
+                                // focus日付セット→画面切替(絞り込み解除を切替後にすると一瞬旧絞り込みのままの
+                                // LoansScreenが見える可能性があるため、切替より前に行う)。
                                 onSelectDueDate = { date ->
+                                    loansController.selectMember(null)
                                     loansFocusDueDateEpochDay = date.toEpochDay()
                                     currentName = Destination.LOANS.name
                                 },

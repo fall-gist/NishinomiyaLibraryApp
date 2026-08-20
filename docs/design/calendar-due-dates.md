@@ -175,7 +175,8 @@ var loansFocusDueDateEpochDay by rememberSaveable { mutableStateOf<Long?>(null) 
 ```
 
 - `Destination.CALENDAR` の `CalendarScreen` へ
-  `onSelectDueDate = { date -> loansFocusDueDateEpochDay = date.toEpochDay(); currentName = Destination.LOANS.name }`
+  `onSelectDueDate = { date -> loansController.selectMember(null); loansFocusDueDateEpochDay = date.toEpochDay(); currentName = Destination.LOANS.name }`
+  （**2026-08-20訂正: メンバー絞り込みの解除を追加**。理由は本節末尾の訂正メモを参照）
 - `Destination.LOANS` の分岐で `LoansScreen(focusDueDate = loansFocusDueDateEpochDay?.let(LocalDate::ofEpochDay), ...)`
 - 同じ分岐に `DisposableEffect(Unit) { onDispose { loansFocusDueDateEpochDay = null } }` を置き、
   **画面を離れたら強調を消す**（タイマーは持たない）
@@ -203,6 +204,18 @@ LaunchedEffect(focusIndex) {
   強調は index ではなく**日付の一致**で決めるため、絞り込みで行が動いてもずれない
 - 該当行が0件の場合（タップ直後に同期でその本が返却済みになった等）は、スクロールも強調も起きない。
   画面は通常の貸出中一覧として表示される。**エラーも案内も出さない**（バナーを出さない確定事項に従う）
+- **該当行がメンバー絞り込みによって隠れている場合**（**2026-08-20追記・設計の見落としだった**）:
+  `LoansScreenController` は `@Singleton` であり、`selectedMemberId` による絞り込みは画面遷移をまたいで
+  保持される。一方カレンダーのドットは§4.1のとおり絞り込みと無関係に家族全員ぶんを表示するため、
+  「貸出中で特定メンバーへ絞り込んだまま、カレンダーで別メンバーの期限日をタップする」と
+  `focusIndex` が絞り込みで隠れた行を見つけられず null になり、上記の「0件の場合」と同じくスクロールも
+  強調も起きない状態になってしまう。**当初の設計はこのケースを想定しておらず、「タップ直後の返却済み」
+  だけを0件の理由として扱っていた（見落とし）。**
+  **対応（所有者判断）**: `onSelectDueDate` で `loansController.selectMember(null)` を呼び、遷移時に
+  メンバー絞り込みを解除する（§4.6冒頭のコード参照）。カレンダーのドットが家族全員ぶんを表す以上、
+  遷移先も全員表示に揃えるのが一貫しており、新しい状態を増やさず1行で済むための選択である。
+  「以前選んだ絞り込みが黙って解ける」ことは受け入れる（説明バナーを出さない確定事項と整合）。
+  この対応により、この項目で残る「該当行が0件」の要因は引き続き「タップ直後の同期による返却済み」等のみである。
 
 ## 5. テスト計画
 
