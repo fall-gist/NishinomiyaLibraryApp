@@ -5,6 +5,8 @@ import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
+import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** カレンダーの1マス。dayOfMonth が null のマスは月内に日付が無い空セル。 */
@@ -121,12 +124,20 @@ object CalendarContentBuilder {
 class CalendarScreenController(
     private val calendarRepository: CalendarRepository,
     settingsStore: SettingsStore,
+    private val familyRepository: FamilyRepository,
+    private val statusRepository: StatusRepository,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val today: () -> LocalDate = { LocalDate.now(ZoneId.of("Asia/Tokyo")) },
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val _state = MutableStateFlow(CalendarUiState(libraries = calendarRepository.libraries))
     val state: StateFlow<CalendarUiState> = _state
+
+    // _stateは購読コルーチン(init)とrefreshOnceの別コルーチンから更新される。
+    // `_state.value = _state.value.copy(...)`は読みと書きの間に別コルーチンの書きが挟まると
+    // それを取りこぼす(lost update)。取りこぼした値は再発行されないため、待っている側は永久に待つ。
+    // SettingsScreenControllerで実際に踏んだ不具合と同型(docs/handoff.md参照)。
+    // **必ず`update {}`(CASループ)を使うこと。`_state.value = ...`を書いてはならない。**
 
     /** null は「設定の既定館」を意味する。 */
     private val selectedOverride = MutableStateFlow<String?>(null)
@@ -135,24 +146,31 @@ class CalendarScreenController(
     init {
         @OptIn(ExperimentalCoroutinesApi::class)
         scope.launch {
-            combine(settingsStore.settings, selectedOverride) { settings, override ->
+            val libraryFlow = combine(settingsStore.settings, selectedOverride) { settings, override ->
                 override ?: settings.defaultCalendarLibrary
             }
                 .map { code -> validCodeOrFirst(code) }
                 .flatMapLatest { code ->
+                    // 呼び出し箇所はここ1つだけに保つ(refreshedCodesの単純な排他が成立する前提)。
                     refreshOnce(code)
                     calendarRepository.closedDays(code).map { closedDays -> code to closedDays }
                 }
-                .collect { (code, closedDays) ->
-                    val closedSet = closedDays.map { it.date }.toSet()
-                    _state.value = _state.value.copy(
+
+            // 館の選択(closedDays)と返却期限(loans/members)は独立(設計§4.1)。combineで結線する。
+            combine(libraryFlow, statusRepository.loans(), familyRepository.members()) { (code, closedDays), loans, members ->
+                Triple(code, closedDays, CalendarContentBuilder.dueMemberColorsByDate(loans, members))
+            }.collect { (code, closedDays, dueColors) ->
+                val closedSet = closedDays.map { it.date }.toSet()
+                _state.update { current ->
+                    current.copy(
                         initialized = true,
                         selectedLibraryCode = code,
                         selectedLibraryName = calendarRepository.libraries.find { it.code == code }?.name ?: code,
-                        months = CalendarContentBuilder.months(today(), closedSet),
+                        months = CalendarContentBuilder.months(today(), closedSet, dueColors),
                         noClosedDayData = closedSet.isEmpty(),
                     )
                 }
+            }
         }
     }
 
@@ -177,13 +195,13 @@ class CalendarScreenController(
         scope.launch {
             try {
                 calendarRepository.refreshClosedDays(code)
-                _state.value = _state.value.copy(refreshFailed = false)
+                _state.update { it.copy(refreshFailed = false) }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: Exception) {
                 // 次回また試せるようにする
                 refreshedCodes.remove(code)
-                _state.value = _state.value.copy(refreshFailed = true)
+                _state.update { it.copy(refreshFailed = true) }
             }
         }
     }

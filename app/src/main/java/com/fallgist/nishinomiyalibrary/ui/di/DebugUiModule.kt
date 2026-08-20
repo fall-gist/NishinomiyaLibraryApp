@@ -164,9 +164,13 @@ object DebugUiProvisionModule {
     fun provideCalendarScreenController(
         calendarRepository: CalendarRepository,
         settingsStore: SettingsStore,
+        familyRepository: FamilyRepository,
+        statusRepository: StatusRepository,
     ): CalendarScreenController = CalendarScreenController(
         calendarRepository = calendarRepository,
         settingsStore = settingsStore,
+        familyRepository = familyRepository,
+        statusRepository = statusRepository,
     )
 
     @Provides
