@@ -328,11 +328,26 @@
 - 実サイト由来の `fixtures/usrrsv.html` 全19行に `hTilcod` リンクがあり、13桁数字であることを確認済み。
 ## 次期機能の引き継ぎ事項（2026-07-22追記）
 
-### カレンダー: 返却期限日の特別表示
+### カレンダー: 返却期限日の特別表示(2026-08-20 実装済み)
 
-- 返却期限に到達する貸出がある日を、カレンダー上で通常日と区別できる特別表示にする。
-- バックエンドには`Loan.dueDate`と`StatusRepository.loans()`が既にあるため、現時点では通信・DBの追加は不要。カレンダー画面側で貸出一覧を日付別に集約し、該当日の表示状態（件数やメンバー別情報を含むか）を設計する。
-- 休館日表示（`CalendarRepository.closedDays()`）との重なりを想定し、同一日に複数の状態がある場合の優先順位をフロントエンド設計で決める。
+- 設計は `docs/design/calendar-due-dates.md`(所有者承認済み)。返却期限に到達する貸出がある日を、
+  開館カレンダーの各マス下端に**メンバー色ドット**(最大3個+「+」)で表示し、タップすると
+  貸出中画面へ遷移して対象日の行までスクロール・枠強調する(遷移案2)。
+- 通信・DBの追加は無し。`Loan.dueDate`と`StatusRepository.loans()`をそのまま使う。
+- 休館日表示との重なりは、優先順位を決めずに描画層を分離することで解決した(休館日=背景の塗り、
+  きょう=枠線、返却期限=下端のドット行。3層は描画層が異なるため競合せず同時に成立する)。
+- 実装は`CalendarContentBuilder`/`CalendarDayCell`(純関数・テスト済み)、
+  `CalendarScreenController`(`FamilyRepository`/`StatusRepository`を追加注入、lost update修正を含む)、
+  `CalendarScreen`(ドット描画・凡例・タップ)、`LibraryApp`/`LoansScreen`(遷移・対象日強調)に分かれる。
+- 予約の取置期限(`Reservation.holdExpiryDate`)のカレンダー表示は今回のスコープ外(同じ仕組みで
+  載せられるが別依頼とする)。
+- 検証状況・未解決事項は設計書§7・§5.3を参照。**実機未検証**(CIのAPKで今後確認する)。
+  設計書§5.3の手動確認1〜7のうち、特に以下2点はコードレビューで新たに指摘された、実測でなければ
+  判断できない項目:
+  1. 「+」の縦位置: 「+」は8sp、ドットは5dpで文字の方が背が高い。ドット行は`BottomCenter`+
+     `padding(bottom = 3.dp)`で置いているため、4人以上の日だけドットの縦位置がわずかにずれる可能性。
+  2. 凡例の折り返し: 「休館」「きょう」「返却期限（色＝だれの本か）」の3項目が1行のRow(折り返しなし)
+     に並ぶ。360dp幅では収まる計算だが、320dp幅の端末では見切れる恐れがある。
 
 ### 予約機能: 実装済みバックエンドとUI実装引き継ぎ(2026-07-22)
 
@@ -2640,9 +2655,12 @@ liveタスクを対象外にしたのは、本番の認証情報を環境変数�
 ローカルRoom書込み（数ms）の間だけ表示更新が止まることなので、この画面に次に手を入れるときで
 差し支えない。
 
-#### 残課題C（未対応）: 同じlost updateパターンが他のControllerにもある
+#### 残課題C（一部対応済み）: 同じlost updateパターンが他のControllerにもある
 
-`_state.value = _state.value.copy(…)`は他の6ファイルにも残っている（`grep -rn "\.value = _state\.value" app/src/main/java`）。
+`_state.value = _state.value.copy(…)`は他の6ファイルにも残っていた（`grep -rn "\.value = _state\.value" app/src/main/java`）。
+このうち`CalendarScreenController.kt`は2026-08-20、`docs/design/calendar-due-dates.md` §4.5により
+`MutableStateFlow.update {}`へ全3箇所を置き換え済み(返却期限表示の実装で`combine`のソースが
+1本から3本へ増えたため、ついでの改善ではなく前提条件として対応した)。
 
 | ファイル | 箇所数 |
 |---|---|
@@ -2651,13 +2669,11 @@ liveタスクを対象外にしたのは、本番の認証情報を環境変数�
 | `SearchScreenController.kt` | 8 |
 | `ReservationCancelUiController.kt` | 4 |
 | `LoanExtensionUiController.kt` | 3 |
-| `CalendarScreenController.kt` | 3 |
 
 `LoanExtensionUiController`以外は`launch`が複数あり、同じ競合が成立しうる。
-今回まとめて直さなかったのは、**ビルドもテストもできない環境で44箇所を機械的に書き換えるのは
+今回まとめて直さなかったのは、**ビルドもテストもできない環境で機械的に書き換えるのは
 割に合わない**と判断したためである。`SettingsScreenController`の修正がCIで緑になったら、
 同じ書き換えを1ファイルずつ、テストを回しながら進めること。
-
 
 #### 付随して判明したこと
 
