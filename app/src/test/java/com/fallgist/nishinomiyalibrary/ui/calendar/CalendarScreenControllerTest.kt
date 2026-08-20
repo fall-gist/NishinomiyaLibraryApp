@@ -125,7 +125,11 @@ class CalendarScreenControllerTest {
         return SettingsStore(
             PreferenceDataStoreFactory.create(
                 scope = scope,
-                produceFile = { File.createTempFile("calendar-controller-${UUID.randomUUID()}", ".preferences_pb") },
+                // SettingsScreenControllerTestと同じく、存在しないパスを渡す(DataStoreに新規作成させる)。
+                // createTempFileは0バイトの実ファイルを作ってしまうため、直後に削除して存在しないパスへ戻す。
+                produceFile = {
+                    File.createTempFile("calendar-controller-${UUID.randomUUID()}", ".preferences_pb").also { it.delete() }
+                },
             ),
         )
     }

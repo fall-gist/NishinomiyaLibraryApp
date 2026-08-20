@@ -105,13 +105,12 @@ object CalendarContentBuilder {
      */
     fun dueMemberColorsByDate(loans: List<Loan>, members: List<Member>): Map<LocalDate, List<String>> {
         val membersById = members.associateBy { it.id }
-        val orderOf = members.associate { it.id to it.sortOrder }
         return loans
             .filter { it.memberId in membersById }
             .groupBy { it.dueDate }
             .mapValues { (_, loansOnDate) ->
                 loansOnDate.map { it.memberId }.distinct()
-                    .sortedBy { orderOf[it] ?: Int.MAX_VALUE }
+                    .sortedBy { membersById.getValue(it).sortOrder }
                     .map { memberId -> membersById.getValue(memberId).colorHex }
             }
     }
