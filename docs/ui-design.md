@@ -39,7 +39,7 @@
 | 貸出中(下部タブ) | 3.3 | [loans.html](mockups/loans.html) | **Compose実装済** | `StatusRepository.loans()` |
 | 予約中(下部タブ) | 3.3 | [reservations.html](mockups/reservations.html) | **Compose実装済** | `StatusRepository.reservations()` |
 | 本棚(マイ本棚・下部タブ) | 3.4, 3.13 | [bookshelf.html](mockups/bookshelf.html) | **Compose実装済**(みんなチップ+全員の本棚を横並び・本棚タイトル頭に識別色)。**編集機能あり**(下記「方針: マイ本棚の編集」) | `BookshelfRepository.observeShelves() / mutate()` |
-| 開館カレンダー(ハンバーガー) | 3.5 | [calendar.html](mockups/calendar.html) | **Compose実装済**(`ui/calendar/`・案B=3ヶ月縦スクロール) | `CalendarRepository.closedDays() / refreshClosedDays() / libraries` |
+| 開館カレンダー(ハンバーガー) | 3.5 | [calendar.html](mockups/calendar.html)、返却期限マーカーは[calendar-due-dates.html](mockups/calendar-due-dates.html) | **Compose実装済**(`ui/calendar/`・案B=3ヶ月縦スクロール。返却期限マーカーは2026-08-20追加) | `CalendarRepository.closedDays() / refreshClosedDays() / libraries`, `StatusRepository.loans()`, `FamilyRepository.members()` |
 | 読書記録(下部タブ・一覧・検索) | 3.5b | [reading-records.html](mockups/reading-records.html) | **Compose実装済** | `ReadingRecordRepository`(一覧/メンバー絞り込み/正規化検索/既読判定) |
 | 設定(メンバー管理・同期時刻・通知) | 2, 3.6, 3.7 | [settings.html](mockups/settings.html) | **Compose実装済**(`ui/settings/`)。返却期限の**通知日数(既定:前日)設定**を含む | `FamilyRepository.*`, `SettingsStore`, `StatusRepository.lastSync()` |
 | 新着資料(ハンバーガー) | 3.9 | — | **Compose実装済**(`ui/newarrivals/`・全ジャンル統合/tilcod名寄せ/書名・著者絞り込み/貸出可否○×) | `NewArrivalRepository.newArrivals() / refresh()` |
@@ -146,9 +146,18 @@ spec §2 のとおり識別色は**登録時にメンバーごとに選ぶ**。�
 
 - **案B採用: 3ヶ月分を縦に連ねてスクロール表示**(当月が先頭。1ヶ月+ページャの案Aは不採用)
 - 一度に一館のみ。館ドロップダウン(12施設)、初期選択は**設定の既定館**
-- マークするのは**休館日のみ**(凡例も「休館」のみ)。開館時刻はデータに存在しないため表示しない
+- 元設計ではマークするのは**休館日のみ**(凡例も「休館」のみ)だったが、2026-08-20に返却期限マーカーを
+  追加した(下記)。開館時刻はデータに存在しないため表示しない
 - きょうの日付を強調表示。休館日データは同期時取得の約3ヶ月分(`CalendarRepository.closedDays()`)
 - ※モックの休館日マークは仮表示。実装は実データを使う
+- **返却期限マーカー(2026-08-20実装、`docs/design/calendar-due-dates.md`参照。モック:
+  [calendar-due-dates.html](mockups/calendar-due-dates.html))**: 各マス下端に、その日が返却期限と
+  なる貸出のメンバー色ドット(最大3個+「+」)を表示する。返却期限は館の選択に依存しないため、
+  館を切り替えてもドットは変わらない(注記あり)。休館日の背景塗り・きょうの枠線とは描画層が
+  異なるため、同一日に重なっても破綻しない(優先順位は決めていない)。延滞日(過去日で未返却)にも
+  同じ色のドットを出し、赤くはしない(延滞の強調はホームの「期限切れ」セクションが担当)。
+  ドットのあるマスをタップすると貸出中画面へ遷移し、対象日の行までスクロール・枠強調する
+  (説明バナー・日付見出しは出さない)。
 
 ### 設定([settings.html](mockups/settings.html))
 
@@ -389,7 +398,8 @@ spec §2 のとおり識別色は**登録時にメンバーごとに選ぶ**。�
 - **開館カレンダー**(`ui/calendar/`): 案B(当月から3ヶ月縦スクロール)。月グリッドは
   `CalendarContentBuilder`(純関数・日曜始まり)で組み立てユニットテスト済み。
   初期選択は設定の既定館。館を選ぶと(セッション中1回だけ)`refreshClosedDays` を裏で実行し、
-  失敗しても既存データの表示は継続する
+  失敗しても既存データの表示は継続する。返却期限マーカー(2026-08-20追加)は`dueMemberColorsByDate`
+  (純関数)で返却期限日ごとにメンバー色へ集約し、`combine`で休館日データ(館依存)と独立に結線する
 - **設定**(`ui/settings/`): メンバーの並び替えは隣接メンバーと `sortOrder` を入れ替える2回の
   `updateMember` で実現。削除は確認ダイアログあり。カード番号は `****`+下4桁でマスク。
   同期時刻は時(0-23)+分(5分刻み)のドロップダウン。上限5人(`MAX_MEMBERS`、拡張可)
