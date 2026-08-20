@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui.calendar
 
 import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
+import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
 import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Member
@@ -51,6 +52,8 @@ data class CalendarUiState(
     val selectedLibraryCode: String = "",
     val selectedLibraryName: String = "",
     val months: List<CalendarMonthUi> = emptyList(),
+    /** 在籍メンバー(sortOrder順)。返却期限の凡例(色→氏名)の表示に使う。 */
+    val members: List<Member> = emptyList(),
     /** 選択館の休館日データが1件も無い(未取得の可能性)。 */
     val noClosedDayData: Boolean = false,
     /** 直近の休館日データ取得が失敗した。 */
@@ -157,15 +160,16 @@ class CalendarScreenController(
 
             // 館の選択(closedDays)と返却期限(loans/members)は独立(設計§4.1)。combineで結線する。
             combine(libraryFlow, statusRepository.loans(), familyRepository.members()) { (code, closedDays), loans, members ->
-                Triple(code, closedDays, CalendarContentBuilder.dueMemberColorsByDate(loans, members))
-            }.collect { (code, closedDays, dueColors) ->
-                val closedSet = closedDays.map { it.date }.toSet()
+                CombinedCalendarState(code, closedDays, members, CalendarContentBuilder.dueMemberColorsByDate(loans, members))
+            }.collect { combined ->
+                val closedSet = combined.closedDays.map { it.date }.toSet()
                 _state.update { current ->
                     current.copy(
                         initialized = true,
-                        selectedLibraryCode = code,
-                        selectedLibraryName = calendarRepository.libraries.find { it.code == code }?.name ?: code,
-                        months = CalendarContentBuilder.months(today(), closedSet, dueColors),
+                        selectedLibraryCode = combined.code,
+                        selectedLibraryName = calendarRepository.libraries.find { it.code == combined.code }?.name ?: combined.code,
+                        months = CalendarContentBuilder.months(today(), closedSet, combined.dueColors),
+                        members = combined.members,
                         noClosedDayData = closedSet.isEmpty(),
                     )
                 }
@@ -180,6 +184,13 @@ class CalendarScreenController(
     fun close() {
         scope.coroutineContext[Job]?.cancel()
     }
+
+    private data class CombinedCalendarState(
+        val code: String,
+        val closedDays: List<ClosedDay>,
+        val members: List<Member>,
+        val dueColors: Map<LocalDate, List<String>>,
+    )
 
     private fun validCodeOrFirst(code: String): String =
         if (calendarRepository.libraries.any { it.code == code }) {
