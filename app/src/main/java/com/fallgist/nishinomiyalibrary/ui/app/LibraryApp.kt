@@ -24,6 +24,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -79,6 +80,7 @@ import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfEditingDialogs
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import com.fallgist.nishinomiyalibrary.ui.sync.SyncUiState
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
+import java.time.LocalDate
 import kotlinx.coroutines.launch
 
 /** ドロワー最下部の公式サイトリンク。アプリ内WebViewは使わず、端末の既定ブラウザで開く。 */
@@ -139,6 +141,9 @@ fun LibraryApp(
     val current = Destination.valueOf(currentName)
     // 診断ログ閲覧は設定画面からだけ開ける、書誌詳細と同様の全画面オーバーレイとして扱う(ドロワー/下部ナビには出さない)。
     var diagnosticLogOpen by rememberSaveable { mutableStateOf(false) }
+    // カレンダーから貸出中への遷移(案2、設計 docs/design/calendar-due-dates.md §4.6)で強調する日付。
+    // LocalDate は rememberSaveable が直接保存できないため epochDay で持つ。
+    var loansFocusDueDateEpochDay by rememberSaveable { mutableStateOf<Long?>(null) }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -319,9 +324,14 @@ fun LibraryApp(
                         Destination.LOANS -> {
                             val loansState by loansController.state.collectAsState()
                             val extensionState by loanExtensionUiController.state.collectAsState()
+                            // 画面を離れたら強調を消す(タイマーは持たない。設計§4.6)。
+                            DisposableEffect(Unit) {
+                                onDispose { loansFocusDueDateEpochDay = null }
+                            }
                             LoansScreen(
                                 state = loansState,
                                 extensionState = extensionState,
+                                focusDueDate = loansFocusDueDateEpochDay?.let(LocalDate::ofEpochDay),
                                 isRefreshing = syncState.isSyncing,
                                 onRefresh = onManualSync,
                                 onSelectMember = loansController::selectMember,
@@ -438,6 +448,12 @@ fun LibraryApp(
                             CalendarScreen(
                                 state = calendarState,
                                 onSelectLibrary = calendarController::selectLibrary,
+                                // 貸出中画面へ遷移し、対象日を強調する(遷移案2、設計§4.6)。
+                                // 「カレンダーから移動しました」等の説明バナー・日付見出しは出さない(所有者確定事項)。
+                                onSelectDueDate = { date ->
+                                    loansFocusDueDateEpochDay = date.toEpochDay()
+                                    currentName = Destination.LOANS.name
+                                },
                                 onOpenMenu = openMenu,
                                 modifier = Modifier.fillMaxSize(),
                             )

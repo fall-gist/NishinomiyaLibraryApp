@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +27,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,12 +47,15 @@ import com.fallgist.nishinomiyalibrary.ui.components.MemberDotIndent
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
+import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoansScreen(
     state: LoansUiState,
     extensionState: LoanExtensionUiState,
+    /** カレンダーの返却期限マスから遷移した際に強調する日付。nullなら強調なし(設計§4.6)。 */
+    focusDueDate: LocalDate?,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     onSelectMember: (Long?) -> Unit,
@@ -60,6 +69,19 @@ fun LoansScreen(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
+    val listState = rememberLazyListState()
+    // rowsがまだ空(初期化前)の間はindexが決まらない。rowsの到着で再計算されるようrememberのキーに入れる。
+    val focusIndex = remember(focusDueDate, state.rows) {
+        focusDueDate?.let { date -> state.rows.indexOfFirst { it.dueDate == date } }?.takeIf { it >= 0 }
+    }
+    // 1回のタップにつき1回だけスクロールする(メンバー絞り込みの操作で再スクロールしないため)。
+    var scrolledFor by remember { mutableStateOf<LocalDate?>(null) }
+    LaunchedEffect(focusIndex) {
+        val index = focusIndex ?: return@LaunchedEffect
+        if (scrolledFor == focusDueDate) return@LaunchedEffect
+        listState.animateScrollToItem(index)
+        scrolledFor = focusDueDate
+    }
     Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar(title = "貸出中", onOpenMenu = onOpenMenu)
         MemberFilterRow(
@@ -93,6 +115,7 @@ fun LoansScreen(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 18.dp),
@@ -100,6 +123,8 @@ fun LoansScreen(
                     items(state.rows) { row ->
                         LoanRowView(
                             row = row,
+                            // 強調はindexではなく日付の一致で決める(絞り込みで行が動いてもずれない、設計§4.6)。
+                            highlighted = focusDueDate != null && row.dueDate == focusDueDate,
                             extending = extensionState.processingTarget == LoanExtensionKey(row.memberId, row.tilcod),
                             extendDisabled = extensionState.processing,
                             onClick = { onOpenDetail(row.tilcod, row.title) },
@@ -129,6 +154,8 @@ fun LoansScreen(
 @Composable
 private fun LoanRowView(
     row: LoanRow,
+    /** カレンダーからの遷移で対象日として強調するか(設計§4.6)。枠をcolors.greenにするだけで、状態は持たない。 */
+    highlighted: Boolean,
     extending: Boolean,
     extendDisabled: Boolean,
     onClick: () -> Unit,
@@ -142,8 +169,12 @@ private fun LoanRowView(
             .clip(RoundedCornerShape(12.dp))
             .background(if (row.overdue) colors.alertBg else colors.card)
             .border(
-                1.dp,
-                if (row.overdue) colors.alert.copy(alpha = 0.45f) else colors.line,
+                if (highlighted) 2.dp else 1.dp,
+                when {
+                    highlighted -> colors.green
+                    row.overdue -> colors.alert.copy(alpha = 0.45f)
+                    else -> colors.line
+                },
                 RoundedCornerShape(12.dp),
             ),
     ) {
