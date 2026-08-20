@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>開館カレンダー: 返却期限マーカー モック</title>
+<style>
+  :root{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2;
+    --papa:#3D6DB5; --mama:#C25278; --taro:#D98E2B; --hana:#5FA05A; --jiro:#8A64B8;
+    --chip-bg:#EFEAE0; --sat:#3D6DB5;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+      --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+      --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921; --sat:#7EA6E0;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+    --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+    --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921; --sat:#7EA6E0;
+  }
+  :root[data-theme="light"]{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2; --chip-bg:#EFEAE0; --sat:#3D6DB5;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 16px 64px; background:var(--paper); color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+    line-height:1.6;
+  }
+  .wrap{max-width:430px; margin:0 auto; display:flex; flex-direction:column; gap:16px;}
+  .variant-title{margin:28px 0 4px; font-size:16px; font-weight:700;}
+  .variant-title .badge{
+    display:inline-block; font-size:11px; font-weight:700; color:var(--green-ink);
+    background:var(--green-bg); border-radius:999px; padding:2px 10px; margin-right:8px; vertical-align:middle;
+  }
+  .variant-title:first-of-type{margin-top:0}
+  .phone{
+    width:100%; max-width:390px; margin:0 auto; background:var(--card); border:1px solid var(--line);
+    border-radius:28px; overflow:hidden; box-shadow:0 12px 40px rgba(40,30,10,.12);
+    display:flex; flex-direction:column; height:820px;
+  }
+  .screen{flex:1; overflow-y:auto; background:var(--paper);}
+  .appbar{padding:18px 18px 8px; display:flex; justify-content:space-between; align-items:center;}
+  .appbar h1{margin:0; font-size:19px; letter-spacing:.02em;}
+  .appbar .hamburger{
+    flex:0 0 auto; width:32px; height:32px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:16px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+  .libpicker{padding:6px 18px 4px;}
+  .libpicker select{
+    width:100%; padding:9px 10px; border-radius:10px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:13.5px; font-family:inherit;
+  }
+  .libnote{padding:6px 18px 4px; font-size:11px; color:var(--ink2);}
+  .cal-month{padding:2px 18px 4px;}
+  .cal-monthlabel{
+    font-size:13.5px; font-weight:700; text-align:center; margin:12px 0 8px; color:var(--ink2);
+  }
+  .cal-weekdays{
+    display:grid; grid-template-columns:repeat(7,1fr); font-size:11px; color:var(--ink2);
+    text-align:center; margin-bottom:4px;
+  }
+  .cal-weekdays span.sun{color:var(--alert)}
+  .cal-weekdays span.sat{color:var(--sat)}
+  .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:6px;}
+  .cal-cell{
+    aspect-ratio:1/1; display:flex; align-items:center; justify-content:center;
+    font-size:13px; border-radius:8px; position:relative;
+  }
+  .cal-cell.empty{visibility:hidden}
+  .cal-cell.sun{color:var(--alert)}
+  .cal-cell.sat{color:var(--sat)}
+  .cal-cell.closed{background:var(--alert-bg); color:var(--alert); font-weight:700;}
+  .cal-cell.today{box-shadow:0 0 0 2px var(--green) inset; font-weight:700; color:var(--ink);}
+  .cal-cell.today.closed{color:var(--alert);}
+
+  /* --- 返却期限マーカー(今回の追加分) --- */
+  .cal-cell.due{cursor:pointer;}
+  .cal-cell.due > .num{transform:translateY(-3px); display:block;}
+  .dots{
+    position:absolute; left:0; right:0; bottom:4px;
+    display:flex; justify-content:center; align-items:center; gap:2px; pointer-events:none;
+  }
+  .dot{width:5px; height:5px; border-radius:50%; display:block;}
+  .dot.papa{background:var(--papa)} .dot.mama{background:var(--mama)}
+  .dot.taro{background:var(--taro)} .dot.hana{background:var(--hana)}
+  .dot.jiro{background:var(--jiro)}
+  .more{font-size:9px; line-height:1; color:var(--ink2); font-weight:700;}
+
+  .legend{display:flex; gap:14px; padding:4px 18px 4px; font-size:11px; color:var(--ink2); flex-wrap:wrap;}
+  .legend span{display:flex; align-items:center; gap:5px;}
+  .legend .sw{width:10px; height:10px; border-radius:3px;}
+  .legend .dotsw{width:6px; height:6px; border-radius:50%; background:var(--ink2);}
+  .todaynote{padding:0 18px 10px; font-size:11px; color:var(--ink2);}
+  .todaynote .ring{
+    display:inline-block; width:11px; height:11px; border-radius:3px;
+    box-shadow:0 0 0 2px var(--green) inset; vertical-align:middle; margin-right:4px;
+  }
+  .memberkey{display:flex; flex-wrap:wrap; gap:10px; padding:2px 18px 8px; font-size:11px; color:var(--ink2);}
+  .memberkey span{display:flex; align-items:center; gap:4px;}
+
+  /* --- 貸出中画面(遷移先)の抜粋 --- */
+  .chips{display:flex; gap:6px; padding:8px 18px 4px; flex-wrap:wrap;}
+  .chip{
+    font-size:12px; padding:5px 11px; border-radius:999px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink2); display:flex; align-items:center; gap:5px;
+  }
+  .chip.on{background:var(--green-bg); color:var(--green-ink); border-color:var(--green); font-weight:700;}
+  .chip .cd{width:7px; height:7px; border-radius:50%;}
+  .rows{padding:8px 18px 0;}
+  .row{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:10px 12px; margin-bottom:8px;
+  }
+  .row.hl{border-color:var(--green); box-shadow:0 0 0 2px var(--green-bg);}
+  .row .t{font-size:13.5px; font-weight:600; margin-bottom:3px;}
+  .row .m{font-size:11.5px; color:var(--ink2); display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
+  .row .m .cd{width:7px; height:7px; border-radius:50%;}
+  .row .due{color:var(--ink2);}
+  .row .due.od{color:var(--alert); font-weight:700;}
+
+  .nav{display:flex; border-top:1px solid var(--line); background:var(--card); padding:6px 4px 10px;}
+  .nav a{flex:1; text-align:center; font-size:10.5px; color:var(--ink2); text-decoration:none; padding-top:4px;}
+  .nav a .ic{display:block; width:44px; height:26px; margin:0 auto 2px; border-radius:999px; line-height:26px; font-size:15px;}
+  .nav a.on{color:var(--green-ink); font-weight:700;}
+  .nav a.on .ic{background:var(--green-bg);}
+
+  .notes{max-width:390px; margin:0 auto; width:100%;}
+  .notes h2{font-size:15px; margin:16px 0 4px;}
+  .notes .lead{color:var(--ink2); font-size:13px; margin:0 0 8px;}
+  .note{display:flex; gap:10px; padding:9px 0; border-top:1px solid var(--line); font-size:13px;}
+  .note .no{flex:0 0 22px; height:22px; border-radius:50%; background:var(--green); color:#fff;
+    font-size:11.5px; font-weight:700; text-align:center; line-height:22px;}
+  .note b{display:block; margin-bottom:2px;}
+  .note p{margin:0; color:var(--ink2); font-size:12.5px;}
+  .divider{border:none; border-top:1px dashed var(--line); margin:26px 0 0;}
+  .compare{
+    border:1px solid var(--line); border-radius:12px; padding:14px; margin:20px auto 0; max-width:390px;
+    background:var(--card); font-size:13px;
+  }
+  .compare h2{margin:0 0 8px; font-size:14px;}
+  .compare table{width:100%; border-collapse:collapse; font-size:12px;}
+  .compare th, .compare td{text-align:left; padding:6px 4px; border-top:1px solid var(--line); vertical-align:top;}
+  .compare th{color:var(--ink2); font-weight:600; width:58px;}
+  .zoom{
+    max-width:390px; margin:16px auto 0; width:100%; border:1px solid var(--line);
+    border-radius:12px; background:var(--card); padding:14px;
+  }
+  .zoom h2{margin:0 0 10px; font-size:14px;}
+  .zoomrow{display:flex; gap:10px; flex-wrap:wrap;}
+  .zoomcell{text-align:center; font-size:11px; color:var(--ink2); width:78px;}
+  .zoomcell .big{
+    width:64px; height:64px; margin:0 auto 4px; border-radius:12px; position:relative;
+    display:flex; align-items:center; justify-content:center; font-size:20px; color:var(--ink);
+    border:1px solid var(--line);
+  }
+  .zoomcell .big .dots{bottom:8px; gap:3px;}
+  .zoomcell .big .dot{width:8px; height:8px;}
+  .zoomcell .big .more{font-size:13px;}
+  .zoomcell .big.closed{background:var(--alert-bg); color:var(--alert); font-weight:700; border-color:var(--alert);}
+  .zoomcell .big.today{box-shadow:0 0 0 3px var(--green) inset; font-weight:700;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="variant-title"><span class="badge">案</span>返却期限＝メンバー色ドット（3ヶ月縦スクロールは現行のまま）</div>
+
+  <div class="phone">
+    <div class="screen">
+      <div class="appbar">
+        <h1>開館カレンダー</h1>
+        <button class="hamburger" aria-label="メニュー">☰</button>
+      </div>
+      <div class="libpicker">
+        <select aria-label="表示する図書館">
+          <option>中央図書館</option><option>北口図書館</option><option>鳴尾図書館</option>
+          <option>北部図書館</option><option>越木岩図書館</option><option>若竹分室</option>
+          <option>段上分室</option><option>上ケ原分室</option><option>甲東園分室</option>
+          <option selected>高須分室</option><option>山口分室</option><option>義務教育校</option>
+        </select>
+      </div>
+      <div class="libnote">
+        ※既定館(設定で変更可)が初期選択されています。一度に表示できるのは一館のみです。<br>
+        ※<b>返却期限のしるしは館の選択に関係なく、家族全員ぶんを表示します。</b>
+      </div>
+
+      <!-- 2026年8月 -->
+      <div class="cal-month">
+        <div class="cal-monthlabel">2026年8月</div>
+        <div class="cal-weekdays">
+          <span class="sun">日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span class="sat">土</span>
+        </div>
+        <div class="cal-grid">
+          <span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span>
+          <span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span>
+          <span class="cal-cell sat"><span class="num">1</span></span>
+
+          <span class="cal-cell sun"><span class="num">2</span></span>
+          <span class="cal-cell closed"><span class="num">3</span></span>
+          <span class="cal-cell"><span class="num">4</span></span>
+          <span class="cal-cell"><span class="num">5</span></span>
+          <span class="cal-cell"><span class="num">6</span></span>
+          <span class="cal-cell"><span class="num">7</span></span>
+          <span class="cal-cell sat"><span class="num">8</span></span>
+
+          <span class="cal-cell sun"><span class="num">9</span></span>
+          <span class="cal-cell closed"><span class="num">10</span></span>
+          <span class="cal-cell closed"><span class="num">11</span></span>
+          <span class="cal-cell"><span class="num">12</span></span>
+          <span class="cal-cell"><span class="num">13</span></span>
+          <span class="cal-cell due"><span class="num">14</span><span class="dots"><i class="dot papa"></i></span></span>
+          <span class="cal-cell sat"><span class="num">15</span></span>
+
+          <span class="cal-cell sun"><span class="num">16</span></span>
+          <span class="cal-cell closed"><span class="num">17</span></span>
+          <span class="cal-cell today due"><span class="num">18</span><span class="dots"><i class="dot mama"></i></span></span>
+          <span class="cal-cell"><span class="num">19</span></span>
+          <span class="cal-cell due"><span class="num">20</span><span class="dots"><i class="dot mama"></i><i class="dot taro"></i></span></span>
+          <span class="cal-cell"><span class="num">21</span></span>
+          <span class="cal-cell sat"><span class="num">22</span></span>
+
+          <span class="cal-cell sun"><span class="num">23</span></span>
+          <span class="cal-cell closed due"><span class="num">24</span><span class="dots"><i class="dot hana"></i></span></span>
+          <span class="cal-cell due"><span class="num">25</span><span class="dots"><i class="dot papa"></i><i class="dot mama"></i><i class="dot taro"></i></span></span>
+          <span class="cal-cell"><span class="num">26</span></span>
+          <span class="cal-cell"><span class="num">27</span></span>
+          <span class="cal-cell due"><span class="num">28</span><span class="dots"><i class="dot papa"></i><i class="dot mama"></i><i class="dot taro"></i><b class="more">+</b></span></span>
+          <span class="cal-cell sat"><span class="num">29</span></span>
+
+          <span class="cal-cell sun"><span class="num">30</span></span>
+          <span class="cal-cell closed"><span class="num">31</span></span>
+          <span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span>
+          <span class="cal-cell empty"></span><span class="cal-cell empty"></span>
+        </div>
+
+        <!-- 2026年9月 -->
+        <div class="cal-monthlabel">2026年9月</div>
+        <div class="cal-weekdays">
+          <span class="sun">日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span class="sat">土</span>
+        </div>
+        <div class="cal-grid">
+          <span class="cal-cell empty"></span><span class="cal-cell empty"></span>
+          <span class="cal-cell due"><span class="num">1</span><span class="dots"><i class="dot jiro"></i></span></span>
+          <span class="cal-cell"><span class="num">2</span></span>
+          <span class="cal-cell"><span class="num">3</span></span>
+          <span class="cal-cell"><span class="num">4</span></span>
+          <span class="cal-cell sat"><span class="num">5</span></span>
+
+          <span class="cal-cell sun"><span class="num">6</span></span>
+          <span class="cal-cell closed"><span class="num">7</span></span>
+          <span class="cal-cell"><span class="num">8</span></span>
+          <span class="cal-cell"><span class="num">9</span></span>
+          <span class="cal-cell"><span class="num">10</span></span>
+          <span class="cal-cell"><span class="num">11</span></span>
+          <span class="cal-cell sat"><span class="num">12</span></span>
+
+          <span class="cal-cell sun"><span class="num">13</span></span>
+          <span class="cal-cell closed"><span class="num">14</span></span>
+          <span class="cal-cell"><span class="num">15</span></span>
+          <span class="cal-cell"><span class="num">16</span></span>
+          <span class="cal-cell"><span class="num">17</span></span>
+          <span class="cal-cell"><span class="num">18</span></span>
+          <span class="cal-cell sat"><span class="num">19</span></span>
+
+          <span class="cal-cell sun"><span class="num">20</span></span>
+          <span class="cal-cell closed"><span class="num">21</span></span>
+          <span class="cal-cell closed"><span class="num">22</span></span>
+          <span class="cal-cell"><span class="num">23</span></span>
+          <span class="cal-cell"><span class="num">24</span></span>
+          <span class="cal-cell"><span class="num">25</span></span>
+          <span class="cal-cell sat"><span class="num">26</span></span>
+
+          <span class="cal-cell sun"><span class="num">27</span></span>
+          <span class="cal-cell closed"><span class="num">28</span></span>
+          <span class="cal-cell"><span class="num">29</span></span>
+          <span class="cal-cell"><span class="num">30</span></span>
+          <span class="cal-cell empty"></span><span class="cal-cell empty"></span><span class="cal-cell empty"></span>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span><span class="sw" style="background:var(--alert-bg); border:1px solid var(--alert)"></span>休館</span>
+        <span><span class="dotsw"></span>返却期限（色＝だれの本か）</span>
+      </div>
+      <div class="memberkey">
+        <span><i class="dot papa"></i>パパ</span><span><i class="dot mama"></i>ママ</span>
+        <span><i class="dot taro"></i>太郎</span><span><i class="dot hana"></i>花</span>
+        <span><i class="dot jiro"></i>次郎</span>
+      </div>
+      <div class="todaynote"><span class="ring"></span>今日(8/18)は緑の枠で表示</div>
+      <div style="height:12px"></div>
+    </div>
+    <nav class="nav">
+      <a href="#"><span class="ic">🏠</span>ホーム</a>
+      <a href="#"><span class="ic">📚</span>本棚</a>
+      <a href="#"><span class="ic">📖</span>貸出中</a>
+      <a href="#"><span class="ic">🔖</span>予約中</a>
+      <a href="#"><span class="ic">📗</span>読書記録</a>
+    </nav>
+  </div>
+
+  <div class="zoom">
+    <h2>マス単体の拡大（重なりの見え方）</h2>
+    <div class="zoomrow">
+      <div class="zoomcell"><div class="big"><span>19</span></div>なにもない日</div>
+      <div class="zoomcell"><div class="big"><span>20</span><span class="dots"><i class="dot mama"></i><i class="dot taro"></i></span></div>2人ぶん</div>
+      <div class="zoomcell"><div class="big"><span>28</span><span class="dots"><i class="dot papa"></i><i class="dot mama"></i><i class="dot taro"></i><b class="more">+</b></span></div>4人以上</div>
+      <div class="zoomcell"><div class="big closed"><span>24</span><span class="dots"><i class="dot hana"></i></span></div>休館＋期限</div>
+      <div class="zoomcell"><div class="big today"><span>18</span><span class="dots"><i class="dot mama"></i></span></div>きょう＋期限</div>
+      <div class="zoomcell"><div class="big"><span>14</span><span class="dots"><i class="dot papa"></i></span></div>延滞（過去日）</div>
+    </div>
+    <p style="font-size:12px; color:var(--ink2); margin:10px 0 0;">
+      休館日＝背景の塗り、きょう＝枠線、返却期限＝下端のドット。<b>描画の層が違うため優先順位を決める必要がなく、3つ同時でも破綻しない。</b>
+      （なお、休館日が返却期限になることは実データでは稀。上は重なっても成立することの確認用。）
+    </p>
+  </div>
+
+  <div class="notes">
+    <p class="lead">現行の3ヶ月縦スクロール・館ドロップダウン・休館日塗り・きょうの枠は一切変えず、マス下端にドットを足すだけの変更。</p>
+    <div class="note"><span class="no">1</span><div><b>色でだれの本かがわかる</b><p>メンバー色は既存のホーム・貸出中・本棚と同じ割り当て。ドットは最大3個、4人以上は「＋」。</p></div></div>
+    <div class="note"><span class="no">2</span><div><b>館を替えてもドットは変わらない</b><p>返却期限は館に依存しないため。誤解を避ける一文を注記へ追加する。</p></div></div>
+    <div class="note"><span class="no">3</span><div><b>延滞日も同じドットで出す</b><p>延滞の強調はホームの「期限切れ」セクションが担当。ここで赤くすると休館日の赤と紛らわしい。</p></div></div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="variant-title"><span class="badge">遷移</span>8/25 のマスをタップ →「貸出中」画面へ</div>
+
+  <div class="phone">
+    <div class="screen">
+      <div class="appbar">
+        <h1>貸出中</h1>
+        <button class="hamburger" aria-label="メニュー">☰</button>
+      </div>
+      <div class="chips">
+        <span class="chip on">ぜんいん 9</span>
+        <span class="chip"><i class="cd" style="background:var(--papa)"></i>パパ 3</span>
+        <span class="chip"><i class="cd" style="background:var(--mama)"></i>ママ 3</span>
+        <span class="chip"><i class="cd" style="background:var(--taro)"></i>太郎 2</span>
+        <span class="chip"><i class="cd" style="background:var(--hana)"></i>花 1</span>
+      </div>
+
+      <div class="rows">
+        <div class="row">
+          <div class="t">夜市</div>
+          <div class="m"><i class="cd" style="background:var(--papa)"></i>パパ・高須分室
+            <span class="due od">返却期限 8/14 まで（4日超過）</span></div>
+        </div>
+
+        <div class="row">
+          <div class="t">きょうの猫村さん 1</div>
+          <div class="m"><i class="cd" style="background:var(--mama)"></i>ママ・中央図書館
+            <span class="due">返却期限 8/18 まで</span></div>
+        </div>
+        <div class="row">
+          <div class="t">ざんねんないきもの事典</div>
+          <div class="m"><i class="cd" style="background:var(--taro)"></i>太郎・高須分室
+            <span class="due">返却期限 8/20 まで</span></div>
+        </div>
+
+        <div class="row hl">
+          <div class="t">火星の人</div>
+          <div class="m"><i class="cd" style="background:var(--papa)"></i>パパ・北口図書館
+            <span class="due">返却期限 8/25 まで</span></div>
+        </div>
+        <div class="row hl">
+          <div class="t">サラダ記念日</div>
+          <div class="m"><i class="cd" style="background:var(--mama)"></i>ママ・高須分室
+            <span class="due">返却期限 8/25 まで</span></div>
+        </div>
+        <div class="row hl">
+          <div class="t">ぼくらの七日間戦争</div>
+          <div class="m"><i class="cd" style="background:var(--taro)"></i>太郎・高須分室
+            <span class="due">返却期限 8/25 まで</span></div>
+        </div>
+
+        <div class="row">
+          <div class="t">舟を編む</div>
+          <div class="m"><i class="cd" style="background:var(--mama)"></i>ママ・中央図書館
+            <span class="due">返却期限 8/28 まで</span></div>
+        </div>
+      </div>
+      <div style="height:12px"></div>
+    </div>
+    <nav class="nav">
+      <a href="#"><span class="ic">🏠</span>ホーム</a>
+      <a href="#"><span class="ic">📚</span>本棚</a>
+      <a class="on" href="#"><span class="ic">📖</span>貸出中</a>
+      <a href="#"><span class="ic">🔖</span>予約中</a>
+      <a href="#"><span class="ic">📗</span>読書記録</a>
+    </nav>
+  </div>
+
+  <div class="notes">
+    <p class="lead">上は<b>遷移案2</b>。対象日の行までスクロールし、枠だけを強調する。<b>「カレンダーから移動しました」等の説明バナーや日付見出しは出さない。</b>画面の構成は現行の貸出中画面(メンバー絞り込みチップ＋返却期限の昇順リスト)のまま。</p>
+    <div class="note"><span class="no">1</span><div><b>絞り込まない理由</b><p>既存のメンバー絞り込みチップと二重の絞り込み状態になり、解除UIが必要になる。強調だけなら状態を持たない。</p></div></div>
+    <div class="note"><span class="no">2</span><div><b>強調はいつ消えるか</b><p>画面を離れると消える(タイマー等は持たない)。メンバー絞り込みを操作しても強調自体は残る。</p></div></div>
+  </div>
+
+  <div class="compare">
+    <h2>タップ遷移の3案</h2>
+    <table>
+      <tr><th>案1</th><td><b>移動するだけ</b>（日付を渡さない）。一覧は期限昇順。追加の状態ゼロ、最小実装。</td></tr>
+      <tr><th>案2</th><td><b>移動＋対象日を強調</b>（上図・<b>採用</b>）。貸出中側に「注目日」を渡す口が要る。説明文は出さず、手掛かりはスクロール位置と枠の強調のみ。</td></tr>
+      <tr><th>案3</th><td><b>移動＋日付で絞り込み</b>。目的の本だけが残るが、メンバー絞り込みと二重になり解除UIが必要。</td></tr>
+      <tr><th>共通</th><td>期限のない日はタップ無効（押しても何も起きない）。</td></tr>
+    </table>
+  </div>
+
+</div>
+</body>
+</html>
