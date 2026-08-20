@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -102,7 +103,7 @@ class CalendarScreenControllerTest {
     private fun TestScope.controller(
         familyRepository: FamilyRepository,
         statusRepository: StatusRepository,
-        dispatcher: StandardTestDispatcher,
+        dispatcher: TestDispatcher,
         calendarRepository: CalendarRepository = FakeCalendarRepository(),
     ): CalendarScreenController = CalendarScreenController(
         calendarRepository = calendarRepository,
@@ -118,7 +119,7 @@ class CalendarScreenControllerTest {
      * 使うと、controller側のStandardTestDispatcherと実スレッドが混在してadvanceUntilIdle()で
      * 決定論的に待てなくなる(実時間待ちの持ち込みになるため設計の禁止事項に触れる)。
      */
-    private fun settingsStore(dispatcher: StandardTestDispatcher): SettingsStore {
+    private fun settingsStore(dispatcher: TestDispatcher): SettingsStore {
         val scope = CoroutineScope(SupervisorJob() + dispatcher)
         dataStoreScopes += scope
         return SettingsStore(
