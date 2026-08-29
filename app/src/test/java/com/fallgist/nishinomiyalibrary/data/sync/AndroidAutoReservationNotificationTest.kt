@@ -35,6 +35,8 @@ class AndroidAutoReservationNotificationTest {
                         MemberLoanItems(7L, "会員A", listOf("返却本A", "返却本B")),
                     ),
                     hasOverdue = true,
+                    earliestDueDate = LocalDate.of(2026, 7, 19),
+                    title = "返却期限が過ぎた本があります",
                 ),
             ),
         )
@@ -134,6 +136,8 @@ class AndroidAutoReservationNotificationTest {
                         MemberLoanItems(7L, "会員A", listOf("返却本A")),
                     ),
                     hasOverdue = false,
+                    earliestDueDate = LocalDate.of(2026, 7, 21),
+                    title = "明日返却の本があります",
                 ),
             ),
         )
