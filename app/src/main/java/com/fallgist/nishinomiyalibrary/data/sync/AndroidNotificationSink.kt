@@ -30,7 +30,7 @@ class AndroidNotificationSink @Inject constructor(
             val style = Notification.InboxStyle().also { style -> lines.forEach(style::addLine) }
             val notification = Notification.Builder(context, CH_RETURN_REMINDER)
                 .setSmallIcon(android.R.drawable.ic_popup_reminder)
-                .setContentTitle("明日返却の本があります")
+                .setContentTitle(plan.title)
                 .setContentText(if (plan.hasOverdue) "$summary・期限超過あり" else summary)
                 .setStyle(style)
                 .setContentIntent(OpenAppNotificationNavigation.pendingIntent(context, NOTIFICATION_ID_RETURN_REMINDER))

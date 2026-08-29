@@ -66,4 +66,97 @@ class NotificationPlannerTest {
             }.isFailure,
         )
     }
+
+    @Test
+    fun `期限超過を含むときタイトルは返却期限が過ぎた本があります`() {
+        val plan = NotificationPlanner.returnReminder(
+            today = today,
+            loans = listOf(
+                loan("期限超過", today.minusDays(3)),
+                loan("明日返却", today.plusDays(1)),
+            ),
+        )
+
+        assertEquals("返却期限が過ぎた本があります", plan!!.title)
+    }
+
+    @Test
+    fun `超過が無く当日の本があるときタイトルは今日が返却期限の本があります`() {
+        val plan = NotificationPlanner.returnReminder(
+            today = today,
+            loans = listOf(loan("当日返却", today)),
+        )
+
+        assertEquals("今日が返却期限の本があります", plan!!.title)
+    }
+
+    @Test
+    fun `最短が明日のときタイトルは明日返却の本があります`() {
+        val plan = NotificationPlanner.returnReminder(
+            today = today,
+            loans = listOf(loan("明日返却", today.plusDays(1))),
+        )
+
+        assertEquals("明日返却の本があります", plan!!.title)
+    }
+
+    @Test
+    fun `daysBeforeが3でも最短が明日ならタイトルは明日返却の本があります`() {
+        val plan = NotificationPlanner.returnReminder(
+            today = today,
+            daysBefore = 3,
+            loans = listOf(
+                loan("明日返却", today.plusDays(1)),
+                loan("3日後返却", today.plusDays(3)),
+            ),
+        )
+
+        assertEquals("明日返却の本があります", plan!!.title)
+    }
+
+    @Test
+    fun `最短が明後日以降のときタイトルはまもなく返却期限の本があります`() {
+        val plan = NotificationPlanner.returnReminder(
+            today = today,
+            daysBefore = 3,
+            loans = listOf(loan("明後日返却", today.plusDays(2))),
+        )
+
+        assertEquals("まもなく返却期限の本があります", plan!!.title)
+    }
+
+    @Test
+    fun `返却当日の本だけのときhasOverdueはfalse`() {
+        val plan = NotificationPlanner.returnReminder(
+            today = today,
+            loans = listOf(loan("当日返却", today)),
+        )
+
+        assertEquals(false, plan!!.hasOverdue)
+    }
+
+    @Test
+    fun `期限超過の本があるときhasOverdueはtrue`() {
+        val plan = NotificationPlanner.returnReminder(
+            today = today,
+            loans = listOf(loan("期限超過", today.minusDays(1))),
+        )
+
+        assertTrue(plan!!.hasOverdue)
+    }
+
+    @Test
+    fun `超過当日明日が混在するときタイトルは超過のものになる`() {
+        val plan = NotificationPlanner.returnReminder(
+            today = today,
+            daysBefore = 3,
+            loans = listOf(
+                loan("期限超過", today.minusDays(1)),
+                loan("当日返却", today),
+                loan("明日返却", today.plusDays(1)),
+            ),
+        )
+
+        assertEquals("返却期限が過ぎた本があります", plan!!.title)
+    }
 }

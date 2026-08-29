@@ -6,7 +6,12 @@ import java.time.LocalDate
 /** Android APIに依存しない、同期後の通知内容の判定結果。 */
 data class ReturnReminderPlan(
     val itemsByMember: List<MemberLoanItems>,
+    /** 期限超過(dueDate < today)を含むか。**返却当日は含めない**(2026-08-21修正)。本文の「・期限超過あり」に使う。 */
     val hasOverdue: Boolean,
+    /** この通知に含まれる最も早い返却期限日。タイトルの決定に使う。 */
+    val earliestDueDate: LocalDate,
+    /** 通知タイトル。文言の分岐をテスト可能な位置に置くため、planner側で確定させる(§3.2)。 */
+    val title: String,
 )
 
 data class MemberLoanItems(
@@ -42,6 +47,16 @@ data class ReservationNotificationSource(
     val firstReadyNotifiedAt: Long?,
 )
 
+/** 返却リマインダーのタイトルを決める純粋関数。最も差し迫った区分を採る(設計書§2)。 */
+object ReturnReminderTextBuilder {
+    fun title(today: LocalDate, earliestDueDate: LocalDate): String = when {
+        earliestDueDate.isBefore(today) -> "返却期限が過ぎた本があります"
+        earliestDueDate == today -> "今日が返却期限の本があります"
+        earliestDueDate == today.plusDays(1) -> "明日返却の本があります"
+        else -> "まもなく返却期限の本があります"
+    }
+}
+
 object NotificationPlanner {
     /**
      * 返却期限が[daysBefore]日後以内(期限超過を含む)の貸出を、メンバーごとの一通へまとめる。
@@ -58,6 +73,7 @@ object NotificationPlanner {
         }
         if (relevant.isEmpty()) return null
 
+        val earliestDueDate = relevant.minOf { it.dueDate }
         return ReturnReminderPlan(
             itemsByMember = relevant
                 .groupBy { it.memberId to it.memberName }
@@ -69,7 +85,9 @@ object NotificationPlanner {
                     )
                 }
                 .sortedBy { it.memberId },
-            hasOverdue = relevant.any { !it.dueDate.isAfter(today) },
+            hasOverdue = relevant.any { it.dueDate.isBefore(today) },
+            earliestDueDate = earliestDueDate,
+            title = ReturnReminderTextBuilder.title(today, earliestDueDate),
         )
     }
 
