@@ -43,6 +43,10 @@ class AndroidAutoReservationNotificationTest {
 
         val notification = Shadows.shadowOf(manager).getAllNotifications().single()
         assertEquals(AndroidNotificationSink.CH_RETURN_REMINDER, notification.channelId)
+        assertEquals(
+            "返却期限が過ぎた本があります",
+            notification.extras.getCharSequence("android.title").toString(),
+        )
         assertTrue(notification.extras.getCharSequence("android.text").toString().contains("会員A"))
         val lines = notification.extras.getCharSequenceArray("android.textLines").orEmpty()
         assertTrue(lines.any { it.toString().contains("会員A: 返却本A") })
@@ -145,6 +149,10 @@ class AndroidAutoReservationNotificationTest {
         val manager = context.getSystemService(NotificationManager::class.java)
         val notification = requireNotNull(
             Shadows.shadowOf(manager).getNotification(AndroidNotificationSink.NOTIFICATION_ID_RETURN_REMINDER),
+        )
+        assertEquals(
+            "明日返却の本があります",
+            notification.extras.getCharSequence("android.title").toString(),
         )
         val contentIntent = requireNotNull(notification.contentIntent)
         val savedIntent = Shadows.shadowOf(contentIntent).getSavedIntent()
