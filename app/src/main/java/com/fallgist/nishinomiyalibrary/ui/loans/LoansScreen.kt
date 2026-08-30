@@ -218,12 +218,23 @@ private fun LoanRowView(
         // 一斉延長(`docs/design/bulk-selection.md` §5.2)のチェックボックスは、行タップ領域(下のColumn)
         // とは別のRowに置く(予約中一覧のReservationRowViewと同じ流儀)。canExtendな行にだけ出す。
         if (row.canExtend) {
-            Row(modifier = Modifier.padding(start = 4.dp, top = 2.dp)) {
+            Row(
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 SelectionCheckbox(
                     checked = selected,
                     enabled = selectionEnabled,
                     onToggle = onToggleSelection,
                     checkedColor = colors.green,
+                )
+                // チェックボックスが浮いて見える問題への対処(設計追補§4)。予約中の状態表示(statusLabel)と
+                // 完全に同じ体裁にする(11sp・Bold・ink2)。目立たせるのが目的ではないため緑等で強調しない。
+                Text(
+                    text = "延長可能",
+                    color = colors.ink2,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
                 )
             }
         }
