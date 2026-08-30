@@ -295,6 +295,10 @@ class ReservationUiControllerTest {
 
         override fun cartItems(): Flow<List<ReservationCartItem>> = flow
         override suspend fun addToCart(target: ReservationTarget) { added += target }
+        override suspend fun addToCart(targets: List<ReservationTarget>): com.fallgist.nishinomiyalibrary.domain.model.ReservationCartAddSummary {
+            added += targets
+            return com.fallgist.nishinomiyalibrary.domain.model.ReservationCartAddSummary(added = targets.size, skipped = 0)
+        }
         override suspend fun removeFromCart(cartItemId: Long) { removed += cartItemId }
         override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult {
             confirmCalls++
