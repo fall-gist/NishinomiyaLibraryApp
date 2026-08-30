@@ -170,4 +170,31 @@ class LoansContentBuilderTest {
         assertFalse(byTitle.getValue("延長不可フラグ").canExtend)
         assertFalse(byTitle.getValue("延長可だがtilcod無し").canExtend)
     }
+
+    @Test
+    fun `一斉延長の候補は選択済みかつcanExtendな行だけを組み立てる(design bulk-selection §4,3・§5,2)`() {
+        val rows = LoansContentBuilder.build(
+            members,
+            listOf(
+                loan(papa.id, "延長可A", today.plusDays(1), tilcod = "T-A", extendable = true),
+                loan(papa.id, "延長可B", today.plusDays(1), tilcod = "T-B", extendable = true),
+                loan(papa.id, "延長不可", today.plusDays(1), tilcod = "T-C", extendable = false),
+            ),
+            selectedMemberId = null,
+            today = today,
+        )
+        val selectedKeys = setOf(
+            LoanExtensionKey(papa.id, "T-A"),
+            // 一覧に存在しないキー(§4.3)
+            LoanExtensionKey(papa.id, "T-does-not-exist"),
+            // canExtend=falseな行のキー(延長ボタン自体が無いため対象にならない)
+            LoanExtensionKey(papa.id, "T-C"),
+        )
+
+        val candidates = LoansContentBuilder.extensionCandidates(rows, selectedKeys)
+
+        assertEquals(1, candidates.size)
+        assertEquals("T-A", candidates.single().target.tilcod)
+        assertEquals("延長可A", candidates.single().title)
+    }
 }

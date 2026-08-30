@@ -25,6 +25,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
 import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionTarget
+import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionBatchResult
 import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationControl
 import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationLatestRun
 import com.fallgist.nishinomiyalibrary.domain.model.AutoReservationRule
@@ -160,6 +161,13 @@ interface ReservationCancelRepository {
  */
 interface LoanExtensionRepository {
     suspend fun extendLoan(target: LoanExtensionTarget): LoanExtensionOutcome
+
+    /**
+     * 複数件を順に延長する(`docs/design/bulk-selection.md` §5.1)。1件が失敗しても後続を続行し、
+     * 件ごとの結果を返す(`ReservationCancelRepository.cancelReservations`と同じ流儀)。
+     * 実装は既存[extendLoan]を順に呼ぶループとする。Gateway(1件の二段階POSTと照合)は不変。
+     */
+    suspend fun extendLoans(targets: List<LoanExtensionTarget>): LoanExtensionBatchResult
 }
 
 /** 自動予約の設定・制御記録・直近表示履歴を扱う内部ユースケース用の永続境界。 */

@@ -444,3 +444,12 @@ sealed interface LoanExtensionOutcome {
     /** POST前に確定した失敗(対象不在、フォーム不一致、認証・通信・メンテナンス等)。既存のFailureReasonを再利用する。 */
     data class Failure(val reason: FailureReason) : LoanExtensionOutcome
 }
+
+/** 一斉延長1件分の結果(`docs/design/bulk-selection.md` §5.1)。 */
+data class LoanExtensionItemResult(
+    val target: LoanExtensionTarget,
+    val outcome: LoanExtensionOutcome,
+)
+
+/** 一斉延長の結果。1件の失敗が後続を止めない(`ReservationCancelBatchResult`と同じ流儀)。 */
+data class LoanExtensionBatchResult(val items: List<LoanExtensionItemResult>)

@@ -54,14 +54,40 @@ data class LoanExtensionResultMessage(
     val succeeded: Boolean get() = kind == LoanExtensionResultKind.EXTENDED
 }
 
+/** 経路1(1件延長)か経路2(一斉延長)かを保持する(`docs/design/bulk-selection.md` §5.2、予約取消と同じ流儀)。 */
+sealed interface LoanExtensionConfirmationRequest {
+    val candidates: List<LoanExtensionCandidate>
+
+    data class Single(override val candidates: List<LoanExtensionCandidate>) : LoanExtensionConfirmationRequest
+    data class Bulk(override val candidates: List<LoanExtensionCandidate>) : LoanExtensionConfirmationRequest
+}
+
+/** 一斉延長の処理中に出す進捗(`docs/design/bulk-selection.md` §5.2「3件目/5件」)。 */
+data class LoanExtensionBulkProgress(val completed: Int, val total: Int)
+
+/** 一斉延長の結果ダイアログの1行。 */
+data class LoanExtensionResultRow(
+    val key: LoanExtensionKey,
+    val title: String,
+    val message: LoanExtensionResultMessage,
+)
+
 data class LoanExtensionUiState(
-    val pendingConfirmation: LoanExtensionCandidate? = null,
-    /** 処理中の対象行。行ごとのボタン無効化に使う。 */
+    /** 一斉延長の選択キー(`docs/design/bulk-selection.md` §4.2、既存の型をそのまま使う)。 */
+    val selectedKeys: Set<LoanExtensionKey> = emptySet(),
+    val pendingConfirmation: LoanExtensionConfirmationRequest? = null,
+    /** 処理中の対象行。行ごとのボタン無効化に使う。一斉延長中は現在処理中の対象を指す。 */
     val processingTarget: LoanExtensionKey? = null,
+    /** 一斉延長の処理中だけ非null。1件延長では使わない。 */
+    val bulkProgress: LoanExtensionBulkProgress? = null,
+    /** 1件延長(経路1)の結果。一斉延長の結果は[results]に入る。 */
     val result: LoanExtensionResultMessage? = null,
+    /** 一斉延長(経路2)の結果。件ごとの行を持つ(§5.2)。 */
+    val results: List<LoanExtensionResultRow> = emptyList(),
     val errorMessage: String? = null,
 ) {
-    val processing: Boolean get() = processingTarget != null
+    val processing: Boolean get() = processingTarget != null || bulkProgress != null
+    val canExtendSelection: Boolean get() = !processing && selectedKeys.isNotEmpty()
 }
 
 /**
@@ -77,10 +103,23 @@ class LoanExtensionUiController(
     private val _state = MutableStateFlow(LoanExtensionUiState())
     val state: StateFlow<LoanExtensionUiState> = _state
 
-    /** 行の「延長」ボタン。確定するまで通信は開始しない。 */
+    /** チェックボックスのタップ(`docs/design/bulk-selection.md` §5.2)。行タップ・行内延長ボタンとは別のタップ領域。 */
+    fun toggleSelection(key: LoanExtensionKey) {
+        if (state.value.processing) return
+        val current = state.value.selectedKeys
+        _state.value = state.value.copy(selectedKeys = if (key in current) current - key else current + key)
+    }
+
+    /** 経路1: 行の「延長」ボタン。確定するまで通信は開始しない。 */
     fun requestConfirmation(candidate: LoanExtensionCandidate) {
         if (state.value.processing) return
-        _state.value = state.value.copy(pendingConfirmation = candidate)
+        _state.value = state.value.copy(pendingConfirmation = LoanExtensionConfirmationRequest.Single(listOf(candidate)))
+    }
+
+    /** 経路2: 「一斉延長」ボタン。選択済みキーに対応する候補はScreen側で組み立てて渡す。 */
+    fun requestBulkConfirmation(candidates: List<LoanExtensionCandidate>) {
+        if (state.value.processing || candidates.isEmpty()) return
+        _state.value = state.value.copy(pendingConfirmation = LoanExtensionConfirmationRequest.Bulk(candidates))
     }
 
     fun dismissConfirmation() {
@@ -89,9 +128,17 @@ class LoanExtensionUiController(
 
     /** 最終確認ダイアログの肯定操作だけが延長通信(extendLoan)を開始する。 */
     fun confirmPending() {
-        val candidate = state.value.pendingConfirmation ?: return
+        val request = state.value.pendingConfirmation ?: return
         if (state.value.processing) return
-        _state.value = state.value.copy(pendingConfirmation = null, processingTarget = candidate.key)
+        _state.value = state.value.copy(pendingConfirmation = null)
+        when (request) {
+            is LoanExtensionConfirmationRequest.Single -> confirmSingle(request.candidates.single())
+            is LoanExtensionConfirmationRequest.Bulk -> confirmBulk(request.candidates)
+        }
+    }
+
+    private fun confirmSingle(candidate: LoanExtensionCandidate) {
+        _state.value = state.value.copy(processingTarget = candidate.key)
         scope.launch {
             try {
                 val outcome = extensionRepository.extendLoan(candidate.target)
@@ -111,8 +158,52 @@ class LoanExtensionUiController(
         }
     }
 
+    /**
+     * 一斉延長本体。`docs/design/bulk-selection.md` §5.1のとおりRepositoryは
+     * [LoanExtensionRepository.extendLoans]を持つが、1件ごとに進捗(§5.2「3件目/5件」)を
+     * 出す必要があるため、ここでは既存の[LoanExtensionRepository.extendLoan]を順に呼ぶ
+     * (extendLoansは進捗コールバックを持たない一括APIのため、進捗表示にはそのまま使えない)。
+     * 1件ごとの成否判定・ローカル反映は[LoanExtensionRepository.extendLoan]内で完結しており、
+     * ここでループしても§6.1の反映規則は変わらない。
+     */
+    private fun confirmBulk(candidates: List<LoanExtensionCandidate>) {
+        _state.value = state.value.copy(bulkProgress = LoanExtensionBulkProgress(0, candidates.size))
+        scope.launch {
+            try {
+                val rows = mutableListOf<LoanExtensionResultRow>()
+                for ((index, candidate) in candidates.withIndex()) {
+                    _state.value = _state.value.copy(processingTarget = candidate.key)
+                    val outcome = extensionRepository.extendLoan(candidate.target)
+                    rows += LoanExtensionResultRow(candidate.key, candidate.title, LoanExtensionContentBuilder.resultMessage(outcome))
+                    _state.value = _state.value.copy(bulkProgress = LoanExtensionBulkProgress(index + 1, candidates.size))
+                }
+                _state.value = _state.value.copy(
+                    // 一斉延長の対象は完了後に選択を空にする(予約中の一斉取消と同じ流儀)。
+                    selectedKeys = emptySet(),
+                    processingTarget = null,
+                    bulkProgress = null,
+                    results = rows,
+                )
+            } catch (exception: CancellationException) {
+                _state.value = _state.value.copy(processingTarget = null, bulkProgress = null)
+                throw exception
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(
+                    processingTarget = null,
+                    bulkProgress = null,
+                    errorMessage = "延長処理を完了できませんでした。通信状態を確認して、もう一度お試しください。",
+                )
+            }
+        }
+    }
+
     fun clearResult() {
         _state.value = state.value.copy(result = null)
+    }
+
+    /** 一斉延長の結果ダイアログを閉じる。 */
+    fun clearResults() {
+        _state.value = state.value.copy(results = emptyList())
     }
 
     fun clearError() {

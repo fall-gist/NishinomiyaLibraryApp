@@ -189,6 +189,141 @@ class LoanExtensionUiControllerTest {
         controller.close()
     }
 
+    // ------------------------------------------------------------------
+    // 一斉延長(機能A、`docs/design/bulk-selection.md` §5・§8.2)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `選択の切り替えでキーが追加削除される`() = runTest {
+        val repo = FakeExtensionRepository()
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key = LoanExtensionKey(1, "100")
+
+        controller.toggleSelection(key)
+        assertTrue(key in controller.state.value.selectedKeys)
+        controller.toggleSelection(key)
+        assertFalse(key in controller.state.value.selectedKeys)
+        controller.close()
+    }
+
+    @Test
+    fun `候補0件では一斉延長の確認を開始しない`() = runTest {
+        val repo = FakeExtensionRepository()
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestBulkConfirmation(emptyList())
+
+        assertNull(controller.state.value.pendingConfirmation)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉延長は選択順にextendLoanを呼び1件失敗しても後続を続行する`() = runTest {
+        val repo = FakeExtensionRepository(outcome = LoanExtensionOutcome.Extended(LocalDate.of(2026, 8, 19)))
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val candidates = listOf(candidate(tilcod = "100"), candidate(tilcod = "101"), candidate(tilcod = "102"))
+
+        controller.requestBulkConfirmation(candidates)
+        controller.confirmPending()
+        advanceUntilIdle()
+
+        assertEquals(listOf("100", "101", "102"), repo.extendedOrder)
+        assertEquals(3, controller.state.value.results.size)
+        assertTrue(controller.state.value.results.all { it.message.succeeded })
+        controller.close()
+    }
+
+    @Test
+    fun `一斉延長の確定後は選択が空になり件ごとの結果へ変換される(Unknownは成功にならない)`() = runTest {
+        val repo = FakeExtensionRepository(outcome = LoanExtensionOutcome.Unknown)
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key1 = LoanExtensionKey(1, "100")
+        val key2 = LoanExtensionKey(1, "101")
+        controller.toggleSelection(key1)
+        controller.toggleSelection(key2)
+
+        controller.requestBulkConfirmation(listOf(candidate(tilcod = "100"), candidate(tilcod = "101")))
+        controller.confirmPending()
+        advanceUntilIdle()
+
+        assertTrue(controller.state.value.selectedKeys.isEmpty())
+        assertEquals(2, controller.state.value.results.size)
+        assertFalse(controller.state.value.results.all { it.message.succeeded })
+        controller.close()
+    }
+
+    @Test
+    fun `一斉延長中は進捗が件数どおりに更新される`() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var callIndex = 0
+        val repo = FakeExtensionRepository(
+            onCall = {
+                callIndex++
+                if (callIndex == 1) {
+                    started.complete(Unit)
+                    release.await()
+                }
+            },
+        )
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestBulkConfirmation(listOf(candidate(tilcod = "100"), candidate(tilcod = "101")))
+        controller.confirmPending()
+        runCurrent()
+        started.await()
+
+        assertEquals(LoanExtensionBulkProgress(0, 2), controller.state.value.bulkProgress)
+        assertEquals(LoanExtensionKey(1, "100"), controller.state.value.processingTarget)
+
+        release.complete(Unit)
+        advanceUntilIdle()
+
+        assertNull(controller.state.value.bulkProgress)
+        assertNull(controller.state.value.processingTarget)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉延長中の通信失敗は途中結果を捨てエラーメッセージへ変換する`() = runTest {
+        val repo = FakeExtensionRepository(throwOnCall = true)
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestBulkConfirmation(listOf(candidate(tilcod = "100"), candidate(tilcod = "101")))
+        controller.confirmPending()
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.processing)
+        assertTrue(controller.state.value.results.isEmpty())
+        assertEquals(
+            "延長処理を完了できませんでした。通信状態を確認して、もう一度お試しください。",
+            controller.state.value.errorMessage,
+        )
+        controller.close()
+    }
+
+    @Test
+    fun `一斉延長の結果ダイアログはclearResultsで空になる`() = runTest {
+        val repo = FakeExtensionRepository(outcome = LoanExtensionOutcome.Extended(LocalDate.of(2026, 8, 19)))
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        controller.requestBulkConfirmation(listOf(candidate()))
+        controller.confirmPending()
+        advanceUntilIdle()
+        assertTrue(controller.state.value.results.isNotEmpty())
+
+        controller.clearResults()
+
+        assertTrue(controller.state.value.results.isEmpty())
+        controller.close()
+    }
+
     private class FakeExtensionRepository(
         private val outcome: LoanExtensionOutcome = LoanExtensionOutcome.Unknown,
         private val cancelOnCall: Boolean = false,
@@ -196,12 +331,22 @@ class LoanExtensionUiControllerTest {
         private val onCall: (suspend () -> Unit)? = null,
     ) : LoanExtensionRepository {
         var calls = 0
+        val extendedOrder = mutableListOf<String>()
         override suspend fun extendLoan(target: LoanExtensionTarget): LoanExtensionOutcome {
             calls++
+            extendedOrder += target.tilcod
             onCall?.invoke()
             if (cancelOnCall) throw CancellationException("test")
             if (throwOnCall) throw IllegalStateException("network")
             return outcome
         }
+        override suspend fun extendLoans(
+            targets: List<LoanExtensionTarget>,
+        ): com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionBatchResult =
+            com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionBatchResult(
+                targets.map { target ->
+                    com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionItemResult(target, extendLoan(target))
+                },
+            )
     }
 }

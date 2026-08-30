@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui.loans
 
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
+import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionTarget
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.StatusRepository
@@ -100,6 +101,14 @@ object LoansContentBuilder {
             else -> "返却期限 $formatted まで"
         }
     }
+
+    /**
+     * 選択済みキーに対応する一斉延長の候補を組み立てる(`docs/design/bulk-selection.md` §5.2)。
+     * 一覧に存在しなくなった、または[LoanRow.canExtend]がfalseになったキーは無視する(§4.3)。
+     */
+    fun extensionCandidates(rows: List<LoanRow>, selectedKeys: Set<LoanExtensionKey>): List<LoanExtensionCandidate> =
+        rows.filter { it.canExtend && LoanExtensionKey(it.memberId, it.tilcod) in selectedKeys }
+            .map { row -> LoanExtensionCandidate(LoanExtensionTarget(row.memberId, row.tilcod), row.title, row.dueDate) }
 }
 
 /** 貸出中画面のFlowを集約するController。 */

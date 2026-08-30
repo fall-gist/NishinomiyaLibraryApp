@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,12 +41,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionTarget
+import com.fallgist.nishinomiyalibrary.ui.components.BulkActionBar
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDotGap
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDotIndent
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
+import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import java.time.LocalDate
 
@@ -61,10 +64,13 @@ fun LoansScreen(
     onSelectMember: (Long?) -> Unit,
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
+    onToggleExtendSelection: (LoanExtensionKey) -> Unit,
     onRequestExtend: (LoanExtensionCandidate) -> Unit,
+    onRequestBulkExtend: (List<LoanExtensionCandidate>) -> Unit,
     onConfirmExtend: () -> Unit,
     onDismissExtendConfirmation: () -> Unit,
     onClearExtendResult: () -> Unit,
+    onClearExtendResults: () -> Unit,
     onClearExtendError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -91,16 +97,37 @@ fun LoansScreen(
             countByMemberId = state.countByMemberId,
             totalCount = state.totalCount,
         )
-        extensionState.errorMessage?.let {
-            Text(
-                text = it,
-                color = colors.alert,
-                fontSize = 12.sp,
-                // タップで消せるようにする(タップ以外の自動クリア手段が無いため)。
-                modifier = Modifier
-                    .clickable(onClick = onClearExtendError)
-                    .padding(horizontal = 18.dp, vertical = 4.dp),
+        // BulkActionBarと処理進捗・取消エラー表示はプル領域の外に置く(絞り込み行の直下、予約中一覧と同じ配置方針)。
+        if (state.rows.isNotEmpty()) {
+            BulkActionBar(
+                selectedCount = extensionState.selectedKeys.size,
+                actionLabel = "一斉延長",
+                enabled = extensionState.canExtendSelection,
+                onClick = {
+                    onRequestBulkExtend(LoansContentBuilder.extensionCandidates(state.rows, extensionState.selectedKeys))
+                },
+                containerColor = colors.green,
+                contentColor = colors.card,
             )
+            extensionState.errorMessage?.let {
+                Text(
+                    text = it,
+                    color = colors.alert,
+                    fontSize = 12.sp,
+                    // タップで消せるようにする(タップ以外の自動クリア手段が無いため)。
+                    modifier = Modifier
+                        .clickable(onClick = onClearExtendError)
+                        .padding(horizontal = 18.dp, vertical = 4.dp),
+                )
+            }
+            extensionState.bulkProgress?.let { progress ->
+                Text(
+                    text = "延長処理中… ${progress.completed + 1}件目/${progress.total}件",
+                    color = colors.ink2,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
+                )
+            }
         }
         PullToRefreshBox(
             isRefreshing = isRefreshing,
@@ -121,13 +148,17 @@ fun LoansScreen(
                         .padding(horizontal = 18.dp),
                 ) {
                     items(state.rows) { row ->
+                        val key = LoanExtensionKey(row.memberId, row.tilcod)
                         LoanRowView(
                             row = row,
                             // 強調はindexではなく日付の一致で決める(絞り込みで行が動いてもずれない、設計§4.6)。
                             highlighted = focusDueDate != null && row.dueDate == focusDueDate,
-                            extending = extensionState.processingTarget == LoanExtensionKey(row.memberId, row.tilcod),
+                            selected = key in extensionState.selectedKeys,
+                            selectionEnabled = !extensionState.processing,
+                            extending = extensionState.processingTarget == key,
                             extendDisabled = extensionState.processing,
                             onClick = { onOpenDetail(row.tilcod, row.title) },
+                            onToggleSelection = { onToggleExtendSelection(key) },
                             onRequestExtend = {
                                 onRequestExtend(
                                     LoanExtensionCandidate(
@@ -143,11 +174,14 @@ fun LoansScreen(
             }
         }
     }
-    extensionState.pendingConfirmation?.let { candidate ->
-        LoanExtensionConfirmDialog(candidate = candidate, onConfirm = onConfirmExtend, onDismiss = onDismissExtendConfirmation)
+    extensionState.pendingConfirmation?.let { request ->
+        LoanExtensionConfirmDialog(request = request, onConfirm = onConfirmExtend, onDismiss = onDismissExtendConfirmation)
     }
     extensionState.result?.let { result ->
         LoanExtensionResultDialog(result = result, onClose = onClearExtendResult)
+    }
+    if (extensionState.results.isNotEmpty()) {
+        LoanExtensionResultsDialog(rows = extensionState.results, onClose = onClearExtendResults)
     }
 }
 
@@ -156,9 +190,12 @@ private fun LoanRowView(
     row: LoanRow,
     /** カレンダーからの遷移で対象日として強調するか(設計§4.6)。枠をcolors.greenにするだけで、状態は持たない。 */
     highlighted: Boolean,
+    selected: Boolean,
+    selectionEnabled: Boolean,
     extending: Boolean,
     extendDisabled: Boolean,
     onClick: () -> Unit,
+    onToggleSelection: () -> Unit,
     onRequestExtend: () -> Unit,
 ) {
     val colors = LocalAppColors.current
@@ -178,6 +215,18 @@ private fun LoanRowView(
                 RoundedCornerShape(12.dp),
             ),
     ) {
+        // 一斉延長(`docs/design/bulk-selection.md` §5.2)のチェックボックスは、行タップ領域(下のColumn)
+        // とは別のRowに置く(予約中一覧のReservationRowViewと同じ流儀)。canExtendな行にだけ出す。
+        if (row.canExtend) {
+            Row(modifier = Modifier.padding(start = 4.dp, top = 2.dp)) {
+                SelectionCheckbox(
+                    checked = selected,
+                    enabled = selectionEnabled,
+                    onToggle = onToggleSelection,
+                    checkedColor = colors.green,
+                )
+            }
+        }
         // レイアウト追い込み第3次(2026-08-06)項目10: ドットは書誌名と同じRow(CenterVertically)に置き、
         // 書誌名の縦中央で揃える。外側で「ドット｜Column」と横に並べる旧構造(ドットがColumn全体の
         // 縦位置に付いてしまう)をやめ、Column{ Row(ドット+書誌名) ; Row(下の行) }の形にする。
@@ -267,18 +316,83 @@ private fun LoanRowView(
 
 @Composable
 fun LoanExtensionConfirmDialog(
-    candidate: LoanExtensionCandidate,
+    request: LoanExtensionConfirmationRequest,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val colors = LocalAppColors.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("延長しますか？") },
+        title = {
+            val title = when (request) {
+                is LoanExtensionConfirmationRequest.Single -> "延長しますか？"
+                is LoanExtensionConfirmationRequest.Bulk -> "選択した${request.candidates.size}件を延長しますか？"
+            }
+            Text(title)
+        },
         text = {
-            Text("資料名：${candidate.title}\n現在の返却期限：${LoanExtensionContentBuilder.formatDueDate(candidate.currentDueDate)}\n\n延長しますか？")
+            when (request) {
+                is LoanExtensionConfirmationRequest.Single -> {
+                    val candidate = request.candidates.single()
+                    Text(
+                        "資料名：${candidate.title}\n" +
+                            "現在の返却期限：${LoanExtensionContentBuilder.formatDueDate(candidate.currentDueDate)}\n\n延長しますか？",
+                    )
+                }
+
+                is LoanExtensionConfirmationRequest.Bulk -> {
+                    Column {
+                        LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+                            items(request.candidates, key = { it.key.toString() }) { candidate ->
+                                Text(
+                                    text = "・${candidate.title}",
+                                    color = colors.ink,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(bottom = 2.dp),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "延長には時間がかかることがあります。処理中は画面を閉じずにお待ちください。",
+                            color = colors.ink2,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
         },
         confirmButton = { Button(onClick = onConfirm) { Text("延長する") } },
         dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
+    )
+}
+
+/** 一斉延長の結果ダイアログ(`docs/design/bulk-selection.md` §5.2、件ごとの行を持つ)。 */
+@Composable
+fun LoanExtensionResultsDialog(rows: List<LoanExtensionResultRow>, onClose: () -> Unit) {
+    val colors = LocalAppColors.current
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("延長結果") },
+        text = {
+            LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                items(rows, key = { it.key.toString() }) { row ->
+                    // 色分けはLoanExtensionResultDialogと同じ流儀(Unknownは成功・失敗のどちらとも混同しない)。
+                    val color = when (row.message.kind) {
+                        LoanExtensionResultKind.EXTENDED -> colors.greenInk
+                        LoanExtensionResultKind.UNKNOWN -> colors.cautionInk
+                        LoanExtensionResultKind.FAILED -> colors.alert
+                    }
+                    Text(
+                        text = "${row.title}：${row.message.title}",
+                        color = color,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = { Button(onClick = onClose) { Text("閉じる") } },
     )
 }
 

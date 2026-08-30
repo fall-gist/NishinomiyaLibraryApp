@@ -12,6 +12,8 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LoanExtensionSession
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionTarget
+import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionBatchResult
+import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionItemResult
 import java.time.LocalDate
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -55,6 +57,73 @@ class LoanExtensionRepositoryTest {
         val outcome = repository.extendLoan(LoanExtensionTarget(member, "tilcod-1"))
 
         assertEquals(LoanExtensionOutcome.Extended(newDueDate), outcome)
+    }
+
+    // ------------------------------------------------------------------
+    // 一斉延長(`docs/design/bulk-selection.md` §5.1・§8.1)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `extendLoansは空リストなら通信せず空の結果を返す`() = runBlocking {
+        val repository = repository(
+            object : LoanExtensionGateway {
+                override suspend fun openAuthenticatedSession(cardNumber: String, password: String): LoanExtensionSession =
+                    error("呼ばれてはならない")
+            },
+        )
+
+        val result = repository.extendLoans(emptyList())
+
+        assertEquals(LoanExtensionBatchResult(emptyList()), result)
+    }
+
+    @Test
+    fun `extendLoansは1件がFailureでも後続が実行され件ごとの結果が返る`() = runBlocking {
+        val ok = addMember("一斉延長成功", "bulk-ok")
+        val missing = 999_999L
+        val ok2 = addMember("一斉延長成功2", "bulk-ok-2")
+        val newDueDate = LocalDate.of(2026, 8, 19)
+        val repository = repository(fakeGateway { LoanExtensionOutcome.Extended(newDueDate) })
+
+        val targets = listOf(
+            LoanExtensionTarget(ok, "tilcod-bulk-1"),
+            // 会員が存在しないためFailure(AUTH)になるが、後続の処理は続行される。
+            LoanExtensionTarget(missing, "tilcod-bulk-2"),
+            LoanExtensionTarget(ok2, "tilcod-bulk-3"),
+        )
+
+        val result = repository.extendLoans(targets)
+
+        assertEquals(
+            listOf(
+                LoanExtensionItemResult(targets[0], LoanExtensionOutcome.Extended(newDueDate)),
+                LoanExtensionItemResult(targets[1], LoanExtensionOutcome.Failure(FailureReason.AUTH)),
+                LoanExtensionItemResult(targets[2], LoanExtensionOutcome.Extended(newDueDate)),
+            ),
+            result.items,
+        )
+    }
+
+    @Test
+    fun `extendLoansは対象を渡した順にGatewayへ送る`() = runBlocking {
+        val member = addMember("順序確認", "bulk-order")
+        val received = mutableListOf<String>()
+        val repository = repository(
+            fakeGateway { tilcod ->
+                received += tilcod
+                LoanExtensionOutcome.Unknown
+            },
+        )
+
+        repository.extendLoans(
+            listOf(
+                LoanExtensionTarget(member, "order-1"),
+                LoanExtensionTarget(member, "order-2"),
+                LoanExtensionTarget(member, "order-3"),
+            ),
+        )
+
+        assertEquals(listOf("order-1", "order-2", "order-3"), received)
     }
 
     @Test

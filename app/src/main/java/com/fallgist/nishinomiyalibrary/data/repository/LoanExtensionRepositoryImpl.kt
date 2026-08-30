@@ -7,6 +7,8 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LoanExtensionGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LoanExtensionSession
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
+import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionBatchResult
+import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionItemResult
 import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionTarget
 import com.fallgist.nishinomiyalibrary.domain.repository.LoanExtensionRepository
@@ -39,6 +41,15 @@ class LoanExtensionRepositoryImpl @Inject constructor(
     override suspend fun extendLoan(target: LoanExtensionTarget): LoanExtensionOutcome = submissionMutex.withLock {
         extendLoanLocked(target)
     }
+
+    /**
+     * `docs/design/bulk-selection.md` §5.1: 既存[extendLoan]を順に呼ぶだけのループ。
+     * Gatewayや1件の延長ロジックは一切変更しない。1件が[LoanExtensionOutcome.Failure]や
+     * [LoanExtensionOutcome.Unknown]になっても後続の対象を続けて処理する(CancellationExceptionは
+     * 呼び出し元の中断としてそのまま伝播させる)。
+     */
+    override suspend fun extendLoans(targets: List<LoanExtensionTarget>): LoanExtensionBatchResult =
+        LoanExtensionBatchResult(targets.map { target -> LoanExtensionItemResult(target, extendLoan(target)) })
 
     private suspend fun extendLoanLocked(target: LoanExtensionTarget): LoanExtensionOutcome {
         val member = try {

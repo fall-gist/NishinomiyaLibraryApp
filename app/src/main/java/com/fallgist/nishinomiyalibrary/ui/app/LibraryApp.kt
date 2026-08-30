@@ -345,10 +345,13 @@ fun LibraryApp(
                                         hideReservationSectionAsAlreadyReservedOrOnLoan = true,
                                     )
                                 },
+                                onToggleExtendSelection = loanExtensionUiController::toggleSelection,
                                 onRequestExtend = loanExtensionUiController::requestConfirmation,
+                                onRequestBulkExtend = loanExtensionUiController::requestBulkConfirmation,
                                 onConfirmExtend = loanExtensionUiController::confirmPending,
                                 onDismissExtendConfirmation = loanExtensionUiController::dismissConfirmation,
                                 onClearExtendResult = loanExtensionUiController::clearResult,
+                                onClearExtendResults = loanExtensionUiController::clearResults,
                                 onClearExtendError = loanExtensionUiController::clearError,
                                 modifier = Modifier.fillMaxSize(),
                             )
