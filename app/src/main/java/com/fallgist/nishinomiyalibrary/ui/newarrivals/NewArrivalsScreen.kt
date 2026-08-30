@@ -133,23 +133,19 @@ fun NewArrivalsScreen(
             // 実行対象(cartAdditionCandidates)と同じ集合を数えることで、バーの件数と実際の処理件数の
             // ずれ(絞り込みで隠れた選択を含めて数えてしまう不具合)を無くす。
             val displayedCandidates = NewArrivalsContentBuilder.cartAdditionCandidates(state.rows, state.selectedCartTilcods)
-            BulkActionBar(
-                selectedCount = displayedCandidates.size,
-                actionLabel = "カートへ追加",
-                enabled = state.canRequestBulkCartAddition,
-                onClick = { onRequestBulkCartAddition(displayedCandidates) },
-                containerColor = colors.green,
-                contentColor = colors.card,
-            )
-            // 一斉直接予約(設計追補§5、機能F)。「カートへ追加」の下にもう1つボタンを置く。
-            // カートを経由しない、取り返しのつかない操作のため、確認の厳しさは緩めない(§5.4)。
+            // 一斉直接予約(設計追補§5、機能F)。設計§5.3どおり同じバーに2ボタンを並べる
+            // (主=予約する・件数付き、副=カートへ追加・件数なし)。赤(colors.alert)は一斉取消等の
+            // 破壊的操作の色であり、資料を確保する予約操作には使わない(書誌詳細の前例に合わせ緑)。
             BulkActionBar(
                 selectedCount = displayedCandidates.size,
                 actionLabel = "予約する",
                 enabled = state.canRequestBulkDirectReservation,
                 onClick = { onRequestBulkDirectReservation(displayedCandidates) },
-                containerColor = colors.alert,
+                containerColor = colors.green,
                 contentColor = colors.card,
+                secondaryActionLabel = "カートへ追加",
+                secondaryEnabled = state.canRequestBulkCartAddition,
+                onSecondaryClick = { onRequestBulkCartAddition(displayedCandidates) },
             )
             state.bulkCartAdditionErrorMessage?.let {
                 Text(

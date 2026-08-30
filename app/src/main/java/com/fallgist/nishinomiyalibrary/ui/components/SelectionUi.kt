@@ -16,6 +16,7 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -52,10 +53,15 @@ fun SelectionCheckbox(
  * 予約中一覧の`BulkCancelBar`(旧`ReservationsScreen.kt`のprivate関数)をそのまま一般化したもの。
  *
  * ボタン文言は選択0件のとき[actionLabel]のみ、1件以上のとき「[actionLabel]（N件）」になる
- * (旧`BulkCancelBar`の「一斉取消」「一斉取消（N件）」と同じ規則)。
+ * (旧`BulkCancelBar`の「一斉取消」「一斉取消（N件）」と同じ規則)。件数は主ボタンにだけ付ける。
  * [containerColor]・[contentColor]は機能ごとに異なる強調色を使うための調整で、既定値は
  * 旧`BulkCancelBar`と同じ`colors.alert`/`colors.card`にしてあり、呼び出し側で何も指定しなければ
  * 予約中一覧は移行前と見た目が変わらない。
+ *
+ * [secondaryActionLabel]を指定すると、同じ行に副アクション(`OutlinedButton`)を並べる
+ * (`docs/design/bulk-selection-followup.md` §5.3、検索・新着の「カートへ追加」と「予約する」)。
+ * 指定しない(既定値のまま)場合は主ボタンだけの現行の見た目から1ピクセルも変わらない。
+ * 副ボタンには件数を付けない。
  */
 @Composable
 fun BulkActionBar(
@@ -66,13 +72,24 @@ fun BulkActionBar(
     modifier: Modifier = Modifier,
     containerColor: Color = LocalAppColors.current.alert,
     contentColor: Color = LocalAppColors.current.card,
+    secondaryActionLabel: String? = null,
+    secondaryEnabled: Boolean = false,
+    onSecondaryClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 18.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.End,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, alignment = Alignment.End),
     ) {
+        if (secondaryActionLabel != null && onSecondaryClick != null) {
+            OutlinedButton(
+                onClick = onSecondaryClick,
+                enabled = secondaryEnabled,
+            ) {
+                Text(secondaryActionLabel)
+            }
+        }
         Button(
             onClick = onClick,
             enabled = enabled,
