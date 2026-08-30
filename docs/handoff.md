@@ -2668,18 +2668,26 @@ liveタスクを対象外にしたのは、本番の認証情報を環境変数�
 `MutableStateFlow.update {}`へ全3箇所を置き換え済み(返却期限表示の実装で`combine`のソースが
 1本から3本へ増えたため、ついでの改善ではなく前提条件として対応した)。
 
+`LoanExtensionUiController.kt`も2026-08-30、`docs/design/bulk-selection.md`の一斉延長(機能A)実装に
+伴い全箇所を`update {}`へ置き換え済み(表から削除した)。元々3箇所で`launch`も実質1つだったため
+顕在化しにくかったが、一斉延長の追加で「`scope`(Defaultディスパッチャ)上で1件ごとに一覧再取得＋
+二段階POSTを行う数秒〜数十秒の`launch`が動き続ける間も、UIスレッドから`toggleSelection`・
+`clearResult`・`clearError`が`_state.value = ...`を書きうる」という、他のControllerと同型の
+競合条件が新たに成立するようになったため、本体実装と合わせて対応した(設計書にこの必要性の
+記載が無かったための追加対応。経緯は`docs/design/bulk-selection.md`参照)。
+
 | ファイル | 箇所数 |
 |---|---|
 | `ReservationUiController.kt` | 17 |
 | `NewArrivalsScreenController.kt` | 9 |
 | `SearchScreenController.kt` | 8 |
 | `ReservationCancelUiController.kt` | 4 |
-| `LoanExtensionUiController.kt` | 3 |
 
-`LoanExtensionUiController`以外は`launch`が複数あり、同じ競合が成立しうる。
-今回まとめて直さなかったのは、**ビルドもテストもできない環境で機械的に書き換えるのは
-割に合わない**と判断したためである。`SettingsScreenController`の修正がCIで緑になったら、
-同じ書き換えを1ファイルずつ、テストを回しながら進めること。
+`launch`が複数あり、同じ競合が成立しうる。今回まとめて直さなかったのは、**ビルドもテストも
+できない環境で機械的に書き換えるのは割に合わない**と判断したためである。上記4ファイルには
+`docs/design/bulk-selection.md`の一斉操作機能の実装で新たに`_state.value = ...`が追加されており、
+箇所数は現状より増えている(2026-08-30時点でカウント更新していない)。これらのファイルに次に
+手を入れる際は、同じ書き換えを1ファイルずつ、テストを回しながら進めること。
 
 #### 付随して判明したこと
 

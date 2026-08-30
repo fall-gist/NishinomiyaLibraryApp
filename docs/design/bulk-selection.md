@@ -175,6 +175,37 @@ data class LoanExtensionItemResult(val target: LoanExtensionTarget, val outcome:
 `dueDate` 更新・`extendable = false`。`Unknown`・`Failure` は一切書き換えない）。
 **一斉化にあたって規則を変えない。** ループの各回で既存 `extendLoan` を呼ぶため、この挙動は自動的に維持される。
 
+### 5.4 スレッド安全性（lost update対応、設計の漏れ・実装時に追加対応）
+
+**この節は当初の設計書には無かった。** 独立レビューで指摘され、実装時に追加した対応をここに記録する。
+
+`LoanExtensionUiController`の`_state`は、`docs/handoff.md`「残課題C」が指摘する
+`_state.value = _state.value.copy(...)`パターン（lost update）を元々3箇所持っていた
+（`CalendarScreenController`・`SettingsScreenController`で実際に踏んだ不具合と同型）。
+一斉延長を追加する前は`launch`が実質1つで、UI操作とバックグラウンド更新が並行する窓が
+ほぼ無かったため顕在化していなかった。
+
+**一斉延長の追加でこの前提が崩れる。** 一斉延長は1件ごとに一覧再取得＋二段階POSTを行うため、
+`scope`（`Dispatchers.Default`）上の`launch`が数秒〜数十秒動き続ける。その間もUIは操作可能で、
+`toggleSelection`・`clearResult`・`clearError`（いずれもUIスレッドから`_state.value = ...`を書く）と、
+一斉延長ループの進捗更新（`extendLoans`の`onProgress`から`_state.value = ...`を書く）が
+競合しうる状態になった。具体的には、一斉延長の実行中に利用者がチェックボックスを触ると、
+そのトグルが消える、または進捗表示が古い値のまま止まる、のいずれかが起こり得る。
+
+**対応**: `LoanExtensionUiController`の状態更新を全て`MutableStateFlow.update {}`（CASループ）へ
+置き換えた。`_state`宣言の直下に、`CalendarScreenController`・`SettingsScreenController`と同じ
+体裁で「`update {}`を使うこと。`_state.value = ...`を書いてはならない」旨のコメントを置いた。
+`docs/handoff.md`「残課題C」の対象表から本ファイルの行を削除し、対応済みである旨を追記した。
+
+なお`confirmPending`等の`if (state.value.processing) return`はcheck-then-actだが、利用者の
+タップが起点でUIスレッド上で直列化されるため、今回のスレッド安全性対応の対象外とした
+（`update {}`化のついでに手を入れていない）。
+
+`ReservationUiController`・`SearchScreenController`・`NewArrivalsScreenController`・
+`ReservationCancelUiController`にも同型のlost updateパターンが残っている
+（`docs/handoff.md`「残課題C」参照）。本設計の一斉操作（C・D）実装でこれらのファイルにも
+`_state.value = ...`が増えているが、今回はスコープ外として変更していない。
+
 ## 6. 機能C: 予約カートの一括削除と「カートを空にする」
 
 ### 6.1 Repository

@@ -14,6 +14,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** 貸出中一覧の1行を一意に特定するキー。処理中表示・二重操作防止に使う。 */
@@ -103,34 +104,42 @@ class LoanExtensionUiController(
     private val _state = MutableStateFlow(LoanExtensionUiState())
     val state: StateFlow<LoanExtensionUiState> = _state
 
+    // _stateは購読側(toggleSelection等、UIスレッド)と一斉延長のscope.launch(Defaultディスパッチャ)の
+    // 両方から更新される。一斉延長は1件ごとに一覧再取得＋二段階POSTを行うため長時間動き続け、
+    // その間も利用者はチェックボックスを操作できる。`_state.value = _state.value.copy(...)`は
+    // 読みと書きの間に別コルーチンの書きが挟まるとそれを取りこぼす(lost update)。
+    // CalendarScreenController・SettingsScreenControllerで実際に踏んだ不具合と同型(docs/handoff.md参照)。
+    // **必ず`update {}`(CASループ)を使うこと。`_state.value = ...`を書いてはならない。**
+
     /** チェックボックスのタップ(`docs/design/bulk-selection.md` §5.2)。行タップ・行内延長ボタンとは別のタップ領域。 */
     fun toggleSelection(key: LoanExtensionKey) {
         if (state.value.processing) return
-        val current = state.value.selectedKeys
-        _state.value = state.value.copy(selectedKeys = if (key in current) current - key else current + key)
+        _state.update { current ->
+            current.copy(selectedKeys = if (key in current.selectedKeys) current.selectedKeys - key else current.selectedKeys + key)
+        }
     }
 
     /** 経路1: 行の「延長」ボタン。確定するまで通信は開始しない。 */
     fun requestConfirmation(candidate: LoanExtensionCandidate) {
         if (state.value.processing) return
-        _state.value = state.value.copy(pendingConfirmation = LoanExtensionConfirmationRequest.Single(listOf(candidate)))
+        _state.update { it.copy(pendingConfirmation = LoanExtensionConfirmationRequest.Single(listOf(candidate))) }
     }
 
     /** 経路2: 「一斉延長」ボタン。選択済みキーに対応する候補はScreen側で組み立てて渡す。 */
     fun requestBulkConfirmation(candidates: List<LoanExtensionCandidate>) {
         if (state.value.processing || candidates.isEmpty()) return
-        _state.value = state.value.copy(pendingConfirmation = LoanExtensionConfirmationRequest.Bulk(candidates))
+        _state.update { it.copy(pendingConfirmation = LoanExtensionConfirmationRequest.Bulk(candidates)) }
     }
 
     fun dismissConfirmation() {
-        if (!state.value.processing) _state.value = state.value.copy(pendingConfirmation = null)
+        if (!state.value.processing) _state.update { it.copy(pendingConfirmation = null) }
     }
 
     /** 最終確認ダイアログの肯定操作だけが延長通信(extendLoan)を開始する。 */
     fun confirmPending() {
         val request = state.value.pendingConfirmation ?: return
         if (state.value.processing) return
-        _state.value = state.value.copy(pendingConfirmation = null)
+        _state.update { it.copy(pendingConfirmation = null) }
         when (request) {
             is LoanExtensionConfirmationRequest.Single -> confirmSingle(request.candidates.single())
             is LoanExtensionConfirmationRequest.Bulk -> confirmBulk(request.candidates)
@@ -138,22 +147,26 @@ class LoanExtensionUiController(
     }
 
     private fun confirmSingle(candidate: LoanExtensionCandidate) {
-        _state.value = state.value.copy(processingTarget = candidate.key)
+        _state.update { it.copy(processingTarget = candidate.key) }
         scope.launch {
             try {
                 val outcome = extensionRepository.extendLoan(candidate.target)
-                _state.value = _state.value.copy(
-                    processingTarget = null,
-                    result = LoanExtensionContentBuilder.resultMessage(outcome),
-                )
+                _state.update {
+                    it.copy(
+                        processingTarget = null,
+                        result = LoanExtensionContentBuilder.resultMessage(outcome),
+                    )
+                }
             } catch (exception: CancellationException) {
-                _state.value = _state.value.copy(processingTarget = null)
+                _state.update { it.copy(processingTarget = null) }
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    processingTarget = null,
-                    errorMessage = "延長処理を完了できませんでした。通信状態を確認して、もう一度お試しください。",
-                )
+                _state.update {
+                    it.copy(
+                        processingTarget = null,
+                        errorMessage = "延長処理を完了できませんでした。通信状態を確認して、もう一度お試しください。",
+                    )
+                }
             }
         }
     }
@@ -167,15 +180,17 @@ class LoanExtensionUiController(
      */
     private fun confirmBulk(candidates: List<LoanExtensionCandidate>) {
         val total = candidates.size
-        _state.value = state.value.copy(bulkProgress = LoanExtensionBulkProgress(0, total), processingTarget = candidates.firstOrNull()?.key)
+        _state.update { it.copy(bulkProgress = LoanExtensionBulkProgress(0, total), processingTarget = candidates.firstOrNull()?.key) }
         scope.launch {
             try {
                 val titleByTarget = candidates.associate { it.target to it.title }
                 val batchResult = extensionRepository.extendLoans(candidates.map { it.target }) { completed, progressTotal ->
-                    _state.value = _state.value.copy(
-                        bulkProgress = LoanExtensionBulkProgress(completed, progressTotal),
-                        processingTarget = candidates.getOrNull(completed)?.key,
-                    )
+                    _state.update {
+                        it.copy(
+                            bulkProgress = LoanExtensionBulkProgress(completed, progressTotal),
+                            processingTarget = candidates.getOrNull(completed)?.key,
+                        )
+                    }
                 }
                 val rows = batchResult.items.map { item ->
                     LoanExtensionResultRow(
@@ -184,37 +199,41 @@ class LoanExtensionUiController(
                         message = LoanExtensionContentBuilder.resultMessage(item.outcome),
                     )
                 }
-                _state.value = _state.value.copy(
-                    // 一斉延長の対象は完了後に選択を空にする(予約中の一斉取消と同じ流儀)。
-                    selectedKeys = emptySet(),
-                    processingTarget = null,
-                    bulkProgress = null,
-                    results = rows,
-                )
+                _state.update {
+                    it.copy(
+                        // 一斉延長の対象は完了後に選択を空にする(予約中の一斉取消と同じ流儀)。
+                        selectedKeys = emptySet(),
+                        processingTarget = null,
+                        bulkProgress = null,
+                        results = rows,
+                    )
+                }
             } catch (exception: CancellationException) {
-                _state.value = _state.value.copy(processingTarget = null, bulkProgress = null)
+                _state.update { it.copy(processingTarget = null, bulkProgress = null) }
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    processingTarget = null,
-                    bulkProgress = null,
-                    errorMessage = "延長処理を完了できませんでした。通信状態を確認して、もう一度お試しください。",
-                )
+                _state.update {
+                    it.copy(
+                        processingTarget = null,
+                        bulkProgress = null,
+                        errorMessage = "延長処理を完了できませんでした。通信状態を確認して、もう一度お試しください。",
+                    )
+                }
             }
         }
     }
 
     fun clearResult() {
-        _state.value = state.value.copy(result = null)
+        _state.update { it.copy(result = null) }
     }
 
     /** 一斉延長の結果ダイアログを閉じる。 */
     fun clearResults() {
-        _state.value = state.value.copy(results = emptyList())
+        _state.update { it.copy(results = emptyList()) }
     }
 
     fun clearError() {
-        _state.value = state.value.copy(errorMessage = null)
+        _state.update { it.copy(errorMessage = null) }
     }
 
     fun close() {
