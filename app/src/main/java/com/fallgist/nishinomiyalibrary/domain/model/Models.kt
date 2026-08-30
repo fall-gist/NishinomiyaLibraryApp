@@ -292,6 +292,13 @@ data class ReservationTarget(
     val writerLine: String? = null,
 )
 
+/**
+ * 一斉カート追加([ReservationCartRepository.addToCart]の複数件版)の結果。
+ * `docs/design/bulk-selection.md` §7.1・§10-2: 追加できた件数と、追加できなかった件数を返す。
+ * 「追加できなかった」理由(重複・存在しないメンバー等)は区別しない。UIは件数だけを見せる。
+ */
+data class ReservationCartAddSummary(val added: Int, val skipped: Int)
+
 /** UI の最終確認後にだけ Repository へ渡す予約条件。 */
 data class ReservationConfirmation(
     val pickupLibraryCode: String,

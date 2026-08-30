@@ -28,8 +28,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fallgist.nishinomiyalibrary.ui.components.BulkActionBar
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
+import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.BulkCartAdditionCandidate
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.BulkCartAdditionConfirmDialog
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdatePhase
 
@@ -40,6 +44,13 @@ fun NewArrivalsScreen(
     onRefresh: () -> Unit,
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
+    onToggleCartSelection: (String) -> Unit,
+    onRequestBulkCartAddition: (List<BulkCartAdditionCandidate>) -> Unit,
+    onSelectBulkCartAdditionMember: (Long) -> Unit,
+    onConfirmBulkCartAddition: () -> Unit,
+    onDismissBulkCartAdditionConfirmation: () -> Unit,
+    onClearBulkCartAdditionResult: () -> Unit,
+    onClearBulkCartAdditionError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -104,6 +115,40 @@ fun NewArrivalsScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 18.dp, vertical = 6.dp),
         )
+        if (state.rows.isNotEmpty()) {
+            BulkActionBar(
+                selectedCount = state.selectedCartTilcods.size,
+                actionLabel = "カートへ追加",
+                enabled = state.canRequestBulkCartAddition,
+                onClick = {
+                    onRequestBulkCartAddition(
+                        NewArrivalsContentBuilder.cartAdditionCandidates(state.rows, state.selectedCartTilcods),
+                    )
+                },
+                containerColor = colors.green,
+                contentColor = colors.card,
+            )
+            state.bulkCartAdditionErrorMessage?.let {
+                Text(
+                    text = it,
+                    color = colors.alert,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .clickable(onClick = onClearBulkCartAdditionError)
+                        .padding(horizontal = 18.dp, vertical = 4.dp),
+                )
+            }
+            state.bulkCartAdditionResultMessage?.let {
+                Text(
+                    text = it,
+                    color = colors.greenInk,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .clickable(onClick = onClearBulkCartAdditionResult)
+                        .padding(horizontal = 18.dp, vertical = 4.dp),
+                )
+            }
+        }
         when {
             !state.initialized -> EmptyNote("読み込んでいます…")
 
@@ -131,50 +176,93 @@ fun NewArrivalsScreen(
                     }
                 }
                 items(state.rows) { row ->
-                    NewArrivalRowView(row, onClick = { onOpenDetail(row.tilcod, row.title) })
+                    NewArrivalRowView(
+                        row = row,
+                        selected = row.tilcod in state.selectedCartTilcods,
+                        selectionEnabled = !state.bulkCartAdditionProcessing,
+                        onClick = { onOpenDetail(row.tilcod, row.title) },
+                        onToggleSelection = { onToggleCartSelection(row.tilcod) },
+                    )
                 }
                 item { Spacer(Modifier.height(12.dp)) }
             }
         }
     }
+    state.bulkCartAdditionConfirmation?.let { request ->
+        BulkCartAdditionConfirmDialog(
+            request = request,
+            members = state.members,
+            onSelectMember = onSelectBulkCartAdditionMember,
+            onConfirm = onConfirmBulkCartAddition,
+            onDismiss = onDismissBulkCartAdditionConfirmation,
+        )
+    }
 }
 
 @Composable
-private fun NewArrivalRowView(row: NewArrivalRow, onClick: () -> Unit) {
+private fun NewArrivalRowView(
+    row: NewArrivalRow,
+    selected: Boolean,
+    selectionEnabled: Boolean,
+    onClick: () -> Unit,
+    onToggleSelection: () -> Unit,
+) {
     val colors = LocalAppColors.current
-    Row(
+    // 一斉カート追加(`docs/design/bulk-selection.md` §7.3)のチェックボックスは行タップ領域とは別の
+    // Rowに置く(予約中一覧のReservationRowViewと同じ流儀)。tilcodが空の行には出さない。
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 8.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(colors.card)
-            .border(1.dp, colors.line, RoundedCornerShape(12.dp))
-            .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+            .border(1.dp, colors.line, RoundedCornerShape(12.dp)),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = row.title,
-                color = colors.ink,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (row.subtitle.isNotBlank()) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = row.subtitle,
-                    color = colors.ink2,
-                    fontSize = 11.5.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+        if (row.tilcod.isNotBlank()) {
+            Row(modifier = Modifier.padding(start = 4.dp, top = 2.dp)) {
+                SelectionCheckbox(
+                    checked = selected,
+                    enabled = selectionEnabled,
+                    onToggle = onToggleSelection,
+                    checkedColor = colors.green,
                 )
             }
         }
-        row.lendable?.let { LendPill(it) }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
+                .padding(
+                    start = 12.dp,
+                    end = 12.dp,
+                    top = if (row.tilcod.isNotBlank()) 0.dp else 10.dp,
+                    bottom = 10.dp,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = row.title,
+                    color = colors.ink,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (row.subtitle.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = row.subtitle,
+                        color = colors.ink2,
+                        fontSize = 11.5.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            row.lendable?.let { LendPill(it) }
+        }
     }
 }
 

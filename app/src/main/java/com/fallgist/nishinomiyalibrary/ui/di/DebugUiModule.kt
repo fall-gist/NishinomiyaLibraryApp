@@ -153,10 +153,12 @@ object DebugUiProvisionModule {
         searchRepository: SearchRepository,
         readingRecordRepository: ReadingRecordRepository,
         familyRepository: FamilyRepository,
+        cartRepository: ReservationCartRepository,
     ): SearchScreenController = SearchScreenController(
         searchRepository = searchRepository,
         readingRecordRepository = readingRecordRepository,
         familyRepository = familyRepository,
+        cartRepository = cartRepository,
     )
 
     @Provides
@@ -179,10 +181,14 @@ object DebugUiProvisionModule {
         newArrivalRepository: NewArrivalRepository,
         updateCoordinator: NewArrivalUpdateRunner,
         settingsStore: SettingsStore,
+        familyRepository: FamilyRepository,
+        cartRepository: ReservationCartRepository,
     ): NewArrivalsScreenController = NewArrivalsScreenController(
         newArrivalRepository = newArrivalRepository,
         updateCoordinator = updateCoordinator,
         autoReservationEnabled = settingsStore.settings.map { it.autoReservationEnabled },
+        familyRepository = familyRepository,
+        cartRepository = cartRepository,
     )
 
     @Provides

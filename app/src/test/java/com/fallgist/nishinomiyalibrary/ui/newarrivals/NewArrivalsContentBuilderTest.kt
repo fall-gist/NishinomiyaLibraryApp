@@ -47,4 +47,32 @@ class NewArrivalsContentBuilderTest {
         assertEquals(listOf("SFアンソロジー 2"), NewArrivalsContentBuilder.build(items, "ＳＦ").map { it.title })
         assertEquals(listOf("SFアンソロジー 2"), NewArrivalsContentBuilder.build(items, "sf").map { it.title })
     }
+
+    @Test
+    fun `writerLineは著者と出版者だけを組み立て出版年月を含めない(design bulk-selection §7,4)`() {
+        val rows = NewArrivalsContentBuilder.build(items, query = "")
+
+        assertEquals("夏目 漱石／著 ・ 岩波書店", rows[0].writerLine)
+        // volume持ちの2件目はauthorのみ(publisher空)なのでauthorだけになる
+        assertEquals("日本SF作家クラブ／編", rows[1].writerLine)
+    }
+
+    @Test
+    fun `著者も出版者も空ならwriterLineはnull`() {
+        val rows = NewArrivalsContentBuilder.build(listOf(arrival("9", "無記名")), query = "")
+
+        assertEquals(null, rows.single().writerLine)
+    }
+
+    @Test
+    fun `一斉カート追加の候補は選択済みかつ一覧に存在する行だけを組み立てる(design §4,3)`() {
+        val rows = NewArrivalsContentBuilder.build(items, query = "")
+
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(rows, selectedTilcods = setOf("1", "999"))
+
+        assertEquals(1, candidates.size)
+        assertEquals("1", candidates.single().tilcod)
+        assertEquals("吾輩は猫である", candidates.single().title)
+        assertEquals("夏目 漱石／著 ・ 岩波書店", candidates.single().writerLine)
+    }
 }

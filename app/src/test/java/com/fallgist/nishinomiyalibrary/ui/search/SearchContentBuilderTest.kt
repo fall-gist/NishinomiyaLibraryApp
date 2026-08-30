@@ -48,4 +48,20 @@ class SearchContentBuilderTest {
         assertNull(rows[0].lendable)
         assertEquals("パパ 2025/3", rows[1].readEntries.single().let { "${it.memberName} ${it.loanMonthLabel}" })
     }
+
+    @Test
+    fun `一斉カート追加の候補は選択済みかつ一覧に存在する行だけを組み立てる(design bulk-selection §4,3・§7,4)`() {
+        val hits = listOf(
+            SearchHit("100", "銀河鉄道の夜", "宮沢賢治／著", "一般図書"),
+            SearchHit("200", "注文の多い料理店", "宮沢賢治／作", "児童図書"),
+        )
+        val rows = SearchContentBuilder.resultRows(hits, emptyList(), emptyMap())
+
+        val candidates = SearchContentBuilder.cartAdditionCandidates(rows, selectedTilcods = setOf("100", "999"))
+
+        assertEquals(1, candidates.size)
+        assertEquals("100", candidates.single().tilcod)
+        assertEquals("銀河鉄道の夜", candidates.single().title)
+        assertEquals("宮沢賢治／著", candidates.single().writerLine)
+    }
 }

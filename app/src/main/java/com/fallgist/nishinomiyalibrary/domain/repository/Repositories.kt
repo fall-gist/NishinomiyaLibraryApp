@@ -17,6 +17,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartAddSummary
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartItem
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelBatchResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
@@ -118,6 +119,14 @@ interface ReservationCartRepository {
     fun cartItems(): Flow<List<ReservationCartItem>>
 
     suspend fun addToCart(target: ReservationTarget)
+
+    /**
+     * 複数件をまとめてカートへ追加する(`docs/design/bulk-selection.md` §7.1)。
+     * 既に同一(memberId, tilcod)がカートにある対象は加算せず`skipped`に数える。
+     * 存在しないmemberIdを含む対象も同様に`skipped`として扱い、他の対象の追加は継続する
+     * (§10-2で確定した契約。全体を失敗させない)。
+     */
+    suspend fun addToCart(targets: List<ReservationTarget>): ReservationCartAddSummary
 
     suspend fun removeFromCart(cartItemId: Long)
 

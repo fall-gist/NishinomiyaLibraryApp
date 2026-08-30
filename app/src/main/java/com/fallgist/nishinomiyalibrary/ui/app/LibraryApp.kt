@@ -426,6 +426,13 @@ fun LibraryApp(
                                 onLoadMore = searchController::loadMore,
                                 onOpenDetail = openDetail,
                                 onOpenMenu = openMenu,
+                                onToggleCartSelection = searchController::toggleCartSelection,
+                                onRequestBulkCartAddition = searchController::requestBulkCartAddition,
+                                onSelectBulkCartAdditionMember = searchController::selectBulkCartAdditionMember,
+                                onConfirmBulkCartAddition = searchController::confirmBulkCartAddition,
+                                onDismissBulkCartAdditionConfirmation = searchController::dismissBulkCartAdditionConfirmation,
+                                onClearBulkCartAdditionResult = searchController::clearBulkCartAdditionResult,
+                                onClearBulkCartAdditionError = searchController::clearBulkCartAdditionError,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -439,6 +446,13 @@ fun LibraryApp(
                                 onRefresh = newArrivalsController::refresh,
                                 onOpenMenu = openMenu,
                                 onOpenDetail = openDetail,
+                                onToggleCartSelection = newArrivalsController::toggleCartSelection,
+                                onRequestBulkCartAddition = newArrivalsController::requestBulkCartAddition,
+                                onSelectBulkCartAdditionMember = newArrivalsController::selectBulkCartAdditionMember,
+                                onConfirmBulkCartAddition = newArrivalsController::confirmBulkCartAddition,
+                                onDismissBulkCartAdditionConfirmation = newArrivalsController::dismissBulkCartAdditionConfirmation,
+                                onClearBulkCartAdditionResult = newArrivalsController::clearBulkCartAdditionResult,
+                                onClearBulkCartAdditionError = newArrivalsController::clearBulkCartAdditionError,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }

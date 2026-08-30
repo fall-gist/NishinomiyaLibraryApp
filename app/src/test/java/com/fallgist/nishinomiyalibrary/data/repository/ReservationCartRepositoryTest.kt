@@ -20,6 +20,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionOrigin
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartAddSummary
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -52,6 +53,62 @@ class ReservationCartRepositoryTest {
 
     @After
     fun tearDown() = database.close()
+
+    // ------------------------------------------------------------------
+    // 一斉カート追加(`docs/design/bulk-selection.md` §7.1・§8.1・§10-2)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `一斉カート追加は空リストなら通信も追加もせず0件0件を返す`() = runBlocking {
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = error("呼ばれてはならない")
+        })
+
+        val summary = repository.addToCart(emptyList())
+
+        assertEquals(ReservationCartAddSummary(added = 0, skipped = 0), summary)
+    }
+
+    @Test
+    fun `一斉カート追加は重複を含む入力でaddedとskippedが正しく数えられる`() = runBlocking {
+        val member = addMember("一斉追加", "bulk-add")
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = error("呼ばれてはならない")
+        })
+        repository.addToCart(ReservationTarget(null, member, "dup", "既存"))
+
+        val summary = repository.addToCart(
+            listOf(
+                ReservationTarget(null, member, "dup", "既存(重複)"),
+                ReservationTarget(null, member, "new-1", "新規1"),
+                ReservationTarget(null, member, "new-2", "新規2"),
+            ),
+        )
+
+        assertEquals(ReservationCartAddSummary(added = 2, skipped = 1), summary)
+        val cartTilcods = database.reservationCartDao().getAll().map { it.tilcod }.toSet()
+        assertEquals(setOf("dup", "new-1", "new-2"), cartTilcods)
+    }
+
+    @Test
+    fun `一斉カート追加は存在しないメンバーをskippedとして扱い残りは追加を続行する(design §10-2)`() = runBlocking {
+        val goodMember = addMember("在籍", "bulk-good")
+        val missingMemberId = 999_999L
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = error("呼ばれてはならない")
+        })
+
+        val summary = repository.addToCart(
+            listOf(
+                ReservationTarget(null, missingMemberId, "missing-book", "存在しないメンバー"),
+                ReservationTarget(null, goodMember, "good-book", "正常"),
+            ),
+        )
+
+        assertEquals(ReservationCartAddSummary(added = 1, skipped = 1), summary)
+        val cartTilcods = database.reservationCartDao().getAll().map { it.tilcod }
+        assertEquals(listOf("good-book"), cartTilcods)
+    }
 
     @Test
     fun successfulReservationStoresConfirmedPickupSubmission() = runBlocking {

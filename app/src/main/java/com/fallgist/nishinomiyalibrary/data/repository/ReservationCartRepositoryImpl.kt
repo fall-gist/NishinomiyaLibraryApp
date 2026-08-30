@@ -13,6 +13,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.ReservationGateway
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.MemberReservationResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartAddSummary
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartItem
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationItemResult
@@ -59,6 +60,37 @@ class ReservationCartRepositoryImpl @Inject constructor(
                 addedAtEpochMillis = clock.millis(),
             ),
         )
+    }
+
+    /**
+     * `docs/design/bulk-selection.md` §7.1・§10-2: 1件ずつ[addToCart]相当の処理を行い、
+     * 重複(insertIgnoreDuplicateが-1を返す)も、存在しないmemberIdも同じく`skipped`へ数え、
+     * 残りの対象の処理は継続する(1件の不正で全体を失敗させない契約)。
+     * tilcod・titleが空、またはcartItemIdを指定した対象が混ざっている場合は
+     * (UI経由では起こらない構造的な誤り呼び出しのため)[addToCart]と同様にrequireで例外にする。
+     */
+    override suspend fun addToCart(targets: List<ReservationTarget>): ReservationCartAddSummary {
+        var added = 0
+        var skipped = 0
+        targets.forEach { target ->
+            validateTarget(target, permitCartItemId = false)
+            val memberExists = memberDao.getById(target.memberId) != null
+            if (!memberExists) {
+                skipped++
+                return@forEach
+            }
+            val insertedId = cartDao.insertIgnoreDuplicate(
+                ReservationCartItemEntity(
+                    memberId = target.memberId,
+                    tilcod = target.tilcod,
+                    title = target.title,
+                    writerLine = target.writerLine?.takeIf(String::isNotBlank),
+                    addedAtEpochMillis = clock.millis(),
+                ),
+            )
+            if (insertedId == -1L) skipped++ else added++
+        }
+        return ReservationCartAddSummary(added, skipped)
     }
 
     override suspend fun removeFromCart(cartItemId: Long) {
