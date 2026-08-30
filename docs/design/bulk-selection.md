@@ -201,10 +201,28 @@ data class LoanExtensionItemResult(val target: LoanExtensionTarget, val outcome:
 タップが起点でUIスレッド上で直列化されるため、今回のスレッド安全性対応の対象外とした
 （`update {}`化のついでに手を入れていない）。
 
-`ReservationUiController`・`SearchScreenController`・`NewArrivalsScreenController`・
-`ReservationCancelUiController`にも同型のlost updateパターンが残っている
-（`docs/handoff.md`「残課題C」参照）。本設計の一斉操作（C・D）実装でこれらのファイルにも
-`_state.value = ...`が増えているが、今回はスコープ外として変更していない。
+### 5.5 対象範囲の拡大（新着資料の自動巡回で実際に起こることが判明）
+
+**この節も当初の設計書には無かった。** §5.4の対応後、独立レビューで「新着資料画面では
+この競合が現実の使い方で起こる」と指摘され、対象を`NewArrivalsScreenController`・
+`SearchScreenController`・`ReservationUiController`の3ファイルへ広げた。
+
+`NewArrivalsScreenController.onScreenLaunched()`は画面を開くたびに全ジャンルの自動巡回
+（`performRefresh`）を開始する。巡回は長時間動き、その間`Dispatchers.Default`上で
+`_state.value = _state.value.copy(refreshing = ..., updatePhase = ...)`を書き続ける。
+同時に利用者は同じ画面で一斉カート追加（機能D）のチェックボックスを操作でき、
+`toggleCartSelection`はUIスレッドから`_state.value = state.value.copy(selectedCartTilcods = ...)`
+を書く。**つまり「新着資料を開く→巡回が走っている間にチェックを入れていく」という、
+機能Dの標準的な使い方でチェックが黙って消える。** 稀な競合条件ではなく、最初の
+「対象外」判断はこの自動巡回を見落としていたことによる誤りだった。
+
+`SearchScreenController`（検索・追加読み込み中の選択操作）・`ReservationUiController`
+（予約確定の長時間バッチ中の選択・カート一括削除操作）にも同型の競合が成立するため、
+あわせて対応した。対応内容は§5.4と同じ（全箇所を`update {}`へ機械的に置き換え、
+`_state`宣言直下に同じ体裁の注意コメントを追加）。
+
+`ReservationCancelUiController`は今回の一斉操作機能で変更しておらず、既存のまま動いている
+ため引き続き対象外とする（`docs/handoff.md`「残課題C」参照）。
 
 ## 6. 機能C: 予約カートの一括削除と「カートを空にする」
 

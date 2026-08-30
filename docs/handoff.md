@@ -2668,26 +2668,32 @@ liveタスクを対象外にしたのは、本番の認証情報を環境変数�
 `MutableStateFlow.update {}`へ全3箇所を置き換え済み(返却期限表示の実装で`combine`のソースが
 1本から3本へ増えたため、ついでの改善ではなく前提条件として対応した)。
 
-`LoanExtensionUiController.kt`も2026-08-30、`docs/design/bulk-selection.md`の一斉延長(機能A)実装に
-伴い全箇所を`update {}`へ置き換え済み(表から削除した)。元々3箇所で`launch`も実質1つだったため
-顕在化しにくかったが、一斉延長の追加で「`scope`(Defaultディスパッチャ)上で1件ごとに一覧再取得＋
-二段階POSTを行う数秒〜数十秒の`launch`が動き続ける間も、UIスレッドから`toggleSelection`・
-`clearResult`・`clearError`が`_state.value = ...`を書きうる」という、他のControllerと同型の
-競合条件が新たに成立するようになったため、本体実装と合わせて対応した(設計書にこの必要性の
-記載が無かったための追加対応。経緯は`docs/design/bulk-selection.md`参照)。
+`LoanExtensionUiController.kt`・`NewArrivalsScreenController.kt`・`SearchScreenController.kt`・
+`ReservationUiController.kt`も2026-08-30、`docs/design/bulk-selection.md`の一斉操作機能実装に
+伴い全箇所を`update {}`へ置き換え済み(表から削除した)。
+
+対応の経緯: 最初は`LoanExtensionUiController.kt`だけを対応した。元々3箇所で`launch`も実質1つ
+だったため顕在化しにくかったが、一斉延長の追加で「`scope`(Defaultディスパッチャ)上で1件ごとに
+一覧再取得＋二段階POSTを行う数秒〜数十秒の`launch`が動き続ける間も、UIスレッドから
+`toggleSelection`・`clearResult`・`clearError`が`_state.value = ...`を書きうる」という競合条件が
+新たに成立するようになったため対応した。
+
+その後、**新着資料画面で同型の競合が実際の使い方で起こる**ことが判明し、対象を残り3ファイルへ
+広げた。`NewArrivalsScreenController.onScreenLaunched()`は画面を開くたびに全ジャンル巡回
+(`performRefresh`)を開始し、その間`_state`をDispatchers.Default上で書き続ける。同時に利用者が
+同じ画面で一斉カート追加(機能D)のチェックボックスを操作する`toggleCartSelection`はUIスレッドから
+`_state`を書く。「新着資料を開く→巡回中にチェックを入れていく」という機能Dの標準的な使い方で
+チェックが黙って消える、稀ではない競合だった。`SearchScreenController.kt`(検索・追加読み込み中の
+選択)・`ReservationUiController.kt`(予約確定の長時間バッチ中の選択・カート一括削除)も同型の
+競合が成立するため、あわせて対応した。
 
 | ファイル | 箇所数 |
 |---|---|
-| `ReservationUiController.kt` | 17 |
-| `NewArrivalsScreenController.kt` | 9 |
-| `SearchScreenController.kt` | 8 |
 | `ReservationCancelUiController.kt` | 4 |
 
-`launch`が複数あり、同じ競合が成立しうる。今回まとめて直さなかったのは、**ビルドもテストも
-できない環境で機械的に書き換えるのは割に合わない**と判断したためである。上記4ファイルには
-`docs/design/bulk-selection.md`の一斉操作機能の実装で新たに`_state.value = ...`が追加されており、
-箇所数は現状より増えている(2026-08-30時点でカウント更新していない)。これらのファイルに次に
-手を入れる際は、同じ書き換えを1ファイルずつ、テストを回しながら進めること。
+`ReservationCancelUiController.kt`は今回の一斉操作機能で変更しておらず、既存のまま動いている
+ため対象外とした。`launch`が複数あり同じ競合が成立しうるので、次にこのファイルへ手を入れる際は
+同じ書き換えを行うこと。
 
 #### 付随して判明したこと
 
