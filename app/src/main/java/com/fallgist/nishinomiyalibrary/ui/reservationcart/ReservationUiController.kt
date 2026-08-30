@@ -229,7 +229,7 @@ class ReservationUiController(
 
     /** 「選択した項目を削除」ボタン。選択済みキーに対応する候補はScreen側で組み立てて渡す。 */
     fun requestBulkCartDeleteConfirmation(candidates: List<ReservationCartDeleteCandidate>) {
-        if (state.value.cartMutationProcessing || candidates.isEmpty()) return
+        if (state.value.processing || state.value.cartMutationProcessing || candidates.isEmpty()) return
         _state.update {
             it.copy(bulkCartDeleteConfirmation = ReservationCartBulkDeleteConfirmationRequest(candidates))
         }
@@ -244,7 +244,7 @@ class ReservationUiController(
     /** 一括削除の確認ダイアログの確定操作(§6.3、確認必須)。 */
     fun confirmBulkCartDelete() {
         val request = state.value.bulkCartDeleteConfirmation ?: return
-        if (state.value.cartMutationProcessing) return
+        if (state.value.processing || state.value.cartMutationProcessing) return
         _state.update { it.copy(bulkCartDeleteConfirmation = null, cartMutationProcessing = true) }
         scope.launch {
             try {
@@ -281,7 +281,7 @@ class ReservationUiController(
     }
 
     fun confirmClearCart() {
-        if (!state.value.clearCartConfirmationPending || state.value.cartMutationProcessing) return
+        if (state.value.processing || !state.value.clearCartConfirmationPending || state.value.cartMutationProcessing) return
         _state.update { it.copy(clearCartConfirmationPending = false, cartMutationProcessing = true) }
         scope.launch {
             try {

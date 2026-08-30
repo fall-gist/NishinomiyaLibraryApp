@@ -192,6 +192,101 @@ class ReservationUiControllerTest {
         controller.close()
     }
 
+    // ------------------------------------------------------------------
+    // processing(予約確定中)はカートの一括削除・空にするを開始しない(独立レビュー指摘)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `予約確定中はrequestBulkCartDeleteConfirmationを呼んでも確認ダイアログを開始しない`() = runTest {
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val cart = FakeCartRepository(
+            items = listOf(cart(1, father.id)),
+            beforeReserveNowResult = { entered.complete(Unit); release.await() },
+        )
+        val settings = MutableStateFlow(AppSettings(defaultCalendarLibrary = "A"))
+        val controller = controller(cart, settings, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        controller.requestImmediateConfirmation(ReservationTarget(null, father.id, "immediate", "即時予約"))
+        controller.confirmPending()
+        runCurrent()
+        entered.await()
+        assertTrue(controller.state.value.processing)
+
+        controller.requestBulkCartDeleteConfirmation(listOf(ReservationCartDeleteCandidate(1, "資料1")))
+
+        assertNull(controller.state.value.bulkCartDeleteConfirmation)
+        release.complete(Unit)
+        advanceUntilIdle()
+        controller.close()
+    }
+
+    @Test
+    fun `予約確定中はconfirmBulkCartDeleteを呼んでも削除しない`() = runTest {
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val cart = FakeCartRepository(
+            items = listOf(cart(1, father.id)),
+            beforeReserveNowResult = { entered.complete(Unit); release.await() },
+        )
+        val settings = MutableStateFlow(AppSettings(defaultCalendarLibrary = "A"))
+        val controller = controller(cart, settings, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        controller.toggleCartItemSelection(1)
+        val candidates = ReservationCartContentBuilder.deleteCandidates(controller.state.value.cartGroups, controller.state.value.selectedCartItemIds)
+        controller.requestBulkCartDeleteConfirmation(candidates)
+        assertNotNull(controller.state.value.bulkCartDeleteConfirmation)
+
+        controller.requestImmediateConfirmation(ReservationTarget(null, father.id, "immediate", "即時予約"))
+        controller.confirmPending()
+        runCurrent()
+        entered.await()
+        assertTrue(controller.state.value.processing)
+
+        controller.confirmBulkCartDelete()
+        runCurrent()
+
+        assertTrue(cart.removedBulk.isEmpty())
+        // 予約確定中に呼んでも一括削除の確認は保留されたまま消えない(ガードでreturnしたため)。
+        assertNotNull(controller.state.value.bulkCartDeleteConfirmation)
+
+        release.complete(Unit)
+        advanceUntilIdle()
+        controller.close()
+    }
+
+    @Test
+    fun `予約確定中はconfirmClearCartを呼んでも空にしない`() = runTest {
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val cart = FakeCartRepository(
+            items = listOf(cart(1, father.id)),
+            beforeReserveNowResult = { entered.complete(Unit); release.await() },
+        )
+        val settings = MutableStateFlow(AppSettings(defaultCalendarLibrary = "A"))
+        val controller = controller(cart, settings, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        controller.requestClearCartConfirmation()
+        assertTrue(controller.state.value.clearCartConfirmationPending)
+
+        controller.requestImmediateConfirmation(ReservationTarget(null, father.id, "immediate", "即時予約"))
+        controller.confirmPending()
+        runCurrent()
+        entered.await()
+        assertTrue(controller.state.value.processing)
+
+        controller.confirmClearCart()
+        runCurrent()
+
+        assertEquals(0, cart.clearCartCalls)
+        // 予約確定中に呼んでも「カートを空にする」の確認は保留されたまま消えない(ガードでreturnしたため)。
+        assertTrue(controller.state.value.clearCartConfirmationPending)
+
+        release.complete(Unit)
+        advanceUntilIdle()
+        controller.close()
+    }
+
     @Test
     fun `カート変更のエラーはcartMutationErrorMessageへ変換する`() = runTest {
         val cart = FakeCartRepository(items = listOf(cart(1, father.id)), throwOnBulkRemove = true)
@@ -417,6 +512,7 @@ class ReservationUiControllerTest {
         private val cancelOnReserve: Boolean = false,
         private val operationGate: ReservationOperationGate? = null,
         private val throwOnBulkRemove: Boolean = false,
+        private val beforeReserveNowResult: suspend () -> Unit = {},
     ) : ReservationCartRepository {
         private val flow = MutableStateFlow(items)
         val added = mutableListOf<ReservationTarget>()
@@ -455,6 +551,7 @@ class ReservationUiControllerTest {
                 }
             }
             if (cancelOnReserve) throw CancellationException("test")
+            beforeReserveNowResult()
             return result(listOf(target))
         }
         private fun result(targets: List<ReservationTarget>) = ReservationBatchResult(
