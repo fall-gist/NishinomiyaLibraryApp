@@ -234,8 +234,12 @@ val warnBeforeClearingSelection: Boolean = DEFAULT_WARN_BEFORE_CLEARING_SELECTIO
 1. **一斉直接予約は予約上限・利用制限に触れうる**。サイトの応答は未検証である
    （`docs/handoff.md`）。5件選んで3件目で上限に達した場合の応答は分からない。
    件ごとの結果で「一部成功」を表現できる設計にはなっているが、**上限到達時の応答文言は未実測**である
-2. `reserveNow(emptyList())` の扱いが未確定。UI経由では0件で実行できないが、契約として
-   実装時に決めてテストで固定すること
+2. **【決定・実装済み】`reserveNow(emptyList())` の扱い**: 通常の`execute`フローにそのまま渡す。
+   対象が無いため`execute`内のグループ化も空になり、`ReservationGateway`への通信は一切発生せず
+   `ReservationBatchResult(emptyList())`を返す。`validateConfirmation`(受取館コード・最終確認時刻の
+   妥当性検証)は対象の有無に関わらず行う(確認情報自体の整合性は対象件数と独立した契約であるため)。
+   UI経由では0件で「予約する」を実行できないため実際には到達しないが、契約として
+   `ReservationCartRepositoryTest`に固定した(`ReservationCartRepositoryImpl.reserveNow(List)`参照)。
 3. §6.1 の件数規則の変更は、**既存の一斉カート追加の見え方を変える**（バーの数字が減る場合がある）。
    これは不具合の修正であり意図した変更だが、所有者が「数が減った」と感じる可能性がある
 4. `warnBeforeClearingSelection` をバックアップに含めないため、機種変更時は既定（オン）に戻る。

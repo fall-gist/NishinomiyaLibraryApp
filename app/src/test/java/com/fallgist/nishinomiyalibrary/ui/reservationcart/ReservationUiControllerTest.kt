@@ -554,6 +554,17 @@ class ReservationUiControllerTest {
             beforeReserveNowResult()
             return result(listOf(target))
         }
+        override suspend fun reserveNow(targets: List<ReservationTarget>, confirmation: ReservationConfirmation): ReservationBatchResult {
+            reserveNowCalls++
+            operationGate?.let { gate ->
+                return gate.withOperation(ReservationOperationType.MANUAL_RESERVATION) {
+                    result(targets)
+                }
+            }
+            if (cancelOnReserve) throw CancellationException("test")
+            beforeReserveNowResult()
+            return result(targets)
+        }
         private fun result(targets: List<ReservationTarget>) = ReservationBatchResult(
             targets.groupBy { it.memberId }.map { (memberId, grouped) ->
                 com.fallgist.nishinomiyalibrary.domain.model.MemberReservationResult(

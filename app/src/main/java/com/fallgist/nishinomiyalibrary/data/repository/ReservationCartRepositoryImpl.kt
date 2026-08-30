@@ -133,6 +133,28 @@ class ReservationCartRepositoryImpl @Inject constructor(
         execution.result
     }
 
+    /**
+     * `docs/design/bulk-selection-followup.md` §5.1: 複数件を単数版と同型でまとめて直接予約する。
+     * カートを経由しない(§5.2)。単数版と同じくoperationGateの内側で動き、confirmationと各targetを
+     * 検証してから[execute]へそのまま渡す。
+     *
+     * 空リストの扱い(§9-2、決定): 通常のフローにそのまま渡す。対象が無いため[execute]内のグループ化も
+     * 空になり、Gatewayへの通信は一切発生せず`ReservationBatchResult(emptyList())`を返す。
+     * confirmationの妥当性検証(validateConfirmation)は対象の有無に関わらず行う(確認情報自体の
+     * 整合性は対象件数と独立した契約であるため)。UI経由では0件で「予約する」を実行できないため
+     * 実際には到達しないが、契約としてテストで固定する。
+     */
+    override suspend fun reserveNow(
+        targets: List<ReservationTarget>,
+        confirmation: ReservationConfirmation,
+    ): ReservationBatchResult = operationGate.withOperation(ReservationOperationType.MANUAL_RESERVATION) {
+        validateConfirmation(confirmation)
+        targets.forEach { validateTarget(it, permitCartItemId = false) }
+        val execution = execute(targets, confirmation, ::markWriteStarted)
+        recordPickupSubmissions(execution, confirmation.pickupLibraryCode)
+        execution.result
+    }
+
     private suspend fun execute(
         targets: List<ReservationTarget>,
         confirmation: ReservationConfirmation,

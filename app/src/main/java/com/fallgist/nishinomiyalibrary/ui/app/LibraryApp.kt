@@ -439,6 +439,13 @@ fun LibraryApp(
                                 onConfirmPendingSearch = searchController::confirmPendingSearch,
                                 onDismissPendingSearch = searchController::dismissPendingSearch,
                                 onConfirmPendingSearchAndDisableWarning = searchController::confirmPendingSearchAndDisableWarning,
+                                onRequestBulkDirectReservation = searchController::requestBulkDirectReservation,
+                                onSelectBulkDirectReservationMember = searchController::selectBulkDirectReservationMember,
+                                onSelectBulkDirectReservationPickupLibrary = searchController::selectBulkDirectReservationPickupLibrary,
+                                onConfirmBulkDirectReservation = searchController::confirmBulkDirectReservation,
+                                onDismissBulkDirectReservationConfirmation = searchController::dismissBulkDirectReservationConfirmation,
+                                onClearBulkDirectReservationResults = searchController::clearBulkDirectReservationResults,
+                                onClearBulkDirectReservationError = searchController::clearBulkDirectReservationError,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -462,6 +469,13 @@ fun LibraryApp(
                                 onConfirmPendingRefresh = newArrivalsController::confirmPendingRefresh,
                                 onDismissPendingRefresh = newArrivalsController::dismissPendingRefresh,
                                 onConfirmPendingRefreshAndDisableWarning = newArrivalsController::confirmPendingRefreshAndDisableWarning,
+                                onRequestBulkDirectReservation = newArrivalsController::requestBulkDirectReservation,
+                                onSelectBulkDirectReservationMember = newArrivalsController::selectBulkDirectReservationMember,
+                                onSelectBulkDirectReservationPickupLibrary = newArrivalsController::selectBulkDirectReservationPickupLibrary,
+                                onConfirmBulkDirectReservation = newArrivalsController::confirmBulkDirectReservation,
+                                onDismissBulkDirectReservationConfirmation = newArrivalsController::dismissBulkDirectReservationConfirmation,
+                                onClearBulkDirectReservationResults = newArrivalsController::clearBulkDirectReservationResults,
+                                onClearBulkDirectReservationError = newArrivalsController::clearBulkDirectReservationError,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }

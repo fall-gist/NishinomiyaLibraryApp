@@ -143,6 +143,16 @@ interface ReservationCartRepository {
         target: ReservationTarget,
         confirmation: ReservationConfirmation,
     ): ReservationBatchResult
+
+    /**
+     * 複数件をまとめて直接予約する(`docs/design/bulk-selection-followup.md` §5)。カートを経由しない
+     * (§5.2。`confirmCart`はカート内の全項目を確定するため、既存のカート内容を巻き込んでしまう)。
+     * サイトに実データを作る、取り返しのつかない操作である。UIの明示操作・最終確認の後にだけ呼ぶこと。
+     */
+    suspend fun reserveNow(
+        targets: List<ReservationTarget>,
+        confirmation: ReservationConfirmation,
+    ): ReservationBatchResult
 }
 
 /**

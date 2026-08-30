@@ -111,6 +111,76 @@ class ReservationCartRepositoryTest {
     }
 
     // ------------------------------------------------------------------
+    // 一斉直接予約(`docs/design/bulk-selection-followup.md` §5・§7.1・§9-2)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `一斉直接予約は複数件を渡すとexecuteへ同じ並びで渡り件ごとの結果が返る`() = runBlocking {
+        val first = addMember("一人目", "bulk-reserve-1")
+        val second = addMember("二人目", "bulk-reserve-2")
+        val sent = mutableListOf<String>()
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = object : ReservationSession {
+                override suspend fun directReserve(tilcod: String, pickupLibraryCode: String): DirectReservationAttempt {
+                    sent += tilcod
+                    return DirectReservationAttempt.Submitted
+                }
+                override suspend fun fetchReservations(): List<Reservation> = sent.map { tilcod ->
+                    Reservation(0, tilcod, "", "", LocalDate.of(2030, 1, 1), null, ReservationState.WAITING, null, tilcod)
+                }
+                override fun close() = Unit
+            }
+        })
+
+        val result = repository.reserveNow(
+            listOf(
+                ReservationTarget(null, first, "book-a", "資料A"),
+                ReservationTarget(null, first, "book-b", "資料B"),
+                ReservationTarget(null, second, "book-c", "資料C"),
+            ),
+            ReservationConfirmation("106", 1000),
+        )
+
+        assertEquals(listOf("book-a", "book-b", "book-c"), sent)
+        assertEquals(2, result.members.size)
+        assertEquals(listOf("book-a", "book-b"), result.members[0].itemResults.map { it.target.tilcod })
+        assertEquals(listOf("book-c"), result.members[1].itemResults.map { it.target.tilcod })
+        assertTrue(result.members.flatMap { it.itemResults }.all { it.outcome == ReservationOutcome.Success })
+        // カートを経由しない(設計追補§5.2)。カートには何も残らない・追加されない。
+        assertTrue(repository.cartItems().first().isEmpty())
+    }
+
+    @Test
+    fun `一斉直接予約は空リストなら通信せず空の結果を返す(design追補§9-2で決定)`() = runBlocking {
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = error("呼ばれてはならない")
+        })
+
+        val result = repository.reserveNow(emptyList(), ReservationConfirmation("106", 1000))
+
+        assertTrue(result.members.isEmpty())
+    }
+
+    @Test
+    fun `一斉直接予約はcartItemIdを持つ対象を含むと例外にする(既存validateTargetの契約)`() = runBlocking {
+        val member = addMember("不正対象", "bulk-reserve-invalid")
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = error("呼ばれてはならない")
+        })
+
+        var threw = false
+        try {
+            repository.reserveNow(
+                listOf(ReservationTarget(cartItemId = 1L, memberId = member, tilcod = "x", title = "資料")),
+                ReservationConfirmation("106", 1000),
+            )
+        } catch (_: IllegalArgumentException) {
+            threw = true
+        }
+        assertTrue(threw)
+    }
+
+    // ------------------------------------------------------------------
     // カートの一括削除・「カートを空にする」(`docs/design/bulk-selection.md` §6.1・§8.1)
     // ------------------------------------------------------------------
 

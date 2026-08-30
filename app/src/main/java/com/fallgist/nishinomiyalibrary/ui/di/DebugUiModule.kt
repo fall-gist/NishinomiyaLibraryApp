@@ -155,6 +155,7 @@ object DebugUiProvisionModule {
         familyRepository: FamilyRepository,
         cartRepository: ReservationCartRepository,
         settingsStore: SettingsStore,
+        calendarRepository: CalendarRepository,
     ): SearchScreenController = SearchScreenController(
         searchRepository = searchRepository,
         readingRecordRepository = readingRecordRepository,
@@ -162,6 +163,8 @@ object DebugUiProvisionModule {
         cartRepository = cartRepository,
         warnBeforeClearingSelection = settingsStore.settings.map { it.warnBeforeClearingSelection },
         disableWarnBeforeClearingSelection = { settingsStore.updateWarnBeforeClearingSelection(false) },
+        calendarRepository = calendarRepository,
+        defaultPickupLibraryCode = settingsStore.settings.map { it.defaultCalendarLibrary },
     )
 
     @Provides
@@ -186,6 +189,7 @@ object DebugUiProvisionModule {
         settingsStore: SettingsStore,
         familyRepository: FamilyRepository,
         cartRepository: ReservationCartRepository,
+        calendarRepository: CalendarRepository,
     ): NewArrivalsScreenController = NewArrivalsScreenController(
         newArrivalRepository = newArrivalRepository,
         updateCoordinator = updateCoordinator,
@@ -194,6 +198,8 @@ object DebugUiProvisionModule {
         cartRepository = cartRepository,
         warnBeforeClearingSelection = settingsStore.settings.map { it.warnBeforeClearingSelection },
         disableWarnBeforeClearingSelection = { settingsStore.updateWarnBeforeClearingSelection(false) },
+        calendarRepository = calendarRepository,
+        defaultPickupLibraryCode = settingsStore.settings.map { it.defaultCalendarLibrary },
     )
 
     @Provides

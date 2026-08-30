@@ -183,7 +183,7 @@ fun ReservationCartScreen(
         ReservationNotice(cartFeedback)
     }
     cartFeedback?.takeIf { it.results.isNotEmpty() }?.let { feedback ->
-        ReservationResultsDialog(feedback, state.members, onClearResults)
+        ReservationResultsDialog(feedback.results, state.members, onClearResults)
     }
     state.bulkCartDeleteConfirmation?.let { request ->
         ReservationCartBulkDeleteConfirmDialog(
@@ -363,9 +363,13 @@ private fun ReservationNotice(feedback: ReservationFeedback?) {
     feedback?.errorMessage?.let { Text(it, color = colors.alert, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)) }
 }
 
+/**
+ * 予約結果ダイアログ(件ごとの成否)。カートの一斉確定・書誌詳細の即時予約に加え、
+ * 検索・新着資料からの一斉直接予約(`docs/design/bulk-selection-followup.md` §5.3)でも再利用する。
+ */
 @Composable
-private fun ReservationResultsDialog(
-    feedback: ReservationFeedback,
+fun ReservationResultsDialog(
+    results: List<ReservationResultRow>,
     members: List<com.fallgist.nishinomiyalibrary.domain.model.Member>,
     onClose: () -> Unit,
 ) {
@@ -375,7 +379,7 @@ private fun ReservationResultsDialog(
         title = { Text("予約結果") },
         text = {
             LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
-                items(feedback.results) { result ->
+                items(results) { result ->
                     val memberName = members.find { it.id == result.memberId }?.name ?: "不明なメンバー"
                     Text(
                         "$memberName：${result.title}：${result.outcomeLabel}${result.detail?.let { "（$it）" }.orEmpty()}",

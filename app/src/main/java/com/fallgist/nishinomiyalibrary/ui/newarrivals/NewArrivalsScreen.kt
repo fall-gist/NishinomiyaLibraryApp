@@ -35,6 +35,8 @@ import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.BulkCartAdditionCandidate
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.BulkCartAdditionConfirmDialog
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.BulkDirectReservationConfirmDialog
+import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationResultsDialog
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdatePhase
 
@@ -55,6 +57,13 @@ fun NewArrivalsScreen(
     onConfirmPendingRefresh: () -> Unit,
     onDismissPendingRefresh: () -> Unit,
     onConfirmPendingRefreshAndDisableWarning: () -> Unit,
+    onRequestBulkDirectReservation: (List<BulkCartAdditionCandidate>) -> Unit,
+    onSelectBulkDirectReservationMember: (Long) -> Unit,
+    onSelectBulkDirectReservationPickupLibrary: (String) -> Unit,
+    onConfirmBulkDirectReservation: () -> Unit,
+    onDismissBulkDirectReservationConfirmation: () -> Unit,
+    onClearBulkDirectReservationResults: () -> Unit,
+    onClearBulkDirectReservationError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -132,6 +141,16 @@ fun NewArrivalsScreen(
                 containerColor = colors.green,
                 contentColor = colors.card,
             )
+            // 一斉直接予約(設計追補§5、機能F)。「カートへ追加」の下にもう1つボタンを置く。
+            // カートを経由しない、取り返しのつかない操作のため、確認の厳しさは緩めない(§5.4)。
+            BulkActionBar(
+                selectedCount = displayedCandidates.size,
+                actionLabel = "予約する",
+                enabled = state.canRequestBulkDirectReservation,
+                onClick = { onRequestBulkDirectReservation(displayedCandidates) },
+                containerColor = colors.alert,
+                contentColor = colors.card,
+            )
             state.bulkCartAdditionErrorMessage?.let {
                 Text(
                     text = it,
@@ -149,6 +168,16 @@ fun NewArrivalsScreen(
                     fontSize = 12.sp,
                     modifier = Modifier
                         .clickable(onClick = onClearBulkCartAdditionResult)
+                        .padding(horizontal = 18.dp, vertical = 4.dp),
+                )
+            }
+            state.bulkDirectReservationErrorMessage?.let {
+                Text(
+                    text = it,
+                    color = colors.alert,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .clickable(onClick = onClearBulkDirectReservationError)
                         .padding(horizontal = 18.dp, vertical = 4.dp),
                 )
             }
@@ -183,7 +212,7 @@ fun NewArrivalsScreen(
                     NewArrivalRowView(
                         row = row,
                         selected = row.tilcod in state.selectedCartTilcods,
-                        selectionEnabled = !state.bulkCartAdditionProcessing,
+                        selectionEnabled = !state.anyBulkActionProcessing,
                         onClick = { onOpenDetail(row.tilcod, row.title) },
                         onToggleSelection = { onToggleCartSelection(row.tilcod) },
                     )
@@ -208,6 +237,26 @@ fun NewArrivalsScreen(
             onConfirm = onConfirmPendingRefresh,
             onDismiss = onDismissPendingRefresh,
             onDisableWarning = onConfirmPendingRefreshAndDisableWarning,
+        )
+    }
+    // 一斉直接予約の確認ダイアログ(設計追補§5.3)。メンバー・受取館を選ばせ、最終確認の後にだけ実行する。
+    state.bulkDirectReservationConfirmation?.let { request ->
+        BulkDirectReservationConfirmDialog(
+            request = request,
+            members = state.members,
+            libraries = state.libraries,
+            onSelectMember = onSelectBulkDirectReservationMember,
+            onSelectPickupLibrary = onSelectBulkDirectReservationPickupLibrary,
+            onConfirm = onConfirmBulkDirectReservation,
+            onDismiss = onDismissBulkDirectReservationConfirmation,
+        )
+    }
+    // 一斉直接予約の結果(件ごとの成否)。既存の予約結果表示を再利用する(§5.3)。
+    if (state.bulkDirectReservationResults.isNotEmpty()) {
+        ReservationResultsDialog(
+            results = state.bulkDirectReservationResults,
+            members = state.members,
+            onClose = onClearBulkDirectReservationResults,
         )
     }
 }

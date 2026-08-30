@@ -1,12 +1,18 @@
 package com.fallgist.nishinomiyalibrary.ui.newarrivals
 
+import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
+import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Member
+import com.fallgist.nishinomiyalibrary.domain.model.MemberReservationResult
 import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartAddSummary
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartItem
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationItemResult
+import com.fallgist.nishinomiyalibrary.domain.model.ReservationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget
+import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.NewArrivalRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
@@ -270,6 +276,161 @@ class NewArrivalsScreenControllerTest {
     }
 
     // ------------------------------------------------------------------
+    // 一斉直接予約(`docs/design/bulk-selection-followup.md` §5、機能F)。カートを経由しない(§5.2)。
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `一斉直接予約の確認要求時に受取館の初期値が既定館になる`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = FakeCartRepository(),
+            calendarRepository = FakeCalendarRepository(),
+            defaultPickupLibraryCode = flowOf("B"),
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkDirectReservation(candidates)
+
+        assertEquals("B", controller.state.value.bulkDirectReservationConfirmation?.pickupLibraryCode)
+        controller.close()
+    }
+
+    @Test
+    fun `メンバー未選択ではconfirmBulkDirectReservationを呼んでも予約されない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val cartRepository = FakeCartRepository()
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+            calendarRepository = FakeCalendarRepository(),
+            defaultPickupLibraryCode = flowOf("A"),
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkDirectReservation(candidates)
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+
+        assertEquals(0, cartRepository.reserveNowListCalls)
+        assertTrue(controller.state.value.bulkDirectReservationConfirmation != null)
+        controller.close()
+    }
+
+    @Test
+    fun `受取館未選択ではconfirmBulkDirectReservationを呼んでも予約されない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val cartRepository = FakeCartRepository()
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+            calendarRepository = FakeCalendarRepository(libraries = emptyList()),
+            defaultPickupLibraryCode = flowOf(""),
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkDirectReservation(candidates)
+        controller.selectBulkDirectReservationMember(father.id)
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+
+        assertEquals(0, cartRepository.reserveNowListCalls)
+        assertTrue(controller.state.value.bulkDirectReservationConfirmation != null)
+        controller.close()
+    }
+
+    @Test
+    fun `メンバーと受取館選択後の確定で対象memberIdと受取館を渡し選択と確認状態をクリアする`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val cartRepository = FakeCartRepository()
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+            calendarRepository = FakeCalendarRepository(),
+            defaultPickupLibraryCode = flowOf("A"),
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkDirectReservation(candidates)
+        controller.selectBulkDirectReservationMember(father.id)
+        controller.selectBulkDirectReservationPickupLibrary("B")
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+
+        assertEquals(1, cartRepository.reserveNowListCalls)
+        assertEquals(father.id, cartRepository.receivedReserveNowTargets.single().memberId)
+        assertEquals("100", cartRepository.receivedReserveNowTargets.single().tilcod)
+        assertEquals("B", cartRepository.receivedReserveNowConfirmation?.pickupLibraryCode)
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        assertNull(controller.state.value.bulkDirectReservationConfirmation)
+        assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉直接予約の確認待ちの間に一覧から消えたキーは実行時に無視される(design §4,3)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val cartRepository = FakeCartRepository()
+        val itemsFlow = MutableStateFlow(listOf(newArrival("100"), newArrival("101")))
+        val repository = object : NewArrivalRepository {
+            override fun newArrivals(): Flow<List<NewArrival>> = itemsFlow
+            override suspend fun refresh() = Unit
+            override suspend fun lastFetchedAtEpochMillis(): Long? = null
+            override suspend fun hasCachedItems(): Boolean = true
+        }
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+            calendarRepository = FakeCalendarRepository(),
+            defaultPickupLibraryCode = flowOf("A"),
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.toggleCartSelection("101")
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkDirectReservation(candidates)
+        controller.selectBulkDirectReservationMember(father.id)
+
+        // 確認待ちの間に一覧から101が消えたことを模す。
+        itemsFlow.value = listOf(newArrival("100"))
+        advanceUntilIdle()
+
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+
+        assertEquals(1, cartRepository.receivedReserveNowTargets.size)
+        assertEquals("100", cartRepository.receivedReserveNowTargets.single().tilcod)
+        controller.close()
+    }
+
+    // ------------------------------------------------------------------
     // 選択解除警告(`docs/design/bulk-selection-followup.md` §6.2)。対象操作は巡回(refresh、「更新」)のみ。
     // onScreenLaunchedの自動巡回・loadMoreに相当する操作はNewArrivalsScreenControllerには無いため対象外。
     // ------------------------------------------------------------------
@@ -406,6 +567,9 @@ class NewArrivalsScreenControllerTest {
     ) : ReservationCartRepository {
         var calls = 0
         val receivedTargets = mutableListOf<ReservationTarget>()
+        var reserveNowListCalls = 0
+        val receivedReserveNowTargets = mutableListOf<ReservationTarget>()
+        var receivedReserveNowConfirmation: ReservationConfirmation? = null
         override fun cartItems(): Flow<List<ReservationCartItem>> = flowOf(emptyList())
         override suspend fun addToCart(target: ReservationTarget) = Unit
         override suspend fun addToCart(targets: List<ReservationTarget>): ReservationCartAddSummary {
@@ -419,6 +583,23 @@ class NewArrivalsScreenControllerTest {
         override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult = ReservationBatchResult(emptyList())
         override suspend fun reserveNow(target: ReservationTarget, confirmation: ReservationConfirmation): ReservationBatchResult =
             ReservationBatchResult(emptyList())
+        override suspend fun reserveNow(targets: List<ReservationTarget>, confirmation: ReservationConfirmation): ReservationBatchResult {
+            reserveNowListCalls++
+            receivedReserveNowTargets += targets
+            receivedReserveNowConfirmation = confirmation
+            return ReservationBatchResult(
+                targets.groupBy { it.memberId }.map { (memberId, grouped) ->
+                    MemberReservationResult(memberId, grouped.map { ReservationItemResult(it, ReservationOutcome.Success) })
+                },
+            )
+        }
+    }
+
+    private class FakeCalendarRepository(
+        override val libraries: List<Library> = listOf(Library("A", "中央図書館"), Library("B", "北口図書館")),
+    ) : CalendarRepository {
+        override fun closedDays(libraryCode: String): Flow<List<ClosedDay>> = flowOf(emptyList())
+        override suspend fun refreshClosedDays(libraryCode: String) = Unit
     }
 
     private fun newArrival(tilcod: String) = NewArrival(
