@@ -47,9 +47,19 @@ class LoanExtensionRepositoryImpl @Inject constructor(
      * Gatewayや1件の延長ロジックは一切変更しない。1件が[LoanExtensionOutcome.Failure]や
      * [LoanExtensionOutcome.Unknown]になっても後続の対象を続けて処理する(CancellationExceptionは
      * 呼び出し元の中断としてそのまま伝播させる)。
+     * [onProgress]は1件終えるたびに呼ぶ(UI側の進捗表示 §5.2用)。
      */
-    override suspend fun extendLoans(targets: List<LoanExtensionTarget>): LoanExtensionBatchResult =
-        LoanExtensionBatchResult(targets.map { target -> LoanExtensionItemResult(target, extendLoan(target)) })
+    override suspend fun extendLoans(
+        targets: List<LoanExtensionTarget>,
+        onProgress: (completed: Int, total: Int) -> Unit,
+    ): LoanExtensionBatchResult {
+        val items = targets.mapIndexed { index, target ->
+            val item = LoanExtensionItemResult(target, extendLoan(target))
+            onProgress(index + 1, targets.size)
+            item
+        }
+        return LoanExtensionBatchResult(items)
+    }
 
     private suspend fun extendLoanLocked(target: LoanExtensionTarget): LoanExtensionOutcome {
         val member = try {

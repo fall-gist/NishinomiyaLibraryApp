@@ -166,8 +166,16 @@ interface LoanExtensionRepository {
      * 複数件を順に延長する(`docs/design/bulk-selection.md` §5.1)。1件が失敗しても後続を続行し、
      * 件ごとの結果を返す(`ReservationCancelRepository.cancelReservations`と同じ流儀)。
      * 実装は既存[extendLoan]を順に呼ぶループとする。Gateway(1件の二段階POSTと照合)は不変。
+     *
+     * [onProgress]は1件処理し終えるたびに呼ばれる(`completed`は1始まりの完了件数、`total`は対象件数)。
+     * 一斉延長は1件ごとに一覧再取得＋二段階POSTを行うため長時間かかり、UI側の進捗表示
+     * (`docs/design/bulk-selection.md` §5.2「N件目/M件」)に必要。既定値は何もしないラムダなので、
+     * 進捗を使わない呼び出し元(テスト等)は指定しなくてよい。
      */
-    suspend fun extendLoans(targets: List<LoanExtensionTarget>): LoanExtensionBatchResult
+    suspend fun extendLoans(
+        targets: List<LoanExtensionTarget>,
+        onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
+    ): LoanExtensionBatchResult
 }
 
 /** 自動予約の設定・制御記録・直近表示履歴を扱う内部ユースケース用の永続境界。 */

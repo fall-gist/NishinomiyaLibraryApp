@@ -125,8 +125,15 @@ Dは長押しの利点が最も効く（カート追加はほぼ全行が対象�
 ```kotlin
 interface LoanExtensionRepository {
     suspend fun extendLoan(target: LoanExtensionTarget): LoanExtensionOutcome
-    /** 複数件を順に延長する。1件が失敗しても後続を続行し、件ごとの結果を返す。 */
-    suspend fun extendLoans(targets: List<LoanExtensionTarget>): LoanExtensionBatchResult
+    /**
+     * 複数件を順に延長する。1件が失敗しても後続を続行し、件ごとの結果を返す。
+     * onProgressは1件終えるたびに呼ぶ(completedは1始まり)。UI側の進捗表示(§5.2)はこれで駆動する。
+     * 既定値は何もしないラムダなので、進捗を使わない呼び出し元(テスト等)は指定しなくてよい。
+     */
+    suspend fun extendLoans(
+        targets: List<LoanExtensionTarget>,
+        onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
+    ): LoanExtensionBatchResult
 }
 
 data class LoanExtensionBatchResult(val items: List<LoanExtensionItemResult>)
@@ -135,9 +142,14 @@ data class LoanExtensionItemResult(val target: LoanExtensionTarget, val outcome:
 
 実装は**既存 `extendLoan` を順に呼ぶループ**とする。Gatewayは不変。
 `ReservationCancelRepository.cancelReservations` と同じ流儀で、1件の失敗が後続を止めない。
+ループはRepository側に置く（§9.1の構造要件どおり、UI層は「複数件を順に回すRepository側の
+ループ追加」の結果を使うだけにする。UI層で別のループを持たない）。
 
 **注意**: 延長は1件ごとに「一覧を取得し直して `renewalCode` を得る」二段階POSTを行う。
-したがって一斉延長は件数に比例して時間がかかる。**進捗表示が必要**（§5.2）。
+したがって一斉延長は件数に比例して時間がかかる。**進捗表示が必要**（§5.2）。進捗表示は
+`extendLoans` の `onProgress` コールバックで駆動する（実装時に追加。当初案ではUI層が
+`extendLoan` を自前でループしていたが、それだとRepository側の`extendLoans`が本番コードから
+一度も呼ばれず、テストと実挙動が乖離するため、コールバック付きに直した）。
 
 ### 5.2 UI
 

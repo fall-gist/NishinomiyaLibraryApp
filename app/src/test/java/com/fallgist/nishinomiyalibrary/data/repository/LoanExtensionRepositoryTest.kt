@@ -14,6 +14,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionTarget
 import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionBatchResult
 import com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionItemResult
+import com.fallgist.nishinomiyalibrary.domain.repository.LoanExtensionRepository
 import java.time.LocalDate
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -124,6 +125,24 @@ class LoanExtensionRepositoryTest {
         )
 
         assertEquals(listOf("order-1", "order-2", "order-3"), received)
+    }
+
+    @Test
+    fun `extendLoansは1件終えるたびにonProgressを呼ぶ`() = runBlocking {
+        val member = addMember("進捗確認", "bulk-progress")
+        val repository = repository(fakeGateway { LoanExtensionOutcome.Unknown })
+        val progress = mutableListOf<Pair<Int, Int>>()
+
+        repository.extendLoans(
+            listOf(
+                LoanExtensionTarget(member, "progress-1"),
+                LoanExtensionTarget(member, "progress-2"),
+                LoanExtensionTarget(member, "progress-3"),
+            ),
+            onProgress = { completed, total -> progress += completed to total },
+        )
+
+        assertEquals(listOf(1 to 3, 2 to 3, 3 to 3), progress)
     }
 
     @Test
@@ -385,7 +404,10 @@ class LoanExtensionRepositoryTest {
         return id
     }
 
-    private fun repository(gateway: LoanExtensionGateway) =
+    // 戻り値の型を明示してinterfaceにする(extendLoansのonProgress既定値は、呼び出し側の静的型が
+    // interfaceのときだけ効く。LoanExtensionRepositoryImpl型のままだと呼び出し側で毎回onProgressの
+    // 指定が必要になってしまう)。
+    private fun repository(gateway: LoanExtensionGateway): LoanExtensionRepository =
         LoanExtensionRepositoryImpl(database.memberDao(), credentials, gateway, database.loanDao())
 
     private fun fakeGateway(extend: suspend (tilcod: String) -> LoanExtensionOutcome): LoanExtensionGateway =

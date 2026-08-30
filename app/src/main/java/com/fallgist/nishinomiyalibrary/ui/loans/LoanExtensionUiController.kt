@@ -159,23 +159,30 @@ class LoanExtensionUiController(
     }
 
     /**
-     * 一斉延長本体。`docs/design/bulk-selection.md` §5.1のとおりRepositoryは
-     * [LoanExtensionRepository.extendLoans]を持つが、1件ごとに進捗(§5.2「3件目/5件」)を
-     * 出す必要があるため、ここでは既存の[LoanExtensionRepository.extendLoan]を順に呼ぶ
-     * (extendLoansは進捗コールバックを持たない一括APIのため、進捗表示にはそのまま使えない)。
-     * 1件ごとの成否判定・ローカル反映は[LoanExtensionRepository.extendLoan]内で完結しており、
-     * ここでループしても§6.1の反映規則は変わらない。
+     * 一斉延長本体。`docs/design/bulk-selection.md` §9.1の構造要件どおり、複数件を順に回す
+     * ループは[LoanExtensionRepository.extendLoans]側に置く(UI層で別のループを持たない)。
+     * 進捗表示(§5.2「N件目/M件」)は`extendLoans`の`onProgress`コールバックで駆動する。
+     * 結果行のtitleはScreen側から渡された[candidates]をtargetで引き当てて組み立てる
+     * (`LoanExtensionItemResult`はtargetとoutcomeしか持たないため)。
      */
     private fun confirmBulk(candidates: List<LoanExtensionCandidate>) {
-        _state.value = state.value.copy(bulkProgress = LoanExtensionBulkProgress(0, candidates.size))
+        val total = candidates.size
+        _state.value = state.value.copy(bulkProgress = LoanExtensionBulkProgress(0, total), processingTarget = candidates.firstOrNull()?.key)
         scope.launch {
             try {
-                val rows = mutableListOf<LoanExtensionResultRow>()
-                for ((index, candidate) in candidates.withIndex()) {
-                    _state.value = _state.value.copy(processingTarget = candidate.key)
-                    val outcome = extensionRepository.extendLoan(candidate.target)
-                    rows += LoanExtensionResultRow(candidate.key, candidate.title, LoanExtensionContentBuilder.resultMessage(outcome))
-                    _state.value = _state.value.copy(bulkProgress = LoanExtensionBulkProgress(index + 1, candidates.size))
+                val titleByTarget = candidates.associate { it.target to it.title }
+                val batchResult = extensionRepository.extendLoans(candidates.map { it.target }) { completed, progressTotal ->
+                    _state.value = _state.value.copy(
+                        bulkProgress = LoanExtensionBulkProgress(completed, progressTotal),
+                        processingTarget = candidates.getOrNull(completed)?.key,
+                    )
+                }
+                val rows = batchResult.items.map { item ->
+                    LoanExtensionResultRow(
+                        key = LoanExtensionKey(item.target.memberId, item.target.tilcod),
+                        title = titleByTarget[item.target] ?: item.target.tilcod,
+                        message = LoanExtensionContentBuilder.resultMessage(item.outcome),
+                    )
                 }
                 _state.value = _state.value.copy(
                     // 一斉延長の対象は完了後に選択を空にする(予約中の一斉取消と同じ流儀)。

@@ -342,11 +342,14 @@ class LoanExtensionUiControllerTest {
         }
         override suspend fun extendLoans(
             targets: List<LoanExtensionTarget>,
-        ): com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionBatchResult =
-            com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionBatchResult(
-                targets.map { target ->
-                    com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionItemResult(target, extendLoan(target))
-                },
-            )
+            onProgress: (completed: Int, total: Int) -> Unit,
+        ): com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionBatchResult {
+            val items = targets.mapIndexed { index, target ->
+                val item = com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionItemResult(target, extendLoan(target))
+                onProgress(index + 1, targets.size)
+                item
+            }
+            return com.fallgist.nishinomiyalibrary.domain.model.LoanExtensionBatchResult(items)
+        }
     }
 }
