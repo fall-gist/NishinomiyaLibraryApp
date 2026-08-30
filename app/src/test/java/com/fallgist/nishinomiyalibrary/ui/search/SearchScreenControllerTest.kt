@@ -128,7 +128,9 @@ class SearchScreenControllerTest {
             hits = listOf(SearchHit("100", "資料A", "著者A", "図書"), SearchHit("101", "資料B", "著者B", "図書")),
         )
         val cartRepository = FakeCartRepository(summary = ReservationCartAddSummary(added = 1, skipped = 0))
-        val controller = controller(searchRepository, cartRepository, dispatcher)
+        // このテストの主眼は§4.3(確認待ち中に一覧から消えたキーの無視)であり、§6.2の選択解除警告とは
+        // 無関係。警告が割り込むと下の再検索が保留されてしまうため、ここでは警告設定をオフにする。
+        val controller = controller(searchRepository, cartRepository, dispatcher, warnBeforeClearingSelection = flowOf(false))
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
