@@ -116,15 +116,15 @@ fun NewArrivalsScreen(
                 .padding(horizontal = 18.dp, vertical = 6.dp),
         )
         if (state.rows.isNotEmpty()) {
+            // 件数規則の統一(設計追補§6.1)。バーの件数は全選択件数ではなく「表示中の選択」に揃える。
+            // 実行対象(cartAdditionCandidates)と同じ集合を数えることで、バーの件数と実際の処理件数の
+            // ずれ(絞り込みで隠れた選択を含めて数えてしまう不具合)を無くす。
+            val displayedCandidates = NewArrivalsContentBuilder.cartAdditionCandidates(state.rows, state.selectedCartTilcods)
             BulkActionBar(
-                selectedCount = state.selectedCartTilcods.size,
+                selectedCount = displayedCandidates.size,
                 actionLabel = "カートへ追加",
                 enabled = state.canRequestBulkCartAddition,
-                onClick = {
-                    onRequestBulkCartAddition(
-                        NewArrivalsContentBuilder.cartAdditionCandidates(state.rows, state.selectedCartTilcods),
-                    )
-                },
+                onClick = { onRequestBulkCartAddition(displayedCandidates) },
                 containerColor = colors.green,
                 contentColor = colors.card,
             )

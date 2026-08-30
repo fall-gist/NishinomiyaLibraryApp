@@ -132,15 +132,15 @@ private fun SearchView(
         }
         // BulkActionBarと一斉追加の結果・エラー表示は結果一覧の直上に置く(予約中一覧のBulkCancelBarと同じ配置方針)。
         if (state.results.isNotEmpty()) {
+            // 件数規則の統一(設計追補§6.1)。バーの件数は全選択件数ではなく「表示中の選択」に揃える。
+            // 実行対象(cartAdditionCandidates)と同じ集合を数えることで、バーの件数と実際の処理件数の
+            // ずれ(絞り込みで隠れた選択を含めて数えてしまう不具合)を無くす。
+            val displayedCandidates = SearchContentBuilder.cartAdditionCandidates(state.results, state.selectedCartTilcods)
             BulkActionBar(
-                selectedCount = state.selectedCartTilcods.size,
+                selectedCount = displayedCandidates.size,
                 actionLabel = "カートへ追加",
                 enabled = state.canRequestBulkCartAddition,
-                onClick = {
-                    onRequestBulkCartAddition(
-                        SearchContentBuilder.cartAdditionCandidates(state.results, state.selectedCartTilcods),
-                    )
-                },
+                onClick = { onRequestBulkCartAddition(displayedCandidates) },
                 containerColor = colors.green,
                 contentColor = colors.card,
             )
