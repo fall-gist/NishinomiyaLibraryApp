@@ -117,6 +117,15 @@ class ReservationUiController(
     private val _state = MutableStateFlow(ReservationUiState(libraries = calendarRepository.libraries))
     val state: StateFlow<ReservationUiState> = _state
 
+    // _stateは購読側(init、UIスレッドからのtoggleCartItemSelection等)と、予約確定・カートの
+    // 一括削除・「カートを空にする」(いずれもDispatchers.Default上のscope.launch)の複数から
+    // 更新される。予約確定はサイトへの複数回のPOSTを伴うため長時間動き、その間も利用者は
+    // チェックボックスを操作できる。`_state.value = _state.value.copy(...)`は読みと書きの間に
+    // 別コルーチンの書きが挟まるとそれを取りこぼす(lost update)。CalendarScreenController・
+    // SettingsScreenController・LoanExtensionUiController・NewArrivalsScreenController・
+    // SearchScreenControllerで実際に踏んだ不具合と同型(docs/handoff.md参照)。
+    // **必ず`update {}`(CASループ)を使うこと。`_state.value = ...`を書いてはならない。**
+
     init {
         scope.launch {
             operationGate.state.collect { gateState ->
@@ -135,31 +144,33 @@ class ReservationUiController(
             ) { cartItems, members, settings ->
                 Triple(cartItems, members, settings.defaultCalendarLibrary)
             }.collect { (cartItems, members, defaultCode) ->
-                val pickupCode = validLibraryCode(_state.value.pickupLibraryCode.ifBlank { defaultCode })
-                val selectedMember = _state.value.selectedMemberId
-                    ?.takeIf { id -> members.any { it.id == id } }
-                    ?: members.firstOrNull()?.id
-                _state.value = _state.value.copy(
-                    initialized = true,
-                    members = members,
-                    cartGroups = ReservationCartContentBuilder.groups(cartItems, members),
-                    libraries = calendarRepository.libraries,
-                    pickupLibraryCode = pickupCode,
-                    selectedMemberId = selectedMember,
-                )
+                _state.update { current ->
+                    val pickupCode = validLibraryCode(current.pickupLibraryCode.ifBlank { defaultCode })
+                    val selectedMember = current.selectedMemberId
+                        ?.takeIf { id -> members.any { it.id == id } }
+                        ?: members.firstOrNull()?.id
+                    current.copy(
+                        initialized = true,
+                        members = members,
+                        cartGroups = ReservationCartContentBuilder.groups(cartItems, members),
+                        libraries = calendarRepository.libraries,
+                        pickupLibraryCode = pickupCode,
+                        selectedMemberId = selectedMember,
+                    )
+                }
             }
         }
     }
 
     fun selectPickupLibrary(code: String) {
         if (state.value.libraries.any { it.code == code }) {
-            _state.value = _state.value.copy(pickupLibraryCode = code)
+            _state.update { it.copy(pickupLibraryCode = code) }
         }
     }
 
     fun selectMember(memberId: Long) {
         if (state.value.members.any { it.id == memberId }) {
-            _state.value = _state.value.copy(selectedMemberId = memberId)
+            _state.update { it.copy(selectedMemberId = memberId) }
         }
     }
 
@@ -168,15 +179,19 @@ class ReservationUiController(
         scope.launch {
             try {
                 cartRepository.addToCart(target)
-                _state.value = _state.value.copy(
-                    feedback = ReservationFeedback(ReservationFeedbackOrigin.CART_ADD, target.tilcod, notice = "カートに追加しました"),
-                )
+                _state.update {
+                    it.copy(
+                        feedback = ReservationFeedback(ReservationFeedbackOrigin.CART_ADD, target.tilcod, notice = "カートに追加しました"),
+                    )
+                }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    feedback = ReservationFeedback(ReservationFeedbackOrigin.CART_ADD, target.tilcod, errorMessage = "カートへ追加できませんでした"),
-                )
+                _state.update {
+                    it.copy(
+                        feedback = ReservationFeedback(ReservationFeedbackOrigin.CART_ADD, target.tilcod, errorMessage = "カートへ追加できませんでした"),
+                    )
+                }
             }
         }
     }
@@ -189,9 +204,11 @@ class ReservationUiController(
             } catch (exception: CancellationException) {
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    feedback = ReservationFeedback(ReservationFeedbackOrigin.CART, errorMessage = "カートから削除できませんでした"),
-                )
+                _state.update {
+                    it.copy(
+                        feedback = ReservationFeedback(ReservationFeedbackOrigin.CART, errorMessage = "カートから削除できませんでした"),
+                    )
+                }
             }
         }
     }
@@ -199,23 +216,28 @@ class ReservationUiController(
     /** 一覧行のチェックボックスのタップ(`docs/design/bulk-selection.md` §6.2)。全行が対象になる。 */
     fun toggleCartItemSelection(cartItemId: Long) {
         if (state.value.cartMutationProcessing) return
-        val current = state.value.selectedCartItemIds
-        _state.value = state.value.copy(
-            selectedCartItemIds = if (cartItemId in current) current - cartItemId else current + cartItemId,
-        )
+        _state.update { current ->
+            current.copy(
+                selectedCartItemIds = if (cartItemId in current.selectedCartItemIds) {
+                    current.selectedCartItemIds - cartItemId
+                } else {
+                    current.selectedCartItemIds + cartItemId
+                },
+            )
+        }
     }
 
     /** 「選択した項目を削除」ボタン。選択済みキーに対応する候補はScreen側で組み立てて渡す。 */
     fun requestBulkCartDeleteConfirmation(candidates: List<ReservationCartDeleteCandidate>) {
         if (state.value.cartMutationProcessing || candidates.isEmpty()) return
-        _state.value = state.value.copy(
-            bulkCartDeleteConfirmation = ReservationCartBulkDeleteConfirmationRequest(candidates),
-        )
+        _state.update {
+            it.copy(bulkCartDeleteConfirmation = ReservationCartBulkDeleteConfirmationRequest(candidates))
+        }
     }
 
     fun dismissBulkCartDeleteConfirmation() {
         if (!state.value.cartMutationProcessing) {
-            _state.value = state.value.copy(bulkCartDeleteConfirmation = null)
+            _state.update { it.copy(bulkCartDeleteConfirmation = null) }
         }
     }
 
@@ -223,7 +245,7 @@ class ReservationUiController(
     fun confirmBulkCartDelete() {
         val request = state.value.bulkCartDeleteConfirmation ?: return
         if (state.value.cartMutationProcessing) return
-        _state.value = state.value.copy(bulkCartDeleteConfirmation = null, cartMutationProcessing = true)
+        _state.update { it.copy(bulkCartDeleteConfirmation = null, cartMutationProcessing = true) }
         scope.launch {
             try {
                 // 一覧に存在しなくなったidは無視する(§4.3)。確認待ちの間にカート内容が変わり得るため、
@@ -231,15 +253,17 @@ class ReservationUiController(
                 val currentIds = state.value.cartGroups.flatMap { it.items }.map { it.id }.toSet()
                 val ids = request.candidates.map { it.cartItemId }.filter { it in currentIds }
                 if (ids.isNotEmpty()) cartRepository.removeFromCart(ids)
-                _state.value = _state.value.copy(selectedCartItemIds = emptySet(), cartMutationProcessing = false)
+                _state.update { it.copy(selectedCartItemIds = emptySet(), cartMutationProcessing = false) }
             } catch (exception: CancellationException) {
-                _state.value = _state.value.copy(cartMutationProcessing = false)
+                _state.update { it.copy(cartMutationProcessing = false) }
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    cartMutationProcessing = false,
-                    cartMutationErrorMessage = "カートから削除できませんでした。もう一度お試しください。",
-                )
+                _state.update {
+                    it.copy(
+                        cartMutationProcessing = false,
+                        cartMutationErrorMessage = "カートから削除できませんでした。もう一度お試しください。",
+                    )
+                }
             }
         }
     }
@@ -247,67 +271,67 @@ class ReservationUiController(
     /** 「カートを空にする」ボタン(§6.2、確認必須)。 */
     fun requestClearCartConfirmation() {
         if (state.value.processing || state.value.cartMutationProcessing || state.value.cartItemCount == 0) return
-        _state.value = state.value.copy(clearCartConfirmationPending = true)
+        _state.update { it.copy(clearCartConfirmationPending = true) }
     }
 
     fun dismissClearCartConfirmation() {
         if (!state.value.cartMutationProcessing) {
-            _state.value = state.value.copy(clearCartConfirmationPending = false)
+            _state.update { it.copy(clearCartConfirmationPending = false) }
         }
     }
 
     fun confirmClearCart() {
         if (!state.value.clearCartConfirmationPending || state.value.cartMutationProcessing) return
-        _state.value = state.value.copy(clearCartConfirmationPending = false, cartMutationProcessing = true)
+        _state.update { it.copy(clearCartConfirmationPending = false, cartMutationProcessing = true) }
         scope.launch {
             try {
                 cartRepository.clearCart()
-                _state.value = _state.value.copy(selectedCartItemIds = emptySet(), cartMutationProcessing = false)
+                _state.update { it.copy(selectedCartItemIds = emptySet(), cartMutationProcessing = false) }
             } catch (exception: CancellationException) {
-                _state.value = _state.value.copy(cartMutationProcessing = false)
+                _state.update { it.copy(cartMutationProcessing = false) }
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    cartMutationProcessing = false,
-                    cartMutationErrorMessage = "カートを空にできませんでした。もう一度お試しください。",
-                )
+                _state.update {
+                    it.copy(
+                        cartMutationProcessing = false,
+                        cartMutationErrorMessage = "カートを空にできませんでした。もう一度お試しください。",
+                    )
+                }
             }
         }
     }
 
     fun clearCartMutationError() {
-        _state.value = state.value.copy(cartMutationErrorMessage = null)
+        _state.update { it.copy(cartMutationErrorMessage = null) }
     }
 
     fun requestCartConfirmation() {
         val targets = state.value.cartGroups.flatMap { group -> group.items.map { it.toTarget() } }
         if (state.value.processing || targets.isEmpty()) return
         if (!state.value.hasValidPickupLibrary) {
-            _state.value = _state.value.copy(
-                feedback = ReservationFeedback(ReservationFeedbackOrigin.CART, errorMessage = "有効な受取館を選択してください"),
-            )
+            _state.update {
+                it.copy(feedback = ReservationFeedback(ReservationFeedbackOrigin.CART, errorMessage = "有効な受取館を選択してください"))
+            }
             return
         }
-        _state.value = _state.value.copy(
-            pendingConfirmation = ReservationConfirmationRequest.Cart(targets),
-        )
+        _state.update { it.copy(pendingConfirmation = ReservationConfirmationRequest.Cart(targets)) }
     }
 
     fun requestImmediateConfirmation(target: ReservationTarget) {
         if (state.value.processing || target.memberId !in state.value.members.map { it.id }) return
         if (!state.value.hasValidPickupLibrary) {
-            _state.value = _state.value.copy(
-                feedback = ReservationFeedback(ReservationFeedbackOrigin.IMMEDIATE, target.tilcod, errorMessage = "有効な受取館を選択してください"),
-            )
+            _state.update {
+                it.copy(
+                    feedback = ReservationFeedback(ReservationFeedbackOrigin.IMMEDIATE, target.tilcod, errorMessage = "有効な受取館を選択してください"),
+                )
+            }
             return
         }
-        _state.value = _state.value.copy(
-            pendingConfirmation = ReservationConfirmationRequest.Immediate(listOf(target)),
-        )
+        _state.update { it.copy(pendingConfirmation = ReservationConfirmationRequest.Immediate(listOf(target))) }
     }
 
     fun dismissConfirmation() {
-        if (!state.value.processing) _state.value = _state.value.copy(pendingConfirmation = null)
+        if (!state.value.processing) _state.update { it.copy(pendingConfirmation = null) }
     }
 
     /** 最終確認ダイアログの肯定操作だけが予約通信を開始する。 */
@@ -315,29 +339,33 @@ class ReservationUiController(
         val request = state.value.pendingConfirmation ?: return
         if (state.value.processing) return
         if (!state.value.hasValidPickupLibrary) {
-            _state.value = _state.value.copy(
-                pendingConfirmation = null,
-                feedback = request.feedback(errorMessage = "有効な受取館を選択してください"),
-            )
+            _state.update {
+                it.copy(
+                    pendingConfirmation = null,
+                    feedback = request.feedback(errorMessage = "有効な受取館を選択してください"),
+                )
+            }
             return
         }
         val confirmation = ReservationConfirmation(state.value.pickupLibraryCode, now())
         updateProcessing(true)
-        _state.value = _state.value.copy(pendingConfirmation = null)
+        _state.update { it.copy(pendingConfirmation = null) }
         scope.launch {
             try {
                 val result = executeReservation(request, confirmation)
-                _state.value = _state.value.copy(
-                    feedback = request.feedback(results = ReservationCartContentBuilder.resultRows(result)),
-                )
+                _state.update {
+                    it.copy(feedback = request.feedback(results = ReservationCartContentBuilder.resultRows(result)))
+                }
                 updateProcessing(false)
             } catch (exception: CancellationException) {
                 updateProcessing(false)
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    feedback = request.feedback(errorMessage = "予約処理を完了できませんでした。通信状態を確認して、残っている項目を再度お試しください。"),
-                )
+                _state.update {
+                    it.copy(
+                        feedback = request.feedback(errorMessage = "予約処理を完了できませんでした。通信状態を確認して、残っている項目を再度お試しください。"),
+                    )
+                }
                 updateProcessing(false)
             }
         }
@@ -345,7 +373,7 @@ class ReservationUiController(
 
     fun clearCartFeedback() {
         if (state.value.feedback?.origin == ReservationFeedbackOrigin.CART) {
-            _state.value = _state.value.copy(feedback = null)
+            _state.update { it.copy(feedback = null) }
         }
     }
 
@@ -366,10 +394,12 @@ class ReservationUiController(
             ?: calendarRepository.libraries.firstOrNull()?.code.orEmpty()
 
     private fun updateProcessing(processing: Boolean) {
-        _state.value = _state.value.copy(
-            processing = processing,
-            waitingForAutomaticReservation = processing && operationGate.state.value.isWaitingForAutomaticReservation(),
-        )
+        _state.update {
+            it.copy(
+                processing = processing,
+                waitingForAutomaticReservation = processing && operationGate.state.value.isWaitingForAutomaticReservation(),
+            )
+        }
     }
 }
 
