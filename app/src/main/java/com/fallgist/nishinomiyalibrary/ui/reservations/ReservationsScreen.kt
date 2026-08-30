@@ -22,8 +22,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -38,12 +36,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
+import com.fallgist.nishinomiyalibrary.ui.components.BulkActionBar
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDotGap
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDotIndent
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
+import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
@@ -81,8 +81,9 @@ fun ReservationsScreen(
         // BulkCancelBarと取消エラー表示はプル領域の外に置く(絞り込み行の直下)。
         // 空のときに出さない条件は元のrows.isEmpty()分岐のまま維持する。
         if (state.rows.isNotEmpty()) {
-            BulkCancelBar(
+            BulkActionBar(
                 selectedCount = cancelState.selectedKeys.size,
+                actionLabel = "一斉取消",
                 enabled = cancelState.canCancelSelection,
                 onClick = {
                     val candidates = ReservationsContentBuilder.cancelCandidates(state.rows, cancelState.selectedKeys)
@@ -162,25 +163,6 @@ fun ReservationsScreen(
 }
 
 @Composable
-private fun BulkCancelBar(selectedCount: Int, enabled: Boolean, onClick: () -> Unit) {
-    val colors = LocalAppColors.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.End,
-    ) {
-        Button(
-            onClick = onClick,
-            enabled = enabled,
-            colors = ButtonDefaults.buttonColors(containerColor = colors.alert, contentColor = colors.card),
-        ) {
-            Text(if (selectedCount > 0) "一斉取消（${selectedCount}件）" else "一斉取消")
-        }
-    }
-}
-
-@Composable
 private fun ReservationRowView(
     row: ReservationRow,
     selected: Boolean,
@@ -220,11 +202,11 @@ private fun ReservationRowView(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (row.cancellable) {
-                Checkbox(
+                SelectionCheckbox(
                     checked = selected,
-                    onCheckedChange = { onToggleSelection() },
                     enabled = selectionEnabled,
-                    colors = CheckboxDefaults.colors(checkedColor = colors.alert),
+                    onToggle = onToggleSelection,
+                    checkedColor = colors.alert,
                 )
             }
             Text(
