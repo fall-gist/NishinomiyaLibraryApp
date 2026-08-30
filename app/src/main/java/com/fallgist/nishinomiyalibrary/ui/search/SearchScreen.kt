@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.components.BulkActionBar
+import com.fallgist.nishinomiyalibrary.ui.components.ClearSelectionWarningDialog
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
@@ -55,6 +56,9 @@ fun SearchScreen(
     onDismissBulkCartAdditionConfirmation: () -> Unit,
     onClearBulkCartAdditionResult: () -> Unit,
     onClearBulkCartAdditionError: () -> Unit,
+    onConfirmPendingSearch: () -> Unit,
+    onDismissPendingSearch: () -> Unit,
+    onConfirmPendingSearchAndDisableWarning: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SearchView(
@@ -71,6 +75,9 @@ fun SearchScreen(
         onDismissBulkCartAdditionConfirmation = onDismissBulkCartAdditionConfirmation,
         onClearBulkCartAdditionResult = onClearBulkCartAdditionResult,
         onClearBulkCartAdditionError = onClearBulkCartAdditionError,
+        onConfirmPendingSearch = onConfirmPendingSearch,
+        onDismissPendingSearch = onDismissPendingSearch,
+        onConfirmPendingSearchAndDisableWarning = onConfirmPendingSearchAndDisableWarning,
         modifier = modifier,
     )
 }
@@ -90,6 +97,9 @@ private fun SearchView(
     onDismissBulkCartAdditionConfirmation: () -> Unit,
     onClearBulkCartAdditionResult: () -> Unit,
     onClearBulkCartAdditionError: () -> Unit,
+    onConfirmPendingSearch: () -> Unit,
+    onDismissPendingSearch: () -> Unit,
+    onConfirmPendingSearchAndDisableWarning: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -236,6 +246,15 @@ private fun SearchView(
             onSelectMember = onSelectBulkCartAdditionMember,
             onConfirm = onConfirmBulkCartAddition,
             onDismiss = onDismissBulkCartAdditionConfirmation,
+        )
+    }
+    // 再検索で選択が解除される前の確認(設計追補§6.2)。
+    if (state.pendingSearchKeyword != null) {
+        ClearSelectionWarningDialog(
+            operationLabel = "検索",
+            onConfirm = onConfirmPendingSearch,
+            onDismiss = onDismissPendingSearch,
+            onDisableWarning = onConfirmPendingSearchAndDisableWarning,
         )
     }
 }

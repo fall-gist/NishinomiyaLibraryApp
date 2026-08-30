@@ -106,6 +106,25 @@ class SettingsScreenControllerTest {
     }
 
     @Test
+    fun `setWarnBeforeClearingSelectionは設定へ保存される(design追補§6,3)`() = runBlocking {
+        val diagnosticLog = DiagnosticLog(fixedClock())
+        val controller = controller(diagnosticLog = diagnosticLog)
+        awaitInitialized(controller)
+
+        // 既定はオン
+        assertTrue(controller.state.value.settings.warnBeforeClearingSelection)
+
+        controller.setWarnBeforeClearingSelection(false)
+        awaitState(controller, "setWarnBeforeClearingSelection(false)後の反映") { !it.settings.warnBeforeClearingSelection }
+        assertFalse(controller.state.value.settings.warnBeforeClearingSelection)
+
+        controller.setWarnBeforeClearingSelection(true)
+        awaitState(controller, "setWarnBeforeClearingSelection(true)後の反映") { it.settings.warnBeforeClearingSelection }
+        assertTrue(controller.state.value.settings.warnBeforeClearingSelection)
+        controller.close()
+    }
+
+    @Test
     fun `診断ログの件数は記録内容に連動しclearで0へ戻る`() = runBlocking {
         val diagnosticLog = DiagnosticLog(fixedClock())
         val controller = controller(diagnosticLog = diagnosticLog)

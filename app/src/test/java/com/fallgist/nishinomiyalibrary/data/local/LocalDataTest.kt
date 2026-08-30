@@ -1093,6 +1093,10 @@ class LocalDataTest {
         assertTrue(settingsStore.settings.first().diagnosticLogEnabled)
         settingsStore.updateDiagnosticLogEnabled(false)
         assertFalse(settingsStore.settings.first().diagnosticLogEnabled)
+        // warnBeforeClearingSelection(`docs/design/bulk-selection-followup.md` §6.3)。既定はオン。
+        assertTrue(settingsStore.settings.first().warnBeforeClearingSelection)
+        settingsStore.updateWarnBeforeClearingSelection(false)
+        assertFalse(settingsStore.settings.first().warnBeforeClearingSelection)
         assertFalse(dataStore.data.first().asMap().values.toString().contains(credentialValue))
         assertFalse(
             context.getSharedPreferences("ordinary_settings", Context.MODE_PRIVATE)

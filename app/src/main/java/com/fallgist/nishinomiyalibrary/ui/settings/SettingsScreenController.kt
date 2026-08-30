@@ -268,6 +268,11 @@ class SettingsScreenController(
         scope.launch { runCatching { settingsStore.updateDefaultCalendarLibrary(code) } }
     }
 
+    /** 一斉操作の選択解除前の確認ダイアログ設定(`docs/design/bulk-selection-followup.md` §6.3)。 */
+    fun setWarnBeforeClearingSelection(enabled: Boolean) {
+        scope.launch { runCatching { settingsStore.updateWarnBeforeClearingSelection(enabled) } }
+    }
+
     /** マスターON時だけ必要条件を検証し、不足なら保存せず理由を表示する。 */
     fun setAutoReservationEnabled(enabled: Boolean) {
         scope.launch {

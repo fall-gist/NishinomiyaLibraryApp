@@ -1,17 +1,24 @@
 package com.fallgist.nishinomiyalibrary.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
@@ -74,4 +81,40 @@ fun BulkActionBar(
             Text(if (selectedCount > 0) "$actionLabel（${selectedCount}件）" else actionLabel)
         }
     }
+}
+
+/**
+ * 選択が残ったまま不可逆な一覧の入れ替えを行う前の確認ダイアログ
+ * (`docs/design/bulk-selection-followup.md` §6.2)。蔵書検索の再検索・新着資料の巡回(「更新」)で使う。
+ *
+ * [operationLabel] は「検索」「更新」など、これから行う操作の名前。文言に差し込む。
+ * [onDisableWarning] は「今後は表示しない」。設定をオフにしたうえで[onConfirm]と同じ続行を行う
+ * (呼び出し側の責務。ここではクリックの通知だけを行う)。
+ */
+@Composable
+fun ClearSelectionWarningDialog(
+    operationLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    onDisableWarning: () -> Unit,
+) {
+    val colors = LocalAppColors.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("選択を解除しますか？") },
+        text = {
+            Column {
+                Text("チェックした資料はまだ予約されていません。${operationLabel}を行うと選択は解除されます。よろしいですか？")
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "今後は表示しない",
+                    color = colors.green,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable(onClick = onDisableWarning),
+                )
+            }
+        },
+        confirmButton = { Button(onClick = onConfirm) { Text("続ける") } },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
+    )
 }

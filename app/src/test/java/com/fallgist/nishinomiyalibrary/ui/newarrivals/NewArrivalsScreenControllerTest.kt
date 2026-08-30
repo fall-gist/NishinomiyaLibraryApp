@@ -269,6 +269,131 @@ class NewArrivalsScreenControllerTest {
         controller.close()
     }
 
+    // ------------------------------------------------------------------
+    // 選択解除警告(`docs/design/bulk-selection-followup.md` §6.2)。対象操作は巡回(refresh、「更新」)のみ。
+    // onScreenLaunchedの自動巡回・loadMoreに相当する操作はNewArrivalsScreenControllerには無いため対象外。
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `選択0件では確認を出さず即座に巡回する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val updater = FakeUpdateRunner(repository)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        advanceUntilIdle()
+
+        controller.refresh()
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.pendingRefreshConfirmation)
+        assertEquals(1, repository.refreshCallCount)
+        controller.close()
+    }
+
+    @Test
+    fun `設定オフでは選択が残っていても確認を出さず即座に巡回する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val updater = FakeUpdateRunner(repository)
+        val controller = NewArrivalsScreenController(
+            repository, updater, dispatcher,
+            warnBeforeClearingSelection = flowOf(false),
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+
+        controller.refresh()
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.pendingRefreshConfirmation)
+        assertEquals(1, repository.refreshCallCount)
+        controller.close()
+    }
+
+    @Test
+    fun `選択が残っていて設定オンなら確認を要求し巡回を保留する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val updater = FakeUpdateRunner(repository)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+
+        controller.refresh()
+        advanceUntilIdle()
+
+        assertTrue(controller.state.value.pendingRefreshConfirmation)
+        assertEquals(0, repository.refreshCallCount)
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+        controller.close()
+    }
+
+    @Test
+    fun `続けるで選択を解除し保留していた巡回を実行する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val updater = FakeUpdateRunner(repository)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.refresh()
+        advanceUntilIdle()
+
+        controller.confirmPendingRefresh()
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.pendingRefreshConfirmation)
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        assertEquals(1, repository.refreshCallCount)
+        controller.close()
+    }
+
+    @Test
+    fun `戻るで選択を残し巡回を実行しない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val updater = FakeUpdateRunner(repository)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.refresh()
+        advanceUntilIdle()
+
+        controller.dismissPendingRefresh()
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.pendingRefreshConfirmation)
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+        assertEquals(0, repository.refreshCallCount)
+        controller.close()
+    }
+
+    @Test
+    fun `今後は表示しないで設定を無効化しつつ巡回を実行する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val updater = FakeUpdateRunner(repository)
+        var disableCalls = 0
+        val controller = NewArrivalsScreenController(
+            repository, updater, dispatcher,
+            disableWarnBeforeClearingSelection = { disableCalls++ },
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.refresh()
+        advanceUntilIdle()
+
+        controller.confirmPendingRefreshAndDisableWarning()
+        advanceUntilIdle()
+
+        assertEquals(1, disableCalls)
+        assertFalse(controller.state.value.pendingRefreshConfirmation)
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        assertFalse(controller.state.value.warnBeforeClearingSelection)
+        assertEquals(1, repository.refreshCallCount)
+        controller.close()
+    }
+
     private class FakeFamilyRepository(private val members: List<Member>) : FamilyRepository {
         override fun members(): Flow<List<Member>> = flowOf(members)
         override suspend fun addMember(name: String, colorHex: String, cardNumber: String, password: String) = Unit

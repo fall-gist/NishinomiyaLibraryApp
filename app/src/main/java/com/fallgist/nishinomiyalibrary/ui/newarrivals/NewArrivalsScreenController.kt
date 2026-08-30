@@ -1,5 +1,6 @@
 package com.fallgist.nishinomiyalibrary.ui.newarrivals
 
+import com.fallgist.nishinomiyalibrary.data.local.DEFAULT_WARN_BEFORE_CLEARING_SELECTION
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordTitleNormalizer
@@ -68,6 +69,10 @@ data class NewArrivalsUiState(
     val bulkCartAdditionProcessing: Boolean = false,
     val bulkCartAdditionResultMessage: String? = null,
     val bulkCartAdditionErrorMessage: String? = null,
+    /** 選択が残ったまま巡回(「更新」)する前に確認するか(`docs/design/bulk-selection-followup.md` §6.3)。 */
+    val warnBeforeClearingSelection: Boolean = DEFAULT_WARN_BEFORE_CLEARING_SELECTION,
+    /** 「更新」操作の確認待ち(§6.2)。選択(表示外を含む)が1件以上あるときだけ立つ。 */
+    val pendingRefreshConfirmation: Boolean = false,
 ) {
     val canRequestBulkCartAddition: Boolean get() = !bulkCartAdditionProcessing && selectedCartTilcods.isNotEmpty()
 }
@@ -145,6 +150,10 @@ class NewArrivalsScreenController(
     /** 一斉カート追加(`docs/design/bulk-selection.md` §7)のメンバー選択に使う。 */
     familyRepository: FamilyRepository = NoOpFamilyRepository,
     private val cartRepository: ReservationCartRepository = NoOpBulkCartAdditionRepository,
+    /** 選択解除前の確認ダイアログ設定(`docs/design/bulk-selection-followup.md` §6.3)。既定はオン。 */
+    private val warnBeforeClearingSelection: Flow<Boolean> = flowOf(DEFAULT_WARN_BEFORE_CLEARING_SELECTION),
+    /** 「今後は表示しない」で設定をオフにするための書き込み。既定は何もしない(設定未接続のテスト等)。 */
+    private val disableWarnBeforeClearingSelection: suspend () -> Unit = {},
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val _state = MutableStateFlow(NewArrivalsUiState())
@@ -193,6 +202,11 @@ class NewArrivalsScreenController(
                 _state.update { it.copy(autoReservationEnabled = enabled) }
             }
         }
+        scope.launch {
+            warnBeforeClearingSelection.collect { enabled ->
+                _state.update { it.copy(warnBeforeClearingSelection = enabled) }
+            }
+        }
     }
 
     /** 画面表示時に1回だけSCREEN_AUTO更新を依頼する。鮮度判定は更新Coordinatorが行う。 */
@@ -204,8 +218,39 @@ class NewArrivalsScreenController(
         }
     }
 
-    /** 「更新」操作。鮮度に関わらず必ず巡回する。取得に失敗した場合は次回また試せるようにする。 */
+    /**
+     * 「更新」操作。鮮度に関わらず必ず巡回する。取得に失敗した場合は次回また試せるようにする。
+     * 巡回は不可逆な一覧の入れ替え(`docs/design/bulk-selection-followup.md` §3.1)にあたるため、
+     * 選択(表示外を含む)が1件以上あり、かつ警告設定がオンのときは確認ダイアログを先に出す(§6.2)。
+     */
     fun refresh() {
+        val snapshot = state.value
+        if (snapshot.selectedCartTilcods.isNotEmpty() && snapshot.warnBeforeClearingSelection) {
+            _state.update { it.copy(pendingRefreshConfirmation = true) }
+            return
+        }
+        scope.launch { performRefresh(NewArrivalUpdateTrigger.SCREEN_MANUAL) }
+    }
+
+    /** 確認ダイアログの「続ける」。選択をすべて解除してから巡回する(§6.2)。 */
+    fun confirmPendingRefresh() {
+        if (!state.value.pendingRefreshConfirmation) return
+        _state.update { it.copy(pendingRefreshConfirmation = false, selectedCartTilcods = emptySet()) }
+        scope.launch { performRefresh(NewArrivalUpdateTrigger.SCREEN_MANUAL) }
+    }
+
+    /** 確認ダイアログの「戻る」。選択は残したまま、巡回も実行しない(§6.2)。 */
+    fun dismissPendingRefresh() {
+        _state.update { it.copy(pendingRefreshConfirmation = false) }
+    }
+
+    /** 確認ダイアログの「今後は表示しない」。設定をオフにしたうえで選択解除・巡回まで続行する(§6.2)。 */
+    fun confirmPendingRefreshAndDisableWarning() {
+        if (!state.value.pendingRefreshConfirmation) return
+        _state.update {
+            it.copy(pendingRefreshConfirmation = false, selectedCartTilcods = emptySet(), warnBeforeClearingSelection = false)
+        }
+        scope.launch { disableWarnBeforeClearingSelection() }
         scope.launch { performRefresh(NewArrivalUpdateTrigger.SCREEN_MANUAL) }
     }
 

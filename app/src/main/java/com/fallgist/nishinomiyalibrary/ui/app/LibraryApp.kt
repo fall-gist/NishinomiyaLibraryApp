@@ -436,6 +436,9 @@ fun LibraryApp(
                                 onDismissBulkCartAdditionConfirmation = searchController::dismissBulkCartAdditionConfirmation,
                                 onClearBulkCartAdditionResult = searchController::clearBulkCartAdditionResult,
                                 onClearBulkCartAdditionError = searchController::clearBulkCartAdditionError,
+                                onConfirmPendingSearch = searchController::confirmPendingSearch,
+                                onDismissPendingSearch = searchController::dismissPendingSearch,
+                                onConfirmPendingSearchAndDisableWarning = searchController::confirmPendingSearchAndDisableWarning,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -456,6 +459,9 @@ fun LibraryApp(
                                 onDismissBulkCartAdditionConfirmation = newArrivalsController::dismissBulkCartAdditionConfirmation,
                                 onClearBulkCartAdditionResult = newArrivalsController::clearBulkCartAdditionResult,
                                 onClearBulkCartAdditionError = newArrivalsController::clearBulkCartAdditionError,
+                                onConfirmPendingRefresh = newArrivalsController::confirmPendingRefresh,
+                                onDismissPendingRefresh = newArrivalsController::dismissPendingRefresh,
+                                onConfirmPendingRefreshAndDisableWarning = newArrivalsController::confirmPendingRefreshAndDisableWarning,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -494,6 +500,7 @@ fun LibraryApp(
                                 onSetNotifyPickupReady = settingsController::setNotifyPickupReady,
                                 onSetReturnReminderDaysBefore = settingsController::setReturnReminderDaysBefore,
                                 onSetDefaultCalendarLibrary = settingsController::setDefaultCalendarLibrary,
+                                onSetWarnBeforeClearingSelection = settingsController::setWarnBeforeClearingSelection,
                                 onSetDiagnosticLogEnabled = settingsController::setDiagnosticLogEnabled,
                                 onOpenDiagnosticLog = { diagnosticLogOpen = true },
                                 onSetAutoReservationEnabled = settingsController::setAutoReservationEnabled,

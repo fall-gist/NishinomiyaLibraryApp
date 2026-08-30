@@ -1,5 +1,6 @@
 package com.fallgist.nishinomiyalibrary.ui.search
 
+import com.fallgist.nishinomiyalibrary.data.local.DEFAULT_WARN_BEFORE_CLEARING_SELECTION
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
@@ -21,9 +22,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -61,6 +64,10 @@ data class SearchUiState(
     val bulkCartAdditionProcessing: Boolean = false,
     val bulkCartAdditionResultMessage: String? = null,
     val bulkCartAdditionErrorMessage: String? = null,
+    /** 選択が残ったまま再検索する前に確認するか(`docs/design/bulk-selection-followup.md` §6.3)。 */
+    val warnBeforeClearingSelection: Boolean = DEFAULT_WARN_BEFORE_CLEARING_SELECTION,
+    /** 再検索の確認待ち(§6.2)。選択(表示外を含む)が1件以上あるときだけ、実行待ちのキーワードを持つ。 */
+    val pendingSearchKeyword: String? = null,
 ) {
     val canRequestBulkCartAddition: Boolean get() = !bulkCartAdditionProcessing && selectedCartTilcods.isNotEmpty()
 }
@@ -121,6 +128,10 @@ class SearchScreenController(
     private val cartRepository: ReservationCartRepository,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val autocompleteDebounceMillis: Long = 300L,
+    /** 選択解除前の確認ダイアログ設定(`docs/design/bulk-selection-followup.md` §6.3)。既定はオン。 */
+    private val warnBeforeClearingSelection: Flow<Boolean> = flowOf(DEFAULT_WARN_BEFORE_CLEARING_SELECTION),
+    /** 「今後は表示しない」で設定をオフにするための書き込み。既定は何もしない(設定未接続のテスト等)。 */
+    private val disableWarnBeforeClearingSelection: suspend () -> Unit = {},
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val _state = MutableStateFlow(SearchUiState())
@@ -146,6 +157,11 @@ class SearchScreenController(
             familyRepository.members().collect { list ->
                 members.value = list
                 _state.update { it.copy(members = list) }
+            }
+        }
+        scope.launch {
+            warnBeforeClearingSelection.collect { enabled ->
+                _state.update { it.copy(warnBeforeClearingSelection = enabled) }
             }
         }
     }
@@ -248,9 +264,44 @@ class SearchScreenController(
         }
     }
 
+    /**
+     * 新しいキーワードでの検索実行。不可逆な一覧の入れ替え(`docs/design/bulk-selection-followup.md` §3.1)
+     * にあたるため、選択(表示外を含む)が1件以上あり、かつ警告設定がオンのときは確認ダイアログを先に出す(§6.2)。
+     */
     fun search(keyword: String) {
         val trimmed = keyword.trim()
         if (trimmed.isEmpty()) return
+        val snapshot = state.value
+        if (snapshot.selectedCartTilcods.isNotEmpty() && snapshot.warnBeforeClearingSelection) {
+            _state.update { it.copy(pendingSearchKeyword = trimmed) }
+            return
+        }
+        executeSearch(trimmed)
+    }
+
+    /** 確認ダイアログの「続ける」。選択をすべて解除してから検索する(§6.2)。 */
+    fun confirmPendingSearch() {
+        val keyword = state.value.pendingSearchKeyword ?: return
+        _state.update { it.copy(pendingSearchKeyword = null, selectedCartTilcods = emptySet()) }
+        executeSearch(keyword)
+    }
+
+    /** 確認ダイアログの「戻る」。選択は残したまま、検索も実行しない(§6.2)。 */
+    fun dismissPendingSearch() {
+        _state.update { it.copy(pendingSearchKeyword = null) }
+    }
+
+    /** 確認ダイアログの「今後は表示しない」。設定をオフにしたうえで選択解除・検索まで続行する(§6.2)。 */
+    fun confirmPendingSearchAndDisableWarning() {
+        val keyword = state.value.pendingSearchKeyword ?: return
+        _state.update {
+            it.copy(pendingSearchKeyword = null, selectedCartTilcods = emptySet(), warnBeforeClearingSelection = false)
+        }
+        scope.launch { disableWarnBeforeClearingSelection() }
+        executeSearch(keyword)
+    }
+
+    private fun executeSearch(trimmed: String) {
         autocompleteJob?.cancel()
         searchJob?.cancel()
         lendableJob?.cancel()

@@ -23,6 +23,11 @@ data class AppSettings(
     val diagnosticLogEnabled: Boolean = DEFAULT_DIAGNOSTIC_LOG_ENABLED,
     /** 新着キーワード自動予約のマスタースイッチ。初期値は必ずOFF。 */
     val autoReservationEnabled: Boolean = DEFAULT_AUTO_RESERVATION_ENABLED,
+    /**
+     * 一斉操作の選択が解除される前に確認ダイアログを出すか(`docs/design/bulk-selection-followup.md` §6.3)。
+     * 端末ごとのUIの好みであり、バックアップの写像には加えない(BackupPayload/BackupExporter/BackupImporterを変更しない)。
+     */
+    val warnBeforeClearingSelection: Boolean = DEFAULT_WARN_BEFORE_CLEARING_SELECTION,
 )
 
 class SettingsStore(private val dataStore: DataStore<Preferences>) {
@@ -37,6 +42,8 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
                 ?: DEFAULT_RETURN_REMINDER_DAYS_BEFORE,
             diagnosticLogEnabled = preferences[DIAGNOSTIC_LOG_ENABLED] ?: DEFAULT_DIAGNOSTIC_LOG_ENABLED,
             autoReservationEnabled = preferences[AUTO_RESERVATION_ENABLED] ?: DEFAULT_AUTO_RESERVATION_ENABLED,
+            warnBeforeClearingSelection = preferences[WARN_BEFORE_CLEARING_SELECTION]
+                ?: DEFAULT_WARN_BEFORE_CLEARING_SELECTION,
         )
     }
 
@@ -52,6 +59,7 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
             preferences[RETURN_REMINDER_DAYS_BEFORE] = value.returnReminderDaysBefore
             preferences[DIAGNOSTIC_LOG_ENABLED] = value.diagnosticLogEnabled
             preferences[AUTO_RESERVATION_ENABLED] = value.autoReservationEnabled
+            preferences[WARN_BEFORE_CLEARING_SELECTION] = value.warnBeforeClearingSelection
         }
     }
 
@@ -88,6 +96,10 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[AUTO_RESERVATION_ENABLED] = enabled }
     }
 
+    suspend fun updateWarnBeforeClearingSelection(enabled: Boolean) {
+        dataStore.edit { it[WARN_BEFORE_CLEARING_SELECTION] = enabled }
+    }
+
     /**
      * 新着資料の最終全置換取得時刻(epoch millis)。利用者設定ではなく内部状態のため、
      * [AppSettings]には含めず専用の読み書き関数として公開する。未取得ならnull。
@@ -118,6 +130,7 @@ class SettingsStore(private val dataStore: DataStore<Preferences>) {
         val DIAGNOSTIC_LOG_ENABLED = booleanPreferencesKey("diagnostic_log_enabled")
         val LAST_NEW_ARRIVAL_FETCHED_AT = longPreferencesKey("last_new_arrival_fetched_at")
         val AUTO_RESERVATION_ENABLED = booleanPreferencesKey("auto_reservation_enabled")
+        val WARN_BEFORE_CLEARING_SELECTION = booleanPreferencesKey("warn_before_clearing_selection")
     }
 }
 
@@ -130,3 +143,4 @@ const val DEFAULT_RETURN_REMINDER_DAYS_BEFORE = 1
 val RETURN_REMINDER_DAYS_RANGE = 1..7
 const val DEFAULT_DIAGNOSTIC_LOG_ENABLED = false
 const val DEFAULT_AUTO_RESERVATION_ENABLED = false
+const val DEFAULT_WARN_BEFORE_CLEARING_SELECTION = true

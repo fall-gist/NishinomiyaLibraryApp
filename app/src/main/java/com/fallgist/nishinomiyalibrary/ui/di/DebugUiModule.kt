@@ -154,11 +154,14 @@ object DebugUiProvisionModule {
         readingRecordRepository: ReadingRecordRepository,
         familyRepository: FamilyRepository,
         cartRepository: ReservationCartRepository,
+        settingsStore: SettingsStore,
     ): SearchScreenController = SearchScreenController(
         searchRepository = searchRepository,
         readingRecordRepository = readingRecordRepository,
         familyRepository = familyRepository,
         cartRepository = cartRepository,
+        warnBeforeClearingSelection = settingsStore.settings.map { it.warnBeforeClearingSelection },
+        disableWarnBeforeClearingSelection = { settingsStore.updateWarnBeforeClearingSelection(false) },
     )
 
     @Provides
@@ -189,6 +192,8 @@ object DebugUiProvisionModule {
         autoReservationEnabled = settingsStore.settings.map { it.autoReservationEnabled },
         familyRepository = familyRepository,
         cartRepository = cartRepository,
+        warnBeforeClearingSelection = settingsStore.settings.map { it.warnBeforeClearingSelection },
+        disableWarnBeforeClearingSelection = { settingsStore.updateWarnBeforeClearingSelection(false) },
     )
 
     @Provides

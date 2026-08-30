@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.components.BulkActionBar
+import com.fallgist.nishinomiyalibrary.ui.components.ClearSelectionWarningDialog
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
@@ -51,6 +52,9 @@ fun NewArrivalsScreen(
     onDismissBulkCartAdditionConfirmation: () -> Unit,
     onClearBulkCartAdditionResult: () -> Unit,
     onClearBulkCartAdditionError: () -> Unit,
+    onConfirmPendingRefresh: () -> Unit,
+    onDismissPendingRefresh: () -> Unit,
+    onConfirmPendingRefreshAndDisableWarning: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -195,6 +199,15 @@ fun NewArrivalsScreen(
             onSelectMember = onSelectBulkCartAdditionMember,
             onConfirm = onConfirmBulkCartAddition,
             onDismiss = onDismissBulkCartAdditionConfirmation,
+        )
+    }
+    // 巡回(「更新」)で選択が解除される前の確認(設計追補§6.2)。
+    if (state.pendingRefreshConfirmation) {
+        ClearSelectionWarningDialog(
+            operationLabel = "更新",
+            onConfirm = onConfirmPendingRefresh,
+            onDismiss = onDismissPendingRefresh,
+            onDisableWarning = onConfirmPendingRefreshAndDisableWarning,
         )
     }
 }

@@ -39,6 +39,8 @@ class SearchScreenControllerTest {
         cartRepository: ReservationCartRepository,
         dispatcher: kotlinx.coroutines.CoroutineDispatcher,
         familyRepository: FamilyRepository = FakeFamilyRepository(listOf(father)),
+        warnBeforeClearingSelection: Flow<Boolean> = flowOf(true),
+        disableWarnBeforeClearingSelection: suspend () -> Unit = {},
     ) = SearchScreenController(
         searchRepository = searchRepository,
         readingRecordRepository = FakeReadingRecordRepository(),
@@ -46,6 +48,8 @@ class SearchScreenControllerTest {
         cartRepository = cartRepository,
         dispatcher = dispatcher,
         autocompleteDebounceMillis = 0L,
+        warnBeforeClearingSelection = warnBeforeClearingSelection,
+        disableWarnBeforeClearingSelection = disableWarnBeforeClearingSelection,
     )
 
     @Test
@@ -144,6 +148,140 @@ class SearchScreenControllerTest {
 
         assertEquals(1, cartRepository.receivedTargets.size)
         assertEquals("100", cartRepository.receivedTargets.single().tilcod)
+        controller.close()
+    }
+
+    /**
+     * 再検索前の選択解除警告(`docs/design/bulk-selection-followup.md` §6.2)のテスト。
+     * 対象は再検索のみ(loadMore・自動巡回は対象外だが、SearchScreenControllerにloadMore以外の
+     * 巡回操作は無いため、ここではsearch()だけを検証する)。
+     */
+    @Test
+    fun `選択0件では確認を出さず即座に検索する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+
+        controller.search("キーワード")
+        advanceUntilIdle()
+
+        assertNull(controller.state.value.pendingSearchKeyword)
+        assertEquals("キーワード", controller.state.value.executedQuery)
+        controller.close()
+    }
+
+    @Test
+    fun `設定オフでは選択が残っていても確認を出さず即座に検索する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(
+            searchRepository,
+            FakeCartRepository(),
+            dispatcher,
+            warnBeforeClearingSelection = flowOf(false),
+        )
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+
+        controller.search("キーワード2")
+        advanceUntilIdle()
+
+        assertNull(controller.state.value.pendingSearchKeyword)
+        assertEquals("キーワード2", controller.state.value.executedQuery)
+        controller.close()
+    }
+
+    @Test
+    fun `選択が残っていて設定オンなら確認を要求し検索を保留する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+
+        controller.search("キーワード2")
+        advanceUntilIdle()
+
+        assertEquals("キーワード2", controller.state.value.pendingSearchKeyword)
+        // 保留中は実行していない(直近の検索結果のまま)。
+        assertEquals("キーワード", controller.state.value.executedQuery)
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+        controller.close()
+    }
+
+    @Test
+    fun `続けるで選択を解除し保留していた検索を実行する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.search("キーワード2")
+        advanceUntilIdle()
+
+        controller.confirmPendingSearch()
+        advanceUntilIdle()
+
+        assertNull(controller.state.value.pendingSearchKeyword)
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        assertEquals("キーワード2", controller.state.value.executedQuery)
+        controller.close()
+    }
+
+    @Test
+    fun `戻るで選択を残し検索を実行しない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.search("キーワード2")
+        advanceUntilIdle()
+
+        controller.dismissPendingSearch()
+        advanceUntilIdle()
+
+        assertNull(controller.state.value.pendingSearchKeyword)
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+        assertEquals("キーワード", controller.state.value.executedQuery)
+        controller.close()
+    }
+
+    @Test
+    fun `今後は表示しないで設定を無効化しつつ検索を実行する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        var disableCalls = 0
+        val controller = controller(
+            searchRepository,
+            FakeCartRepository(),
+            dispatcher,
+            disableWarnBeforeClearingSelection = { disableCalls++ },
+        )
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.search("キーワード2")
+        advanceUntilIdle()
+
+        controller.confirmPendingSearchAndDisableWarning()
+        advanceUntilIdle()
+
+        assertEquals(1, disableCalls)
+        assertNull(controller.state.value.pendingSearchKeyword)
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        assertFalse(controller.state.value.warnBeforeClearingSelection)
+        assertEquals("キーワード2", controller.state.value.executedQuery)
         controller.close()
     }
 

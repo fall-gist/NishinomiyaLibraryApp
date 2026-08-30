@@ -76,6 +76,7 @@ fun SettingsScreen(
     onSetNotifyPickupReady: (Boolean) -> Unit,
     onSetReturnReminderDaysBefore: (Int) -> Unit,
     onSetDefaultCalendarLibrary: (String) -> Unit,
+    onSetWarnBeforeClearingSelection: (Boolean) -> Unit,
     onSetDiagnosticLogEnabled: (Boolean) -> Unit,
     onOpenDiagnosticLog: () -> Unit,
     onSetAutoReservationEnabled: (Boolean) -> Unit,
@@ -268,6 +269,28 @@ fun SettingsScreen(
                         ?: state.settings.defaultCalendarLibrary,
                     options = state.libraries.map { it.name to it.code },
                     onSelect = onSetDefaultCalendarLibrary,
+                )
+            }
+        }
+
+        SectionTitle("一斉操作")
+        SectionCard {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("選択が解除される前に確認する", color = colors.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "蔵書検索や新着資料でチェックしたまま検索・更新するとき確認します",
+                        color = colors.ink2,
+                        fontSize = 11.sp,
+                    )
+                }
+                Switch(
+                    checked = state.settings.warnBeforeClearingSelection,
+                    onCheckedChange = onSetWarnBeforeClearingSelection,
                 )
             }
         }
