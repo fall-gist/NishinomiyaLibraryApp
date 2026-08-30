@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
@@ -149,6 +150,14 @@ class NewArrivalsScreenController(
     private val _state = MutableStateFlow(NewArrivalsUiState())
     val state: StateFlow<NewArrivalsUiState> = _state
 
+    // _stateは購読側(init内のcollect群、UIスレッドからのtoggleCartSelection等)と、
+    // 画面表示時の自動巡回・「更新」操作(performRefresh、Dispatchers.Default上のscope.launch)の
+    // 両方から更新される。巡回は全ジャンルを回るため長時間動き、その間も利用者はチェックボックスを
+    // 操作できる。`_state.value = _state.value.copy(...)`は読みと書きの間に別コルーチンの書きが
+    // 挟まるとそれを取りこぼす(lost update)。CalendarScreenController・SettingsScreenController・
+    // LoanExtensionUiControllerで実際に踏んだ不具合と同型(docs/handoff.md参照)。
+    // **必ず`update {}`(CASループ)を使うこと。`_state.value = ...`を書いてはならない。**
+
     private val query = MutableStateFlow("")
     private val displayRefreshMutex = Mutex()
     private var refreshedThisSession = false
@@ -159,26 +168,29 @@ class NewArrivalsScreenController(
             combine(newArrivalRepository.newArrivals(), query) { items, text ->
                 items to text
             }.collect { (items, text) ->
-                _state.value = _state.value.copy(
-                    initialized = true,
-                    query = text,
-                    rows = NewArrivalsContentBuilder.build(items, text),
-                    totalCount = items.size,
-                )
+                _state.update {
+                    it.copy(
+                        initialized = true,
+                        query = text,
+                        rows = NewArrivalsContentBuilder.build(items, text),
+                        totalCount = items.size,
+                    )
+                }
             }
         }
         // 最終取得時刻は購読対象ではないため、初期表示時に一度だけ読み込む(以降はrefresh成功時に更新)。
         scope.launch {
-            _state.value = _state.value.copy(lastFetchedAtEpochMillis = newArrivalRepository.lastFetchedAtEpochMillis())
+            val fetchedAt = newArrivalRepository.lastFetchedAtEpochMillis()
+            _state.update { it.copy(lastFetchedAtEpochMillis = fetchedAt) }
         }
         scope.launch {
             familyRepository.members().collect { members ->
-                _state.value = _state.value.copy(members = members)
+                _state.update { it.copy(members = members) }
             }
         }
         scope.launch {
             autoReservationEnabled.collect { enabled ->
-                _state.value = _state.value.copy(autoReservationEnabled = enabled)
+                _state.update { it.copy(autoReservationEnabled = enabled) }
             }
         }
     }
@@ -200,17 +212,17 @@ class NewArrivalsScreenController(
     private suspend fun performRefresh(trigger: NewArrivalUpdateTrigger) {
         if (!displayRefreshMutex.tryLock()) return
         try {
-            _state.value = _state.value.copy(refreshing = true, updatePhase = null)
+            _state.update { it.copy(refreshing = true, updatePhase = null) }
             when (updateCoordinator.refresh(trigger) { phase ->
-                _state.value = _state.value.copy(updatePhase = phase)
+                _state.update { it.copy(updatePhase = phase) }
             }) {
                 NewArrivalUpdateResult.RefreshFailed -> {
                     refreshedThisSession = false
-                    _state.value = _state.value.copy(refreshing = false, refreshFailed = true, updatePhase = null)
+                    _state.update { it.copy(refreshing = false, refreshFailed = true, updatePhase = null) }
                     return
                 }
                 NewArrivalUpdateResult.AlreadyRunning -> {
-                    _state.value = _state.value.copy(refreshing = false, updatePhase = null)
+                    _state.update { it.copy(refreshing = false, updatePhase = null) }
                     return
                 }
                 is NewArrivalUpdateResult.Completed,
@@ -218,17 +230,20 @@ class NewArrivalsScreenController(
                 NewArrivalUpdateResult.FreshnessSkipped,
                 -> Unit
             }
-            _state.value = _state.value.copy(
-                refreshing = false,
-                refreshFailed = false,
-                updatePhase = null,
-                lastFetchedAtEpochMillis = newArrivalRepository.lastFetchedAtEpochMillis(),
-            )
+            val fetchedAt = newArrivalRepository.lastFetchedAtEpochMillis()
+            _state.update {
+                it.copy(
+                    refreshing = false,
+                    refreshFailed = false,
+                    updatePhase = null,
+                    lastFetchedAtEpochMillis = fetchedAt,
+                )
+            }
         } catch (exception: CancellationException) {
             throw exception
         } catch (_: Exception) {
             refreshedThisSession = false
-            _state.value = _state.value.copy(refreshing = false, refreshFailed = true, updatePhase = null)
+            _state.update { it.copy(refreshing = false, refreshFailed = true, updatePhase = null) }
         } finally {
             displayRefreshMutex.unlock()
         }
@@ -241,28 +256,33 @@ class NewArrivalsScreenController(
     /** 一覧行のチェックボックスのタップ(`docs/design/bulk-selection.md` §7.3)。 */
     fun toggleCartSelection(tilcod: String) {
         if (state.value.bulkCartAdditionProcessing) return
-        val current = state.value.selectedCartTilcods
-        _state.value = state.value.copy(
-            selectedCartTilcods = if (tilcod in current) current - tilcod else current + tilcod,
-        )
+        _state.update { current ->
+            current.copy(
+                selectedCartTilcods = if (tilcod in current.selectedCartTilcods) {
+                    current.selectedCartTilcods - tilcod
+                } else {
+                    current.selectedCartTilcods + tilcod
+                },
+            )
+        }
     }
 
     /** 「カートへ追加」ボタン。選択済みキーに対応する候補はScreen側で組み立てて渡す。 */
     fun requestBulkCartAddition(candidates: List<BulkCartAdditionCandidate>) {
         if (state.value.bulkCartAdditionProcessing || candidates.isEmpty()) return
-        _state.value = state.value.copy(bulkCartAdditionConfirmation = BulkCartAdditionConfirmationRequest(candidates))
+        _state.update { it.copy(bulkCartAdditionConfirmation = BulkCartAdditionConfirmationRequest(candidates)) }
     }
 
     /** 確認ダイアログでのメンバー選択(§7.2、1回の操作につき1人)。 */
     fun selectBulkCartAdditionMember(memberId: Long) {
         val request = state.value.bulkCartAdditionConfirmation ?: return
         if (state.value.members.none { it.id == memberId }) return
-        _state.value = state.value.copy(bulkCartAdditionConfirmation = request.copy(selectedMemberId = memberId))
+        _state.update { it.copy(bulkCartAdditionConfirmation = request.copy(selectedMemberId = memberId)) }
     }
 
     fun dismissBulkCartAdditionConfirmation() {
         if (!state.value.bulkCartAdditionProcessing) {
-            _state.value = state.value.copy(bulkCartAdditionConfirmation = null)
+            _state.update { it.copy(bulkCartAdditionConfirmation = null) }
         }
     }
 
@@ -270,7 +290,7 @@ class NewArrivalsScreenController(
     fun confirmBulkCartAddition() {
         val request = state.value.bulkCartAdditionConfirmation ?: return
         if (state.value.bulkCartAdditionProcessing || !request.canConfirm) return
-        _state.value = state.value.copy(bulkCartAdditionConfirmation = null, bulkCartAdditionProcessing = true)
+        _state.update { it.copy(bulkCartAdditionConfirmation = null, bulkCartAdditionProcessing = true) }
         scope.launch {
             try {
                 // 一覧に存在しなくなった対象は無視する(§4.3)。確認待ちの間に一覧(検索語による絞り込み結果)が
@@ -282,29 +302,33 @@ class NewArrivalsScreenController(
                 } else {
                     cartRepository.addToCart(BulkCartAdditionContentBuilder.targets(effectiveRequest))
                 }
-                _state.value = _state.value.copy(
-                    selectedCartTilcods = emptySet(),
-                    bulkCartAdditionProcessing = false,
-                    bulkCartAdditionResultMessage = BulkCartAdditionContentBuilder.resultMessage(summary),
-                )
+                _state.update {
+                    it.copy(
+                        selectedCartTilcods = emptySet(),
+                        bulkCartAdditionProcessing = false,
+                        bulkCartAdditionResultMessage = BulkCartAdditionContentBuilder.resultMessage(summary),
+                    )
+                }
             } catch (exception: CancellationException) {
-                _state.value = _state.value.copy(bulkCartAdditionProcessing = false)
+                _state.update { it.copy(bulkCartAdditionProcessing = false) }
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    bulkCartAdditionProcessing = false,
-                    bulkCartAdditionErrorMessage = "カートへ追加できませんでした。もう一度お試しください。",
-                )
+                _state.update {
+                    it.copy(
+                        bulkCartAdditionProcessing = false,
+                        bulkCartAdditionErrorMessage = "カートへ追加できませんでした。もう一度お試しください。",
+                    )
+                }
             }
         }
     }
 
     fun clearBulkCartAdditionResult() {
-        _state.value = state.value.copy(bulkCartAdditionResultMessage = null)
+        _state.update { it.copy(bulkCartAdditionResultMessage = null) }
     }
 
     fun clearBulkCartAdditionError() {
-        _state.value = state.value.copy(bulkCartAdditionErrorMessage = null)
+        _state.update { it.copy(bulkCartAdditionErrorMessage = null) }
     }
 
     fun close() {
