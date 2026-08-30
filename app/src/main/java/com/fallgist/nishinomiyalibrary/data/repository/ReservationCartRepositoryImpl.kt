@@ -98,6 +98,18 @@ class ReservationCartRepositoryImpl @Inject constructor(
         cartDao.delete(cartItemId)
     }
 
+    /** `docs/design/bulk-selection.md` §6.1: 指定したidだけを削除する。空リストならDAOへ触れない。 */
+    override suspend fun removeFromCart(cartItemIds: List<Long>) {
+        if (cartItemIds.isEmpty()) return
+        require(cartItemIds.all { it > 0 }) { "カートIDが不正です" }
+        cartDao.deleteByIds(cartItemIds)
+    }
+
+    /** `docs/design/bulk-selection.md` §6.1: 件数に依存しない単純な全削除。 */
+    override suspend fun clearCart() {
+        cartDao.clearAll()
+    }
+
     override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult =
         operationGate.withOperation(ReservationOperationType.MANUAL_RESERVATION) {
             validateConfirmation(confirmation)

@@ -518,6 +518,14 @@ fun LibraryApp(
                                 onClearResults = reservationUiController::clearCartFeedback,
                                 onOpenMenu = openMenu,
                                 onOpenDetail = openDetail,
+                                onToggleCartItemSelection = reservationUiController::toggleCartItemSelection,
+                                onRequestBulkCartDelete = reservationUiController::requestBulkCartDeleteConfirmation,
+                                onConfirmBulkCartDelete = reservationUiController::confirmBulkCartDelete,
+                                onDismissBulkCartDeleteConfirmation = reservationUiController::dismissBulkCartDeleteConfirmation,
+                                onRequestClearCart = reservationUiController::requestClearCartConfirmation,
+                                onConfirmClearCart = reservationUiController::confirmClearCart,
+                                onDismissClearCartConfirmation = reservationUiController::dismissClearCartConfirmation,
+                                onClearCartMutationError = reservationUiController::clearCartMutationError,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }

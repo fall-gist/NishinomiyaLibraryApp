@@ -110,6 +110,57 @@ class ReservationCartRepositoryTest {
         assertEquals(listOf("good-book"), cartTilcods)
     }
 
+    // ------------------------------------------------------------------
+    // カートの一括削除・「カートを空にする」(`docs/design/bulk-selection.md` §6.1・§8.1)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `removeFromCartのList版は指定したidだけを削除する`() = runBlocking {
+        val member = addMember("一括削除", "bulk-remove")
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = error("呼ばれてはならない")
+        })
+        repository.addToCart(ReservationTarget(null, member, "keep", "残す"))
+        repository.addToCart(ReservationTarget(null, member, "drop-1", "消す1"))
+        repository.addToCart(ReservationTarget(null, member, "drop-2", "消す2"))
+        val idsToDelete = database.reservationCartDao().getAll()
+            .filter { it.tilcod != "keep" }
+            .map { it.id }
+
+        repository.removeFromCart(idsToDelete)
+
+        val remaining = database.reservationCartDao().getAll().map { it.tilcod }
+        assertEquals(listOf("keep"), remaining)
+    }
+
+    @Test
+    fun `removeFromCartのList版は空リストならDAOへ触れず何も削除しない`() = runBlocking {
+        val member = addMember("空リスト削除", "bulk-remove-empty")
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = error("呼ばれてはならない")
+        })
+        repository.addToCart(ReservationTarget(null, member, "keep", "残す"))
+
+        repository.removeFromCart(emptyList())
+
+        assertEquals(listOf("keep"), database.reservationCartDao().getAll().map { it.tilcod })
+    }
+
+    @Test
+    fun `clearCartは全件削除する`() = runBlocking {
+        val member = addMember("空にする", "clear-cart")
+        val repository = repository(object : ReservationGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String) = error("呼ばれてはならない")
+        })
+        repository.addToCart(ReservationTarget(null, member, "1", "一"))
+        repository.addToCart(ReservationTarget(null, member, "2", "二"))
+        repository.addToCart(ReservationTarget(null, member, "3", "三"))
+
+        repository.clearCart()
+
+        assertTrue(database.reservationCartDao().getAll().isEmpty())
+    }
+
     @Test
     fun successfulReservationStoresConfirmedPickupSubmission() = runBlocking {
         val memberId = addMember("送信館記録", "confirmed")

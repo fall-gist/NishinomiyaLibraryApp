@@ -289,6 +289,8 @@ class NewArrivalsScreenControllerTest {
             return summary
         }
         override suspend fun removeFromCart(cartItemId: Long) = Unit
+        override suspend fun removeFromCart(cartItemIds: List<Long>) = Unit
+        override suspend fun clearCart() = Unit
         override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult = ReservationBatchResult(emptyList())
         override suspend fun reserveNow(target: ReservationTarget, confirmation: ReservationConfirmation): ReservationBatchResult =
             ReservationBatchResult(emptyList())

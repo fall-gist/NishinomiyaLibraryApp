@@ -83,6 +83,136 @@ class ReservationUiControllerTest {
         controller.close()
     }
 
+    // ------------------------------------------------------------------
+    // カートの一括削除・「カートを空にする」(`docs/design/bulk-selection.md` §6・§8.2)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `選択の切り替えでcartItemIdが追加削除される`() = runTest {
+        val cart = FakeCartRepository()
+        val settings = MutableStateFlow(AppSettings(defaultCalendarLibrary = "A"))
+        val controller = controller(cart, settings, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.toggleCartItemSelection(1)
+        assertTrue(1L in controller.state.value.selectedCartItemIds)
+        controller.toggleCartItemSelection(1)
+        assertFalse(1L in controller.state.value.selectedCartItemIds)
+        controller.close()
+    }
+
+    @Test
+    fun `候補0件では一括削除の確認を開始しない`() = runTest {
+        val cart = FakeCartRepository()
+        val settings = MutableStateFlow(AppSettings(defaultCalendarLibrary = "A"))
+        val controller = controller(cart, settings, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestBulkCartDeleteConfirmation(emptyList())
+
+        assertNull(controller.state.value.bulkCartDeleteConfirmation)
+        controller.close()
+    }
+
+    @Test
+    fun `一括削除の確定でremoveFromCart(List)を呼び選択と確認状態をクリアする`() = runTest {
+        val cart = FakeCartRepository(items = listOf(cart(1, father.id), cart(2, father.id)))
+        val settings = MutableStateFlow(AppSettings(defaultCalendarLibrary = "A"))
+        val controller = controller(cart, settings, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        controller.toggleCartItemSelection(1)
+        controller.toggleCartItemSelection(2)
+
+        val candidates = ReservationCartContentBuilder.deleteCandidates(controller.state.value.cartGroups, controller.state.value.selectedCartItemIds)
+        controller.requestBulkCartDeleteConfirmation(candidates)
+        assertNotNull(controller.state.value.bulkCartDeleteConfirmation)
+        controller.confirmBulkCartDelete()
+        advanceUntilIdle()
+
+        assertEquals(listOf(1L, 2L), cart.removedBulk.sorted())
+        assertTrue(controller.state.value.selectedCartItemIds.isEmpty())
+        assertNull(controller.state.value.bulkCartDeleteConfirmation)
+        controller.close()
+    }
+
+    @Test
+    fun `確認待ちの間にカートから消えたidは実行時に無視される(design §4,3)`() = runTest {
+        val cart = FakeCartRepository(items = listOf(cart(1, father.id), cart(2, father.id)))
+        val settings = MutableStateFlow(AppSettings(defaultCalendarLibrary = "A"))
+        val controller = controller(cart, settings, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        controller.toggleCartItemSelection(1)
+        controller.toggleCartItemSelection(2)
+        val candidates = ReservationCartContentBuilder.deleteCandidates(controller.state.value.cartGroups, controller.state.value.selectedCartItemIds)
+        controller.requestBulkCartDeleteConfirmation(candidates)
+
+        // 確認待ちの間にid=2がカートから消えたことを模す(既存の行内削除ボタン等による変化)。
+        cart.setItems(listOf(cart(1, father.id)))
+        advanceUntilIdle()
+
+        controller.confirmBulkCartDelete()
+        advanceUntilIdle()
+
+        assertEquals(listOf(1L), cart.removedBulk)
+        controller.close()
+    }
+
+    @Test
+    fun `カートが空ではカートを空にする確認を開始しない`() = runTest {
+        val cart = FakeCartRepository()
+        val settings = MutableStateFlow(AppSettings(defaultCalendarLibrary = "A"))
+        val controller = controller(cart, settings, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestClearCartConfirmation()
+
+        assertFalse(controller.state.value.clearCartConfirmationPending)
+        controller.close()
+    }
+
+    @Test
+    fun `カートを空にするの確定でclearCartを呼び選択と確認状態をクリアする(design §6,3・確認必須)`() = runTest {
+        val cart = FakeCartRepository(items = listOf(cart(1, father.id), cart(2, father.id)))
+        val settings = MutableStateFlow(AppSettings(defaultCalendarLibrary = "A"))
+        val controller = controller(cart, settings, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        controller.toggleCartItemSelection(1)
+
+        controller.requestClearCartConfirmation()
+        assertTrue(controller.state.value.clearCartConfirmationPending)
+        // 確定するまでclearCartは呼ばれない。
+        assertEquals(0, cart.clearCartCalls)
+
+        controller.confirmClearCart()
+        advanceUntilIdle()
+
+        assertEquals(1, cart.clearCartCalls)
+        assertFalse(controller.state.value.clearCartConfirmationPending)
+        assertTrue(controller.state.value.selectedCartItemIds.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `カート変更のエラーはcartMutationErrorMessageへ変換する`() = runTest {
+        val cart = FakeCartRepository(items = listOf(cart(1, father.id)), throwOnBulkRemove = true)
+        val settings = MutableStateFlow(AppSettings(defaultCalendarLibrary = "A"))
+        val controller = controller(cart, settings, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        controller.toggleCartItemSelection(1)
+        val candidates = ReservationCartContentBuilder.deleteCandidates(controller.state.value.cartGroups, controller.state.value.selectedCartItemIds)
+        controller.requestBulkCartDeleteConfirmation(candidates)
+
+        controller.confirmBulkCartDelete()
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.cartMutationProcessing)
+        assertEquals(
+            "カートから削除できませんでした。もう一度お試しください。",
+            controller.state.value.cartMutationErrorMessage,
+        )
+        controller.close()
+    }
+
     @Test
     fun `最終確認前は送信せず肯定後だけカート確定する`() = runTest {
         val target = ReservationTarget(1, father.id, "1001", "資料1", "著者")
@@ -286,12 +416,20 @@ class ReservationUiControllerTest {
         items: List<ReservationCartItem> = emptyList(),
         private val cancelOnReserve: Boolean = false,
         private val operationGate: ReservationOperationGate? = null,
+        private val throwOnBulkRemove: Boolean = false,
     ) : ReservationCartRepository {
         private val flow = MutableStateFlow(items)
         val added = mutableListOf<ReservationTarget>()
         val removed = mutableListOf<Long>()
+        val removedBulk = mutableListOf<Long>()
+        var clearCartCalls = 0
         var confirmCalls = 0
         var reserveNowCalls = 0
+
+        /** テストからカート内容を変える(一覧から消えたキーの無視挙動を検証するため)。 */
+        fun setItems(newItems: List<ReservationCartItem>) {
+            flow.value = newItems
+        }
 
         override fun cartItems(): Flow<List<ReservationCartItem>> = flow
         override suspend fun addToCart(target: ReservationTarget) { added += target }
@@ -300,6 +438,11 @@ class ReservationUiControllerTest {
             return com.fallgist.nishinomiyalibrary.domain.model.ReservationCartAddSummary(added = targets.size, skipped = 0)
         }
         override suspend fun removeFromCart(cartItemId: Long) { removed += cartItemId }
+        override suspend fun removeFromCart(cartItemIds: List<Long>) {
+            if (throwOnBulkRemove) throw IllegalStateException("test")
+            removedBulk += cartItemIds
+        }
+        override suspend fun clearCart() { clearCartCalls++ }
         override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult {
             confirmCalls++
             return result(flow.value.map { ReservationTarget(it.id, it.memberId, it.tilcod, it.title, it.writerLine) })

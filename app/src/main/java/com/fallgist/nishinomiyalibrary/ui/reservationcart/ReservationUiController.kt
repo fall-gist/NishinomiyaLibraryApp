@@ -53,6 +53,20 @@ data class ReservationResultRow(
 
 enum class ReservationFeedbackOrigin { CART, IMMEDIATE, CART_ADD }
 
+/**
+ * カートの一括削除(`docs/design/bulk-selection.md` §6、機能C)の対象1件のUI表示用データ。
+ * 予約中の[com.fallgist.nishinomiyalibrary.ui.reservations.ReservationCancelCandidate]と同じ流儀。
+ */
+data class ReservationCartDeleteCandidate(
+    val cartItemId: Long,
+    val title: String,
+)
+
+/** カート一括削除の確認ダイアログの状態。 */
+data class ReservationCartBulkDeleteConfirmationRequest(
+    val candidates: List<ReservationCartDeleteCandidate>,
+)
+
 /** 結果・案内・エラーを、起点画面と必要なら書誌単位で限定して保持する。 */
 data class ReservationFeedback(
     val origin: ReservationFeedbackOrigin,
@@ -73,10 +87,20 @@ data class ReservationUiState(
     val processing: Boolean = false,
     val waitingForAutomaticReservation: Boolean = false,
     val feedback: ReservationFeedback? = null,
+    /** カートの一括削除・「カートを空にする」(`docs/design/bulk-selection.md` §6)で使う。 */
+    val selectedCartItemIds: Set<Long> = emptySet(),
+    val bulkCartDeleteConfirmation: ReservationCartBulkDeleteConfirmationRequest? = null,
+    val clearCartConfirmationPending: Boolean = false,
+    val cartMutationProcessing: Boolean = false,
+    val cartMutationErrorMessage: String? = null,
 ) {
     val cartItemCount: Int get() = cartGroups.sumOf { it.items.size }
     val hasValidPickupLibrary: Boolean get() = libraries.any { it.code == pickupLibraryCode }
     val canConfirmCart: Boolean get() = !processing && cartItemCount > 0 && hasValidPickupLibrary
+
+    /** 一斉予約確定中・別のカート変更処理中は、削除操作を二重に走らせない。 */
+    val canBulkDeleteFromCart: Boolean get() = !processing && !cartMutationProcessing && selectedCartItemIds.isNotEmpty()
+    val canClearCart: Boolean get() = !processing && !cartMutationProcessing && cartItemCount > 0
 }
 
 /** 予約カートと書誌詳細が共有する、予約操作専用のUI状態。 */
@@ -170,6 +194,89 @@ class ReservationUiController(
                 )
             }
         }
+    }
+
+    /** 一覧行のチェックボックスのタップ(`docs/design/bulk-selection.md` §6.2)。全行が対象になる。 */
+    fun toggleCartItemSelection(cartItemId: Long) {
+        if (state.value.cartMutationProcessing) return
+        val current = state.value.selectedCartItemIds
+        _state.value = state.value.copy(
+            selectedCartItemIds = if (cartItemId in current) current - cartItemId else current + cartItemId,
+        )
+    }
+
+    /** 「選択した項目を削除」ボタン。選択済みキーに対応する候補はScreen側で組み立てて渡す。 */
+    fun requestBulkCartDeleteConfirmation(candidates: List<ReservationCartDeleteCandidate>) {
+        if (state.value.cartMutationProcessing || candidates.isEmpty()) return
+        _state.value = state.value.copy(
+            bulkCartDeleteConfirmation = ReservationCartBulkDeleteConfirmationRequest(candidates),
+        )
+    }
+
+    fun dismissBulkCartDeleteConfirmation() {
+        if (!state.value.cartMutationProcessing) {
+            _state.value = state.value.copy(bulkCartDeleteConfirmation = null)
+        }
+    }
+
+    /** 一括削除の確認ダイアログの確定操作(§6.3、確認必須)。 */
+    fun confirmBulkCartDelete() {
+        val request = state.value.bulkCartDeleteConfirmation ?: return
+        if (state.value.cartMutationProcessing) return
+        _state.value = state.value.copy(bulkCartDeleteConfirmation = null, cartMutationProcessing = true)
+        scope.launch {
+            try {
+                // 一覧に存在しなくなったidは無視する(§4.3)。確認待ちの間にカート内容が変わり得るため、
+                // 通信(Roomアクセス)直前の一覧で改めて絞り込む。
+                val currentIds = state.value.cartGroups.flatMap { it.items }.map { it.id }.toSet()
+                val ids = request.candidates.map { it.cartItemId }.filter { it in currentIds }
+                if (ids.isNotEmpty()) cartRepository.removeFromCart(ids)
+                _state.value = _state.value.copy(selectedCartItemIds = emptySet(), cartMutationProcessing = false)
+            } catch (exception: CancellationException) {
+                _state.value = _state.value.copy(cartMutationProcessing = false)
+                throw exception
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(
+                    cartMutationProcessing = false,
+                    cartMutationErrorMessage = "カートから削除できませんでした。もう一度お試しください。",
+                )
+            }
+        }
+    }
+
+    /** 「カートを空にする」ボタン(§6.2、確認必須)。 */
+    fun requestClearCartConfirmation() {
+        if (state.value.processing || state.value.cartMutationProcessing || state.value.cartItemCount == 0) return
+        _state.value = state.value.copy(clearCartConfirmationPending = true)
+    }
+
+    fun dismissClearCartConfirmation() {
+        if (!state.value.cartMutationProcessing) {
+            _state.value = state.value.copy(clearCartConfirmationPending = false)
+        }
+    }
+
+    fun confirmClearCart() {
+        if (!state.value.clearCartConfirmationPending || state.value.cartMutationProcessing) return
+        _state.value = state.value.copy(clearCartConfirmationPending = false, cartMutationProcessing = true)
+        scope.launch {
+            try {
+                cartRepository.clearCart()
+                _state.value = _state.value.copy(selectedCartItemIds = emptySet(), cartMutationProcessing = false)
+            } catch (exception: CancellationException) {
+                _state.value = _state.value.copy(cartMutationProcessing = false)
+                throw exception
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(
+                    cartMutationProcessing = false,
+                    cartMutationErrorMessage = "カートを空にできませんでした。もう一度お試しください。",
+                )
+            }
+        }
+    }
+
+    fun clearCartMutationError() {
+        _state.value = state.value.copy(cartMutationErrorMessage = null)
     }
 
     fun requestCartConfirmation() {
@@ -282,6 +389,15 @@ object ReservationCartContentBuilder {
 
     fun feedbackForCart(feedback: ReservationFeedback?): ReservationFeedback? =
         feedback?.takeIf { it.origin == ReservationFeedbackOrigin.CART }
+
+    /**
+     * 選択済みキーに対応する一括削除の候補を組み立てる(`docs/design/bulk-selection.md` §6.2)。
+     * 一覧に存在しなくなったキーは無視する(§4.3)。
+     */
+    fun deleteCandidates(cartGroups: List<ReservationCartMemberGroup>, selectedCartItemIds: Set<Long>): List<ReservationCartDeleteCandidate> =
+        cartGroups.flatMap { it.items }
+            .filter { it.id in selectedCartItemIds }
+            .map { item -> ReservationCartDeleteCandidate(item.id, item.title) }
 
     fun feedbackForDetail(feedback: ReservationFeedback?, tilcod: String): ReservationFeedback? =
         feedback?.takeIf { it.origin != ReservationFeedbackOrigin.CART && it.tilcod == tilcod }

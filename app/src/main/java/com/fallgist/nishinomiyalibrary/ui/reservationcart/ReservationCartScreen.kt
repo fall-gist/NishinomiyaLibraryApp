@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -36,9 +37,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.domain.model.Library
+import com.fallgist.nishinomiyalibrary.ui.components.BulkActionBar
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
+import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
 @Composable
@@ -51,6 +54,14 @@ fun ReservationCartScreen(
     onClearResults: () -> Unit,
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
+    onToggleCartItemSelection: (Long) -> Unit,
+    onRequestBulkCartDelete: (List<ReservationCartDeleteCandidate>) -> Unit,
+    onConfirmBulkCartDelete: () -> Unit,
+    onDismissBulkCartDeleteConfirmation: () -> Unit,
+    onRequestClearCart: () -> Unit,
+    onConfirmClearCart: () -> Unit,
+    onDismissClearCartConfirmation: () -> Unit,
+    onClearCartMutationError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
@@ -92,6 +103,40 @@ fun ReservationCartScreen(
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
                 )
             }
+            // 一括削除・「カートを空にする」(`docs/design/bulk-selection.md` §6)。
+            BulkActionBar(
+                selectedCount = state.selectedCartItemIds.size,
+                actionLabel = "選択した項目を削除",
+                enabled = state.canBulkDeleteFromCart,
+                onClick = {
+                    onRequestBulkCartDelete(ReservationCartContentBuilder.deleteCandidates(state.cartGroups, state.selectedCartItemIds))
+                },
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Text(
+                    text = "カートを空にする",
+                    color = if (state.canClearCart) colors.alert else colors.ink2,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(enabled = state.canClearCart, onClick = onRequestClearCart)
+                        .padding(8.dp),
+                )
+            }
+            state.cartMutationErrorMessage?.let {
+                Text(
+                    text = it,
+                    color = colors.alert,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .clickable(onClick = onClearCartMutationError)
+                        .padding(horizontal = 18.dp, vertical = 4.dp),
+                )
+            }
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 18.dp),
             ) {
@@ -110,7 +155,10 @@ fun ReservationCartScreen(
                         CartItemRow(
                             title = item.title,
                             writerLine = item.writerLine,
+                            selected = item.id in state.selectedCartItemIds,
+                            selectionEnabled = !state.cartMutationProcessing,
                             enabled = !state.processing,
+                            onToggleSelection = { onToggleCartItemSelection(item.id) },
                             onRemove = { onRemoveFromCart(item.id) },
                             onClick = { onOpenDetail(item.tilcod, item.title) },
                         )
@@ -137,6 +185,66 @@ fun ReservationCartScreen(
     cartFeedback?.takeIf { it.results.isNotEmpty() }?.let { feedback ->
         ReservationResultsDialog(feedback, state.members, onClearResults)
     }
+    state.bulkCartDeleteConfirmation?.let { request ->
+        ReservationCartBulkDeleteConfirmDialog(
+            request = request,
+            onConfirm = onConfirmBulkCartDelete,
+            onDismiss = onDismissBulkCartDeleteConfirmation,
+        )
+    }
+    if (state.clearCartConfirmationPending) {
+        CartClearConfirmDialog(
+            itemCount = state.cartItemCount,
+            onConfirm = onConfirmClearCart,
+            onDismiss = onDismissClearCartConfirmation,
+        )
+    }
+}
+
+/** カート一括削除の確認ダイアログ(`docs/design/bulk-selection.md` §6.3、確認必須)。 */
+@Composable
+fun ReservationCartBulkDeleteConfirmDialog(
+    request: ReservationCartBulkDeleteConfirmationRequest,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = LocalAppColors.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("選択した${request.candidates.size}件をカートから削除しますか？") },
+        text = {
+            LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+                items(request.candidates, key = { it.cartItemId }) { candidate ->
+                    Text("・${candidate.title}", color = colors.ink, fontSize = 12.sp, modifier = Modifier.padding(bottom = 2.dp))
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = colors.alert, contentColor = colors.card),
+            ) { Text("削除する") }
+        },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
+    )
+}
+
+/** 「カートを空にする」の確認ダイアログ(`docs/design/bulk-selection.md` §6.2・§6.3、確認必須)。 */
+@Composable
+fun CartClearConfirmDialog(itemCount: Int, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val colors = LocalAppColors.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("カートを空にしますか？") },
+        text = { Text("カートの${itemCount}件をすべて削除します。この操作は元に戻せません。") },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = colors.alert, contentColor = colors.card),
+            ) { Text("空にする") }
+        },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
+    )
 }
 
 @Composable
@@ -197,30 +305,54 @@ private fun EmptyCart(onOpenSearch: () -> Unit) {
 }
 
 @Composable
-private fun CartItemRow(title: String, writerLine: String?, enabled: Boolean, onRemove: () -> Unit, onClick: () -> Unit) {
+private fun CartItemRow(
+    title: String,
+    writerLine: String?,
+    selected: Boolean,
+    selectionEnabled: Boolean,
+    enabled: Boolean,
+    onToggleSelection: () -> Unit,
+    onRemove: () -> Unit,
+    onClick: () -> Unit,
+) {
     val colors = LocalAppColors.current
+    // 一括削除(`docs/design/bulk-selection.md` §6.2、カート項目は全件が対象)のチェックボックスは
+    // 行タップ領域(内側のRow)とは別に置く。外側のRow自体はクリックできない。
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 7.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(colors.card)
-            .border(1.dp, colors.line, RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .border(1.dp, colors.line, RoundedCornerShape(12.dp)),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = colors.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            writerLine?.let { Text(it, color = colors.ink2, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-        }
-        Text(
-            "削除",
-            color = colors.alert,
-            fontSize = 12.sp,
-            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = enabled, onClick = onRemove).padding(6.dp),
+        SelectionCheckbox(
+            checked = selected,
+            enabled = selectionEnabled,
+            onToggle = onToggleSelection,
+            checkedColor = colors.alert,
+            modifier = Modifier.padding(start = 4.dp),
         )
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = colors.ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                writerLine?.let { Text(it, color = colors.ink2, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+            Text(
+                "削除",
+                color = colors.alert,
+                fontSize = 12.sp,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = enabled, onClick = onRemove).padding(6.dp),
+            )
+        }
     }
 }
 

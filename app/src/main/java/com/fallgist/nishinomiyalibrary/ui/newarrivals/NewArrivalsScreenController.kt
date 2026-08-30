@@ -333,6 +333,8 @@ private object NoOpBulkCartAdditionRepository : ReservationCartRepository {
         targets: List<com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget>,
     ): ReservationCartAddSummary = ReservationCartAddSummary(0, 0)
     override suspend fun removeFromCart(cartItemId: Long) = Unit
+    override suspend fun removeFromCart(cartItemIds: List<Long>) = Unit
+    override suspend fun clearCart() = Unit
     override suspend fun confirmCart(
         confirmation: com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation,
     ): com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult =

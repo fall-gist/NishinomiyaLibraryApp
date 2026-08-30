@@ -130,6 +130,12 @@ interface ReservationCartRepository {
 
     suspend fun removeFromCart(cartItemId: Long)
 
+    /** 複数件をまとめてカートから削除する(`docs/design/bulk-selection.md` §6.1)。 */
+    suspend fun removeFromCart(cartItemIds: List<Long>)
+
+    /** カートを空にする(`docs/design/bulk-selection.md` §6.1)。件数に関わらず全件削除する。 */
+    suspend fun clearCart()
+
     suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult
 
     suspend fun reserveNow(
