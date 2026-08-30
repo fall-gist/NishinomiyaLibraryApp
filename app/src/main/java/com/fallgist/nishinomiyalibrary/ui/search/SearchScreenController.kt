@@ -24,6 +24,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** 既読バッジの1人分(「パパ 2025/3」)。 */
@@ -125,6 +126,15 @@ class SearchScreenController(
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state
 
+    // _stateは購読側(init、UIスレッドからのtoggleCartSelection等)と、検索・追加読み込み
+    // (search/loadMore、fetchLendabilityForの貸出可否取得ループ)の複数のscope.launchから
+    // 更新される。検索結果が返るまでの間や貸出可否を1件ずつ取得している間も、利用者は
+    // チェックボックスを操作できる。`_state.value = _state.value.copy(...)`は読みと書きの間に
+    // 別コルーチンの書きが挟まるとそれを取りこぼす(lost update)。CalendarScreenController・
+    // SettingsScreenController・LoanExtensionUiController・NewArrivalsScreenControllerで
+    // 実際に踏んだ不具合と同型(docs/handoff.md参照)。
+    // **必ず`update {}`(CASループ)を使うこと。`_state.value = ...`を書いてはならない。**
+
     private val members = MutableStateFlow<List<Member>>(emptyList())
     private var autocompleteJob: Job? = null
     private var searchJob: Job? = null
@@ -135,7 +145,7 @@ class SearchScreenController(
         scope.launch {
             familyRepository.members().collect { list ->
                 members.value = list
-                _state.value = _state.value.copy(members = list)
+                _state.update { it.copy(members = list) }
             }
         }
     }
@@ -143,28 +153,33 @@ class SearchScreenController(
     /** 一覧行のチェックボックスのタップ(`docs/design/bulk-selection.md` §7.3)。 */
     fun toggleCartSelection(tilcod: String) {
         if (state.value.bulkCartAdditionProcessing) return
-        val current = state.value.selectedCartTilcods
-        _state.value = state.value.copy(
-            selectedCartTilcods = if (tilcod in current) current - tilcod else current + tilcod,
-        )
+        _state.update { current ->
+            current.copy(
+                selectedCartTilcods = if (tilcod in current.selectedCartTilcods) {
+                    current.selectedCartTilcods - tilcod
+                } else {
+                    current.selectedCartTilcods + tilcod
+                },
+            )
+        }
     }
 
     /** 「カートへ追加」ボタン。選択済みキーに対応する候補はScreen側で組み立てて渡す。 */
     fun requestBulkCartAddition(candidates: List<BulkCartAdditionCandidate>) {
         if (state.value.bulkCartAdditionProcessing || candidates.isEmpty()) return
-        _state.value = state.value.copy(bulkCartAdditionConfirmation = BulkCartAdditionConfirmationRequest(candidates))
+        _state.update { it.copy(bulkCartAdditionConfirmation = BulkCartAdditionConfirmationRequest(candidates)) }
     }
 
     /** 確認ダイアログでのメンバー選択(§7.2、1回の操作につき1人)。 */
     fun selectBulkCartAdditionMember(memberId: Long) {
         val request = state.value.bulkCartAdditionConfirmation ?: return
         if (state.value.members.none { it.id == memberId }) return
-        _state.value = state.value.copy(bulkCartAdditionConfirmation = request.copy(selectedMemberId = memberId))
+        _state.update { it.copy(bulkCartAdditionConfirmation = request.copy(selectedMemberId = memberId)) }
     }
 
     fun dismissBulkCartAdditionConfirmation() {
         if (!state.value.bulkCartAdditionProcessing) {
-            _state.value = state.value.copy(bulkCartAdditionConfirmation = null)
+            _state.update { it.copy(bulkCartAdditionConfirmation = null) }
         }
     }
 
@@ -172,7 +187,7 @@ class SearchScreenController(
     fun confirmBulkCartAddition() {
         val request = state.value.bulkCartAdditionConfirmation ?: return
         if (state.value.bulkCartAdditionProcessing || !request.canConfirm) return
-        _state.value = state.value.copy(bulkCartAdditionConfirmation = null, bulkCartAdditionProcessing = true)
+        _state.update { it.copy(bulkCartAdditionConfirmation = null, bulkCartAdditionProcessing = true) }
         scope.launch {
             try {
                 // 一覧に存在しなくなった対象は無視する(§4.3)。確認待ちの間に一覧が変わり得るため、
@@ -184,36 +199,40 @@ class SearchScreenController(
                 } else {
                     cartRepository.addToCart(BulkCartAdditionContentBuilder.targets(effectiveRequest))
                 }
-                _state.value = _state.value.copy(
-                    selectedCartTilcods = emptySet(),
-                    bulkCartAdditionProcessing = false,
-                    bulkCartAdditionResultMessage = BulkCartAdditionContentBuilder.resultMessage(summary),
-                )
+                _state.update {
+                    it.copy(
+                        selectedCartTilcods = emptySet(),
+                        bulkCartAdditionProcessing = false,
+                        bulkCartAdditionResultMessage = BulkCartAdditionContentBuilder.resultMessage(summary),
+                    )
+                }
             } catch (exception: CancellationException) {
-                _state.value = _state.value.copy(bulkCartAdditionProcessing = false)
+                _state.update { it.copy(bulkCartAdditionProcessing = false) }
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    bulkCartAdditionProcessing = false,
-                    bulkCartAdditionErrorMessage = "カートへ追加できませんでした。もう一度お試しください。",
-                )
+                _state.update {
+                    it.copy(
+                        bulkCartAdditionProcessing = false,
+                        bulkCartAdditionErrorMessage = "カートへ追加できませんでした。もう一度お試しください。",
+                    )
+                }
             }
         }
     }
 
     fun clearBulkCartAdditionResult() {
-        _state.value = state.value.copy(bulkCartAdditionResultMessage = null)
+        _state.update { it.copy(bulkCartAdditionResultMessage = null) }
     }
 
     fun clearBulkCartAdditionError() {
-        _state.value = state.value.copy(bulkCartAdditionErrorMessage = null)
+        _state.update { it.copy(bulkCartAdditionErrorMessage = null) }
     }
 
     /** 入力変化の通知。デバウンス後にオートコンプリート候補を取得する。 */
     fun updateQuery(text: String) {
         autocompleteJob?.cancel()
         if (text.isBlank()) {
-            _state.value = _state.value.copy(suggestions = emptyList())
+            _state.update { it.copy(suggestions = emptyList()) }
             return
         }
         autocompleteJob = scope.launch {
@@ -225,7 +244,7 @@ class SearchScreenController(
             } catch (_: Exception) {
                 emptyList()
             }
-            _state.value = _state.value.copy(suggestions = suggestions)
+            _state.update { it.copy(suggestions = suggestions) }
         }
     }
 
@@ -235,35 +254,41 @@ class SearchScreenController(
         autocompleteJob?.cancel()
         searchJob?.cancel()
         lendableJob?.cancel()
-        _state.value = _state.value.copy(
-            suggestions = emptyList(),
-            searching = true,
-            errorMessage = null,
-        )
+        _state.update {
+            it.copy(
+                suggestions = emptyList(),
+                searching = true,
+                errorMessage = null,
+            )
+        }
         searchJob = scope.launch {
             try {
                 val page = searchRepository.search(trimmed, page = 1)
                 currentPage = 1
                 val rows = buildRows(page.hits)
-                _state.value = _state.value.copy(
-                    searching = false,
-                    executedQuery = trimmed,
-                    totalCount = page.totalCount,
-                    results = rows,
-                    hasNext = page.hasNext,
-                )
+                _state.update {
+                    it.copy(
+                        searching = false,
+                        executedQuery = trimmed,
+                        totalCount = page.totalCount,
+                        results = rows,
+                        hasNext = page.hasNext,
+                    )
+                }
                 fetchLendabilityFor(rows.map { it.tilcod })
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
-                _state.value = _state.value.copy(
-                    searching = false,
-                    executedQuery = trimmed,
-                    totalCount = 0,
-                    results = emptyList(),
-                    hasNext = false,
-                    errorMessage = errorMessage(exception),
-                )
+                _state.update {
+                    it.copy(
+                        searching = false,
+                        executedQuery = trimmed,
+                        totalCount = 0,
+                        results = emptyList(),
+                        hasNext = false,
+                        errorMessage = errorMessage(exception),
+                    )
+                }
             }
         }
     }
@@ -272,23 +297,25 @@ class SearchScreenController(
         val snapshot = _state.value
         if (!snapshot.hasNext || snapshot.loadingMore || snapshot.searching) return
         val keyword = snapshot.executedQuery ?: return
-        _state.value = snapshot.copy(loadingMore = true)
+        _state.update { it.copy(loadingMore = true) }
         searchJob = scope.launch {
             try {
                 val page = searchRepository.search(keyword, page = currentPage + 1)
                 currentPage += 1
                 val newRows = buildRows(page.hits)
-                _state.value = _state.value.copy(
-                    loadingMore = false,
-                    results = _state.value.results + newRows,
-                    hasNext = page.hasNext,
-                )
+                _state.update {
+                    it.copy(
+                        loadingMore = false,
+                        results = it.results + newRows,
+                        hasNext = page.hasNext,
+                    )
+                }
                 // 前ページ分で未取得の行が残っていれば、それも含めて取り直す
                 fetchLendabilityFor(_state.value.results.filter { it.lendable == null }.map { it.tilcod })
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
-                _state.value = _state.value.copy(loadingMore = false, errorMessage = errorMessage(exception))
+                _state.update { it.copy(loadingMore = false, errorMessage = errorMessage(exception)) }
             }
         }
     }
@@ -316,11 +343,13 @@ class SearchScreenController(
                 } catch (_: Exception) {
                     break
                 } ?: continue
-                _state.value = _state.value.copy(
-                    results = _state.value.results.map { row ->
-                        if (row.tilcod == tilcod) row.copy(lendable = lendable) else row
-                    },
-                )
+                _state.update { current ->
+                    current.copy(
+                        results = current.results.map { row ->
+                            if (row.tilcod == tilcod) row.copy(lendable = lendable) else row
+                        },
+                    )
+                }
             }
         }
     }
