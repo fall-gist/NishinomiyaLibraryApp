@@ -1,13 +1,19 @@
 package com.fallgist.nishinomiyalibrary.ui.shelf
 
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItem
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItemOutcome
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddRequest
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddResult
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfEditItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.Member
+import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.repository.BookshelfRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
+import java.time.LocalDate
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -493,6 +499,204 @@ class BookshelfEditingUiControllerTest {
         controller.close()
     }
 
+    // ------------------------------------------------------------------
+    // 一斉本棚追加(`docs/design/bulk-bookshelf-add.md` §5、段階2)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `一斉追加はメンバー未選択・本棚未選択・本棚0件では確定できない`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val childShelves = MutableStateFlow(emptyList<BookshelfContent>())
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves, child.id to childShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        val items = listOf(BookshelfBulkAddItem("t-1", "資料A"), BookshelfBulkAddItem("t-2", "資料B"))
+        controller.requestBulkAddItems(items) { }
+        assertEquals(BookshelfEditingDialog.BulkAddItems(items), controller.state.value.dialog)
+
+        // メンバー未選択
+        controller.requestInputConfirmation()
+        assertEquals("対象メンバーを選択してください", controller.state.value.inputError)
+        assertEquals(0, repo.addItemsRequests.size)
+
+        // メンバーは選んだが本棚未選択
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.requestInputConfirmation()
+        assertEquals("追加先の本棚を選択してください", controller.state.value.inputError)
+        assertEquals(0, repo.addItemsRequests.size)
+
+        // 本棚0件のメンバー
+        controller.selectAddItemMember(child.id)
+        advanceUntilIdle()
+        controller.requestInputConfirmation()
+        assertEquals("先に本棚を作成してください", controller.state.value.inputError)
+        assertEquals(0, repo.addItemsRequests.size)
+        assertNull(controller.state.value.bulkAddPendingConfirmation)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉追加はメンバー変更で本棚選択を解除する`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val childShelves = MutableStateFlow(listOf(BookshelfContent(child.id, 5, "子の棚", emptyList())))
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves, child.id to childShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestBulkAddItems(listOf(BookshelfBulkAddItem("t-1", "資料A"))) { }
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        assertEquals(3, (controller.state.value.dialog as BookshelfEditingDialog.BulkAddItems).shelfNo)
+
+        controller.selectAddItemMember(child.id)
+        assertNull((controller.state.value.dialog as BookshelfEditingDialog.BulkAddItems).shelfNo)
+        assertEquals(null, controller.state.value.addItemShelvesLoadedForMemberId)
+        advanceUntilIdle()
+        assertEquals(child.id, controller.state.value.addItemShelvesLoadedForMemberId)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉追加の確定は表示中の本棚状態からconfirmedを組み立ててaddItemsを呼ぶ`() = runTest {
+        val fatherShelves = MutableStateFlow(
+            listOf(
+                BookshelfContent(
+                    father.id,
+                    3,
+                    "読みたい",
+                    List(5) { ShelfItem(father.id, "t-$it", "資料$it", "", LocalDate.of(2026, 1, 1)) },
+                ),
+            ),
+        )
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        val items = listOf(BookshelfBulkAddItem("n-1", "新規A"), BookshelfBulkAddItem("n-2", "新規B"))
+        controller.requestBulkAddItems(items) { }
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.requestInputConfirmation()
+
+        val confirmation = controller.state.value.bulkAddPendingConfirmation
+        assertEquals("父", confirmation?.memberName)
+        assertEquals("読みたい", confirmation?.shelfName)
+        assertEquals(2, confirmation?.itemCount)
+        assertTrue(controller.state.value.dialog == null)
+
+        controller.confirmBulkAdd()
+        advanceUntilIdle()
+
+        assertEquals(1, repo.addItemsRequests.size)
+        val sent = repo.addItemsRequests.single()
+        assertEquals(father.id, sent.memberId)
+        assertEquals(3, sent.shelfNo)
+        assertEquals(items, sent.items)
+        assertEquals("父", sent.confirmed.memberName)
+        assertEquals(1, sent.confirmed.shelfCount)
+        assertEquals(3, sent.confirmed.shelf?.shelfNo)
+        assertEquals("読みたい", sent.confirmed.shelf?.name)
+        assertEquals(5, sent.confirmed.shelf?.itemCount)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉追加は成否を問わず完了コールバックを呼ぶが確認前のキャンセルでは呼ばない`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        // 確認前にダイアログを閉じた場合は呼ばない(選択を残したままにする)。
+        var completedOnDismiss = false
+        controller.requestBulkAddItems(listOf(BookshelfBulkAddItem("t-1", "資料A"))) { completedOnDismiss = true }
+        controller.dismissDialog()
+        assertFalse(completedOnDismiss)
+
+        // 最終確認の「戻る」でも呼ばない。
+        var completedOnDismissConfirmation = false
+        controller.requestBulkAddItems(listOf(BookshelfBulkAddItem("t-1", "資料A"))) { completedOnDismissConfirmation = true }
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.requestInputConfirmation()
+        controller.dismissBulkAddConfirmation()
+        assertFalse(completedOnDismissConfirmation)
+
+        // 実際に送信された場合は成否を問わず呼ぶ。
+        var completed = false
+        controller.requestBulkAddItems(listOf(BookshelfBulkAddItem("t-1", "資料A"))) { completed = true }
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.requestInputConfirmation()
+        controller.confirmBulkAdd()
+        assertFalse(completed)
+        advanceUntilIdle()
+        assertTrue(completed)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉追加の処理中は単件追加や他の編集入口を無視する`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val repo = FakeBookshelfRepository(
+            shelves = mapOf(father.id to fatherShelves),
+            onAddItems = {
+                started.complete(Unit)
+                release.await()
+            },
+        )
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestBulkAddItems(listOf(BookshelfBulkAddItem("t-1", "資料A"))) { }
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.requestInputConfirmation()
+        controller.confirmBulkAdd()
+        runCurrent()
+        started.await()
+        assertTrue(controller.state.value.processing)
+
+        controller.requestAddItem("t-2", "資料B")
+        controller.requestCreateShelf()
+        assertNull(controller.state.value.dialog)
+
+        release.complete(Unit)
+        advanceUntilIdle()
+        assertFalse(controller.state.value.processing)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉追加の結果はoutcomeごとの表示文言へ変換される`() {
+        assertEquals(
+            "追加しました",
+            BookshelfEditingContentBuilder.bulkAddResultMessage(BookshelfBulkAddItemOutcome.Added).message,
+        )
+        assertEquals(
+            "すでにこの本棚に登録されています",
+            BookshelfEditingContentBuilder.bulkAddResultMessage(BookshelfBulkAddItemOutcome.AlreadyRegistered).message,
+        )
+        assertEquals(
+            "追加できたか確認できません。本棚画面でご確認ください",
+            BookshelfEditingContentBuilder.bulkAddResultMessage(BookshelfBulkAddItemOutcome.Unknown).message,
+        )
+        assertEquals(
+            "前の資料で処理を中断したため、追加していません",
+            BookshelfEditingContentBuilder.bulkAddResultMessage(BookshelfBulkAddItemOutcome.NotAttempted).message,
+        )
+        assertEquals(BookshelfEditingResultKind.FAILURE, BookshelfEditingContentBuilder.bulkAddResultMessage(BookshelfBulkAddItemOutcome.Failed(FailureReason.AUTH)).kind)
+    }
+
     private fun controller(
         repo: FakeBookshelfRepository,
         dispatcher: kotlinx.coroutines.CoroutineDispatcher,
@@ -515,20 +719,27 @@ class BookshelfEditingUiControllerTest {
         private val outcome: BookshelfMutationOutcome = BookshelfMutationOutcome.Applied(),
         private val onMutate: (suspend () -> Unit)? = null,
         private val shelves: Map<Long, Flow<List<BookshelfContent>>> = emptyMap(),
+        /** [addItems]が返す結果(段階2のテストシナリオに応じて差し替える)。 */
+        private val addItemsResult: BookshelfBulkAddResult = BookshelfBulkAddResult(emptyList(), localRefreshRequired = false),
+        /** [onMutate]と同じく、`addItems`呼び出し中に処理中フラグを保持させるためのフック。 */
+        private val onAddItems: (suspend () -> Unit)? = null,
     ) : BookshelfRepository {
         val calls = mutableListOf<BookshelfMutation>()
+        val addItemsRequests = mutableListOf<BookshelfBulkAddRequest>()
         override fun observeShelves(memberId: Long): Flow<List<BookshelfContent>> = shelves[memberId] ?: MutableStateFlow(emptyList())
         override suspend fun mutate(mutation: BookshelfMutation): BookshelfMutationOutcome {
             calls += mutation
             onMutate?.invoke()
             return outcome
         }
-        // 段階1(Repository層)で追加したAPI。本テストは段階2(UI)着手までは未使用のため、
-        // コンパイルを通すだけの最小実装とする(`docs/design/bulk-bookshelf-add.md` §7)。
         override suspend fun addItems(
-            request: com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddRequest,
+            request: BookshelfBulkAddRequest,
             onProgress: (completed: Int, total: Int) -> Unit,
-        ): com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddResult =
-            com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddResult(emptyList(), localRefreshRequired = false)
+        ): BookshelfBulkAddResult {
+            addItemsRequests += request
+            onAddItems?.invoke()
+            request.items.forEachIndexed { index, _ -> onProgress(index + 1, request.items.size) }
+            return addItemsResult
+        }
     }
 }

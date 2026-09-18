@@ -7,6 +7,9 @@ import com.fallgist.nishinomiyalibrary.domain.model.BookshelfExpectedShelf
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfEditItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItem
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItemOutcome
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddRequest
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.repository.BookshelfRepository
@@ -55,6 +58,15 @@ sealed interface BookshelfEditingDialog {
         val shelfNo: Int? = null,
         val memo: String = "",
     ) : BookshelfEditingDialog
+    /**
+     * 検索・新着からの一斉本棚追加(`docs/design/bulk-bookshelf-add.md` §5.2)。
+     * メンバー選択と本棚監視の仕組みは[AddItem]と共有するが、メモ欄は持たない(一斉追加は常に空文字)。
+     */
+    data class BulkAddItems(
+        val items: List<BookshelfBulkAddItem>,
+        val memberId: Long? = null,
+        val shelfNo: Int? = null,
+    ) : BookshelfEditingDialog
     data class EditShelf(
         val target: BookshelfShelfTarget,
         val name: String = target.shelfName,
@@ -98,12 +110,33 @@ sealed interface BookshelfEditingConfirmation {
     ) : BookshelfEditingConfirmation
 }
 
-enum class BookshelfEditingResultKind { APPLIED, ALREADY_REGISTERED, UNKNOWN, FAILURE }
+enum class BookshelfEditingResultKind { APPLIED, ALREADY_REGISTERED, UNKNOWN, FAILURE, NOT_ATTEMPTED }
 
 data class BookshelfEditingResultMessage(
     val title: String,
     val message: String,
     val kind: BookshelfEditingResultKind,
+)
+
+/** 一斉本棚追加の最終確認(`docs/design/bulk-bookshelf-add.md` §5.2)。単件の[BookshelfEditingConfirmation]とは
+ * 別建てにする。1件の[BookshelfMutation]に対応しないため既存のsealed interfaceには載せない。 */
+data class BookshelfBulkAddConfirmation(
+    val memberName: String,
+    val shelfName: String,
+    val request: BookshelfBulkAddRequest,
+) {
+    val itemCount: Int get() = request.items.size
+}
+
+/** 一斉本棚追加の処理中に出す進捗(`docs/design/bulk-bookshelf-add.md` §5.3「N件目/M件」)。 */
+data class BookshelfBulkAddProgress(val completed: Int, val total: Int)
+
+/** 一斉本棚追加の結果ダイアログの1行。 */
+data class BookshelfBulkAddResultRow(val title: String, val message: BookshelfEditingResultMessage)
+
+data class BookshelfBulkAddResultSummary(
+    val rows: List<BookshelfBulkAddResultRow>,
+    val localRefreshRequired: Boolean,
 )
 
 data class BookshelfEditingUiState(
@@ -121,8 +154,15 @@ data class BookshelfEditingUiState(
     val processingMutation: BookshelfMutation? = null,
     val result: BookshelfEditingResultMessage? = null,
     val errorMessage: String? = null,
+    // ------------------------------------------------------------------
+    // 一斉本棚追加(`docs/design/bulk-bookshelf-add.md` §5、検索・新着からの複数書誌追加)
+    // ------------------------------------------------------------------
+    val bulkAddPendingConfirmation: BookshelfBulkAddConfirmation? = null,
+    val bulkAddProgress: BookshelfBulkAddProgress? = null,
+    val bulkAddResults: BookshelfBulkAddResultSummary? = null,
 ) {
-    val processing: Boolean get() = processingMutation != null
+    /** 単件の処理中・一斉追加の処理中のどちらでも真になる(§5.4「処理中フラグも無効化条件に含める」)。 */
+    val processing: Boolean get() = processingMutation != null || bulkAddProgress != null
 }
 
 /**
@@ -140,6 +180,14 @@ class BookshelfEditingUiController(
     private val membersJob: Job
     private var addItemShelvesJob: Job? = null
     private var createShelvesJob: Job? = null
+
+    /**
+     * 一斉本棚追加の完了(成否を問わない)を呼び出し元(検索・新着のController)へ伝えるコールバック
+     * (`docs/design/bulk-bookshelf-add.md` §5.4)。[requestBulkAddItems]で受け取り、[completeBulkAdd]
+     * (通信が実際に始まった後、またはその直前の再検証で失敗した後)でのみ呼ぶ。
+     * 確認前の「戻る」操作では呼ばない(選択を残したままにするため、他の一斉操作の確認ダイアログと同じ扱い)。
+     */
+    private var bulkAddCompletionCallback: (() -> Unit)? = null
 
     init {
         membersJob = scope.launch {
@@ -179,15 +227,54 @@ class BookshelfEditingUiController(
         if (opened) stopAddItemShelfObservation()
     }
 
+    /**
+     * 検索・新着からの一斉本棚追加を開始する(`docs/design/bulk-bookshelf-add.md` §5.2)。
+     * [onCompleted]は、実際に送信が始まった後(成功・失敗・打ち切りを問わない)にだけ呼ぶ。
+     * ダイアログを開けなかった場合(処理中・メンバー不在)は何も始まっていないため呼ばない。
+     */
+    fun requestBulkAddItems(items: List<BookshelfBulkAddItem>, onCompleted: () -> Unit) {
+        if (items.isEmpty()) return
+        var opened = false
+        _state.update { current ->
+            opened = false
+            if (current.processing || current.members.isEmpty()) current else {
+                opened = true
+                current.copy(
+                    dialog = BookshelfEditingDialog.BulkAddItems(items = items),
+                    addItemShelves = emptyList(),
+                    addItemShelvesLoadedForMemberId = null,
+                    inputError = null,
+                )
+            }
+        }
+        if (opened) {
+            stopAddItemShelfObservation()
+            bulkAddCompletionCallback = onCompleted
+        }
+    }
+
+    /** [BookshelfEditingDialog.AddItem]・[BookshelfEditingDialog.BulkAddItems]のどちらでもメンバーIDを取り出す。 */
+    private fun BookshelfEditingDialog?.addItemMemberId(): Long? = when (this) {
+        is BookshelfEditingDialog.AddItem -> memberId
+        is BookshelfEditingDialog.BulkAddItems -> memberId
+        else -> null
+    }
+
     fun selectAddItemMember(memberId: Long) {
         var selected = false
         _state.update { current ->
             selected = false
-            val dialog = current.dialog as? BookshelfEditingDialog.AddItem
-            if (current.processing || dialog == null || current.members.none { it.id == memberId }) current else {
+            val dialog = current.dialog
+            val applicable = dialog is BookshelfEditingDialog.AddItem || dialog is BookshelfEditingDialog.BulkAddItems
+            if (current.processing || !applicable || current.members.none { it.id == memberId }) current else {
                 selected = true
+                val updatedDialog = when (dialog) {
+                    is BookshelfEditingDialog.AddItem -> dialog.copy(memberId = memberId, shelfNo = null)
+                    is BookshelfEditingDialog.BulkAddItems -> dialog.copy(memberId = memberId, shelfNo = null)
+                    else -> dialog
+                }
                 current.copy(
-                    dialog = dialog.copy(memberId = memberId, shelfNo = null),
+                    dialog = updatedDialog,
                     addItemShelves = emptyList(),
                     addItemShelvesLoadedForMemberId = null,
                     inputError = null,
@@ -199,9 +286,10 @@ class BookshelfEditingUiController(
         addItemShelvesJob = scope.launch {
             bookshelfRepository.observeShelves(memberId).collect { shelves ->
                 _state.update { current ->
-                    val dialog = current.dialog as? BookshelfEditingDialog.AddItem
+                    val dialogMemberId = current.dialog.addItemMemberId()
                     val pending = current.pendingConfirmation as? BookshelfEditingConfirmation.AddItem
-                    if (dialog?.memberId == memberId || pending?.mutation?.memberId == memberId) {
+                    val bulkPendingMemberId = current.bulkAddPendingConfirmation?.request?.memberId
+                    if (dialogMemberId == memberId || pending?.mutation?.memberId == memberId || bulkPendingMemberId == memberId) {
                         current.copy(
                             addItemShelves = shelves.sortedBy { it.shelfNo },
                             addItemShelvesLoadedForMemberId = memberId,
@@ -216,9 +304,14 @@ class BookshelfEditingUiController(
 
     fun selectAddItemShelf(shelfNo: Int) {
         _state.update { current ->
-            val dialog = current.dialog as? BookshelfEditingDialog.AddItem
-            if (current.processing || dialog?.memberId == null || current.addItemShelves.none { it.shelfNo == shelfNo }) current
-            else current.copy(dialog = dialog.copy(shelfNo = shelfNo), inputError = null)
+            val dialog = current.dialog
+            val memberId = dialog.addItemMemberId()
+            if (current.processing || memberId == null || current.addItemShelves.none { it.shelfNo == shelfNo }) current
+            else when (dialog) {
+                is BookshelfEditingDialog.AddItem -> current.copy(dialog = dialog.copy(shelfNo = shelfNo), inputError = null)
+                is BookshelfEditingDialog.BulkAddItems -> current.copy(dialog = dialog.copy(shelfNo = shelfNo), inputError = null)
+                else -> current
+            }
         }
     }
 
@@ -295,6 +388,8 @@ class BookshelfEditingUiController(
             val updated = when (dialog) {
                 is BookshelfEditingDialog.CreateShelf -> dialog.copy(name = value)
                 is BookshelfEditingDialog.AddItem -> dialog.copy(memo = value)
+                // 一斉追加にメモ欄は無い(`docs/design/bulk-bookshelf-add.md` §5.2)。呼ばれても何もしない。
+                is BookshelfEditingDialog.BulkAddItems -> dialog
                 is BookshelfEditingDialog.EditShelf -> dialog.copy(name = value)
             }
             current.copy(dialog = updated, inputError = null)
@@ -368,6 +463,34 @@ class BookshelfEditingUiController(
                     )
                 }
             }
+            is BookshelfEditingDialog.BulkAddItems -> {
+                val member = current.members.find { it.id == dialog.memberId }
+                val shelf = dialog.shelfNo?.let { shelfNo -> current.addItemShelves.find { it.shelfNo == shelfNo } }
+                when {
+                    member == null -> current.copy(inputError = "対象メンバーを選択してください")
+                    current.addItemShelvesLoadedForMemberId != member.id -> current.copy(inputError = "本棚を読み込んでいます")
+                    current.addItemShelves.isEmpty() -> current.copy(inputError = "先に本棚を作成してください")
+                    shelf == null -> current.copy(inputError = "追加先の本棚を選択してください")
+                    else -> current.copy(
+                        dialog = null,
+                        inputError = null,
+                        bulkAddPendingConfirmation = BookshelfBulkAddConfirmation(
+                            memberName = member.name,
+                            shelfName = shelf.name,
+                            request = BookshelfBulkAddRequest(
+                                memberId = member.id,
+                                shelfNo = shelf.shelfNo,
+                                items = dialog.items,
+                                confirmed = BookshelfMutationExpectation(
+                                    member.name,
+                                    current.addItemShelves.size,
+                                    BookshelfExpectedShelf(shelf.shelfNo, shelf.name, shelf.items.size),
+                                ),
+                            ),
+                        ),
+                    )
+                }
+            }
             is BookshelfEditingDialog.EditShelf -> {
                 if (!isValidShelfName(dialog.name)) {
                     current.copy(inputError = shelfNameError(dialog.name))
@@ -406,7 +529,7 @@ class BookshelfEditingUiController(
         _state.update { current ->
             stopObservation = false
             if (current.processing) current else {
-                stopObservation = current.dialog is BookshelfEditingDialog.AddItem
+                stopObservation = current.dialog is BookshelfEditingDialog.AddItem || current.dialog is BookshelfEditingDialog.BulkAddItems
                 current.copy(
                     dialog = null,
                     inputError = null,
@@ -505,6 +628,127 @@ class BookshelfEditingUiController(
                 if (mutation is BookshelfMutation.AddItem) clearAddItemShelfObservation()
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // 一斉本棚追加(`docs/design/bulk-bookshelf-add.md` §5.2〜§5.4)
+    // ------------------------------------------------------------------
+
+    /** 確認ダイアログの「戻る」。選択(検索・新着側)は残したままにするため、完了通知は行わない。 */
+    fun dismissBulkAddConfirmation() {
+        var stopObservation = false
+        _state.update { current ->
+            stopObservation = false
+            if (current.processing) current else {
+                stopObservation = current.bulkAddPendingConfirmation != null
+                current.copy(
+                    bulkAddPendingConfirmation = null,
+                    addItemShelves = if (stopObservation) emptyList() else current.addItemShelves,
+                    addItemShelvesLoadedForMemberId = if (stopObservation) null else current.addItemShelvesLoadedForMemberId,
+                )
+            }
+        }
+        if (stopObservation) stopAddItemShelfObservation()
+    }
+
+    /**
+     * 一斉本棚追加の最終確認の肯定操作。単件の[confirmPending]と同じく、確認時の値を現在の状態で
+     * 再検証してから[BookshelfRepository.addItems]を呼ぶ(`docs/design/bulk-bookshelf-add.md` §5.2)。
+     * 再検証で弾いた場合も含め、通信を試みた(または試みるはずだった)経路に入ったら必ず
+     * [completeBulkAdd]で呼び出し元へ完了を伝える(§5.4「成否を問わず選択を空にする」)。
+     */
+    fun confirmBulkAdd() {
+        var requestToSend: BookshelfBulkAddRequest? = null
+        var stopObservation = false
+        var rejected = false
+        _state.update { current ->
+            requestToSend = null
+            stopObservation = false
+            rejected = false
+            val confirmation = current.bulkAddPendingConfirmation ?: return@update current
+            if (current.processing) return@update current
+            val member = current.members.find { it.id == confirmation.request.memberId }
+            fun reject(message: String): BookshelfEditingUiState {
+                stopObservation = true
+                rejected = true
+                return current.copy(
+                    bulkAddPendingConfirmation = null,
+                    errorMessage = message,
+                    addItemShelves = emptyList(),
+                    addItemShelvesLoadedForMemberId = null,
+                )
+            }
+            when {
+                member == null -> reject("対象メンバーが見つかりません。内容を確認してからやり直してください")
+                member.name != confirmation.memberName -> reject("対象メンバーの名前が変更されました。もう一度選択してください")
+                current.addItemShelvesLoadedForMemberId != confirmation.request.memberId ->
+                    reject("本棚を読み込めませんでした。もう一度選択してください")
+                else -> {
+                    val shelf = current.addItemShelves.find { it.shelfNo == confirmation.request.shelfNo }
+                    when {
+                        shelf == null -> reject("追加先の本棚が見つかりません。もう一度選択してください")
+                        shelf.name != confirmation.shelfName -> reject("追加先の本棚名が変更されました。もう一度選択してください")
+                        else -> {
+                            requestToSend = confirmation.request
+                            current.copy(
+                                bulkAddPendingConfirmation = null,
+                                bulkAddProgress = BookshelfBulkAddProgress(0, confirmation.request.items.size),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (stopObservation) stopAddItemShelfObservation()
+        if (rejected) completeBulkAdd()
+        val request = requestToSend ?: return
+        scope.launch {
+            try {
+                val result = bookshelfRepository.addItems(request) { completed, total ->
+                    _state.update { it.copy(bulkAddProgress = BookshelfBulkAddProgress(completed, total)) }
+                }
+                _state.update { current ->
+                    current.copy(
+                        bulkAddProgress = null,
+                        bulkAddResults = BookshelfBulkAddResultSummary(
+                            rows = result.items.map { itemResult ->
+                                BookshelfBulkAddResultRow(
+                                    title = itemResult.item.title,
+                                    message = BookshelfEditingContentBuilder.bulkAddResultMessage(itemResult.outcome),
+                                )
+                            },
+                            localRefreshRequired = result.localRefreshRequired,
+                        ),
+                    )
+                }
+                clearAddItemShelfObservation()
+            } catch (exception: CancellationException) {
+                _state.update { it.copy(bulkAddProgress = null) }
+                clearAddItemShelfObservation()
+                throw exception
+            } catch (_: Exception) {
+                _state.update {
+                    it.copy(
+                        bulkAddProgress = null,
+                        errorMessage = "本棚への追加を完了できませんでした。通信状態を確認してください。",
+                    )
+                }
+                clearAddItemShelfObservation()
+            } finally {
+                completeBulkAdd()
+            }
+        }
+    }
+
+    fun clearBulkAddResults() {
+        _state.update { it.copy(bulkAddResults = null) }
+    }
+
+    /** 一斉本棚追加が(成否を問わず)終わったことを呼び出し元へ伝える。1回きりの通知にするため呼んだら破棄する。 */
+    private fun completeBulkAdd() {
+        val callback = bulkAddCompletionCallback
+        bulkAddCompletionCallback = null
+        callback?.invoke()
     }
 
     fun clearResult() {
@@ -618,6 +862,39 @@ object BookshelfEditingContentBuilder {
                 outcome.reason.resultGuidance(),
             ),
             kind = BookshelfEditingResultKind.FAILURE,
+        )
+    }
+
+    /**
+     * 一斉本棚追加の件ごとの結果文言(`docs/design/bulk-bookshelf-add.md` §5.3の表どおり)。
+     * 単件の[resultMessage]と異なり、行ごとには「本棚を更新して〜」等の案内を付けない
+     * (`localRefreshRequired`は一斉分をまとめて1回だけ、結果一覧の末尾に付記する。§5.3)。
+     */
+    fun bulkAddResultMessage(outcome: BookshelfBulkAddItemOutcome): BookshelfEditingResultMessage = when (outcome) {
+        BookshelfBulkAddItemOutcome.Added -> BookshelfEditingResultMessage(
+            title = "追加しました",
+            message = "追加しました",
+            kind = BookshelfEditingResultKind.APPLIED,
+        )
+        BookshelfBulkAddItemOutcome.AlreadyRegistered -> BookshelfEditingResultMessage(
+            title = "すでに登録済みです",
+            message = "すでにこの本棚に登録されています",
+            kind = BookshelfEditingResultKind.ALREADY_REGISTERED,
+        )
+        BookshelfBulkAddItemOutcome.Unknown -> BookshelfEditingResultMessage(
+            title = "処理結果を確認できません",
+            message = "追加できたか確認できません。本棚画面でご確認ください",
+            kind = BookshelfEditingResultKind.UNKNOWN,
+        )
+        is BookshelfBulkAddItemOutcome.Failed -> BookshelfEditingResultMessage(
+            title = "追加できませんでした",
+            message = outcome.reason.bookshelfLabel(),
+            kind = BookshelfEditingResultKind.FAILURE,
+        )
+        BookshelfBulkAddItemOutcome.NotAttempted -> BookshelfEditingResultMessage(
+            title = "処理を中断しました",
+            message = "前の資料で処理を中断したため、追加していません",
+            kind = BookshelfEditingResultKind.NOT_ATTEMPTED,
         )
     }
 
