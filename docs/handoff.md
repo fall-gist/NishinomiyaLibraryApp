@@ -2827,7 +2827,8 @@ DataStoreの初回読込を待つ**隠れた同期点**として機能してお�
     更新。単件経路では実際には発生しない)。
   - `BookshelfEditingContentBuilder.bulkAddResultMessage`を追加、設計書§5.3の表どおりの文言。
 - `ui/shelf/BookshelfScreen.kt`: `BulkAddItemsDialog`・`BookshelfBulkAddConfirmDialog`・
-  `BookshelfBulkAddProgressDialog`(非モーダル、閉じるボタンなし)・`BookshelfBulkAddResultsDialog`
+  `BookshelfBulkAddProgressDialog`(閉じられないモーダル。`onDismissRequest = {}`のため外側タップ・戻るキーでも
+  閉じない。処理完了まで画面操作を遮る)・`BookshelfBulkAddResultsDialog`
   (件ごとの行+`localRefreshRequired`の付記)を追加し、`BookshelfEditingDialogs`から振り分けた。
 - `ui/search/SearchScreenController.kt`・`ui/newarrivals/NewArrivalsScreenController.kt`: `clearSelection()`を
   追加(一斉本棚追加の完了コールバックから呼ばれる)。
@@ -2852,7 +2853,8 @@ DataStoreの初回読込を待つ**隠れた同期点**として機能してお�
 ### 設計との差異
 
 - 一斉追加の進捗表示(§5.3「N件目/M件」)は、検索・新着のバー付近ではなく`BookshelfEditingDialogs`
-  (グローバルなダイアログ層)に非モーダルな`AlertDialog`として出す設計判断をした。進捗はBookshelfEditingUiController
+  (グローバルなダイアログ層)に、閉じられないモーダルな`AlertDialog`(`onDismissRequest = {}`。処理完了まで
+  画面操作を遮る)として出す設計判断をした。進捗はBookshelfEditingUiController
   の状態であり検索・新着のControllerは持たないため、既存の`LoanExtensionUiController`の「バー直下にText」
   方式をそのまま検索・新着へ持ち込むには両Controllerへ進捗を中継する配線が必要になり、設計書§5.2の
   「検索・新着の画面はControllerを呼ぶだけにする」という方針から外れる。設計書に反する変更ではないが、
