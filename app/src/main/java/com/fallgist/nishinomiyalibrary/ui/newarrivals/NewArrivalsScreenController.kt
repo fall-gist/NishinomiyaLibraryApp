@@ -344,6 +344,15 @@ class NewArrivalsScreenController(
         }
     }
 
+    /**
+     * 選択だけを空にする(`docs/design/bulk-bookshelf-add.md` §5.4)。
+     * 一斉本棚追加は[com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfEditingUiController]が処理するため、
+     * 完了(成否を問わない)をこの画面へ伝える手段としてここへ完了時コールバックから呼ばれる。
+     */
+    fun clearSelection() {
+        _state.update { it.copy(selectedCartTilcods = emptySet()) }
+    }
+
     /** 「カートへ追加」ボタン。選択済みキーに対応する候補はScreen側で組み立てて渡す。 */
     fun requestBulkCartAddition(candidates: List<BulkCartAdditionCandidate>) {
         if (state.value.anyBulkActionProcessing || candidates.isEmpty()) return

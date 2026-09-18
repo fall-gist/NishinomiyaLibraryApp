@@ -43,6 +43,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpSession
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItem
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreen
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
@@ -446,6 +447,13 @@ fun LibraryApp(
                                 onDismissBulkDirectReservationConfirmation = searchController::dismissBulkDirectReservationConfirmation,
                                 onClearBulkDirectReservationResults = searchController::clearBulkDirectReservationResults,
                                 onClearBulkDirectReservationError = searchController::clearBulkDirectReservationError,
+                                bookshelfEditingProcessing = editingState.processing,
+                                onRequestBulkAddToBookshelf = { candidates ->
+                                    bookshelfEditingUiController.requestBulkAddItems(
+                                        candidates.map { BookshelfBulkAddItem(it.tilcod, it.title) },
+                                        onCompleted = searchController::clearSelection,
+                                    )
+                                },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -476,6 +484,13 @@ fun LibraryApp(
                                 onDismissBulkDirectReservationConfirmation = newArrivalsController::dismissBulkDirectReservationConfirmation,
                                 onClearBulkDirectReservationResults = newArrivalsController::clearBulkDirectReservationResults,
                                 onClearBulkDirectReservationError = newArrivalsController::clearBulkDirectReservationError,
+                                bookshelfEditingProcessing = editingState.processing,
+                                onRequestBulkAddToBookshelf = { candidates ->
+                                    bookshelfEditingUiController.requestBulkAddItems(
+                                        candidates.map { BookshelfBulkAddItem(it.tilcod, it.title) },
+                                        onCompleted = newArrivalsController::clearSelection,
+                                    )
+                                },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -637,6 +652,9 @@ fun LibraryApp(
                         onClearResult = bookshelfEditingUiController::clearResult,
                         onClearError = bookshelfEditingUiController::clearError,
                         onRequestDeleteItem = bookshelfEditingUiController::requestDeleteItem,
+                        onConfirmBulkAdd = bookshelfEditingUiController::confirmBulkAdd,
+                        onDismissBulkAddConfirmation = bookshelfEditingUiController::dismissBulkAddConfirmation,
+                        onClearBulkAddResults = bookshelfEditingUiController::clearBulkAddResults,
                     )
                     reservationState.pendingConfirmation?.let { request ->
                         ReservationConfirmDialog(

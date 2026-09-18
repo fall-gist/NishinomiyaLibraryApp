@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.components.BulkActionBar
+import com.fallgist.nishinomiyalibrary.ui.components.BulkOverflowAction
 import com.fallgist.nishinomiyalibrary.ui.components.ClearSelectionWarningDialog
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
@@ -64,11 +65,17 @@ fun NewArrivalsScreen(
     onDismissBulkDirectReservationConfirmation: () -> Unit,
     onClearBulkDirectReservationResults: () -> Unit,
     onClearBulkDirectReservationError: () -> Unit,
+    /** [BookshelfEditingUiController]の処理中フラグ(`docs/design/bulk-bookshelf-add.md` §5.4)。 */
+    bookshelfEditingProcessing: Boolean = false,
+    onRequestBulkAddToBookshelf: (List<BulkCartAdditionCandidate>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
     // IMEの変換合成が崩れるため、入力値は画面ローカルに保持しControllerへは通知のみ渡す
     var queryText by remember { mutableStateOf(state.query) }
+    // カート追加・直接予約に加え、本棚追加(別Controller)の処理中も一斉操作全体を止める
+    // (`docs/design/bulk-bookshelf-add.md` §5.4「BookshelfEditingUiControllerの処理中フラグも無効化条件に含める」)。
+    val bulkActionsBlocked = state.anyBulkActionProcessing || bookshelfEditingProcessing
     Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar(
             title = "新着資料",
@@ -139,13 +146,22 @@ fun NewArrivalsScreen(
             BulkActionBar(
                 selectedCount = displayedCandidates.size,
                 actionLabel = "予約する",
-                enabled = state.canRequestBulkDirectReservation,
+                enabled = state.canRequestBulkDirectReservation && !bookshelfEditingProcessing,
                 onClick = { onRequestBulkDirectReservation(displayedCandidates) },
                 containerColor = colors.green,
                 contentColor = colors.card,
-                secondaryActionLabel = "カートへ追加",
-                secondaryEnabled = state.canRequestBulkCartAddition,
-                onSecondaryClick = { onRequestBulkCartAddition(displayedCandidates) },
+                overflowActions = listOf(
+                    BulkOverflowAction(
+                        label = "カートへ追加",
+                        enabled = state.canRequestBulkCartAddition && !bookshelfEditingProcessing,
+                        onClick = { onRequestBulkCartAddition(displayedCandidates) },
+                    ),
+                    BulkOverflowAction(
+                        label = "本棚へ追加",
+                        enabled = !bulkActionsBlocked && displayedCandidates.isNotEmpty(),
+                        onClick = { onRequestBulkAddToBookshelf(displayedCandidates) },
+                    ),
+                ),
             )
             state.bulkCartAdditionErrorMessage?.let {
                 Text(
@@ -208,7 +224,7 @@ fun NewArrivalsScreen(
                     NewArrivalRowView(
                         row = row,
                         selected = row.tilcod in state.selectedCartTilcods,
-                        selectionEnabled = !state.anyBulkActionProcessing,
+                        selectionEnabled = !bulkActionsBlocked,
                         onClick = { onOpenDetail(row.tilcod, row.title) },
                         onToggleSelection = { onToggleCartSelection(row.tilcod) },
                     )

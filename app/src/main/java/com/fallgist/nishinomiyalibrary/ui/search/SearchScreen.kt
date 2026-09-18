@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.components.BulkActionBar
+import com.fallgist.nishinomiyalibrary.ui.components.BulkOverflowAction
 import com.fallgist.nishinomiyalibrary.ui.components.ClearSelectionWarningDialog
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
@@ -68,6 +69,9 @@ fun SearchScreen(
     onDismissBulkDirectReservationConfirmation: () -> Unit,
     onClearBulkDirectReservationResults: () -> Unit,
     onClearBulkDirectReservationError: () -> Unit,
+    /** [BookshelfEditingUiController]の処理中フラグ(`docs/design/bulk-bookshelf-add.md` §5.4)。 */
+    bookshelfEditingProcessing: Boolean = false,
+    onRequestBulkAddToBookshelf: (List<BulkCartAdditionCandidate>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     SearchView(
@@ -94,6 +98,8 @@ fun SearchScreen(
         onDismissBulkDirectReservationConfirmation = onDismissBulkDirectReservationConfirmation,
         onClearBulkDirectReservationResults = onClearBulkDirectReservationResults,
         onClearBulkDirectReservationError = onClearBulkDirectReservationError,
+        bookshelfEditingProcessing = bookshelfEditingProcessing,
+        onRequestBulkAddToBookshelf = onRequestBulkAddToBookshelf,
         modifier = modifier,
     )
 }
@@ -123,9 +129,14 @@ private fun SearchView(
     onDismissBulkDirectReservationConfirmation: () -> Unit,
     onClearBulkDirectReservationResults: () -> Unit,
     onClearBulkDirectReservationError: () -> Unit,
+    bookshelfEditingProcessing: Boolean,
+    onRequestBulkAddToBookshelf: (List<BulkCartAdditionCandidate>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
+    // カート追加・直接予約に加え、本棚追加(別Controller)の処理中も一斉操作全体を止める
+    // (`docs/design/bulk-bookshelf-add.md` §5.4「BookshelfEditingUiControllerの処理中フラグも無効化条件に含める」)。
+    val bulkActionsBlocked = state.anyBulkActionProcessing || bookshelfEditingProcessing
     // IMEの変換合成が崩れるため、入力値は画面ローカルに保持しControllerへは通知のみ渡す
     var queryText by remember { mutableStateOf("") }
     Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
@@ -175,13 +186,22 @@ private fun SearchView(
             BulkActionBar(
                 selectedCount = displayedCandidates.size,
                 actionLabel = "予約する",
-                enabled = state.canRequestBulkDirectReservation,
+                enabled = state.canRequestBulkDirectReservation && !bookshelfEditingProcessing,
                 onClick = { onRequestBulkDirectReservation(displayedCandidates) },
                 containerColor = colors.green,
                 contentColor = colors.card,
-                secondaryActionLabel = "カートへ追加",
-                secondaryEnabled = state.canRequestBulkCartAddition,
-                onSecondaryClick = { onRequestBulkCartAddition(displayedCandidates) },
+                overflowActions = listOf(
+                    BulkOverflowAction(
+                        label = "カートへ追加",
+                        enabled = state.canRequestBulkCartAddition && !bookshelfEditingProcessing,
+                        onClick = { onRequestBulkCartAddition(displayedCandidates) },
+                    ),
+                    BulkOverflowAction(
+                        label = "本棚へ追加",
+                        enabled = !bulkActionsBlocked && displayedCandidates.isNotEmpty(),
+                        onClick = { onRequestBulkAddToBookshelf(displayedCandidates) },
+                    ),
+                ),
             )
             state.bulkCartAdditionErrorMessage?.let {
                 Text(
@@ -253,7 +273,7 @@ private fun SearchView(
                     ResultRowView(
                         row = row,
                         selected = row.tilcod in state.selectedCartTilcods,
-                        selectionEnabled = !state.anyBulkActionProcessing,
+                        selectionEnabled = !bulkActionsBlocked,
                         onClick = { onOpenDetail(row.tilcod, row.title) },
                         onToggleSelection = { onToggleCartSelection(row.tilcod) },
                     )
