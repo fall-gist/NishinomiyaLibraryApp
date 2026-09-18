@@ -677,6 +677,30 @@ class BookshelfEditingUiControllerTest {
     }
 
     @Test
+    fun `一斉追加の確定連打はaddItemsを1回しか呼ばない`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestBulkAddItems(listOf(BookshelfBulkAddItem("t-1", "資料A"))) { }
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.requestInputConfirmation()
+
+        // 確認ボタンの連打を模す。1回目で`bulkAddPendingConfirmation`は同期的にnullへ変わるため、
+        // advanceUntilIdleを挟まず続けて呼んでも2回目は何もしない。
+        controller.confirmBulkAdd()
+        controller.confirmBulkAdd()
+        controller.confirmBulkAdd()
+        advanceUntilIdle()
+
+        assertEquals(1, repo.addItemsRequests.size)
+        controller.close()
+    }
+
+    @Test
     fun `一斉追加の結果はoutcomeごとの表示文言へ変換される`() {
         assertEquals(
             "追加しました",
