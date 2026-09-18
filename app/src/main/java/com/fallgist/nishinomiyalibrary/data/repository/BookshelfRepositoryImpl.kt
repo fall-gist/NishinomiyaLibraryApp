@@ -10,8 +10,14 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.BookshelfSession
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.RemoteBookshelfMutation
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.RemoteBookshelfOutcome
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItem
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItemOutcome
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItemResult
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddRequest
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddResult
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
@@ -111,6 +117,153 @@ class BookshelfRepositoryImpl @Inject constructor(
             RemoteBookshelfOutcome.Unknown -> BookshelfMutationOutcome.Unknown
             is RemoteBookshelfOutcome.Failure -> BookshelfMutationOutcome.Failure(remoteOutcome.reason, remoteOutcome.diagnosticCode)
         }
+    }
+
+    // §9で確定: 開始時のメンバー名不一致(および同種の事前チェック失敗)は、1件も送らず全件Failedとする。
+    // 全件NotAttemptedにすると「前の資料で処理を中断した」という文言が実態(前の資料は存在しない)と
+    // 食い違うため、理由を持つFailedの方がUIの説明として正確である(`docs/design/bulk-bookshelf-add.md` §9)。
+    override suspend fun addItems(
+        request: BookshelfBulkAddRequest,
+        onProgress: (completed: Int, total: Int) -> Unit,
+    ): BookshelfBulkAddResult {
+        // 空リストでは通信・ログインを一切行わない(`bulk-bookshelf-add.md` §6.1-11)。
+        if (request.items.isEmpty()) return BookshelfBulkAddResult(emptyList(), localRefreshRequired = false)
+        val gate = bookshelfStateGate
+            ?: return failAll(request.items, FailureReason.MEMBER_ABORTED_AFTER_SITE_CHANGE, onProgress)
+        return gate.withLock { addItemsLocked(request, onProgress) }
+    }
+
+    private suspend fun addItemsLocked(
+        request: BookshelfBulkAddRequest,
+        onProgress: (completed: Int, total: Int) -> Unit,
+    ): BookshelfBulkAddResult {
+        val member = try {
+            requireNotNull(memberDao).getById(request.memberId)
+        } catch (exception: Exception) {
+            exception.rethrowIfCancellation()
+            return failAll(request.items, FailureReason.AUTH, onProgress)
+        } ?: return failAll(request.items, FailureReason.AUTH, onProgress)
+        if (member.name != request.confirmed.memberName) {
+            return failAll(request.items, FailureReason.SITE_RESPONSE_CHANGED, onProgress)
+        }
+
+        val password = try {
+            requireNotNull(credentialStore).getPassword(member.id)
+        } catch (exception: Exception) {
+            exception.rethrowIfCancellation()
+            return failAll(request.items, FailureReason.AUTH, onProgress)
+        }
+        if (password.isNullOrBlank()) return failAll(request.items, FailureReason.AUTH, onProgress)
+
+        var session: BookshelfSession? = null
+        return try {
+            session = try {
+                requireNotNull(gateway).openAuthenticatedSession(member.cardNumber, password)
+            } catch (exception: Exception) {
+                exception.rethrowIfCancellation()
+                return failAll(request.items, exception.toFailureReason(), onProgress)
+            }
+            processBulkAddItems(request, session, onProgress)
+        } finally {
+            session?.close()
+        }
+    }
+
+    /** ログイン後、資料を1件ずつ追加する。期待値の資料数だけを直前の結果で更新する(§4.2)。 */
+    private suspend fun processBulkAddItems(
+        request: BookshelfBulkAddRequest,
+        session: BookshelfSession,
+        onProgress: (completed: Int, total: Int) -> Unit,
+    ): BookshelfBulkAddResult {
+        val total = request.items.size
+        val results = mutableListOf<BookshelfBulkAddItemResult>()
+        var localRefreshRequired = false
+        var currentExpected = request.confirmed
+        var stopped = false
+        for ((index, bulkItem) in request.items.withIndex()) {
+            if (stopped) {
+                results += BookshelfBulkAddItemResult(bulkItem, BookshelfBulkAddItemOutcome.NotAttempted)
+                continue
+            }
+            val remoteOutcome = try {
+                session.mutate(RemoteBookshelfMutation.AddItem(request.shelfNo, bulkItem.tilcod, "", currentExpected))
+            } catch (exception: Exception) {
+                exception.rethrowIfCancellation()
+                stopped = true
+                results += BookshelfBulkAddItemResult(bulkItem, BookshelfBulkAddItemOutcome.Failed(exception.toFailureReason()))
+                onProgress(index + 1, total)
+                continue
+            }
+            when (remoteOutcome) {
+                is RemoteBookshelfOutcome.Applied -> {
+                    if (persistBulkSnapshot(request.memberId, remoteOutcome.shelves, remoteOutcome.items)) localRefreshRequired = true
+                    results += BookshelfBulkAddItemResult(bulkItem, BookshelfBulkAddItemOutcome.Added)
+                    currentExpected = nextExpectation(request.confirmed, request.shelfNo, remoteOutcome.items)
+                }
+                is RemoteBookshelfOutcome.AlreadyRegistered -> {
+                    if (persistBulkSnapshot(request.memberId, remoteOutcome.shelves, remoteOutcome.items)) localRefreshRequired = true
+                    results += BookshelfBulkAddItemResult(bulkItem, BookshelfBulkAddItemOutcome.AlreadyRegistered)
+                    currentExpected = nextExpectation(request.confirmed, request.shelfNo, remoteOutcome.items)
+                }
+                RemoteBookshelfOutcome.Unknown -> {
+                    stopped = true
+                    results += BookshelfBulkAddItemResult(bulkItem, BookshelfBulkAddItemOutcome.Unknown)
+                }
+                is RemoteBookshelfOutcome.Failure -> {
+                    stopped = true
+                    results += BookshelfBulkAddItemResult(bulkItem, BookshelfBulkAddItemOutcome.Failed(remoteOutcome.reason))
+                }
+            }
+            onProgress(index + 1, total)
+        }
+        return BookshelfBulkAddResult(results, localRefreshRequired)
+    }
+
+    /**
+     * 2件目以降の期待値。資料数だけを直前の結果(操作後の全本棚)から取り、それ以外
+     * (メンバー名・本棚の総数・対象本棚の番号と名前)は確認時の値のまま照合する(§4.2)。
+     * Roomからは読まない。名前や本棚の総数を直前の結果から取ってはならない(改名・番号ずれの
+     * 検出が無効になるため)。
+     */
+    private fun nextExpectation(
+        confirmed: BookshelfMutationExpectation,
+        shelfNo: Int,
+        latestItems: List<ShelfItem>,
+    ): BookshelfMutationExpectation {
+        val shelf = confirmed.shelf ?: return confirmed
+        val actualCount = latestItems.count { it.shelfNo == shelfNo }
+        return confirmed.copy(shelf = shelf.copy(itemCount = actualCount))
+    }
+
+    /** persistSnapshotと同じRoom置換規則。戻り値は置換に失敗したか(=localRefreshRequiredを立てるか)。 */
+    private suspend fun persistBulkSnapshot(
+        memberId: Long,
+        shelves: List<com.fallgist.nishinomiyalibrary.domain.model.Shelf>,
+        items: List<ShelfItem>,
+    ): Boolean = try {
+        requireNotNull(database).replaceShelfSnapshot(
+            memberId = memberId,
+            shelves = shelves.map { it.toEntity(memberId) },
+            shelfItems = items.map { it.toEntity(memberId) },
+        )
+        false
+    } catch (exception: Exception) {
+        exception.rethrowIfCancellation()
+        true
+    }
+
+    /** 1件も送らず全件を同じ理由でFailedにする(§9)。onProgressは各件ごとに呼ぶ(NotAttemptedではないため)。 */
+    private fun failAll(
+        items: List<BookshelfBulkAddItem>,
+        reason: FailureReason,
+        onProgress: (completed: Int, total: Int) -> Unit,
+    ): BookshelfBulkAddResult {
+        val total = items.size
+        val results = items.mapIndexed { index, item ->
+            onProgress(index + 1, total)
+            BookshelfBulkAddItemResult(item, BookshelfBulkAddItemOutcome.Failed(reason))
+        }
+        return BookshelfBulkAddResult(results, localRefreshRequired = false)
     }
 
     /** Gate保持中に、完全スナップショットとサマリの棚数を一つのRoomトランザクションで更新する。 */

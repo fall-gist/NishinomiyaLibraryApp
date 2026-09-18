@@ -523,5 +523,12 @@ class BookshelfEditingUiControllerTest {
             onMutate?.invoke()
             return outcome
         }
+        // 段階1(Repository層)で追加したAPI。本テストは段階2(UI)着手までは未使用のため、
+        // コンパイルを通すだけの最小実装とする(`docs/design/bulk-bookshelf-add.md` §7)。
+        override suspend fun addItems(
+            request: com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddRequest,
+            onProgress: (completed: Int, total: Int) -> Unit,
+        ): com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddResult =
+            com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddResult(emptyList(), localRefreshRequired = false)
     }
 }

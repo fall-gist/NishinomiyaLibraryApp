@@ -2,6 +2,8 @@ package com.fallgist.nishinomiyalibrary.domain.repository
 
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddRequest
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddResult
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
@@ -69,6 +71,17 @@ interface BookshelfRepository {
     fun observeShelves(memberId: Long): Flow<List<BookshelfContent>>
 
     suspend fun mutate(mutation: BookshelfMutation): BookshelfMutationOutcome
+
+    /**
+     * 1人のメンバーの1つの本棚へ、複数の資料を順に追加する(`docs/design/bulk-bookshelf-add.md` §4)。
+     * 本棚状態ゲートとログインは一括処理全体で1回だけ取得する。`Unknown`または`Failure`が出た時点で
+     * 打ち切り、残りは`NotAttempted`とする。[onProgress]は1件終えるたびに呼ばれる(`completed`は1始まり)。
+     * 打ち切った件でも呼ばれるが、`NotAttempted`の件では呼ばれない。
+     */
+    suspend fun addItems(
+        request: BookshelfBulkAddRequest,
+        onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
+    ): BookshelfBulkAddResult
 }
 
 /** 検索はキャッシュせず、都度公式サイトとopenBDへ委譲する。 */

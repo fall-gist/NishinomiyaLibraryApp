@@ -170,6 +170,43 @@ sealed interface BookshelfMutationOutcome {
     data class Failure(val reason: FailureReason, val diagnosticCode: String? = null) : BookshelfMutationOutcome
 }
 
+/**
+ * 検索・新着資料から選んだ複数の書誌を、1人のメンバーの1つの本棚へまとめて追加する要求
+ * (`docs/design/bulk-bookshelf-add.md` §4.1)。[confirmed]は最終確認に表示した状態そのもので、
+ * `shelf`は必須・`item`はnullとする。
+ */
+data class BookshelfBulkAddRequest(
+    val memberId: Long,
+    val shelfNo: Int,
+    val items: List<BookshelfBulkAddItem>,
+    val confirmed: BookshelfMutationExpectation,
+)
+
+data class BookshelfBulkAddItem(val tilcod: String, val title: String)
+
+/**
+ * 一斉本棚追加の結果。[localRefreshRequired]は途中のRoom置換が1回でも失敗したことを示し、
+ * UIは「画面を更新してください」を付記する(`docs/design/bulk-bookshelf-add.md` §4.1)。
+ */
+data class BookshelfBulkAddResult(
+    val items: List<BookshelfBulkAddItemResult>,
+    val localRefreshRequired: Boolean,
+)
+
+data class BookshelfBulkAddItemResult(val item: BookshelfBulkAddItem, val outcome: BookshelfBulkAddItemOutcome)
+
+sealed interface BookshelfBulkAddItemOutcome {
+    /** Remoteの`Applied`に対応。 */
+    data object Added : BookshelfBulkAddItemOutcome
+    data object AlreadyRegistered : BookshelfBulkAddItemOutcome
+    /** POST後に成否が確認できなかった。以降は打ち切る。 */
+    data object Unknown : BookshelfBulkAddItemOutcome
+    /** 以降は打ち切る。 */
+    data class Failed(val reason: FailureReason) : BookshelfBulkAddItemOutcome
+    /** 前の資料で処理を中断したため、この資料は送信していない。 */
+    data object NotAttempted : BookshelfBulkAddItemOutcome
+}
+
 data class UserSummary(
     val memberId: Long,
     /** 登録資料数ではなく、マイ本棚の本棚数。 */
