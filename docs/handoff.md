@@ -2733,3 +2733,64 @@ DataStoreの初回読込を待つ**隠れた同期点**として機能してお�
 同時にテストを回し、`mergeDebugResources`・`transformDebugClassesWithAsm`で
 `Unable to delete directory`が多発して、双方ともテストに到達できなかった。
 「8回中6回失敗」という誤った観測もこれが原因である。検証は必ず単独で行うこと。
+
+## 一斉本棚追加: 段階1(Repository層)完了、段階2(UI)引き継ぎ(2026-09-18)
+
+### 現在の状態
+
+- 設計書: `docs/design/bulk-bookshelf-add.md`(所有者承認済み)。段階1(Repository層、§4・§6.1)を実装済み、
+  段階2(UI、§5・§6.2)は未着手。
+- 最新コミット: `4fa5bec`(設計書§9更新)。実装コミットは `da684c9`。
+- **プッシュ済み確認**: `git log origin/claude/original-android-app-0kpre7..HEAD --oneline` の出力が空であることを確認済み。
+- **CI**: run 35357861831、`testDebugUnitTest` が実際に実行(UP-TO-DATE/FROM-CACHEではない)され `BUILD SUCCESSFUL`。
+  ログで `> Task :app:testDebugUnitTest` の直後に成否サフィックスが付いていないこと(=キャッシュでなく実行)を確認済み。
+
+### 完了範囲
+
+- `BookshelfRepository.addItems`(`app/src/main/java/com/fallgist/nishinomiyalibrary/domain/repository/Repositories.kt`)
+  を追加。`BookshelfMutation`・`mutate`は無改造。
+- ドメインモデル追加(`app/src/main/java/com/fallgist/nishinomiyalibrary/domain/model/Models.kt`):
+  `BookshelfBulkAddRequest` / `BookshelfBulkAddItem` / `BookshelfBulkAddResult` / `BookshelfBulkAddItemResult` /
+  `BookshelfBulkAddItemOutcome`(`Added` / `AlreadyRegistered` / `Unknown` / `Failed` / `NotAttempted`)。
+- 実装(`app/src/main/java/com/fallgist/nishinomiyalibrary/data/repository/BookshelfRepositoryImpl.kt`):
+  `addItems` → `addItemsLocked` → `processBulkAddItems`。本棚状態ゲートとログインを一括処理全体で1回だけ取得し、
+  `session.mutate(RemoteBookshelfMutation.AddItem(...))` を1件ずつ呼ぶ。期待値は`nextExpectation`で
+  資料数だけを直前の結果(操作後の全本棚)から更新し、他は`request.confirmed`のまま。Room反映は
+  `persistBulkSnapshot`(失敗しても打ち切らず`localRefreshRequired`を立てる)。`Unknown`/`Failure`で
+  `stopped`フラグを立て以降を`NotAttempted`にする。
+- テスト: `app/src/test/java/com/fallgist/nishinomiyalibrary/data/repository/BookshelfRepositoryBulkAddTest.kt`
+  (新規、14件)。設計書§6.1の12項目を全てカバーする(ログイン/close回数は正常系・途中打ち切り・例外の3系統で
+  分けてテストしたため件数は12より多い)。既存の`BookshelfRepositoryMutationTest`(9件)は無改造で全件通過。
+- コンパイルのため`BookshelfEditingUiControllerTest.kt`内の`FakeBookshelfRepository`に、インターフェース
+  拡張に伴う`addItems`の最小スタブ(空の結果を返すだけ)を追加した。UIロジックへは触れていない
+  (段階2の担当が実装を差し替える想定)。
+- `docs/design/bulk-bookshelf-add.md`の§9・§6.1-12・冒頭状態欄を更新し、以下を確定として記録した:
+  **開始時のメンバー名不一致(および同種の事前チェック失敗: メンバー不在・パスワード欠落・ログイン失敗)は、
+  1件も送らず全件を同じ理由の`Failed`にする**(全件`NotAttempted`案は不採用。理由は設計書§9参照)。
+
+### 未検証事項
+
+- 段階2(UI)は未着手のため、`addItems`は現在どこからも呼ばれていない。UI経由での動作は未検証。
+- 設計書§8の既知のリスク(所要時間・ゲート保持時間・本棚あたり資料数の上限)は引き続き未実測。
+- 段階1のテストは全てフェイク(Gateway/Session)によるものであり、実サイトへのPOSTは一切行っていない
+  (設計書§6.3の手動確認は段階2完了後の想定)。
+
+### 次段階(段階2: UI)の最初の作業
+
+設計書`docs/design/bulk-bookshelf-add.md` §5(UI設計)・§6.2(UIテスト)に従う。着手前に次を読むこと:
+
+1. `docs/design/bulk-bookshelf-add.md` §5全文(特に§5.1のバー、§5.2のダイアログ、§5.4の選択解除と排他、
+   §5.5の状態更新規則)
+2. `app/src/main/java/com/fallgist/nishinomiyalibrary/ui/shelf/BookshelfEditingUiController.kt`
+   (既存の単件追加ダイアログ・`selectAddItemMember`のメンバー/本棚監視の仕組みを再利用すること)
+3. `app/src/main/java/com/fallgist/nishinomiyalibrary/domain/repository/Repositories.kt`の
+   `BookshelfRepository.addItems`(今回追加したAPI)とそのKDoc
+4. `docs/design/bulk-selection.md` §4.3(選択解除)・`docs/design/bulk-selection-followup.md` §5(既存の
+   一斉直接予約の実装、バーとダイアログの参考実装として最も近い)
+
+最初の作業は、`BulkActionBar`の`overflowActions`パラメータ追加(§5.1)と、既存3画面(予約中一斉取消・
+予約カート一括削除・貸出中一斉延長)の回帰確認(overflowActionsが空のとき描画が1ピクセルも変わらないこと)
+から始めるのが安全(UIの見た目に影響する変更を先に固定してから、本棚追加ダイアログという新規機能に進める)。
+
+`BookshelfEditingUiControllerTest.kt`の`FakeBookshelfRepository.addItems`スタブは、段階2で実際の
+テストシナリオ(進捗・結果表示・打ち切り等)に応じて作り直すこと(現状は空の結果を返すだけ)。
