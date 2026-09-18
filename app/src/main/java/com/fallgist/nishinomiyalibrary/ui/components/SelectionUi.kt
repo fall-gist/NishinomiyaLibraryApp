@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,14 +14,22 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
 /**
@@ -49,6 +58,13 @@ fun SelectionCheckbox(
 }
 
 /**
+ * 一斉操作バーの「⋯」メニューに並べる1項目(`docs/design/bulk-bookshelf-add.md` §5.1)。
+ * [label]はメニュー項目の文言、[enabled]は処理中等での無効化、[onClick]はタップ時の通知。
+ * 件数は付けない(主ボタンにだけ付ける、既存の副ボタンと同じ規則)。
+ */
+data class BulkOverflowAction(val label: String, val enabled: Boolean, val onClick: () -> Unit)
+
+/**
  * 一覧最上部に置く、選択件数と一斉操作ボタンのバー(`docs/design/bulk-selection.md` §4.1)。
  * 予約中一覧の`BulkCancelBar`(旧`ReservationsScreen.kt`のprivate関数)をそのまま一般化したもの。
  *
@@ -58,10 +74,10 @@ fun SelectionCheckbox(
  * 旧`BulkCancelBar`と同じ`colors.alert`/`colors.card`にしてあり、呼び出し側で何も指定しなければ
  * 予約中一覧は移行前と見た目が変わらない。
  *
- * [secondaryActionLabel]を指定すると、同じ行に副アクション(`OutlinedButton`)を並べる
- * (`docs/design/bulk-selection-followup.md` §5.3、検索・新着の「カートへ追加」と「予約する」)。
- * 指定しない(既定値のまま)場合は主ボタンだけの現行の見た目から1ピクセルも変わらない。
- * 副ボタンには件数を付けない。
+ * [overflowActions]を指定すると、主ボタンの左に「⋯」(`IconButton`)を出し、タップでメニューを開く
+ * (`docs/design/bulk-bookshelf-add.md` §5.1、検索・新着の「カートへ追加」「本棚へ追加」)。
+ * **空リスト(既定値)のときは「⋯」自体を描画せず、主ボタンだけの現行の見た目から1ピクセルも変わらない**
+ * (予約中の一斉取消・予約カートの一括削除・貸出中の一斉延長はこれを指定しない)。
  */
 @Composable
 fun BulkActionBar(
@@ -72,9 +88,7 @@ fun BulkActionBar(
     modifier: Modifier = Modifier,
     containerColor: Color = LocalAppColors.current.alert,
     contentColor: Color = LocalAppColors.current.card,
-    secondaryActionLabel: String? = null,
-    secondaryEnabled: Boolean = false,
-    onSecondaryClick: (() -> Unit)? = null,
+    overflowActions: List<BulkOverflowAction> = emptyList(),
 ) {
     Row(
         modifier = modifier
@@ -82,12 +96,24 @@ fun BulkActionBar(
             .padding(horizontal = 18.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, alignment = Alignment.End),
     ) {
-        if (secondaryActionLabel != null && onSecondaryClick != null) {
-            OutlinedButton(
-                onClick = onSecondaryClick,
-                enabled = secondaryEnabled,
-            ) {
-                Text(secondaryActionLabel)
+        if (overflowActions.isNotEmpty()) {
+            var overflowExpanded by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { overflowExpanded = true }) {
+                    Text("⋯", fontSize = 20.sp, color = LocalAppColors.current.ink2)
+                }
+                DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
+                    overflowActions.forEach { action ->
+                        DropdownMenuItem(
+                            text = { Text(action.label) },
+                            enabled = action.enabled,
+                            onClick = {
+                                overflowExpanded = false
+                                action.onClick()
+                            },
+                        )
+                    }
+                }
             }
         }
         Button(
