@@ -2794,3 +2794,91 @@ DataStoreの初回読込を待つ**隠れた同期点**として機能してお�
 
 `BookshelfEditingUiControllerTest.kt`の`FakeBookshelfRepository.addItems`スタブは、段階2で実際の
 テストシナリオ(進捗・結果表示・打ち切り等)に応じて作り直すこと(現状は空の結果を返すだけ)。
+
+## 一斉本棚追加: 段階2(UI)完了(2026-09-18)
+
+### 現在の状態
+
+- 設計書: `docs/design/bulk-bookshelf-add.md`(所有者承認済み)。段階1(Repository層)・段階2(UI)とも実装済み。
+  設計書§6.3の手動確認6項目は**未実施**。
+- 最新コミット: `95ff283`。段階2は4コミットに分割(バー→Controller→ダイアログ→画面配線)。
+- **プッシュ済み確認**: `git log origin/claude/original-android-app-0kpre7..HEAD --oneline` の出力が空であることを確認済み。
+- **CI**: run 35360686532、`testDebugUnitTest` が実際に実行(15:09:43開始・15:14:31終了、UP-TO-DATE/FROM-CACHEではない)
+  され `BUILD SUCCESSFUL`。
+
+### 完了範囲
+
+- `ui/components/SelectionUi.kt`: `BulkActionBar`の`secondaryActionLabel`/`secondaryEnabled`/`onSecondaryClick`を
+  `overflowActions: List<BulkOverflowAction> = emptyList()`へ置き換えた。空リストのときは「⋯」自体を描画しない
+  (予約中一斉取消・予約カート一括削除・貸出中一斉延長の3画面は指定していないため回帰なし)。
+- `ui/shelf/BookshelfEditingUiController.kt`:
+  - `BookshelfEditingDialog.BulkAddItems`(メモ欄なし)を追加。`selectAddItemMember`/`selectAddItemShelf`は
+    `AddItem`・`BulkAddItems`の両方に対応するよう分岐を広げた(既存の単件挙動は変えていない)。
+  - `BookshelfBulkAddConfirmation`(既存の`BookshelfEditingConfirmation`とは別建て。1件の`BookshelfMutation`に
+    対応しないため)・`BookshelfBulkAddProgress`・`BookshelfBulkAddResultRow`/`Summary`を追加。
+  - `requestBulkAddItems(items, onCompleted)` → `requestInputConfirmation`(`BulkAddItems`分岐) →
+    `confirmBulkAdd()`(単件`confirmPending`と同じ再検証をしてから`addItems`を呼ぶ)。
+  - `BookshelfEditingUiState.processing`を`processingMutation != null || bulkAddProgress != null`に拡張した。
+    これにより既存の各入口(`requestAddItem`・`requestCreateShelf`等)は一斉追加中も自動的に無効化される。
+  - 完了通知: `requestBulkAddItems`の`onCompleted`は、実際に送信を試みた経路(成功・失敗・確認直前の再検証
+    失敗)でのみ`completeBulkAdd()`から呼ぶ。確認前の「戻る」(`dismissDialog`・`dismissBulkAddConfirmation`)
+    では呼ばない(検索・新着の選択を残すため)。
+  - `BookshelfEditingResultKind`に`NOT_ATTEMPTED`を追加(既存の単件結果ダイアログの`when`も網羅性のため
+    更新。単件経路では実際には発生しない)。
+  - `BookshelfEditingContentBuilder.bulkAddResultMessage`を追加、設計書§5.3の表どおりの文言。
+- `ui/shelf/BookshelfScreen.kt`: `BulkAddItemsDialog`・`BookshelfBulkAddConfirmDialog`・
+  `BookshelfBulkAddProgressDialog`(非モーダル、閉じるボタンなし)・`BookshelfBulkAddResultsDialog`
+  (件ごとの行+`localRefreshRequired`の付記)を追加し、`BookshelfEditingDialogs`から振り分けた。
+- `ui/search/SearchScreenController.kt`・`ui/newarrivals/NewArrivalsScreenController.kt`: `clearSelection()`を
+  追加(一斉本棚追加の完了コールバックから呼ばれる)。
+- `ui/search/SearchScreen.kt`・`ui/newarrivals/NewArrivalsScreen.kt`: `BulkActionBar`の呼び出しを
+  `overflowActions`(カートへ追加・本棚へ追加)へ移行。`bookshelfEditingProcessing`パラメータを追加し、
+  チェックボックス・バー・メニュー項目の無効化条件へ含めた。
+- `ui/app/LibraryApp.kt`: `SearchScreen`/`NewArrivalsScreen`へ`bookshelfEditingProcessing = editingState.processing`
+  と`onRequestBulkAddToBookshelf`(`bookshelfEditingUiController.requestBulkAddItems`へ委譲、`onCompleted`に
+  各Controllerの`clearSelection`を渡す)を配線した。`BookshelfEditingDialogs`へ新しい3コールバック
+  (`onConfirmBulkAdd`・`onDismissBulkAddConfirmation`・`onClearBulkAddResults`)を配線した。
+- テスト: `BookshelfEditingUiControllerTest.kt`に一斉追加のテストを8件追加した。
+  - メンバー未選択・本棚未選択・本棚0件では確定できない
+  - メンバー変更で本棚選択が解除される
+  - 確定時の`confirmed`が表示中の本棚状態(メンバー名・本棚総数・対象本棚の番号/名前/資料数)と一致する
+  - 完了コールバックは実際に送信した場合のみ呼ばれ、確認前のキャンセルでは呼ばれない(2系統)
+  - 処理中は単件追加・本棚作成等の他の入口を無視する
+  - `bulkAddResultMessage`がoutcome(Added/AlreadyRegistered/Unknown/Failed/NotAttempted)ごとに
+    設計書§5.3の文言へ変換される
+  - `FakeBookshelfRepository.addItems`を実装(リクエスト記録・`onProgress`呼び出し・処理中フックに対応)
+  - 既存の単件追加テストは**無改造で**全件通過を確認済み(CI)。
+
+### 設計との差異
+
+- 一斉追加の進捗表示(§5.3「N件目/M件」)は、検索・新着のバー付近ではなく`BookshelfEditingDialogs`
+  (グローバルなダイアログ層)に非モーダルな`AlertDialog`として出す設計判断をした。進捗はBookshelfEditingUiController
+  の状態であり検索・新着のControllerは持たないため、既存の`LoanExtensionUiController`の「バー直下にText」
+  方式をそのまま検索・新着へ持ち込むには両Controllerへ進捗を中継する配線が必要になり、設計書§5.2の
+  「検索・新着の画面はControllerを呼ぶだけにする」という方針から外れる。設計書に反する変更ではないが、
+  §5.3を字義通り読むと「バー付近」を想起させるため、所有者が別配置を望む場合は指摘してほしい。
+- 結果表示・進捗表示は`AlertDialog`(予約結果ダイアログ・貸出延長進捗と同系統の見た目)。専用のComposeテストは
+  今回追加していない(既存の`BookshelfScreenComposeTest.kt`は単体テストではなくandroidTestであり、
+  CIの`testDebugUnitTest`では実行されないため、追加しても今回のCI確認では検証できない。必要なら別途
+  実機/エミュレータでの確認が要る)。
+
+### 未検証事項
+
+- **設計書§6.3の手動確認6項目はすべて未実施**(実サイトへの通信を伴うため、本セッションでは実行禁止)。
+  次の所有者による実機確認(CIのAPK)で:
+  1. 検索・新着それぞれから2〜3件を選び、1つの本棚へ追加。本棚画面とサイトで追加を確認する
+  2. 既に本棚にある書誌を含めて追加し、「すでに登録されています」と出て処理が続くこと
+  3. 本棚が0件のメンバーを選ぶと確定できないこと
+  4. 実行中の進捗表示(「N件目/M件」ダイアログ)
+  5. 「⋯」メニューの開閉と、「カートへ追加」が従来どおり動くこと(配置変更の回帰確認)
+  6. 予約中の一斉取消・予約カート一括削除・貸出中一斉延長のバーに「⋯」が出ないこと
+- 進捗ダイアログ・結果ダイアログのCompose描画(実際の見た目)はソースレビューのみで、Composeテスト・
+  実機での目視確認はしていない。
+- 設計書§8の既知のリスク(所要時間・ゲート保持時間・本棚あたり資料数の上限)は引き続き未実測(段階1から持ち越し)。
+
+### 次にやること
+
+- 所有者による上記手動確認6項目の実施。
+- 手動確認で問題が無ければ、設計書冒頭の状態欄を「完了」へ更新する。
+- 手動確認で進捗表示の配置(「バー付近」か「グローバルダイアログ」か)について指摘があれば、
+  `BookshelfEditingDialogs`の`bulkAddProgress`分岐を調整する(状態の持ち方は変更不要、表示位置だけの変更で済む見込み)。

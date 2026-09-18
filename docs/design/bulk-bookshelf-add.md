@@ -1,7 +1,7 @@
 # 検索・新着からの一斉本棚追加 設計書
 
 作成日: 2026-09-18
-状態: 所有者承認済み（期待値の扱い・対象画面・バー配置）・段階1（Repository層）実装済み・段階2（UI）未着手
+状態: 所有者承認済み（期待値の扱い・対象画面・バー配置）・段階1（Repository層）実装済み・段階2（UI）実装済み（手動確認は未実施）
 前提となる設計:
 - `docs/design/bookshelf-editing.md`（本棚編集。単件の資料追加は実装済み）
 - `docs/design/bulk-selection.md` / `docs/design/bulk-selection-followup.md`（一斉操作。実装済み）
