@@ -74,7 +74,7 @@ data class BulkOverflowAction(val label: String, val enabled: Boolean, val onCli
  * 旧`BulkCancelBar`と同じ`colors.alert`/`colors.card`にしてあり、呼び出し側で何も指定しなければ
  * 予約中一覧は移行前と見た目が変わらない。
  *
- * [overflowActions]を指定すると、主ボタンの左に「⋯」(`IconButton`)を出し、タップでメニューを開く
+ * [overflowActions]を指定すると、主ボタンの右に「⋯」(`IconButton`)を出し、タップでメニューを開く
  * (`docs/design/bulk-bookshelf-add.md` §5.1、検索・新着の「カートへ追加」「本棚へ追加」)。
  * **空リスト(既定値)のときは「⋯」自体を描画せず、主ボタンだけの現行の見た目から1ピクセルも変わらない**
  * (予約中の一斉取消・予約カートの一括削除・貸出中の一斉延長はこれを指定しない)。
@@ -96,6 +96,13 @@ fun BulkActionBar(
             .padding(horizontal = 18.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, alignment = Alignment.End),
     ) {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            colors = ButtonDefaults.buttonColors(containerColor = containerColor, contentColor = contentColor),
+        ) {
+            Text(if (selectedCount > 0) "$actionLabel（${selectedCount}件）" else actionLabel)
+        }
         if (overflowActions.isNotEmpty()) {
             var overflowExpanded by remember { mutableStateOf(false) }
             Box {
@@ -115,13 +122,6 @@ fun BulkActionBar(
                     }
                 }
             }
-        }
-        Button(
-            onClick = onClick,
-            enabled = enabled,
-            colors = ButtonDefaults.buttonColors(containerColor = containerColor, contentColor = contentColor),
-        ) {
-            Text(if (selectedCount > 0) "$actionLabel（${selectedCount}件）" else actionLabel)
         }
     }
 }

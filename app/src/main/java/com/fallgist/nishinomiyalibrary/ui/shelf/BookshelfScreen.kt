@@ -597,7 +597,9 @@ private fun BookshelfBulkAddProgressDialog(progress: BookshelfBulkAddProgress) {
         AlertDialog(
             onDismissRequest = {},
             title = { Text("本棚へ追加しています") },
-            text = { Text("${progress.completed + 1}件目/${progress.total}件") },
+            // completed==totalの瞬間(最後の1件が終わった直後、結果表示へ切り替わるまでの間)に
+            // 「(total+1)件目/total件」と出ないよう、表示上の件数をtotalで頭打ちにする。
+            text = { Text("${minOf(progress.completed + 1, progress.total)}件目/${progress.total}件") },
             confirmButton = {},
         )
     }
