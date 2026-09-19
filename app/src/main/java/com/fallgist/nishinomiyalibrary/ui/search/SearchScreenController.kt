@@ -244,13 +244,15 @@ class SearchScreenController(
     fun confirmBulkCartAddition() {
         val request = state.value.bulkCartAdditionConfirmation ?: return
         if (state.value.anyBulkActionProcessing || !request.canConfirm) return
+        // 一覧に存在しなくなった対象は無視する(§4.3)。確認(このメソッド呼び出し)と同じ同期区間で
+        // 一覧を読む。scope.launch内で読むと、確定直後に画面を離れてresetOnLeave()が一覧を空にした
+        // 場合に、絞り込み対象が消えて何も処理されない競合があり得るため
+        // (`docs/design/search-result-reset.md` §3.2)。
+        val currentTilcods = state.value.results.map { it.tilcod }.toSet()
+        val effectiveRequest = request.copy(candidates = request.candidates.filter { it.tilcod in currentTilcods })
         _state.update { it.copy(bulkCartAdditionConfirmation = null, bulkCartAdditionProcessing = true) }
         scope.launch {
             try {
-                // 一覧に存在しなくなった対象は無視する(§4.3)。確認待ちの間に一覧が変わり得るため、
-                // 通信直前(Roomアクセス直前)の一覧で改めて絞り込む。
-                val currentTilcods = state.value.results.map { it.tilcod }.toSet()
-                val effectiveRequest = request.copy(candidates = request.candidates.filter { it.tilcod in currentTilcods })
                 val summary = if (effectiveRequest.candidates.isEmpty()) {
                     ReservationCartAddSummary(added = 0, skipped = 0)
                 } else {
@@ -333,13 +335,15 @@ class SearchScreenController(
     fun confirmBulkDirectReservation() {
         val request = state.value.bulkDirectReservationConfirmation ?: return
         if (state.value.anyBulkActionProcessing || !request.canConfirm) return
+        // 一覧に存在しなくなった対象は無視する(§4.3)。確認(このメソッド呼び出し)と同じ同期区間で
+        // 一覧を読む。scope.launch内で読むと、確定直後に画面を離れてresetOnLeave()が一覧を空にした
+        // 場合に、絞り込み対象が消えて何も処理されない競合があり得るため
+        // (`docs/design/search-result-reset.md` §3.2)。
+        val currentTilcods = state.value.results.map { it.tilcod }.toSet()
+        val effectiveRequest = request.copy(candidates = request.candidates.filter { it.tilcod in currentTilcods })
         _state.update { it.copy(bulkDirectReservationConfirmation = null, bulkDirectReservationProcessing = true) }
         scope.launch {
             try {
-                // 一覧に存在しなくなった対象は無視する(§4.3)。確認待ちの間に一覧が変わり得るため、
-                // 通信直前の一覧で改めて絞り込む。
-                val currentTilcods = state.value.results.map { it.tilcod }.toSet()
-                val effectiveRequest = request.copy(candidates = request.candidates.filter { it.tilcod in currentTilcods })
                 if (effectiveRequest.candidates.isEmpty()) {
                     _state.update { it.copy(bulkDirectReservationProcessing = false) }
                     return@launch
@@ -443,6 +447,13 @@ class SearchScreenController(
                 suggestions = emptyList(),
                 searching = true,
                 errorMessage = null,
+                // 新しい検索は不可逆な一覧の入れ替えなので、選択・一斉カート追加の一時表示を必ず消す
+                // (警告設定オフでも。`docs/design/search-result-reset.md` §1付随・§3.1)。
+                // bulkDirectReservationResults/bulkDirectReservationErrorMessageは実サイトへの
+                // 予約POSTの結果であり、利用者がタップで閉じるまで消さない(§3.1)。
+                selectedCartTilcods = emptySet(),
+                bulkCartAdditionResultMessage = null,
+                bulkCartAdditionErrorMessage = null,
             )
         }
         searchJob = scope.launch {
@@ -506,6 +517,38 @@ class SearchScreenController(
 
     fun close() {
         scope.coroutineContext[Job]?.cancel()
+    }
+
+    /**
+     * 蔵書検索から他画面へ移るときの後始末(`docs/design/search-result-reset.md` §3)。
+     * 検索結果・選択・一時表示を初期状態へ戻す。処理中フラグ・直接予約の結果とエラー・
+     * members/libraries/defaultPickupLibraryCode/warnBeforeClearingSelectionは保つ(§3.1)。
+     * 一斉カート追加・一斉直接予約のコルーチンはJob変数に保持していないためキャンセルしない
+     * (scope全体をキャンセルすると予約POSTが途中で切れてしまう。§3.2)。
+     */
+    fun resetOnLeave() {
+        autocompleteJob?.cancel()
+        searchJob?.cancel()
+        lendableJob?.cancel()
+        currentPage = 1
+        _state.update {
+            it.copy(
+                suggestions = emptyList(),
+                searching = false,
+                executedQuery = null,
+                totalCount = 0,
+                results = emptyList(),
+                hasNext = false,
+                loadingMore = false,
+                errorMessage = null,
+                selectedCartTilcods = emptySet(),
+                bulkCartAdditionConfirmation = null,
+                bulkCartAdditionResultMessage = null,
+                bulkCartAdditionErrorMessage = null,
+                pendingSearchKeyword = null,
+                bulkDirectReservationConfirmation = null,
+            )
+        }
     }
 
     private suspend fun buildRows(hits: List<SearchHit>): List<SearchResultRow> {

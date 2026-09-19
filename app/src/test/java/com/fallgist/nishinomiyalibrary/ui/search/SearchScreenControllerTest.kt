@@ -17,6 +17,7 @@ import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -437,6 +438,234 @@ class SearchScreenControllerTest {
         controller.close()
     }
 
+    // ------------------------------------------------------------------
+    // 検索結果と一時表示のリセット(`docs/design/search-result-reset.md`)。
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `カート追加の結果メッセージが出た後に新しい検索をすると結果メッセージがnullになる(design §3,1)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FakeCartRepository(summary = ReservationCartAddSummary(added = 1, skipped = 0))
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.requestBulkCartAddition(controllerCartAdditionCandidates(controller))
+        controller.selectBulkCartAdditionMember(father.id)
+        controller.confirmBulkCartAddition()
+        advanceUntilIdle()
+        assertEquals("1件をカートへ追加しました", controller.state.value.bulkCartAdditionResultMessage)
+
+        controller.search("キーワード2")
+        advanceUntilIdle()
+
+        assertNull(controller.state.value.bulkCartAdditionResultMessage)
+        controller.close()
+    }
+
+    @Test
+    fun `カート追加のエラーメッセージも新しい検索でnullになる(design §3,1)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FailingCartRepository()
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.requestBulkCartAddition(controllerCartAdditionCandidates(controller))
+        controller.selectBulkCartAdditionMember(father.id)
+        controller.confirmBulkCartAddition()
+        advanceUntilIdle()
+        assertEquals("カートへ追加できませんでした。もう一度お試しください。", controller.state.value.bulkCartAdditionErrorMessage)
+
+        controller.search("キーワード2")
+        advanceUntilIdle()
+
+        assertNull(controller.state.value.bulkCartAdditionErrorMessage)
+        controller.close()
+    }
+
+    @Test
+    fun `警告設定オフで選択が残ったまま新しい検索をすると選択が空になる(design §1付随)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(
+            searchRepository,
+            FakeCartRepository(),
+            dispatcher,
+            warnBeforeClearingSelection = flowOf(false),
+        )
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+
+        controller.search("キーワード2")
+        advanceUntilIdle()
+
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `新しい検索ではbulkDirectReservationResultsとErrorMessageは残る(design §3,1)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FakeCartRepository()
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
+        controller.selectBulkDirectReservationMember(father.id)
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+        assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
+
+        controller.search("キーワード2")
+        advanceUntilIdle()
+
+        assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
+        controller.close()
+    }
+
+    @Test
+    fun `resetOnLeaveで検索結果・選択・executedQuery・カート追加メッセージが初期状態になる(design §3,1)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FakeCartRepository(summary = ReservationCartAddSummary(added = 1, skipped = 0))
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.requestBulkCartAddition(controllerCartAdditionCandidates(controller))
+        controller.selectBulkCartAdditionMember(father.id)
+        controller.confirmBulkCartAddition()
+        advanceUntilIdle()
+
+        controller.resetOnLeave()
+
+        val state = controller.state.value
+        assertNull(state.executedQuery)
+        assertEquals(0, state.totalCount)
+        assertTrue(state.results.isEmpty())
+        assertFalse(state.hasNext)
+        assertTrue(state.selectedCartTilcods.isEmpty())
+        assertNull(state.bulkCartAdditionResultMessage)
+        assertNull(state.bulkCartAdditionErrorMessage)
+        controller.close()
+    }
+
+    @Test
+    fun `resetOnLeaveでbulkDirectReservationResultsとErrorMessageは残る(design §3,1)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FakeCartRepository()
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
+        controller.selectBulkDirectReservationMember(father.id)
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+        assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
+
+        controller.resetOnLeave()
+
+        assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
+        controller.close()
+    }
+
+    @Test
+    fun `resetOnLeaveでmembersとwarnBeforeClearingSelectionは保たれる(design §3,1)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val controller = controller(FakeSearchRepository(), FakeCartRepository(), dispatcher, warnBeforeClearingSelection = flowOf(false))
+        advanceUntilIdle()
+
+        controller.resetOnLeave()
+
+        assertEquals(listOf(father), controller.state.value.members)
+        assertFalse(controller.state.value.warnBeforeClearingSelection)
+        controller.close()
+    }
+
+    @Test
+    fun `検索の応答待ちの間にresetOnLeaveすると応答が返ってもresultsとexecutedQueryは初期状態のまま(design §3,2)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val gate = CompletableDeferred<Unit>()
+        searchRepository.gate = gate
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+
+        controller.search("キーワード")
+        // 応答待ちの間にresetOnLeave()する(§3.2、戻ったときに古い結果が遅れて現れるのを防ぐ)。
+        controller.resetOnLeave()
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(controller.state.value.results.isEmpty())
+        assertNull(controller.state.value.executedQuery)
+        controller.close()
+    }
+
+    @Test
+    fun `confirmBulkCartAdditionの直後にresetOnLeaveしても確定時点の候補がカートへ追加される(design §3,2)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FakeCartRepository(summary = ReservationCartAddSummary(added = 1, skipped = 0))
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.requestBulkCartAddition(controllerCartAdditionCandidates(controller))
+        controller.selectBulkCartAdditionMember(father.id)
+
+        controller.confirmBulkCartAddition()
+        // scope.launchの本体が進む前に画面を離れる(§3.2の競合の固定)。
+        controller.resetOnLeave()
+        advanceUntilIdle()
+
+        assertEquals(1, cartRepository.calls)
+        assertEquals("100", cartRepository.receivedTargets.single().tilcod)
+        controller.close()
+    }
+
+    @Test
+    fun `confirmBulkDirectReservationの直後にresetOnLeaveしても予約が実行され完了後に結果が設定される(design §3,2)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FakeCartRepository()
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
+        controller.selectBulkDirectReservationMember(father.id)
+
+        controller.confirmBulkDirectReservation()
+        controller.resetOnLeave()
+        // 処理中フラグは完了まで true のまま(resetOnLeave()は処理中フラグを変更しない)。
+        assertTrue(controller.state.value.bulkDirectReservationProcessing)
+        advanceUntilIdle()
+
+        assertEquals(1, cartRepository.reserveNowListCalls)
+        assertEquals("100", cartRepository.receivedReserveNowTargets.single().tilcod)
+        assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
+        assertFalse(controller.state.value.bulkDirectReservationProcessing)
+        controller.close()
+    }
+
     private fun controllerCartAdditionCandidates(controller: SearchScreenController) =
         SearchContentBuilder.cartAdditionCandidates(controller.state.value.results, controller.state.value.selectedCartTilcods)
 
@@ -459,7 +688,12 @@ class SearchScreenControllerTest {
     }
 
     private class FakeSearchRepository(var hits: List<SearchHit> = emptyList()) : SearchRepository {
-        override suspend fun search(keyword: String, page: Int): SearchPage = SearchPage(hits = hits, totalCount = hits.size, hasNext = false)
+        /** テスト8用。設定すると、応答が返る前にこのDeferredの完了を待つ。 */
+        var gate: CompletableDeferred<Unit>? = null
+        override suspend fun search(keyword: String, page: Int): SearchPage {
+            gate?.await()
+            return SearchPage(hits = hits, totalCount = hits.size, hasNext = false)
+        }
         override suspend fun autocomplete(keyword: String): List<String> = emptyList()
         override suspend fun isLendable(tilcod: String): Boolean? = null
         override suspend fun bookDetail(tilcod: String): BookDetail = error("未使用")
@@ -503,6 +737,21 @@ class SearchScreenControllerTest {
                 },
             )
         }
+    }
+
+    /** カート追加のエラーメッセージ表示(design §3,1のテスト2)用。addToCart(List)は必ず失敗する。 */
+    private class FailingCartRepository : ReservationCartRepository {
+        override fun cartItems(): Flow<List<ReservationCartItem>> = flowOf(emptyList())
+        override suspend fun addToCart(target: ReservationTarget) = Unit
+        override suspend fun addToCart(targets: List<ReservationTarget>): ReservationCartAddSummary = error("カート追加失敗(テスト用)")
+        override suspend fun removeFromCart(cartItemId: Long) = Unit
+        override suspend fun removeFromCart(cartItemIds: List<Long>) = Unit
+        override suspend fun clearCart() = Unit
+        override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult = ReservationBatchResult(emptyList())
+        override suspend fun reserveNow(target: ReservationTarget, confirmation: ReservationConfirmation): ReservationBatchResult =
+            ReservationBatchResult(emptyList())
+        override suspend fun reserveNow(targets: List<ReservationTarget>, confirmation: ReservationConfirmation): ReservationBatchResult =
+            ReservationBatchResult(emptyList())
     }
 
     private class FakeCalendarRepository(

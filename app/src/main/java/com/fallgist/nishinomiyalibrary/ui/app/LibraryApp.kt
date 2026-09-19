@@ -140,6 +140,15 @@ fun LibraryApp(
     val primaryTabs = Destination.entries.filter { it.primary }
     var currentName by rememberSaveable { mutableStateOf(Destination.HOME.name) }
     val current = Destination.valueOf(currentName)
+    // 画面遷移はここへ集約する(`docs/design/search-result-reset.md` §3.3)。蔵書検索から他画面へ
+    // 移るときだけresetOnLeave()を呼ぶ。回転時に走るDisposableEffect.onDisposeは使わない
+    // (回転では画面が変わっていないため、resetOnLeave()を呼んではならない)。
+    val navigateTo: (Destination) -> Unit = { dest ->
+        if (current == Destination.SEARCH && dest != Destination.SEARCH) {
+            searchController.resetOnLeave()
+        }
+        currentName = dest.name
+    }
     // 診断ログ閲覧は設定画面からだけ開ける、書誌詳細と同様の全画面オーバーレイとして扱う(ドロワー/下部ナビには出さない)。
     var diagnosticLogOpen by rememberSaveable { mutableStateOf(false) }
     // カレンダーから貸出中への遷移(案2、設計 docs/design/calendar-due-dates.md §4.6)で強調する日付。
@@ -154,7 +163,7 @@ fun LibraryApp(
     }
     LaunchedEffect(homeNavigationCommandId) {
         homeNavigationCommandId?.let { commandId ->
-            currentName = Destination.HOME.name
+            navigateTo(Destination.HOME)
             bookDetailController.close()
             diagnosticLogOpen = false
             drawerState.close()
@@ -208,7 +217,7 @@ fun LibraryApp(
                         label = { Text("${dest.emoji}  ${dest.label}") },
                         selected = dest == current,
                         onClick = {
-                            currentName = dest.name
+                            navigateTo(dest)
                             bookDetailController.close()
                             diagnosticLogOpen = false
                             scope.launch { drawerState.close() }
@@ -248,7 +257,7 @@ fun LibraryApp(
                         NavigationBarItem(
                             selected = current == dest,
                             onClick = {
-                                currentName = dest.name
+                                navigateTo(dest)
                                 bookDetailController.close()
                                 // 重ねて表示しているオーバーレイを閉じないと、下部ナビをタップしても画面が変わらない。
                                 diagnosticLogOpen = false
@@ -316,7 +325,7 @@ fun LibraryApp(
                             },
                             onAcknowledgeAutoReservation = onAcknowledgeAutoReservation,
                             onOpenReservations = {
-                                currentName = Destination.RESERVATIONS.name
+                                navigateTo(Destination.RESERVATIONS)
                                 bookDetailController.close()
                             },
                             modifier = Modifier.fillMaxSize(),
@@ -509,7 +518,7 @@ fun LibraryApp(
                                 onSelectDueDate = { date ->
                                     loansController.selectMember(null)
                                     loansFocusDueDateEpochDay = date.toEpochDay()
-                                    currentName = Destination.LOANS.name
+                                    navigateTo(Destination.LOANS)
                                 },
                                 onOpenMenu = openMenu,
                                 modifier = Modifier.fillMaxSize(),
@@ -551,7 +560,7 @@ fun LibraryApp(
                                 onRemoveFromCart = reservationUiController::removeFromCart,
                                 onRequestConfirmation = reservationUiController::requestCartConfirmation,
                                 onOpenSearch = {
-                                    currentName = Destination.SEARCH.name
+                                    navigateTo(Destination.SEARCH)
                                     bookDetailController.close()
                                 },
                                 onClearResults = reservationUiController::clearCartFeedback,
