@@ -75,8 +75,7 @@
 
 ### 3.4 スコープ外
 
-- 新着資料画面にも同型の `bulkCartAdditionResultMessage` の残留がある（確認済み）が、本件の対象外。
-  必要なら所有者に確認のうえ別途扱う
+- 新着資料画面は §8 で扱う（所有者の指示、2026-09-20）
 - 書誌詳細ポップアップの開閉ではリセットしない（§2-2）
 - 画面回転で検索欄の文字列が消える既存挙動は変更しない
 
@@ -117,4 +116,59 @@
 ## 7. 未解決・既知のリスク
 
 1. 一斉直接予約の処理中に画面を移ると、戻るまで結果が見えない。POSTは継続し、結果は保持される
-2. 新着資料の同型問題は未対処（§3.4）
+2. 新着資料の一覧は画面を移っても残る（§8.1）。蔵書検索と挙動が異なるが、通信の性質が違うため意図的である
+
+## 8. 新着資料画面（2026-09-20 追加、第1段階の続き）
+
+所有者の指示により、新着資料画面にも同じ趣旨の対応を行う。ただし**蔵書検索と同じにはしない**。
+
+### 8.1 一覧は消さない（蔵書検索との違い）
+
+新着資料の一覧（`rows`）は Room のキャッシュと絞り込み語から `combine` で作られる派生値であり、
+蔵書検索の結果のようにその場の通信で得た一時データではない。画面を移るたびに消すと、戻るたびに
+巡回（公式サイトへの通信）が必要になる。**`rows`・`totalCount`・`lastFetchedAtEpochMillis`・
+`refreshing`・`refreshFailed`・`updatePhase` には触れない。**
+
+### 8.2 リセット規則
+
+| 項目 | 巡回（`refresh`とその確認経由） | 他画面へ移る |
+|---|---|---|
+| `selectedCartTilcods` | **常に空にする**（警告オフでも） | 空にする |
+| `bulkCartAdditionResultMessage` / `bulkCartAdditionErrorMessage` | 消す | 消す |
+| 絞り込み語 `query` | 変更しない | 空にする |
+| 確認ダイアログ（`bulkCartAdditionConfirmation`/`bulkDirectReservationConfirmation`/`pendingRefreshConfirmation`） | 変更しない | null / false |
+| `bulkDirectReservationResults` / `bulkDirectReservationErrorMessage` | **消さない** | **消さない** |
+| 一覧・取得状態（§8.1） | 現状どおり | **変更しない** |
+| 処理中フラグ・`members`/`libraries`/`defaultPickupLibraryCode`/`warnBeforeClearingSelection`/`autoReservationEnabled` | 変更しない | 変更しない |
+
+- 絞り込み語を変えただけではメッセージを消さない。1文字ごとに表示が消えるのはかえって落ち着かない
+- 絞り込み語を画面離脱で空にするのは、`NewArrivalsScreen` の入力欄が `remember { mutableStateOf(state.query) }`
+  で初期化されるため、戻ったときに入力欄と状態が食い違わないようにするためである
+- 巡回で選択を常に解除するのは、蔵書検索の§1付随と同じ不具合（警告設定オフのとき解除されない）の修正である
+- 巡回中のコルーチン（`performRefresh`）はキャンセルしない。`displayRefreshMutex` と
+  `refreshedThisSession` の整合を壊さないため、`resetOnLeave` は巡回に一切触れない。
+  したがって蔵書検索のような世代番号は不要である
+
+### 8.3 検出位置
+
+`LibraryApp.navigateTo` に、`current == NEW_ARRIVALS && dest != NEW_ARRIVALS` のときに
+`newArrivalsController.resetOnLeave()` を呼ぶ分岐を足す。蔵書検索の分岐と並べる。
+
+`onScreenLaunched` の `refreshedThisSession` は変更しない（セッション中1回の自動巡回のまま）。
+
+### 8.4 テスト計画
+
+1. カート追加の結果メッセージが出た後に `refresh()` すると、結果メッセージが null になる
+2. エラーメッセージも同様
+3. 警告設定オフで選択が残ったまま `refresh()` すると、選択が空になる
+4. `refresh()` では `bulkDirectReservationResults`/`bulkDirectReservationErrorMessage` が残る
+5. `resetOnLeave()` で選択・カート追加のメッセージ・`query` が初期状態になる
+6. `resetOnLeave()` で `bulkDirectReservationResults`/`bulkDirectReservationErrorMessage` が残る
+7. **`resetOnLeave()` で `rows`・`totalCount`・`lastFetchedAtEpochMillis` が保たれる**（§8.1の回帰防止）
+8. 巡回中に `resetOnLeave()` しても巡回は続き、完了後に `refreshing` が false になる
+
+### 8.5 手動確認
+
+1. 新着で複数選択→カートへ追加→結果メッセージ→他画面へ移って戻る → メッセージも選択も無い
+2. 新着で絞り込み→他画面へ移って戻る → 絞り込みが解除され、一覧は残っている（再取得が走らない）
+3. 選択したまま「更新」 → 選択が残らない
