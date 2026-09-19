@@ -537,9 +537,16 @@ class NewArrivalsScreenController(
      * refreshedThisSessionの整合を壊さないためである(§8.2)。
      */
     fun resetOnLeave() {
+        // queryへの書き込みはinitのcombineのコルーチン(Dispatchers.Default)を経由して
+        // 非同期にしか_stateへ反映されない。反映前に画面へ戻ると、NewArrivalsScreenの
+        // 入力欄(remember { mutableStateOf(state.query) })が古い絞り込み語で初期化され、
+        // 入力欄と一覧表示が食い違う(通知タップ等の自動遷移で現実的にありうる)。
+        // そのためquery=""は_state.updateにも同期的に含める。combineの後続の更新は
+        // 同じ値に収束するため副作用はない。
         query.value = ""
         _state.update {
             it.copy(
+                query = "",
                 selectedCartTilcods = emptySet(),
                 bulkCartAdditionConfirmation = null,
                 bulkCartAdditionResultMessage = null,

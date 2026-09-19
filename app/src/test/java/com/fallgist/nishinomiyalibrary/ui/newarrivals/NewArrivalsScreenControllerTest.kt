@@ -704,6 +704,12 @@ class NewArrivalsScreenControllerTest {
         assertEquals("1件をカートへ追加しました", controller.state.value.bulkCartAdditionResultMessage)
 
         controller.resetOnLeave()
+
+        // combine(query)がDispatchers.Default上のコルーチンを介して反映される前(advanceUntilIdle前)
+        // でも、state.queryは同期的に空になっていること(レビュー指摘: 通知タップ等の自動遷移で
+        // 反映前に画面へ戻ると入力欄と一覧表示が食い違う不具合の再発防止)。
+        assertEquals("", controller.state.value.query)
+
         advanceUntilIdle()
 
         assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
@@ -767,6 +773,10 @@ class NewArrivalsScreenControllerTest {
         controller.close()
     }
 
+    // このテストだけUnconfinedTestDispatcherを使う。StandardTestDispatcherではrefresh()が
+    // launchした巡回コルーチンをentered.await()の前に進める手段(advanceUntilIdle等)がなく、
+    // 「巡回の最中(release待ちで一時停止した状態)」を作れないため。他のテストと違う実行モデルを
+    // 使っているだけで、書き間違いではない。
     @Test
     fun `巡回中にresetOnLeaveしても巡回は続き完了後にrefreshingがfalseになる(design §8,4-8)`() = runTest {
         val dispatcher = UnconfinedTestDispatcher(testScheduler)
