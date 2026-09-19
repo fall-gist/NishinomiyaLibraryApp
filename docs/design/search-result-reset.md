@@ -53,6 +53,13 @@
   **`currentTilcods` の取得を `launch` の前（確定操作と同じ同期区間）へ移す**。
   「確認待ちの間に一覧から消えたキーは無視する」（`bulk-selection.md` §4.3）は、確定時点の一覧で
   判定しても満たされる（確認待ちの間の変化は確定時点に反映済み）
+- **世代番号による保護**: `scope` は `Dispatchers.Default`（マルチスレッド）であり、`cancel()` は
+  協調的にしか止まらない。検索・追加読み込みのコルーチンが最後のsuspend点を過ぎたあとに
+  `resetOnLeave()`や次の`executeSearch()`が割り込むと、「リセット（または新しい検索）の書き込み」→
+  「古い検索の書き込み」の順になり、古い結果が後から書き戻る窓がある。`executeSearch`・
+  `resetOnLeave`の冒頭で`searchGeneration`（`AtomicInteger`）を進め、結果を書く`_state.update`の
+  直前に世代が一致するかを確認して不一致なら書き込みを丸ごと捨てることでこれを塞ぐ。
+  `loadMore`は新しい世代を作らず、launch前に読んだ世代で同様に守る
 
 ### 3.3 「他画面へ移る」の検出位置
 

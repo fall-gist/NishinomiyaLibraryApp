@@ -22,6 +22,7 @@ import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationCartContent
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.ReservationResultRow
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -178,6 +179,15 @@ class SearchScreenController(
     private var searchJob: Job? = null
     private var lendableJob: Job? = null
     private var currentPage = 1
+
+    // scopeはDispatchers.Default(マルチスレッド)であり、cancel()は協調的にしか止まらない。
+    // searchJob/loadMoreのコルーチンが最後のsuspend点を過ぎたあとに(つまりキャンセルが
+    // 効かない状態で)_state.update{...copy(results=...)}を実行している最中にresetOnLeave()や
+    // 次のexecuteSearch()が割り込むと、「リセット(または新しい検索)の書き込み」→「古い検索の
+    // 書き込み」の順になり、古い結果が後から書き戻る窓がある(`docs/design/search-result-reset.md`
+    // §3.2)。executeSearch/resetOnLeaveの冒頭で世代を進め、結果を書くupdateの直前に世代が
+    // 一致するかを確認することでこれを塞ぐ。
+    private val searchGeneration = AtomicInteger(0)
 
     init {
         scope.launch {
@@ -442,6 +452,8 @@ class SearchScreenController(
         autocompleteJob?.cancel()
         searchJob?.cancel()
         lendableJob?.cancel()
+        // launchの前に世代を進めて確定する(§3.2)。この後に発生する古い世代の書き込みはすべて捨てる。
+        val generation = searchGeneration.incrementAndGet()
         _state.update {
             it.copy(
                 suggestions = emptyList(),
@@ -461,28 +473,39 @@ class SearchScreenController(
                 val page = searchRepository.search(trimmed, page = 1)
                 currentPage = 1
                 val rows = buildRows(page.hits)
-                _state.update {
-                    it.copy(
-                        searching = false,
-                        executedQuery = trimmed,
-                        totalCount = page.totalCount,
-                        results = rows,
-                        hasNext = page.hasNext,
-                    )
+                // ラムダの中は読み取りだけ(世代の比較)にとどめ、副作用は入れない(§3.2)。
+                _state.update { current ->
+                    if (generation != searchGeneration.get()) {
+                        current
+                    } else {
+                        current.copy(
+                            searching = false,
+                            executedQuery = trimmed,
+                            totalCount = page.totalCount,
+                            results = rows,
+                            hasNext = page.hasNext,
+                        )
+                    }
                 }
-                fetchLendabilityFor(rows.map { it.tilcod })
+                if (generation == searchGeneration.get()) {
+                    fetchLendabilityFor(rows.map { it.tilcod })
+                }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
-                _state.update {
-                    it.copy(
-                        searching = false,
-                        executedQuery = trimmed,
-                        totalCount = 0,
-                        results = emptyList(),
-                        hasNext = false,
-                        errorMessage = errorMessage(exception),
-                    )
+                _state.update { current ->
+                    if (generation != searchGeneration.get()) {
+                        current
+                    } else {
+                        current.copy(
+                            searching = false,
+                            executedQuery = trimmed,
+                            totalCount = 0,
+                            results = emptyList(),
+                            hasNext = false,
+                            errorMessage = errorMessage(exception),
+                        )
+                    }
                 }
             }
         }
@@ -492,25 +515,42 @@ class SearchScreenController(
         val snapshot = _state.value
         if (!snapshot.hasNext || snapshot.loadingMore || snapshot.searching) return
         val keyword = snapshot.executedQuery ?: return
+        // loadMoreは新しい世代を作らない(直前のexecuteSearchと同じ一覧の続きを取る)。
+        // launchの前に現在の世代を読んでおき、結果を書く時点で世代が変わっていれば(resetOnLeaveや
+        // 次のexecuteSearchが割り込んだ)書き込みを丸ごと捨てる(§3.2)。resetOnLeaveは
+        // loadingMoreをfalseに戻すため、丸ごと捨てればloadingMoreがtrueのまま残ることはない。
+        val generation = searchGeneration.get()
         _state.update { it.copy(loadingMore = true) }
         searchJob = scope.launch {
             try {
                 val page = searchRepository.search(keyword, page = currentPage + 1)
                 currentPage += 1
                 val newRows = buildRows(page.hits)
-                _state.update {
-                    it.copy(
-                        loadingMore = false,
-                        results = it.results + newRows,
-                        hasNext = page.hasNext,
-                    )
+                _state.update { current ->
+                    if (generation != searchGeneration.get()) {
+                        current
+                    } else {
+                        current.copy(
+                            loadingMore = false,
+                            results = current.results + newRows,
+                            hasNext = page.hasNext,
+                        )
+                    }
                 }
-                // 前ページ分で未取得の行が残っていれば、それも含めて取り直す
-                fetchLendabilityFor(_state.value.results.filter { it.lendable == null }.map { it.tilcod })
+                if (generation == searchGeneration.get()) {
+                    // 前ページ分で未取得の行が残っていれば、それも含めて取り直す
+                    fetchLendabilityFor(_state.value.results.filter { it.lendable == null }.map { it.tilcod })
+                }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
-                _state.update { it.copy(loadingMore = false, errorMessage = errorMessage(exception)) }
+                _state.update { current ->
+                    if (generation != searchGeneration.get()) {
+                        current
+                    } else {
+                        current.copy(loadingMore = false, errorMessage = errorMessage(exception))
+                    }
+                }
             }
         }
     }
@@ -527,6 +567,9 @@ class SearchScreenController(
      * (scope全体をキャンセルすると予約POSTが途中で切れてしまう。§3.2)。
      */
     fun resetOnLeave() {
+        // 世代を進める(§3.2)。これ以降、この時点までに開始した検索・追加読み込みの結果書き込みは
+        // すべて古い世代として捨てられる。
+        searchGeneration.incrementAndGet()
         autocompleteJob?.cancel()
         searchJob?.cancel()
         lendableJob?.cancel()

@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -588,6 +589,53 @@ class SearchScreenControllerTest {
     }
 
     @Test
+    fun `新しい検索ではbulkDirectReservationErrorMessageも残る(design §3,1)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FailingReserveNowCartRepository()
+        // confirmBulkDirectReservationが失敗しても選択は解除されない(異常系)。次のsearch()が
+        // 警告ダイアログで保留されないよう、警告設定をオフにする(前回のレビュー指摘と同じ理由)。
+        val controller = controller(searchRepository, cartRepository, dispatcher, warnBeforeClearingSelection = flowOf(false))
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
+        controller.selectBulkDirectReservationMember(father.id)
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+        assertEquals("予約できませんでした。もう一度お試しください。", controller.state.value.bulkDirectReservationErrorMessage)
+
+        controller.search("キーワード2")
+        advanceUntilIdle()
+
+        assertEquals("予約できませんでした。もう一度お試しください。", controller.state.value.bulkDirectReservationErrorMessage)
+        controller.close()
+    }
+
+    @Test
+    fun `resetOnLeaveでbulkDirectReservationErrorMessageも残る(design §3,1)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FailingReserveNowCartRepository()
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
+        controller.selectBulkDirectReservationMember(father.id)
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+        assertEquals("予約できませんでした。もう一度お試しください。", controller.state.value.bulkDirectReservationErrorMessage)
+
+        controller.resetOnLeave()
+
+        assertEquals("予約できませんでした。もう一度お試しください。", controller.state.value.bulkDirectReservationErrorMessage)
+        controller.close()
+    }
+
+    @Test
     fun `resetOnLeaveでmembersとwarnBeforeClearingSelectionは保たれる(design §3,1)`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val controller = controller(FakeSearchRepository(), FakeCartRepository(), dispatcher, warnBeforeClearingSelection = flowOf(false))
@@ -610,6 +658,12 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
 
         controller.search("キーワード")
+        // searchJobをgate.await()まで進める(runCurrent()はdelay等の仮想時間を進めないため、
+        // 実際にawaitへ到達したかをsearching==trueで確かめる)。ここでresetOnLeave()せずに
+        // advanceUntilIdle()すると、gateが未completeのままデッドロックする。
+        runCurrent()
+        assertTrue("gate.await()で止まっているはず", controller.state.value.searching)
+
         // 応答待ちの間にresetOnLeave()する(§3.2、戻ったときに古い結果が遅れて現れるのを防ぐ)。
         controller.resetOnLeave()
         gate.complete(Unit)
@@ -617,6 +671,40 @@ class SearchScreenControllerTest {
 
         assertTrue(controller.state.value.results.isEmpty())
         assertNull(controller.state.value.executedQuery)
+        controller.close()
+    }
+
+    @Test
+    fun `検索Aの応答待ち中に検索Bを実行しBが先に完了した後でAの応答が返ってもresultsはBのまま(design §3,2)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository()
+        val gateA = CompletableDeferred<Unit>()
+        searchRepository.hitsByKeyword = mapOf(
+            "A" to listOf(SearchHit("100", "資料A", "著者A", "図書")),
+            "B" to listOf(SearchHit("200", "資料B", "著者B", "図書")),
+        )
+        searchRepository.gatesByKeyword = mapOf("A" to gateA)
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+
+        controller.search("A")
+        runCurrent() // 検索AがgateA.await()で止まる
+        controller.search("B") // executeSearch内でsearchJob(=検索A)をcancel()し、検索Bを開始する
+        advanceUntilIdle() // 検索Bは即座に完了する(gateAはBには適用されない)
+
+        assertEquals("B", controller.state.value.executedQuery)
+        assertEquals(listOf("200"), controller.state.value.results.map { it.tilcod })
+
+        // 検索Aの応答を今になって返す。StandardTestDispatcherの下ではcancel()だけでも
+        // このテストは通り得るが(キャンセルされた継続はsuccess本体を実行しない)、
+        // 世代番号(searchGeneration)による保護も同時に効いている
+        // (`docs/design/search-result-reset.md` §3.2)。マルチスレッドのDispatchers.Defaultでは
+        // cancel()が協調的にしか止まらないため、世代番号がこの窓の主な防御になる。
+        gateA.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("B", controller.state.value.executedQuery)
+        assertEquals(listOf("200"), controller.state.value.results.map { it.tilcod })
         controller.close()
     }
 
@@ -691,11 +779,17 @@ class SearchScreenControllerTest {
     }
 
     private class FakeSearchRepository(var hits: List<SearchHit> = emptyList()) : SearchRepository {
-        /** テスト8用。設定すると、応答が返る前にこのDeferredの完了を待つ。 */
+        /** 応答待ちのテスト用。設定すると、応答が返る前にこのDeferredの完了を待つ。 */
         var gate: CompletableDeferred<Unit>? = null
+        /** 検索Aと検索Bを別々に止めるテスト用。キーワードごとに個別のgateを持てる。 */
+        var gatesByKeyword: Map<String, CompletableDeferred<Unit>> = emptyMap()
+        /** キーワードごとに異なる結果を返すテスト用。指定が無いキーワードは[hits]を返す。 */
+        var hitsByKeyword: Map<String, List<SearchHit>> = emptyMap()
         override suspend fun search(keyword: String, page: Int): SearchPage {
             gate?.await()
-            return SearchPage(hits = hits, totalCount = hits.size, hasNext = false)
+            gatesByKeyword[keyword]?.await()
+            val effectiveHits = hitsByKeyword[keyword] ?: hits
+            return SearchPage(hits = effectiveHits, totalCount = effectiveHits.size, hasNext = false)
         }
         override suspend fun autocomplete(keyword: String): List<String> = emptyList()
         override suspend fun isLendable(tilcod: String): Boolean? = null
@@ -755,6 +849,21 @@ class SearchScreenControllerTest {
             ReservationBatchResult(emptyList())
         override suspend fun reserveNow(targets: List<ReservationTarget>, confirmation: ReservationConfirmation): ReservationBatchResult =
             ReservationBatchResult(emptyList())
+    }
+
+    /** 一斉直接予約のエラーメッセージ表示(design §3,1のテスト)用。reserveNow(List)は必ず失敗する。 */
+    private class FailingReserveNowCartRepository : ReservationCartRepository {
+        override fun cartItems(): Flow<List<ReservationCartItem>> = flowOf(emptyList())
+        override suspend fun addToCart(target: ReservationTarget) = Unit
+        override suspend fun addToCart(targets: List<ReservationTarget>): ReservationCartAddSummary = ReservationCartAddSummary(0, 0)
+        override suspend fun removeFromCart(cartItemId: Long) = Unit
+        override suspend fun removeFromCart(cartItemIds: List<Long>) = Unit
+        override suspend fun clearCart() = Unit
+        override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult = ReservationBatchResult(emptyList())
+        override suspend fun reserveNow(target: ReservationTarget, confirmation: ReservationConfirmation): ReservationBatchResult =
+            ReservationBatchResult(emptyList())
+        override suspend fun reserveNow(targets: List<ReservationTarget>, confirmation: ReservationConfirmation): ReservationBatchResult =
+            error("予約失敗(テスト用)")
     }
 
     private class FakeCalendarRepository(
