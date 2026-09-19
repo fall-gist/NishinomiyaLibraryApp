@@ -470,7 +470,10 @@ class SearchScreenControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
         val cartRepository = FailingCartRepository()
-        val controller = controller(searchRepository, cartRepository, dispatcher)
+        // confirmBulkCartAdditionが失敗しても選択は解除されない(異常系)。次のsearch()が
+        // 警告ダイアログで保留されないよう、ここでは警告設定をオフにする(このテストの主眼は
+        // §3.1のエラーメッセージのリセットであり、§6.2の警告ダイアログとは無関係)。
+        val controller = controller(searchRepository, cartRepository, dispatcher, warnBeforeClearingSelection = flowOf(false))
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
