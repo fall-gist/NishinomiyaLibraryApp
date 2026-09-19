@@ -555,6 +555,244 @@ class NewArrivalsScreenControllerTest {
         controller.close()
     }
 
+    // ------------------------------------------------------------------
+    // 一時表示のリセット(`docs/design/search-result-reset.md` §8)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `カート追加の結果メッセージが出た後にrefreshすると結果メッセージがnullになる(design §8,4-1)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val cartRepository = FakeCartRepository(summary = ReservationCartAddSummary(added = 1, skipped = 0))
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(repository),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+            warnBeforeClearingSelection = flowOf(false),
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkCartAddition(candidates)
+        controller.selectBulkCartAdditionMember(father.id)
+        controller.confirmBulkCartAddition()
+        advanceUntilIdle()
+        assertEquals("1件をカートへ追加しました", controller.state.value.bulkCartAdditionResultMessage)
+
+        controller.refresh()
+        advanceUntilIdle()
+
+        assertNull(controller.state.value.bulkCartAdditionResultMessage)
+        controller.close()
+    }
+
+    @Test
+    fun `カート追加のエラーメッセージが出た後にrefreshするとエラーメッセージがnullになる(design §8,4-2)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val cartRepository = object : ReservationCartRepository {
+            override fun cartItems(): Flow<List<ReservationCartItem>> = flowOf(emptyList())
+            override suspend fun addToCart(target: ReservationTarget) = Unit
+            override suspend fun addToCart(targets: List<ReservationTarget>): ReservationCartAddSummary = throw RuntimeException("boom")
+            override suspend fun removeFromCart(cartItemId: Long) = Unit
+            override suspend fun removeFromCart(cartItemIds: List<Long>) = Unit
+            override suspend fun clearCart() = Unit
+            override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult = ReservationBatchResult(emptyList())
+            override suspend fun reserveNow(target: ReservationTarget, confirmation: ReservationConfirmation): ReservationBatchResult =
+                ReservationBatchResult(emptyList())
+            override suspend fun reserveNow(targets: List<ReservationTarget>, confirmation: ReservationConfirmation): ReservationBatchResult =
+                ReservationBatchResult(emptyList())
+        }
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(repository),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+            warnBeforeClearingSelection = flowOf(false),
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkCartAddition(candidates)
+        controller.selectBulkCartAdditionMember(father.id)
+        controller.confirmBulkCartAddition()
+        advanceUntilIdle()
+        assertEquals("カートへ追加できませんでした。もう一度お試しください。", controller.state.value.bulkCartAdditionErrorMessage)
+
+        controller.refresh()
+        advanceUntilIdle()
+
+        assertNull(controller.state.value.bulkCartAdditionErrorMessage)
+        controller.close()
+    }
+
+    @Test
+    fun `警告設定オフで選択が残ったままrefreshすると選択が空になる(design §8,4-3)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val updater = FakeUpdateRunner(repository)
+        val controller = NewArrivalsScreenController(
+            repository, updater, dispatcher,
+            warnBeforeClearingSelection = flowOf(false),
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+
+        controller.refresh()
+        advanceUntilIdle()
+
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `refreshではbulkDirectReservationResultsとエラーメッセージが残る(design §8,4-4)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val cartRepository = FakeCartRepository()
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(repository),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+            calendarRepository = FakeCalendarRepository(),
+            defaultPickupLibraryCode = flowOf("A"),
+            warnBeforeClearingSelection = flowOf(false),
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkDirectReservation(candidates)
+        controller.selectBulkDirectReservationMember(father.id)
+        controller.selectBulkDirectReservationPickupLibrary("A")
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+        assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
+
+        controller.refresh()
+        advanceUntilIdle()
+
+        assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
+        controller.close()
+    }
+
+    @Test
+    fun `resetOnLeaveで選択・カート追加のメッセージ・queryが初期状態になる(design §8,4-5)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val cartRepository = FakeCartRepository(summary = ReservationCartAddSummary(added = 1, skipped = 0))
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(repository),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+        )
+        advanceUntilIdle()
+        controller.updateQuery("書名")
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkCartAddition(candidates)
+        controller.selectBulkCartAdditionMember(father.id)
+        controller.confirmBulkCartAddition()
+        advanceUntilIdle()
+        assertEquals("1件をカートへ追加しました", controller.state.value.bulkCartAdditionResultMessage)
+
+        controller.resetOnLeave()
+        advanceUntilIdle()
+
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        assertNull(controller.state.value.bulkCartAdditionResultMessage)
+        assertNull(controller.state.value.bulkCartAdditionErrorMessage)
+        assertEquals("", controller.state.value.query)
+        controller.close()
+    }
+
+    @Test
+    fun `resetOnLeaveでbulkDirectReservationResultsとエラーメッセージが残る(design §8,4-6)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val cartRepository = FakeCartRepository()
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(repository),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+            calendarRepository = FakeCalendarRepository(),
+            defaultPickupLibraryCode = flowOf("A"),
+        )
+        advanceUntilIdle()
+        controller.toggleCartSelection("100")
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkDirectReservation(candidates)
+        controller.selectBulkDirectReservationMember(father.id)
+        controller.selectBulkDirectReservationPickupLibrary("A")
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+        assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
+
+        controller.resetOnLeave()
+        advanceUntilIdle()
+
+        assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
+        controller.close()
+    }
+
+    @Test
+    fun `resetOnLeaveでrowsとtotalCountとlastFetchedAtEpochMillisが保たれる(design §8,4-7)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val now = Instant.parse("2030-01-02T00:00:00Z")
+        val repository = FakeNewArrivalRepository(
+            listOf(newArrival("100")),
+            now.toEpochMilli(),
+        )
+        val controller = NewArrivalsScreenController(repository, FakeUpdateRunner(repository), dispatcher)
+        advanceUntilIdle()
+        val rowsBefore = controller.state.value.rows
+        val totalCountBefore = controller.state.value.totalCount
+        val lastFetchedBefore = controller.state.value.lastFetchedAtEpochMillis
+
+        controller.resetOnLeave()
+        advanceUntilIdle()
+
+        assertEquals(rowsBefore, controller.state.value.rows)
+        assertEquals(totalCountBefore, controller.state.value.totalCount)
+        assertEquals(lastFetchedBefore, controller.state.value.lastFetchedAtEpochMillis)
+        controller.close()
+    }
+
+    @Test
+    fun `巡回中にresetOnLeaveしても巡回は続き完了後にrefreshingがfalseになる(design §8,4-8)`() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(emptyList(), null)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val updater = FakeUpdateRunner(repository, beforeResult = {
+            entered.complete(Unit)
+            release.await()
+        })
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+
+        controller.refresh()
+        entered.await()
+        assertEquals(true, controller.state.value.refreshing)
+
+        controller.resetOnLeave()
+
+        assertEquals(true, controller.state.value.refreshing)
+        release.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(false, controller.state.value.refreshing)
+        controller.close()
+    }
+
     private class FakeFamilyRepository(private val members: List<Member>) : FamilyRepository {
         override fun members(): Flow<List<Member>> = flowOf(members)
         override suspend fun addMember(name: String, colorHex: String, cardNumber: String, password: String) = Unit

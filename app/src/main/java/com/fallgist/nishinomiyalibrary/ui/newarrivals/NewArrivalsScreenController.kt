@@ -261,13 +261,15 @@ class NewArrivalsScreenController(
             _state.update { it.copy(pendingRefreshConfirmation = true) }
             return
         }
+        clearBeforeStartingRefresh()
         scope.launch { performRefresh(NewArrivalUpdateTrigger.SCREEN_MANUAL) }
     }
 
     /** 確認ダイアログの「続ける」。選択をすべて解除してから巡回する(§6.2)。 */
     fun confirmPendingRefresh() {
         if (!state.value.pendingRefreshConfirmation) return
-        _state.update { it.copy(pendingRefreshConfirmation = false, selectedCartTilcods = emptySet()) }
+        _state.update { it.copy(pendingRefreshConfirmation = false) }
+        clearBeforeStartingRefresh()
         scope.launch { performRefresh(NewArrivalUpdateTrigger.SCREEN_MANUAL) }
     }
 
@@ -280,10 +282,26 @@ class NewArrivalsScreenController(
     fun confirmPendingRefreshAndDisableWarning() {
         if (!state.value.pendingRefreshConfirmation) return
         _state.update {
-            it.copy(pendingRefreshConfirmation = false, selectedCartTilcods = emptySet(), warnBeforeClearingSelection = false)
+            it.copy(pendingRefreshConfirmation = false, warnBeforeClearingSelection = false)
         }
+        clearBeforeStartingRefresh()
         scope.launch { disableWarnBeforeClearingSelection() }
         scope.launch { performRefresh(NewArrivalUpdateTrigger.SCREEN_MANUAL) }
+    }
+
+    /**
+     * 巡回を始める前の共通の後始末(`docs/design/search-result-reset.md` §8.2)。
+     * 選択は警告設定がオフのときも常に空にし、カート追加の結果・エラーメッセージを消す。
+     * 一覧・取得状態(rows/totalCount/lastFetchedAtEpochMillis/refreshing/refreshFailed/updatePhase)には触れない。
+     */
+    private fun clearBeforeStartingRefresh() {
+        _state.update {
+            it.copy(
+                selectedCartTilcods = emptySet(),
+                bulkCartAdditionResultMessage = null,
+                bulkCartAdditionErrorMessage = null,
+            )
+        }
     }
 
     private suspend fun performRefresh(trigger: NewArrivalUpdateTrigger) {
@@ -507,6 +525,29 @@ class NewArrivalsScreenController(
 
     fun clearBulkDirectReservationError() {
         _state.update { it.copy(bulkDirectReservationErrorMessage = null) }
+    }
+
+    /**
+     * 新着資料から他画面へ移るときの後始末(`docs/design/search-result-reset.md` §8.2)。
+     * 選択・カート追加の一時表示・絞り込み語を初期状態へ戻す。一覧・取得状態(rows/totalCount/
+     * lastFetchedAtEpochMillis/refreshing/refreshFailed/updatePhase)には触れない(§8.1)。
+     * 処理中フラグ・直接予約の結果とエラー・members/libraries/defaultPickupLibraryCode/
+     * warnBeforeClearingSelection/autoReservationEnabledは保つ(§8.2)。
+     * 巡回(performRefresh)のコルーチンには一切触れない。displayRefreshMutexと
+     * refreshedThisSessionの整合を壊さないためである(§8.2)。
+     */
+    fun resetOnLeave() {
+        query.value = ""
+        _state.update {
+            it.copy(
+                selectedCartTilcods = emptySet(),
+                bulkCartAdditionConfirmation = null,
+                bulkCartAdditionResultMessage = null,
+                bulkCartAdditionErrorMessage = null,
+                pendingRefreshConfirmation = false,
+                bulkDirectReservationConfirmation = null,
+            )
+        }
     }
 
     fun close() {

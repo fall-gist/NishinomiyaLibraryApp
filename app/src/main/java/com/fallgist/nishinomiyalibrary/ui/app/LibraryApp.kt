@@ -147,6 +147,9 @@ fun LibraryApp(
         if (current == Destination.SEARCH && dest != Destination.SEARCH) {
             searchController.resetOnLeave()
         }
+        if (current == Destination.NEW_ARRIVALS && dest != Destination.NEW_ARRIVALS) {
+            newArrivalsController.resetOnLeave()
+        }
         currentName = dest.name
     }
     // 診断ログ閲覧は設定画面からだけ開ける、書誌詳細と同様の全画面オーバーレイとして扱う(ドロワー/下部ナビには出さない)。
