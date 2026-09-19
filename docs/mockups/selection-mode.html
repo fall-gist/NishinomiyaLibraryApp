@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>長押しによる選択モード モック</title>
+<style>
+  :root{
+    --paper:#FAF7F1; --card:#FFFFFF; --ink:#26221B; --ink2:#6E675C;
+    --line:#E7E1D6; --green:#2E6B4F; --green-bg:#E3EFE7; --green-ink:#1E4A36;
+    --alert:#B3452E; --alert-bg:#F7E7E2; --chip-bg:#EFEAE0;
+    --caution:#B8860B; --caution-bg:#F7EFD9; --caution-ink:#7A5A00;
+    --papa:#3D6DB5; --mama:#C25278; --taro:#D98E2B; --hana:#5FA05A; --jiro:#8A64B8;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+      --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+      --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+      --caution:#D8B65A; --caution-bg:#3A3019; --caution-ink:#EBD9A8;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#16140F; --card:#211E17; --ink:#EDE7DB; --ink2:#A39A8A;
+    --line:#37332A; --green:#7FB89A; --green-bg:#24382E; --green-ink:#BFE0CC;
+    --alert:#E08A75; --alert-bg:#42281F; --chip-bg:#2C2921;
+    --caution:#D8B65A; --caution-bg:#3A3019; --caution-ink:#EBD9A8;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:28px 16px 64px; background:var(--paper); color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+    line-height:1.6;
+  }
+  .wrap{max-width:1180px; margin:0 auto;}
+  h1.page{font-size:20px; margin:0 0 6px;}
+  p.lead{margin:0 0 20px; color:var(--ink2); font-size:13px; max-width:760px;}
+  .grid{display:flex; flex-wrap:wrap; gap:26px; align-items:flex-start;}
+  .col{flex:1 1 330px; max-width:390px;}
+  .cap{margin:0 0 8px; font-size:14px; font-weight:700;}
+  .cap .badge{
+    display:inline-block; font-size:11px; font-weight:700; color:var(--green-ink);
+    background:var(--green-bg); border-radius:999px; padding:1px 9px; margin-right:7px; vertical-align:middle;
+  }
+  .cap .badge.now{color:var(--ink2); background:var(--chip-bg);}
+  .note{font-size:12px; color:var(--ink2); margin:8px 0 0;}
+  .phone{
+    width:100%; background:var(--card); border:1px solid var(--line);
+    border-radius:26px; overflow:hidden; box-shadow:0 10px 30px rgba(40,30,10,.10);
+    display:flex; flex-direction:column; height:620px; position:relative;
+  }
+  .screen{flex:1; overflow:hidden; background:var(--paper); display:flex; flex-direction:column;}
+  .appbar{padding:16px 16px 6px; display:flex; justify-content:space-between; align-items:center;}
+  .appbar h2{margin:0; font-size:18px; font-weight:700;}
+  .appbar button{
+    width:30px; height:30px; border-radius:8px; border:1px solid var(--line);
+    background:var(--card); color:var(--ink); font-size:15px; display:flex;
+    align-items:center; justify-content:center; padding:0;
+  }
+  .chips{display:flex; gap:6px; padding:4px 16px 8px; flex-wrap:wrap;}
+  .chip{font-size:11px; padding:3px 10px; border-radius:999px; background:var(--chip-bg); color:var(--ink2);}
+  .chip.on{background:var(--green-bg); color:var(--green-ink); font-weight:700;}
+  .dot{display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:4px;}
+  .hint{
+    margin:0 16px 8px; font-size:11px; color:var(--ink2); background:var(--chip-bg);
+    border-radius:8px; padding:5px 10px;
+  }
+  .list{flex:1; overflow-y:auto; padding:0 16px 12px; display:flex; flex-direction:column; gap:8px;}
+  .row{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:10px 12px; display:flex; gap:10px; align-items:flex-start;
+  }
+  .row.sel{border-color:var(--green); background:var(--green-bg);}
+  .who{font-size:11px; color:var(--ink2); flex:0 0 auto; padding-top:2px; white-space:nowrap;}
+  .body{flex:1; min-width:0;}
+  .btitle{margin:0; font-size:13.5px; font-weight:600; line-height:1.4;}
+  .sub{display:flex; gap:10px; flex-wrap:wrap; font-size:11px; color:var(--ink2); margin-top:3px;}
+  .state{font-size:11px; font-weight:700;}
+  .state.ok{color:var(--green-ink);}
+  .state.wait{color:var(--caution-ink);}
+  .state.over{color:var(--alert);}
+  .due{flex:0 0 auto; text-align:right; font-size:11px; color:var(--ink2);}
+  .due b{display:block; font-size:12.5px; color:var(--ink);}
+  .cb{
+    flex:0 0 auto; width:19px; height:19px; border-radius:5px; border:1.6px solid var(--ink2);
+    margin-top:2px; display:flex; align-items:center; justify-content:center; font-size:12px;
+    color:transparent; background:var(--card);
+  }
+  .cb.on{background:var(--green); border-color:var(--green); color:#fff;}
+  .selbar{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:9px 16px; background:var(--green-bg); color:var(--green-ink);
+    border-bottom:1px solid var(--line);
+  }
+  .selbar .cnt{font-size:13px; font-weight:700;}
+  .selbar .acts{display:flex; gap:8px; align-items:center;}
+  .selbar .link{font-size:12px; font-weight:700; text-decoration:underline;}
+  .actionbar{
+    display:flex; gap:8px; align-items:center; padding:10px 16px;
+    border-top:1px solid var(--line); background:var(--card);
+  }
+  .btn{
+    flex:1; text-align:center; font-size:12.5px; font-weight:700; padding:9px 8px;
+    border-radius:10px; background:var(--green); color:#fff;
+  }
+  .btn.sub{background:var(--chip-bg); color:var(--ink); flex:0 0 auto; padding:9px 12px;}
+  .btn.ghost{background:var(--card); color:var(--ink2); border:1px solid var(--line); flex:0 0 auto; padding:9px 11px;}
+  .navbar{display:flex; border-top:1px solid var(--line); background:var(--card);}
+  .navbar div{flex:1; text-align:center; font-size:9.5px; color:var(--ink2); padding:7px 0;}
+  .navbar div.on{color:var(--green-ink); font-weight:700;}
+  .navbar div span{display:block; font-size:14px;}
+  .searchbar{padding:4px 16px 10px;}
+  .searchbar .field{
+    border:1px solid var(--line); background:var(--card); border-radius:10px;
+    padding:8px 10px; font-size:12.5px; color:var(--ink2); display:flex; justify-content:space-between;
+  }
+  .toast{
+    position:absolute; left:12px; right:12px; bottom:56px; background:var(--card);
+    border:1px solid var(--line); border-left:3px solid var(--green);
+    border-radius:10px; padding:8px 11px; font-size:11.5px; color:var(--ink);
+    box-shadow:0 6px 18px rgba(40,30,10,.16); display:flex; gap:8px; align-items:center;
+  }
+  .toast .spin{
+    width:13px; height:13px; border-radius:50%; border:2px solid var(--line);
+    border-top-color:var(--green); flex:0 0 auto;
+  }
+  .toast.top{top:6px; bottom:auto;}
+  .dim{position:absolute; inset:0; background:rgba(20,16,8,.45); display:flex; align-items:center; justify-content:center; padding:24px;}
+  .dialog{background:var(--card); border-radius:14px; padding:16px; width:100%; text-align:center;}
+  .dialog p{margin:0 0 10px; font-size:13px;}
+  .qa{max-width:760px; margin:34px auto 0; border-top:1px solid var(--line); padding-top:18px;}
+  .qa h3{font-size:15px; margin:0 0 10px;}
+  .qa li{font-size:13px; margin-bottom:9px;}
+  .qa .q{font-weight:700;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1 class="page">長押しによる選択モード（案）</h1>
+<p class="lead">左が現在の画面、その右が案です。通常はチェックボックスを出さず、書誌タイルの長押しで選択モードに入ります。選択モードの間は、タイルのタップが選択の切り替えになります。あわせて「延長可能」「順番待ち」などの状態表示を、書誌名の下へ移しています。最後に、待ち時間の表示をオーバーレイにする案を添えました。</p>
+
+<div class="grid">
+
+  <div class="col">
+    <p class="cap"><span class="badge now">現在</span>貸出中</p>
+    <div class="phone"><div class="screen">
+      <div class="appbar"><h2>貸出中</h2><button>☰</button></div>
+      <div class="chips">
+        <span class="chip on">みんな</span>
+        <span class="chip"><span class="dot" style="background:var(--papa)"></span>パパ</span>
+        <span class="chip"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+        <span class="chip"><span class="dot" style="background:var(--hana)"></span>はな</span>
+      </div>
+      <div class="list">
+        <div class="row">
+          <div class="cb"></div>
+          <div class="body">
+            <p class="state ok">延長可能</p>
+            <p class="btitle">かいけつゾロリ大けっとう!ゾロリじょう</p>
+            <div class="sub"><span>たろう</span><span>高須分室</span></div>
+          </div>
+          <div class="due"><span>本日</span><b>7/20(月)</b></div>
+        </div>
+        <div class="row">
+          <div class="cb"></div>
+          <div class="body">
+            <p class="state ok">延長可能</p>
+            <p class="btitle">いきもの必殺技図鑑</p>
+            <div class="sub"><span>はな</span><span>高須分室</span></div>
+          </div>
+          <div class="due"><span>あと2日</span><b>7/22(水)</b></div>
+        </div>
+        <div class="row">
+          <div class="cb"></div>
+          <div class="body">
+            <p class="btitle">経営戦略の教科書</p>
+            <div class="sub"><span>パパ</span><span>中央図書館</span></div>
+          </div>
+          <div class="due"><span>あと4日</span><b>7/24(金)</b></div>
+        </div>
+      </div>
+      <div class="navbar">
+        <div><span>🏠</span>ホーム</div><div class="on"><span>📖</span>貸出中</div>
+        <div><span>🔖</span>予約中</div><div><span>🔍</span>検索</div><div><span>🆕</span>新着</div>
+      </div>
+    </div></div>
+    <p class="note">チェックボックスが常に出ている。状態の「延長可能」は1行目のチェックボックスの横にある。</p>
+  </div>
+
+  <div class="col">
+    <p class="cap"><span class="badge">案</span>貸出中・通常のとき</p>
+    <div class="phone"><div class="screen">
+      <div class="appbar"><h2>貸出中</h2><button>☰</button></div>
+      <div class="chips">
+        <span class="chip on">みんな</span>
+        <span class="chip"><span class="dot" style="background:var(--papa)"></span>パパ</span>
+        <span class="chip"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+        <span class="chip"><span class="dot" style="background:var(--hana)"></span>はな</span>
+      </div>
+      <p class="hint">長押しで複数選択</p>
+      <div class="list">
+        <div class="row">
+          <div class="body">
+            <p class="btitle">かいけつゾロリ大けっとう!ゾロリじょう</p>
+            <div class="sub"><span>たろう</span><span>高須分室</span><span class="state ok">延長可能</span></div>
+          </div>
+          <div class="due"><span>本日</span><b>7/20(月)</b></div>
+        </div>
+        <div class="row">
+          <div class="body">
+            <p class="btitle">いきもの必殺技図鑑</p>
+            <div class="sub"><span>はな</span><span>高須分室</span><span class="state ok">延長可能</span></div>
+          </div>
+          <div class="due"><span>あと2日</span><b>7/22(水)</b></div>
+        </div>
+        <div class="row">
+          <div class="body">
+            <p class="btitle">経営戦略の教科書</p>
+            <div class="sub"><span>パパ</span><span>中央図書館</span></div>
+          </div>
+          <div class="due"><span>あと4日</span><b>7/24(金)</b></div>
+        </div>
+      </div>
+      <div class="navbar">
+        <div><span>🏠</span>ホーム</div><div class="on"><span>📖</span>貸出中</div>
+        <div><span>🔖</span>予約中</div><div><span>🔍</span>検索</div><div><span>🆕</span>新着</div>
+      </div>
+    </div></div>
+    <p class="note">チェックボックスと一括操作のバーが消える。状態は書誌名の下へ。タップは今までどおり書誌詳細。</p>
+  </div>
+
+  <div class="col">
+    <p class="cap"><span class="badge">案</span>貸出中・選択モード</p>
+    <div class="phone"><div class="screen">
+      <div class="selbar">
+        <span class="cnt">2件を選択中</span>
+        <span class="acts"><span class="link">すべて選択</span><span class="link">選択解除</span></span>
+      </div>
+      <div class="chips">
+        <span class="chip on">みんな</span>
+        <span class="chip"><span class="dot" style="background:var(--papa)"></span>パパ</span>
+        <span class="chip"><span class="dot" style="background:var(--taro)"></span>たろう</span>
+        <span class="chip"><span class="dot" style="background:var(--hana)"></span>はな</span>
+      </div>
+      <div class="list">
+        <div class="row sel">
+          <div class="cb on">✓</div>
+          <div class="body">
+            <p class="btitle">かいけつゾロリ大けっとう!ゾロリじょう</p>
+            <div class="sub"><span>たろう</span><span>高須分室</span><span class="state ok">延長可能</span></div>
+          </div>
+          <div class="due"><span>本日</span><b>7/20(月)</b></div>
+        </div>
+        <div class="row sel">
+          <div class="cb on">✓</div>
+          <div class="body">
+            <p class="btitle">いきもの必殺技図鑑</p>
+            <div class="sub"><span>はな</span><span>高須分室</span><span class="state ok">延長可能</span></div>
+          </div>
+          <div class="due"><span>あと2日</span><b>7/22(水)</b></div>
+        </div>
+        <div class="row">
+          <div class="cb"></div>
+          <div class="body">
+            <p class="btitle">経営戦略の教科書</p>
+            <div class="sub"><span>パパ</span><span>中央図書館</span></div>
+          </div>
+          <div class="due"><span>あと4日</span><b>7/24(金)</b></div>
+        </div>
+      </div>
+      <div class="actionbar">
+        <span class="btn">2件を延長する</span>
+      </div>
+      <div class="navbar">
+        <div><span>🏠</span>ホーム</div><div class="on"><span>📖</span>貸出中</div>
+        <div><span>🔖</span>予約中</div><div><span>🔍</span>検索</div><div><span>🆕</span>新着</div>
+      </div>
+    </div></div>
+    <p class="note">上部のバーで件数と解除。タイルのタップは選択の切り替え。戻るキーでも選択モードを抜ける。</p>
+  </div>
+
+</div>
+
+<div class="grid" style="margin-top:30px">
+
+  <div class="col">
+    <p class="cap"><span class="badge">案</span>蔵書検索・選択モード</p>
+    <div class="phone"><div class="screen">
+      <div class="selbar">
+        <span class="cnt">3件を選択中</span>
+        <span class="acts"><span class="link">すべて選択</span><span class="link">選択解除</span></span>
+      </div>
+      <div class="searchbar"><div class="field"><span>ゾロリ</span><span>🔍</span></div></div>
+      <div class="list">
+        <div class="row sel">
+          <div class="cb on">✓</div>
+          <div class="body">
+            <p class="btitle">かいけつゾロリのなぞのお宝</p>
+            <div class="sub"><span>原ゆたか</span><span>児童書</span><span class="state ok">貸出できます</span></div>
+          </div>
+        </div>
+        <div class="row sel">
+          <div class="cb on">✓</div>
+          <div class="body">
+            <p class="btitle">かいけつゾロリのドラゴンたいじ</p>
+            <div class="sub"><span>原ゆたか</span><span>児童書</span><span class="state wait">貸出中</span></div>
+          </div>
+        </div>
+        <div class="row sel">
+          <div class="cb on">✓</div>
+          <div class="body">
+            <p class="btitle">かいけつゾロリの大金もち</p>
+            <div class="sub"><span>原ゆたか</span><span>児童書</span><span class="state ok">貸出できます</span></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="cb"></div>
+          <div class="body">
+            <p class="btitle">かいけつゾロリの大まじん</p>
+            <div class="sub"><span>原ゆたか</span><span>児童書</span><span class="state ok">貸出できます</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="actionbar">
+        <span class="btn">3件を予約</span>
+        <span class="btn sub">カートへ</span>
+        <span class="btn ghost">⋯</span>
+      </div>
+      <div class="navbar">
+        <div><span>🏠</span>ホーム</div><div><span>📖</span>貸出中</div>
+        <div><span>🔖</span>予約中</div><div class="on"><span>🔍</span>検索</div><div><span>🆕</span>新着</div>
+      </div>
+    </div></div>
+    <p class="note">検索欄は選択モードでも残す（検索すると選択が解除される旨の確認は今までどおり）。「⋯」に本棚へ追加を置く。</p>
+  </div>
+
+  <div class="col">
+    <p class="cap"><span class="badge now">現在</span>本棚へ一斉追加の進捗</p>
+    <div class="phone">
+      <div class="screen">
+        <div class="appbar"><h2>蔵書検索</h2><button>☰</button></div>
+        <div class="searchbar"><div class="field"><span>ゾロリ</span><span>🔍</span></div></div>
+        <div class="list">
+          <div class="row"><div class="body"><p class="btitle">かいけつゾロリのなぞのお宝</p><div class="sub"><span>原ゆたか</span></div></div></div>
+          <div class="row"><div class="body"><p class="btitle">かいけつゾロリのドラゴンたいじ</p><div class="sub"><span>原ゆたか</span></div></div></div>
+        </div>
+        <div class="navbar">
+          <div><span>🏠</span>ホーム</div><div><span>📖</span>貸出中</div>
+          <div><span>🔖</span>予約中</div><div class="on"><span>🔍</span>検索</div><div><span>🆕</span>新着</div>
+        </div>
+      </div>
+      <div class="dim">
+        <div class="dialog">
+          <p><b>本棚へ追加しています</b></p>
+          <p style="color:var(--ink2); font-size:12px">3件目 / 5件</p>
+          <p style="color:var(--ink2); font-size:11.5px; margin:0">終わるまでお待ちください</p>
+        </div>
+      </div>
+    </div>
+    <p class="note">画面全体が覆われ、終わるまで何もできない。戻るキーでも閉じない。</p>
+  </div>
+
+  <div class="col">
+    <p class="cap"><span class="badge">案</span>進捗はオーバーレイの帯で</p>
+    <div class="phone">
+      <div class="screen">
+        <div class="appbar"><h2>貸出中</h2><button>☰</button></div>
+        <div class="chips"><span class="chip on">みんな</span><span class="chip"><span class="dot" style="background:var(--taro)"></span>たろう</span></div>
+        <p class="hint">長押しで複数選択</p>
+        <div class="list">
+          <div class="row">
+            <div class="body">
+              <p class="btitle">かいけつゾロリ大けっとう!ゾロリじょう</p>
+              <div class="sub"><span>たろう</span><span class="state ok">延長可能</span></div>
+            </div>
+            <div class="due"><span>本日</span><b>7/20(月)</b></div>
+          </div>
+          <div class="row">
+            <div class="body">
+              <p class="btitle">いきもの必殺技図鑑</p>
+              <div class="sub"><span>はな</span><span class="state ok">延長可能</span></div>
+            </div>
+            <div class="due"><span>あと2日</span><b>7/22(水)</b></div>
+          </div>
+        </div>
+        <div class="navbar">
+          <div><span>🏠</span>ホーム</div><div class="on"><span>📖</span>貸出中</div>
+          <div><span>🔖</span>予約中</div><div><span>🔍</span>検索</div><div><span>🆕</span>新着</div>
+        </div>
+      </div>
+      <div class="toast"><span class="spin"></span><span>本棚へ追加しています　3件目 / 5件</span></div>
+    </div>
+    <p class="note">検索画面で始めた本棚追加が、貸出中へ移っても帯として残る。画面の操作は妨げない。終わると結果の文言に変わり、しばらくして消える（タップでも消せる）。</p>
+  </div>
+
+</div>
+
+<div class="qa">
+  <h3>決めていただきたい点</h3>
+  <ul>
+    <li><span class="q">1. 帯の位置。</span>上の案は最下部（下部ナビの上）に置いています。最上部に置くこともできます。どちらが見やすいでしょうか。</li>
+    <li><span class="q">2. 「すべて選択」を置くか。</span>選択モードの上部バーに置く案にしています。不要であれば外します。</li>
+    <li><span class="q">3. 案内の文言と出し方。</span>「長押しで複数選択」を、一覧の上に常に出す案にしています。数回使えば分かるものなので、初回だけにする、または設定で消せるようにする案もあります。</li>
+    <li><span class="q">4. カート画面も同じ方式にするか。</span>カート画面は「選ぶための画面」なので、チェックボックスを常に出したままにする考え方もあります。</li>
+    <li><span class="q">5. 選択が0件になったとき。</span>選択モードを自動で抜ける案と、抜けずに残す案があります。上の案は「抜けない（上部バーは0件と表示）」です。</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>
