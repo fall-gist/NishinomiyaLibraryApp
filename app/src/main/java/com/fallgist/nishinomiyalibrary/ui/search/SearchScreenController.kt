@@ -72,6 +72,12 @@ data class SearchUiState(
     val bulkCartAdditionProcessing: Boolean = false,
     val bulkCartAdditionResultMessage: String? = null,
     val bulkCartAdditionErrorMessage: String? = null,
+    /**
+     * 長押しによる選択モード(`docs/design/selection-mode.md` §3)。選択0件になっても自動では
+     * falseに戻らない(§2-5)。選択集合と同じControllerに置く(§3.1、lost updateを避けるため。
+     * 貸出中・予約中のControllerと同じ流儀)。
+     */
+    val selectionMode: Boolean = false,
     /** 選択が残ったまま再検索する前に確認するか(`docs/design/bulk-selection-followup.md` §6.3)。 */
     val warnBeforeClearingSelection: Boolean = DEFAULT_WARN_BEFORE_CLEARING_SELECTION,
     /** 再検索の確認待ち(§6.2)。選択(表示外を含む)が1件以上あるときだけ、実行待ちのキーワードを持つ。 */
@@ -208,9 +214,13 @@ class SearchScreenController(
         }
     }
 
-    /** 一覧行のチェックボックスのタップ(`docs/design/bulk-selection.md` §7.3)。 */
+    /**
+     * 一覧行のチェックボックスのタップ(`docs/design/bulk-selection.md` §7.3)。
+     * 選択モード中(`docs/design/selection-mode.md` §3.3)だけ働く。選択が0件になっても選択モードは
+     * 続ける(§2-5)。
+     */
     fun toggleCartSelection(tilcod: String) {
-        if (state.value.anyBulkActionProcessing) return
+        if (state.value.anyBulkActionProcessing || !state.value.selectionMode) return
         _state.update { current ->
             current.copy(
                 selectedCartTilcods = if (tilcod in current.selectedCartTilcods) {
@@ -223,12 +233,28 @@ class SearchScreenController(
     }
 
     /**
-     * 選択だけを空にする(`docs/design/bulk-bookshelf-add.md` §5.4)。
+     * 書誌タイルの長押し(`docs/design/selection-mode.md` §3.3)。選択モードに入り、その行を選択する。
+     * 資料番号が空、または現在の一覧([SearchUiState.results])に存在しないtilcodでは何もしない
+     * (この画面はController自身が一覧を持つため、Screen側からcancellable等の引数を受け取らない)。
+     */
+    fun enterSelectionMode(tilcod: String) {
+        if (state.value.anyBulkActionProcessing || tilcod.isBlank()) return
+        if (state.value.results.none { it.tilcod == tilcod }) return
+        _state.update { it.copy(selectionMode = true, selectedCartTilcods = it.selectedCartTilcods + tilcod) }
+    }
+
+    /** 「選択解除」・戻るキー・他画面への遷移で選択モードから抜ける(§3.8)。選択も空にする。 */
+    fun exitSelectionMode() {
+        _state.update { it.copy(selectionMode = false, selectedCartTilcods = emptySet()) }
+    }
+
+    /**
+     * 選択・選択モードを空にする(`docs/design/bulk-bookshelf-add.md` §5.4、`selection-mode.md` §3.8-3)。
      * 一斉本棚追加は[com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfEditingUiController]が処理するため、
      * 完了(成否を問わない)をこの画面へ伝える手段としてここへ完了時コールバックから呼ばれる。
      */
     fun clearSelection() {
-        _state.update { it.copy(selectedCartTilcods = emptySet()) }
+        _state.update { it.copy(selectedCartTilcods = emptySet(), selectionMode = false) }
     }
 
     /** 「カートへ追加」ボタン。選択済みキーに対応する候補はScreen側で組み立てて渡す。 */
@@ -271,6 +297,9 @@ class SearchScreenController(
                 _state.update {
                     it.copy(
                         selectedCartTilcods = emptySet(),
+                        // 一斉カート追加の完了(成功・失敗のどちらでも)で選択モードから抜ける
+                        // (`docs/design/selection-mode.md` §3.8-3)。通信例外(下のcatch)は含めない。
+                        selectionMode = false,
                         bulkCartAdditionProcessing = false,
                         bulkCartAdditionResultMessage = BulkCartAdditionContentBuilder.resultMessage(summary),
                     )
@@ -365,6 +394,9 @@ class SearchScreenController(
                 _state.update {
                     it.copy(
                         selectedCartTilcods = emptySet(),
+                        // 一斉直接予約の完了(成功・失敗のどちらでも)で選択モードから抜ける
+                        // (`docs/design/selection-mode.md` §3.8-3)。通信例外(下のcatch)は含めない。
+                        selectionMode = false,
                         bulkDirectReservationProcessing = false,
                         bulkDirectReservationResults = ReservationCartContentBuilder.resultRows(result),
                     )
@@ -464,6 +496,9 @@ class SearchScreenController(
                 // bulkDirectReservationResults/bulkDirectReservationErrorMessageは実サイトへの
                 // 予約POSTの結果であり、利用者がタップで閉じるまで消さない(§3.1)。
                 selectedCartTilcods = emptySet(),
+                // 新しいキーワードでの検索は選択をすでに空にしており、選択が空でモードだけ残るのは
+                // 中途半端なため、選択モードからも抜ける(`docs/design/selection-mode.md` §3.8)。
+                selectionMode = false,
                 bulkCartAdditionResultMessage = null,
                 bulkCartAdditionErrorMessage = null,
             )
@@ -585,6 +620,8 @@ class SearchScreenController(
                 loadingMore = false,
                 errorMessage = null,
                 selectedCartTilcods = emptySet(),
+                // 他画面へ移ったら選択モードから抜ける(`docs/design/selection-mode.md` §3.8-4)。
+                selectionMode = false,
                 bulkCartAdditionConfirmation = null,
                 bulkCartAdditionResultMessage = null,
                 bulkCartAdditionErrorMessage = null,

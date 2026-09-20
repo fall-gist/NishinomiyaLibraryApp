@@ -172,17 +172,130 @@ class NewArrivalsScreenControllerTest {
     private val father = Member(1, "父", "#111111", "card-1", 0)
 
     @Test
-    fun `選択の切り替えでtilcodが追加削除される`() = runTest {
+    fun `選択モード中のtoggleCartSelectionでtilcodが追加削除される`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val controller = NewArrivalsScreenController(
-            FakeNewArrivalRepository(emptyList(), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+            FakeNewArrivalRepository(listOf(newArrival("100")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+        )
+        advanceUntilIdle()
+
+        controller.enterSelectionMode("100")
+        assertTrue(controller.state.value.selectionMode)
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+
+        controller.toggleCartSelection("100")
+        assertFalse("100" in controller.state.value.selectedCartTilcods)
+        // 0件になっても選択モードは続く(design §2-5)。
+        assertTrue(controller.state.value.selectionMode)
+
+        controller.toggleCartSelection("100")
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+        controller.close()
+    }
+
+    @Test
+    fun `選択モード中でないtoggleCartSelectionは働かない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val controller = NewArrivalsScreenController(
+            FakeNewArrivalRepository(listOf(newArrival("100")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
         )
         advanceUntilIdle()
 
         controller.toggleCartSelection("100")
-        assertTrue("100" in controller.state.value.selectedCartTilcods)
-        controller.toggleCartSelection("100")
+
         assertFalse("100" in controller.state.value.selectedCartTilcods)
+        assertFalse(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
+    fun `長押しで選択モードに入りその行が選択される`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val controller = NewArrivalsScreenController(
+            FakeNewArrivalRepository(listOf(newArrival("100")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+        )
+        advanceUntilIdle()
+
+        controller.enterSelectionMode("100")
+
+        assertTrue(controller.state.value.selectionMode)
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+        controller.close()
+    }
+
+    @Test
+    fun `一覧に無いtilcodでは選択モードに入らない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val controller = NewArrivalsScreenController(
+            FakeNewArrivalRepository(listOf(newArrival("100")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+        )
+        advanceUntilIdle()
+
+        controller.enterSelectionMode("999")
+
+        assertFalse(controller.state.value.selectionMode)
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `資料番号が空の行では選択モードに入らない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val controller = NewArrivalsScreenController(
+            FakeNewArrivalRepository(listOf(newArrival("")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+        )
+        advanceUntilIdle()
+
+        controller.enterSelectionMode("")
+
+        assertFalse(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
+    fun `exitSelectionModeで選択が空になり選択モードから抜ける`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val controller = NewArrivalsScreenController(
+            FakeNewArrivalRepository(listOf(newArrival("100")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+        )
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+
+        controller.exitSelectionMode()
+
+        assertFalse(controller.state.value.selectionMode)
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `処理中はenterSelectionModeもtoggleCartSelectionも受け付けない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val cartRepository = FakeCartRepository()
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100"), newArrival("101")), null)
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+        )
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkCartAddition(candidates)
+        controller.selectBulkCartAdditionMember(father.id)
+        controller.confirmBulkCartAddition()
+        // scope.launch本体がまだ進んでいない(processing=trueになった直後)を模す。
+        assertTrue(controller.state.value.anyBulkActionProcessing)
+
+        // 処理中は選択モードへの新規参加(enterSelectionMode)も選択の切り替え(toggleCartSelection)も働かない。
+        controller.enterSelectionMode("101")
+        assertFalse("101" in controller.state.value.selectedCartTilcods)
+        controller.toggleCartSelection("100")
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+
+        advanceUntilIdle()
         controller.close()
     }
 
@@ -221,7 +334,7 @@ class NewArrivalsScreenControllerTest {
             cartRepository = cartRepository,
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkCartAddition(candidates)
@@ -233,8 +346,86 @@ class NewArrivalsScreenControllerTest {
         assertEquals(father.id, cartRepository.receivedTargets.single().memberId)
         assertEquals("100", cartRepository.receivedTargets.single().tilcod)
         assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        // 一斉カート追加の完了(成功)で選択モードから抜ける(design §3.8-3)。
+        assertFalse(controller.state.value.selectionMode)
         assertNull(controller.state.value.bulkCartAdditionConfirmation)
         assertEquals("1件をカートへ追加しました", controller.state.value.bulkCartAdditionResultMessage)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉カート追加が通信例外で終わったときは選択状態と選択モードに触れない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val cartRepository = object : ReservationCartRepository {
+            override fun cartItems(): Flow<List<ReservationCartItem>> = flowOf(emptyList())
+            override suspend fun addToCart(target: ReservationTarget) = Unit
+            override suspend fun addToCart(targets: List<ReservationTarget>): ReservationCartAddSummary = throw RuntimeException("boom")
+            override suspend fun removeFromCart(cartItemId: Long) = Unit
+            override suspend fun removeFromCart(cartItemIds: List<Long>) = Unit
+            override suspend fun clearCart() = Unit
+            override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult = ReservationBatchResult(emptyList())
+            override suspend fun reserveNow(target: ReservationTarget, confirmation: ReservationConfirmation): ReservationBatchResult =
+                ReservationBatchResult(emptyList())
+            override suspend fun reserveNow(targets: List<ReservationTarget>, confirmation: ReservationConfirmation): ReservationBatchResult =
+                ReservationBatchResult(emptyList())
+        }
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(repository),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+        )
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkCartAddition(candidates)
+        controller.selectBulkCartAdditionMember(father.id)
+        controller.confirmBulkCartAddition()
+        advanceUntilIdle()
+
+        assertEquals(setOf("100"), controller.state.value.selectedCartTilcods)
+        assertTrue(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉直接予約が通信例外で終わったときは選択状態と選択モードに触れない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val cartRepository = object : ReservationCartRepository {
+            override fun cartItems(): Flow<List<ReservationCartItem>> = flowOf(emptyList())
+            override suspend fun addToCart(target: ReservationTarget) = Unit
+            override suspend fun addToCart(targets: List<ReservationTarget>): ReservationCartAddSummary = ReservationCartAddSummary(0, 0)
+            override suspend fun removeFromCart(cartItemId: Long) = Unit
+            override suspend fun removeFromCart(cartItemIds: List<Long>) = Unit
+            override suspend fun clearCart() = Unit
+            override suspend fun confirmCart(confirmation: ReservationConfirmation): ReservationBatchResult = ReservationBatchResult(emptyList())
+            override suspend fun reserveNow(target: ReservationTarget, confirmation: ReservationConfirmation): ReservationBatchResult =
+                ReservationBatchResult(emptyList())
+            override suspend fun reserveNow(targets: List<ReservationTarget>, confirmation: ReservationConfirmation): ReservationBatchResult =
+                throw RuntimeException("boom")
+        }
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val controller = NewArrivalsScreenController(
+            repository,
+            FakeUpdateRunner(repository),
+            dispatcher,
+            familyRepository = FakeFamilyRepository(listOf(father)),
+            cartRepository = cartRepository,
+            calendarRepository = FakeCalendarRepository(),
+            defaultPickupLibraryCode = flowOf("A"),
+        )
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+        val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
+        controller.requestBulkDirectReservation(candidates)
+        controller.selectBulkDirectReservationMember(father.id)
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+
+        assertEquals(setOf("100"), controller.state.value.selectedCartTilcods)
+        assertTrue(controller.state.value.selectionMode)
         controller.close()
     }
 
@@ -257,7 +448,7 @@ class NewArrivalsScreenControllerTest {
             cartRepository = cartRepository,
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.toggleCartSelection("101")
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkCartAddition(candidates)
@@ -293,7 +484,7 @@ class NewArrivalsScreenControllerTest {
             defaultPickupLibraryCode = flowOf("B"),
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkDirectReservation(candidates)
@@ -317,7 +508,7 @@ class NewArrivalsScreenControllerTest {
             defaultPickupLibraryCode = flowOf("A"),
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkDirectReservation(candidates)
@@ -344,7 +535,7 @@ class NewArrivalsScreenControllerTest {
             defaultPickupLibraryCode = flowOf(""),
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkDirectReservation(candidates)
@@ -372,7 +563,7 @@ class NewArrivalsScreenControllerTest {
             defaultPickupLibraryCode = flowOf("A"),
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkDirectReservation(candidates)
@@ -386,6 +577,8 @@ class NewArrivalsScreenControllerTest {
         assertEquals("100", cartRepository.receivedReserveNowTargets.single().tilcod)
         assertEquals("B", cartRepository.receivedReserveNowConfirmation?.pickupLibraryCode)
         assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        // 一斉直接予約の完了で選択モードから抜ける(design §3.8-3)。
+        assertFalse(controller.state.value.selectionMode)
         assertNull(controller.state.value.bulkDirectReservationConfirmation)
         assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
         controller.close()
@@ -412,7 +605,7 @@ class NewArrivalsScreenControllerTest {
             defaultPickupLibraryCode = flowOf("A"),
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.toggleCartSelection("101")
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkDirectReservation(candidates)
@@ -461,7 +654,7 @@ class NewArrivalsScreenControllerTest {
             warnBeforeClearingSelection = flowOf(false),
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         controller.refresh()
         advanceUntilIdle()
@@ -478,7 +671,7 @@ class NewArrivalsScreenControllerTest {
         val updater = FakeUpdateRunner(repository)
         val controller = NewArrivalsScreenController(repository, updater, dispatcher)
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         controller.refresh()
         advanceUntilIdle()
@@ -496,7 +689,7 @@ class NewArrivalsScreenControllerTest {
         val updater = FakeUpdateRunner(repository)
         val controller = NewArrivalsScreenController(repository, updater, dispatcher)
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.refresh()
         advanceUntilIdle()
 
@@ -516,7 +709,7 @@ class NewArrivalsScreenControllerTest {
         val updater = FakeUpdateRunner(repository)
         val controller = NewArrivalsScreenController(repository, updater, dispatcher)
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.refresh()
         advanceUntilIdle()
 
@@ -540,7 +733,7 @@ class NewArrivalsScreenControllerTest {
             disableWarnBeforeClearingSelection = { disableCalls++ },
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.refresh()
         advanceUntilIdle()
 
@@ -573,7 +766,7 @@ class NewArrivalsScreenControllerTest {
             warnBeforeClearingSelection = flowOf(false),
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkCartAddition(candidates)
         controller.selectBulkCartAdditionMember(father.id)
@@ -614,7 +807,7 @@ class NewArrivalsScreenControllerTest {
             warnBeforeClearingSelection = flowOf(false),
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkCartAddition(candidates)
         controller.selectBulkCartAdditionMember(father.id)
@@ -639,12 +832,14 @@ class NewArrivalsScreenControllerTest {
             warnBeforeClearingSelection = flowOf(false),
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         controller.refresh()
         advanceUntilIdle()
 
         assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        // 巡回(「更新」)は選択モードからも抜ける(design §3.8「新着の巡回」)。
+        assertFalse(controller.state.value.selectionMode)
         controller.close()
     }
 
@@ -664,7 +859,7 @@ class NewArrivalsScreenControllerTest {
             warnBeforeClearingSelection = flowOf(false),
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkDirectReservation(candidates)
         controller.selectBulkDirectReservationMember(father.id)
@@ -695,7 +890,7 @@ class NewArrivalsScreenControllerTest {
         advanceUntilIdle()
         controller.updateQuery("書名")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkCartAddition(candidates)
         controller.selectBulkCartAdditionMember(father.id)
@@ -720,6 +915,21 @@ class NewArrivalsScreenControllerTest {
     }
 
     @Test
+    fun `resetOnLeaveで選択モードから抜ける(design §3,8-4)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
+        val controller = NewArrivalsScreenController(repository, FakeUpdateRunner(repository), dispatcher)
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+        assertTrue(controller.state.value.selectionMode)
+
+        controller.resetOnLeave()
+
+        assertFalse(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
     fun `resetOnLeaveでbulkDirectReservationResultsとエラーメッセージが残る(design §8,4-6)`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
@@ -734,7 +944,7 @@ class NewArrivalsScreenControllerTest {
             defaultPickupLibraryCode = flowOf("A"),
         )
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         val candidates = NewArrivalsContentBuilder.cartAdditionCandidates(controller.state.value.rows, controller.state.value.selectedCartTilcods)
         controller.requestBulkDirectReservation(candidates)
         controller.selectBulkDirectReservationMember(father.id)

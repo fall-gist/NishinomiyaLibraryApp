@@ -1,8 +1,11 @@
 package com.fallgist.nishinomiyalibrary.ui.search
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +42,7 @@ import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
+import com.fallgist.nishinomiyalibrary.ui.components.SelectionModeBar
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.BulkCartAdditionCandidate
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.BulkCartAdditionConfirmDialog
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.BulkDirectReservationConfirmDialog
@@ -53,6 +58,8 @@ fun SearchScreen(
     onOpenDetail: (tilcod: String, title: String) -> Unit,
     onOpenMenu: () -> Unit,
     onToggleCartSelection: (String) -> Unit,
+    onEnterCartSelection: (String) -> Unit,
+    onExitCartSelection: () -> Unit,
     onRequestBulkCartAddition: (List<BulkCartAdditionCandidate>) -> Unit,
     onSelectBulkCartAdditionMember: (Long) -> Unit,
     onConfirmBulkCartAddition: () -> Unit,
@@ -82,6 +89,8 @@ fun SearchScreen(
         onOpenDetail = onOpenDetail,
         onOpenMenu = onOpenMenu,
         onToggleCartSelection = onToggleCartSelection,
+        onEnterCartSelection = onEnterCartSelection,
+        onExitCartSelection = onExitCartSelection,
         onRequestBulkCartAddition = onRequestBulkCartAddition,
         onSelectBulkCartAdditionMember = onSelectBulkCartAdditionMember,
         onConfirmBulkCartAddition = onConfirmBulkCartAddition,
@@ -104,6 +113,7 @@ fun SearchScreen(
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SearchView(
     state: SearchUiState,
@@ -113,6 +123,8 @@ private fun SearchView(
     onOpenDetail: (tilcod: String, title: String) -> Unit,
     onOpenMenu: () -> Unit,
     onToggleCartSelection: (String) -> Unit,
+    onEnterCartSelection: (String) -> Unit,
+    onExitCartSelection: () -> Unit,
     onRequestBulkCartAddition: (List<BulkCartAdditionCandidate>) -> Unit,
     onSelectBulkCartAdditionMember: (Long) -> Unit,
     onConfirmBulkCartAddition: () -> Unit,
@@ -133,6 +145,8 @@ private fun SearchView(
     onRequestBulkAddToBookshelf: (List<BulkCartAdditionCandidate>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 選択モード中の戻るキーは選択モードから抜けるだけにする(§3.8-2)。
+    BackHandler(enabled = state.selectionMode, onBack = onExitCartSelection)
     val colors = LocalAppColors.current
     // カート追加・直接予約に加え、本棚追加(別Controller)の処理中も一斉操作全体を止める
     // (`docs/design/bulk-bookshelf-add.md` §5.4「BookshelfEditingUiControllerの処理中フラグも無効化条件に含める」)。
@@ -174,6 +188,28 @@ private fun SearchView(
                 },
             )
         }
+        // 選択モードの上部バーは一覧の最上部、検索欄・オートコンプリート候補の下に出す(設計§3.4)。
+        if (state.results.isNotEmpty()) {
+            if (state.selectionMode) {
+                val displayedCountForBar = SearchContentBuilder.cartAdditionCandidates(state.results, state.selectedCartTilcods).size
+                SelectionModeBar(
+                    selectedCount = displayedCountForBar,
+                    onClearSelection = onExitCartSelection,
+                )
+            } else {
+                // 「長押しで複数選択」の案内(設計§3.6)。選択モード中・一覧が空のときは出さない。
+                Text(
+                    text = "長押しで複数選択",
+                    color = colors.ink2,
+                    fontSize = 11.sp,
+                    modifier = Modifier
+                        .padding(horizontal = 18.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.chipBg)
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                )
+            }
+        }
         // BulkActionBarと一斉追加の結果・エラー表示は結果一覧の直上に置く(予約中一覧のBulkCancelBarと同じ配置方針)。
         if (state.results.isNotEmpty()) {
             // 件数規則の統一(設計追補§6.1)。バーの件数は全選択件数ではなく「表示中の選択」に揃える。
@@ -183,26 +219,31 @@ private fun SearchView(
             // 一斉直接予約(設計追補§5、機能F)。設計§5.3どおり同じバーに2ボタンを並べる
             // (主=予約する・件数付き、副=カートへ追加・件数なし)。赤(colors.alert)は一斉取消等の
             // 破壊的操作の色であり、資料を確保する予約操作には使わない(書誌詳細の前例に合わせ緑)。
-            BulkActionBar(
-                selectedCount = displayedCandidates.size,
-                actionLabel = "予約する",
-                enabled = state.canRequestBulkDirectReservation && !bookshelfEditingProcessing,
-                onClick = { onRequestBulkDirectReservation(displayedCandidates) },
-                containerColor = colors.green,
-                contentColor = colors.card,
-                overflowActions = listOf(
-                    BulkOverflowAction(
-                        label = "カートへ追加",
-                        enabled = state.canRequestBulkCartAddition && !bookshelfEditingProcessing,
-                        onClick = { onRequestBulkCartAddition(displayedCandidates) },
+            // 一斉操作バーは選択モードのときだけ出す(設計§3.5)。
+            if (state.selectionMode) {
+                BulkActionBar(
+                    selectedCount = displayedCandidates.size,
+                    actionLabel = "予約する",
+                    enabled = state.canRequestBulkDirectReservation && !bookshelfEditingProcessing,
+                    onClick = { onRequestBulkDirectReservation(displayedCandidates) },
+                    containerColor = colors.green,
+                    contentColor = colors.card,
+                    overflowActions = listOf(
+                        BulkOverflowAction(
+                            label = "カートへ追加",
+                            enabled = state.canRequestBulkCartAddition && !bookshelfEditingProcessing,
+                            onClick = { onRequestBulkCartAddition(displayedCandidates) },
+                        ),
+                        BulkOverflowAction(
+                            label = "本棚へ追加",
+                            enabled = !bulkActionsBlocked && displayedCandidates.isNotEmpty(),
+                            onClick = { onRequestBulkAddToBookshelf(displayedCandidates) },
+                        ),
                     ),
-                    BulkOverflowAction(
-                        label = "本棚へ追加",
-                        enabled = !bulkActionsBlocked && displayedCandidates.isNotEmpty(),
-                        onClick = { onRequestBulkAddToBookshelf(displayedCandidates) },
-                    ),
-                ),
-            )
+                )
+            }
+            // 一斉操作の結果・エラー表示は、選択モードでなくても出したままにする(処理の結果であり、
+            // 選択とは別である)。
             state.bulkCartAdditionErrorMessage?.let {
                 Text(
                     text = it,
@@ -272,10 +313,12 @@ private fun SearchView(
                 items(state.results) { row ->
                     ResultRowView(
                         row = row,
+                        selectionMode = state.selectionMode,
                         selected = row.tilcod in state.selectedCartTilcods,
                         selectionEnabled = !bulkActionsBlocked,
                         onClick = { onOpenDetail(row.tilcod, row.title) },
                         onToggleSelection = { onToggleCartSelection(row.tilcod) },
+                        onEnterSelectionMode = { onEnterCartSelection(row.tilcod) },
                     )
                 }
                 if (state.hasNext) {
@@ -365,17 +408,23 @@ private fun SuggestionList(suggestions: List<String>, onTap: (String) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ResultRowView(
     row: SearchResultRow,
+    /** 長押しによる選択モード(`docs/design/selection-mode.md` §3)。trueの間はタップが選択の切り替えになる。 */
+    selectionMode: Boolean,
     selected: Boolean,
     selectionEnabled: Boolean,
     onClick: () -> Unit,
     onToggleSelection: () -> Unit,
+    onEnterSelectionMode: () -> Unit,
 ) {
     val colors = LocalAppColors.current
     // 一斉カート追加(`docs/design/bulk-selection.md` §7.3)のチェックボックスは、行タップ領域(下段のRow)
     // とは別のRowに置く(予約中一覧のReservationRowViewと同じ流儀)。tilcodが空の行には出さない。
+    // 行の長押しを常に選択モードの受け口にするため、一覧の行はテキスト選択(コピー)を止める
+    // (設計§3.2 案A)。書誌名のコピーは書誌詳細のポップアップ側でSelectionContainerの内側のまま可能。
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -384,7 +433,8 @@ private fun ResultRowView(
             .background(colors.card)
             .border(1.dp, colors.line, RoundedCornerShape(12.dp)),
     ) {
-        if (row.tilcod.isNotBlank()) {
+        DisableSelection {
+        if (selectionMode && row.tilcod.isNotBlank()) {
             Row(modifier = Modifier.padding(start = 4.dp, top = 2.dp)) {
                 SelectionCheckbox(
                     checked = selected,
@@ -397,11 +447,23 @@ private fun ResultRowView(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
+                .combinedClickable(
+                    enabled = row.tilcod.isNotBlank() || !selectionMode,
+                    onClick = {
+                        if (selectionMode) {
+                            if (row.tilcod.isNotBlank() && selectionEnabled) onToggleSelection()
+                        } else {
+                            onClick()
+                        }
+                    },
+                    onLongClick = {
+                        if (!selectionMode && row.tilcod.isNotBlank() && selectionEnabled) onEnterSelectionMode()
+                    },
+                )
                 .padding(
                     start = 12.dp,
                     end = 12.dp,
-                    top = if (row.tilcod.isNotBlank()) 0.dp else 10.dp,
+                    top = if (selectionMode && row.tilcod.isNotBlank()) 0.dp else 10.dp,
                     bottom = 10.dp,
                 ),
             verticalAlignment = Alignment.CenterVertically,
@@ -433,6 +495,7 @@ private fun ResultRowView(
             }
             Text("›", color = colors.green, fontSize = 16.sp)
         }
+        } // DisableSelection
     }
 }
 

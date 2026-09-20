@@ -64,16 +64,132 @@ class SearchScreenControllerTest {
     )
 
     @Test
-    fun `選択の切り替えでtilcodが追加削除される`() = runTest {
+    fun `選択モード中のtoggleCartSelectionでtilcodが追加削除される`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
-        val controller = controller(FakeSearchRepository(), FakeCartRepository(), dispatcher)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
         advanceUntilIdle()
-
-        controller.toggleCartSelection("100")
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+        assertTrue(controller.state.value.selectionMode)
         assertTrue("100" in controller.state.value.selectedCartTilcods)
 
         controller.toggleCartSelection("100")
         assertFalse("100" in controller.state.value.selectedCartTilcods)
+        // 0件になっても選択モードは続く(design §2-5)。
+        assertTrue(controller.state.value.selectionMode)
+
+        controller.toggleCartSelection("100")
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+        controller.close()
+    }
+
+    @Test
+    fun `選択モード中でないtoggleCartSelectionは働かない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+
+        controller.toggleCartSelection("100")
+
+        assertFalse("100" in controller.state.value.selectedCartTilcods)
+        assertFalse(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
+    fun `長押しで選択モードに入りその行が選択される`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+
+        controller.enterSelectionMode("100")
+
+        assertTrue(controller.state.value.selectionMode)
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+        controller.close()
+    }
+
+    @Test
+    fun `一覧に無いtilcodでは選択モードに入らない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+
+        controller.enterSelectionMode("999")
+
+        assertFalse(controller.state.value.selectionMode)
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `資料番号が空の行では選択モードに入らない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("", "資料A", "著者A", "図書")))
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+
+        controller.enterSelectionMode("")
+
+        assertFalse(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
+    fun `exitSelectionModeで選択が空になり選択モードから抜ける`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+
+        controller.exitSelectionMode()
+
+        assertFalse(controller.state.value.selectionMode)
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `処理中はenterSelectionModeもtoggleCartSelectionも受け付けない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(
+            hits = listOf(SearchHit("100", "資料A", "著者A", "図書"), SearchHit("101", "資料B", "著者B", "図書")),
+        )
+        val cartRepository = FakeCartRepository()
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+        controller.requestBulkCartAddition(controllerCartAdditionCandidates(controller))
+        controller.selectBulkCartAdditionMember(father.id)
+        controller.confirmBulkCartAddition()
+        // scope.launch本体がまだ進んでいない(processing=trueになった直後)を模す。
+        assertTrue(controller.state.value.anyBulkActionProcessing)
+
+        // 処理中は選択モードへの新規参加(enterSelectionMode)も選択の切り替え(toggleCartSelection)も働かない。
+        controller.enterSelectionMode("101")
+        assertFalse("101" in controller.state.value.selectedCartTilcods)
+        controller.toggleCartSelection("100")
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+
+        advanceUntilIdle()
         controller.close()
     }
 
@@ -114,7 +230,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         // Screen側の組み立て(SearchContentBuilder.cartAdditionCandidates)と同じ経路を使う。
         val candidates = controllerCartAdditionCandidates(controller)
@@ -127,8 +243,69 @@ class SearchScreenControllerTest {
         assertEquals(father.id, cartRepository.receivedTargets.single().memberId)
         assertEquals("100", cartRepository.receivedTargets.single().tilcod)
         assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        // 一斉カート追加の完了(成功)で選択モードから抜ける(design §3.8-3)。
+        assertFalse(controller.state.value.selectionMode)
         assertNull(controller.state.value.bulkCartAdditionConfirmation)
         assertEquals("1件をカートへ追加しました", controller.state.value.bulkCartAdditionResultMessage)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉カート追加が0件追加0件スキップでも完了として選択モードから抜ける`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FakeCartRepository(summary = ReservationCartAddSummary(added = 0, skipped = 1))
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+        controller.requestBulkCartAddition(controllerCartAdditionCandidates(controller))
+        controller.selectBulkCartAdditionMember(father.id)
+        controller.confirmBulkCartAddition()
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉カート追加が通信例外で終わったときは選択状態と選択モードに触れない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FailingCartRepository()
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+        controller.requestBulkCartAddition(controllerCartAdditionCandidates(controller))
+        controller.selectBulkCartAdditionMember(father.id)
+        controller.confirmBulkCartAddition()
+        advanceUntilIdle()
+
+        assertEquals(setOf("100"), controller.state.value.selectedCartTilcods)
+        assertTrue(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉直接予約が通信例外で終わったときは選択状態と選択モードに触れない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val cartRepository = FailingReserveNowCartRepository()
+        val controller = controller(searchRepository, cartRepository, dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+        controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
+        controller.selectBulkDirectReservationMember(father.id)
+        controller.confirmBulkDirectReservation()
+        advanceUntilIdle()
+
+        assertEquals(setOf("100"), controller.state.value.selectedCartTilcods)
+        assertTrue(controller.state.value.selectionMode)
         controller.close()
     }
 
@@ -145,7 +322,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.toggleCartSelection("101")
         val candidates = controllerCartAdditionCandidates(controller)
         controller.requestBulkCartAddition(candidates)
@@ -197,7 +374,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         controller.search("キーワード2")
         advanceUntilIdle()
@@ -215,7 +392,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         controller.search("キーワード2")
         advanceUntilIdle()
@@ -235,7 +412,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.search("キーワード2")
         advanceUntilIdle()
 
@@ -256,7 +433,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.search("キーワード2")
         advanceUntilIdle()
 
@@ -283,7 +460,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.search("キーワード2")
         advanceUntilIdle()
 
@@ -310,7 +487,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
 
@@ -327,7 +504,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
         controller.confirmBulkDirectReservation()
@@ -352,7 +529,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
         controller.selectBulkDirectReservationMember(father.id)
@@ -373,7 +550,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
         controller.selectBulkDirectReservationMember(father.id)
@@ -386,6 +563,8 @@ class SearchScreenControllerTest {
         assertEquals("100", cartRepository.receivedReserveNowTargets.single().tilcod)
         assertEquals("B", cartRepository.receivedReserveNowConfirmation?.pickupLibraryCode)
         assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        // 一斉直接予約の完了で選択モードから抜ける(design §3.8-3)。
+        assertFalse(controller.state.value.selectionMode)
         assertNull(controller.state.value.bulkDirectReservationConfirmation)
         assertEquals(1, controller.state.value.bulkDirectReservationResults.size)
         controller.close()
@@ -402,7 +581,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.toggleCartSelection("101")
         controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
         controller.selectBulkDirectReservationMember(father.id)
@@ -428,7 +607,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
 
         controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
         controller.selectBulkDirectReservationMember(father.id)
@@ -452,7 +631,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.requestBulkCartAddition(controllerCartAdditionCandidates(controller))
         controller.selectBulkCartAdditionMember(father.id)
         controller.confirmBulkCartAddition()
@@ -478,7 +657,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.requestBulkCartAddition(controllerCartAdditionCandidates(controller))
         controller.selectBulkCartAdditionMember(father.id)
         controller.confirmBulkCartAddition()
@@ -505,13 +684,15 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         assertTrue("100" in controller.state.value.selectedCartTilcods)
 
         controller.search("キーワード2")
         advanceUntilIdle()
 
         assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        // 新しいキーワードでの検索は選択モードから抜ける(design §3.8「新しい検索」)。
+        assertFalse(controller.state.value.selectionMode)
         controller.close()
     }
 
@@ -524,7 +705,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
         controller.selectBulkDirectReservationMember(father.id)
         controller.confirmBulkDirectReservation()
@@ -547,7 +728,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.requestBulkCartAddition(controllerCartAdditionCandidates(controller))
         controller.selectBulkCartAdditionMember(father.id)
         controller.confirmBulkCartAddition()
@@ -567,6 +748,23 @@ class SearchScreenControllerTest {
     }
 
     @Test
+    fun `resetOnLeaveで選択モードから抜ける(design §3,8-4)`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
+        val controller = controller(searchRepository, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("キーワード")
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+        assertTrue(controller.state.value.selectionMode)
+
+        controller.resetOnLeave()
+
+        assertFalse(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
     fun `resetOnLeaveでbulkDirectReservationResultsとErrorMessageは残る(design §3,1)`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val searchRepository = FakeSearchRepository(hits = listOf(SearchHit("100", "資料A", "著者A", "図書")))
@@ -575,7 +773,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
         controller.selectBulkDirectReservationMember(father.id)
         controller.confirmBulkDirectReservation()
@@ -599,7 +797,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
         controller.selectBulkDirectReservationMember(father.id)
         controller.confirmBulkDirectReservation()
@@ -622,7 +820,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
         controller.selectBulkDirectReservationMember(father.id)
         controller.confirmBulkDirectReservation()
@@ -717,7 +915,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.requestBulkCartAddition(controllerCartAdditionCandidates(controller))
         controller.selectBulkCartAdditionMember(father.id)
 
@@ -740,7 +938,7 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
         controller.search("キーワード")
         advanceUntilIdle()
-        controller.toggleCartSelection("100")
+        controller.enterSelectionMode("100")
         controller.requestBulkDirectReservation(controllerCartAdditionCandidates(controller))
         controller.selectBulkDirectReservationMember(father.id)
 
