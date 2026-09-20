@@ -95,33 +95,164 @@ class ReservationCancelUiControllerTest {
     }
 
     @Test
-    fun `選択の切り替えでキーが追加削除される`() = runTest {
+    fun `選択モード中のtoggleSelectionでキーが追加削除される`() = runTest {
         val repo = FakeCancelRepository()
         val controller = controller(repo, StandardTestDispatcher(testScheduler))
         advanceUntilIdle()
         val key = ReservationCancelKey(father.id, "100", "c1")
-
-        controller.toggleSelection(key)
-        assertTrue(key in controller.state.value.selectedKeys)
+        controller.enterSelectionMode(key, cancellable = true)
+        assertTrue(controller.state.value.selectionMode)
 
         controller.toggleSelection(key)
         assertFalse(key in controller.state.value.selectedKeys)
+
+        controller.toggleSelection(key)
+        assertTrue(key in controller.state.value.selectedKeys)
+        // 0件になっても選択モードは続く(設計§2-5)。
+        controller.toggleSelection(key)
+        assertTrue(controller.state.value.selectedKeys.isEmpty())
+        assertTrue(controller.state.value.selectionMode)
         controller.close()
     }
 
     @Test
-    fun `確定後は選択状態をクリアする`() = runTest {
+    fun `選択モード中でないtoggleSelectionは働かない`() = runTest {
         val repo = FakeCancelRepository()
         val controller = controller(repo, StandardTestDispatcher(testScheduler))
         advanceUntilIdle()
         val key = ReservationCancelKey(father.id, "100", "c1")
+
         controller.toggleSelection(key)
+
+        assertFalse(key in controller.state.value.selectedKeys)
+        assertFalse(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
+    fun `長押しで選択モードに入りその行が選択される`() = runTest {
+        val repo = FakeCancelRepository()
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key = ReservationCancelKey(father.id, "100", "c1")
+
+        controller.enterSelectionMode(key, cancellable = true)
+
+        assertTrue(controller.state.value.selectionMode)
+        assertTrue(key in controller.state.value.selectedKeys)
+        controller.close()
+    }
+
+    @Test
+    fun `取消できない行では選択モードに入らない`() = runTest {
+        val repo = FakeCancelRepository()
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key = ReservationCancelKey(father.id, "100", "")
+
+        controller.enterSelectionMode(key, cancellable = false)
+
+        assertFalse(controller.state.value.selectionMode)
+        assertTrue(controller.state.value.selectedKeys.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `処理中はenterSelectionModeもtoggleSelectionも受け付けない`() = runTest {
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val repo = FakeCancelRepository(onCall = { started.complete(Unit); release.await() })
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key = ReservationCancelKey(father.id, "100", "c1")
+        controller.enterSelectionMode(key, cancellable = true)
+
+        controller.requestSingleCancelConfirmation(candidate(father.id, "101", "c2", "資料B"))
+        controller.confirmPending()
+        runCurrent()
+        started.await()
+        assertTrue(controller.state.value.processing)
+
+        // 処理中は選択モードへの新規参加(enterSelectionMode)も選択の切り替え(toggleSelection)も働かない。
+        val otherKey = ReservationCancelKey(father.id, "102", "c3")
+        controller.enterSelectionMode(otherKey, cancellable = true)
+        assertFalse(otherKey in controller.state.value.selectedKeys)
+        controller.toggleSelection(key)
+        assertTrue(key in controller.state.value.selectedKeys)
+
+        release.complete(Unit)
+        advanceUntilIdle()
+        controller.close()
+    }
+
+    @Test
+    fun `exitSelectionModeで選択が空になり選択モードから抜ける`() = runTest {
+        val repo = FakeCancelRepository()
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key = ReservationCancelKey(father.id, "100", "c1")
+        controller.enterSelectionMode(key, cancellable = true)
+
+        controller.exitSelectionMode()
+
+        assertFalse(controller.state.value.selectionMode)
+        assertTrue(controller.state.value.selectedKeys.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `一斉取消の完了(成功)で選択状態と選択モードから抜ける`() = runTest {
+        val repo = FakeCancelRepository()
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key = ReservationCancelKey(father.id, "100", "c1")
+        controller.enterSelectionMode(key, cancellable = true)
 
         controller.requestBulkCancelConfirmation(listOf(candidate(father.id, "100", "c1", "資料A")))
         controller.confirmPending()
         advanceUntilIdle()
 
         assertTrue(controller.state.value.selectedKeys.isEmpty())
+        assertFalse(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉取消の完了(通信失敗)でも選択状態と選択モードから抜ける`() = runTest {
+        val repo = FakeCancelRepository(throwOnCall = true)
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key = ReservationCancelKey(father.id, "100", "c1")
+        controller.enterSelectionMode(key, cancellable = true)
+
+        controller.requestBulkCancelConfirmation(listOf(candidate(father.id, "100", "c1", "資料A")))
+        controller.confirmPending()
+        advanceUntilIdle()
+
+        assertTrue(controller.state.value.selectedKeys.isEmpty())
+        assertFalse(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
+    fun `単独取消の完了では選択モードと選択が変わらない`() = runTest {
+        val repo = FakeCancelRepository()
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key = ReservationCancelKey(father.id, "100", "c1")
+        val otherKey = ReservationCancelKey(father.id, "101", "c2")
+        controller.enterSelectionMode(key, cancellable = true)
+        controller.toggleSelection(otherKey)
+        assertEquals(setOf(key, otherKey), controller.state.value.selectedKeys)
+
+        // 経路1: 選択モード外の単独取消(行内の取消ボタンは選択モード中は出ないため、単独取消は
+        // 選択モードでない状態から呼ばれる。それでも「選択・選択モードに触れない」ことを確認する)。
+        controller.requestSingleCancelConfirmation(candidate(father.id, "999", "c9", "資料Z"))
+        controller.confirmPending()
+        advanceUntilIdle()
+
+        assertEquals(setOf(key, otherKey), controller.state.value.selectedKeys)
+        assertTrue(controller.state.value.selectionMode)
         controller.close()
     }
 
@@ -309,10 +440,13 @@ class ReservationCancelUiControllerTest {
         private val cancelOnCall: Boolean = false,
         private val throwOnCall: Boolean = false,
         private val operationGate: ReservationOperationGate? = null,
+        /** 処理中の受付拒否を検証するテスト用フック(`LoanExtensionUiControllerTest`のFakeExtensionRepositoryと同じ流儀)。 */
+        private val onCall: (suspend () -> Unit)? = null,
     ) : ReservationCancelRepository {
         var calls = 0
         override suspend fun cancelReservations(targets: List<ReservationCancelTarget>): ReservationCancelBatchResult {
             calls++
+            onCall?.invoke()
             operationGate?.let { gate ->
                 return gate.withOperation(ReservationOperationType.MANUAL_CANCELLATION) { result }
             }

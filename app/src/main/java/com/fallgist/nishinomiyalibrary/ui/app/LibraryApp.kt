@@ -154,6 +154,10 @@ fun LibraryApp(
         if (current == Destination.LOANS && dest != Destination.LOANS) {
             loanExtensionUiController.exitSelectionMode()
         }
+        // 予約中から他画面へ移ったら選択モードから抜ける(同上、段階2)。
+        if (current == Destination.RESERVATIONS && dest != Destination.RESERVATIONS) {
+            reservationCancelUiController.exitSelectionMode()
+        }
         currentName = dest.name
     }
     // 診断ログ閲覧は設定画面からだけ開ける、書誌詳細と同様の全画面オーバーレイとして扱う(ドロワー/下部ナビには出さない)。
@@ -397,6 +401,8 @@ fun LibraryApp(
                                     )
                                 },
                                 onToggleSelection = reservationCancelUiController::toggleSelection,
+                                onEnterSelection = reservationCancelUiController::enterSelectionMode,
+                                onExitSelection = reservationCancelUiController::exitSelectionMode,
                                 onRequestSingleCancel = reservationCancelUiController::requestSingleCancelConfirmation,
                                 onRequestBulkCancel = reservationCancelUiController::requestBulkCancelConfirmation,
                                 // 経路3から開始した確認の確定操作も同じダイアログ・同じ関数を通る(第1段階の使い回し)。

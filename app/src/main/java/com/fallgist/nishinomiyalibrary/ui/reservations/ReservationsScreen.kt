@@ -1,8 +1,11 @@
 package com.fallgist.nishinomiyalibrary.ui.reservations
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -44,10 +48,11 @@ import com.fallgist.nishinomiyalibrary.ui.components.MemberDotIndent
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
+import com.fallgist.nishinomiyalibrary.ui.components.SelectionModeBar
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ReservationsScreen(
     state: ReservationsUiState,
@@ -60,6 +65,8 @@ fun ReservationsScreen(
     // 他画面(検索結果・新着等)のonOpenDetailは2引数のままにして依存させない(第3引数はここだけ)。
     onOpenDetail: (tilcod: String, title: String, cancelTarget: BookDetailCancelTarget?) -> Unit,
     onToggleSelection: (ReservationCancelKey) -> Unit,
+    onEnterSelection: (ReservationCancelKey, cancellable: Boolean) -> Unit,
+    onExitSelection: () -> Unit,
     onRequestSingleCancel: (ReservationCancelCandidate) -> Unit,
     onRequestBulkCancel: (List<ReservationCancelCandidate>) -> Unit,
     onConfirmCancel: () -> Unit,
@@ -68,9 +75,18 @@ fun ReservationsScreen(
     onClearCancelError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 選択モード中の戻るキーは選択モードから抜けるだけにする(§3.8-2)。それ以外は既存の戻る動作を妨げない。
+    BackHandler(enabled = cancelState.selectionMode, onBack = onExitSelection)
     val colors = LocalAppColors.current
     Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar(title = "予約中", onOpenMenu = onOpenMenu)
+        // 選択モードの上部バーは一覧の最上部、メンバー絞り込みチップの上に出す(設計§3.4)。
+        if (cancelState.selectionMode) {
+            SelectionModeBar(
+                selectedCount = cancelState.selectedKeys.size,
+                onClearSelection = onExitSelection,
+            )
+        }
         MemberFilterRow(
             members = state.members,
             selectedMemberId = state.selectedMemberId,
@@ -78,18 +94,34 @@ fun ReservationsScreen(
             countByMemberId = state.countByMemberId,
             totalCount = state.totalCount,
         )
+        // 「長押しで複数選択」の案内(設計§3.6)。選択モード中・一覧が空のときは出さない。
+        if (!cancelState.selectionMode && state.rows.isNotEmpty()) {
+            Text(
+                text = "長押しで複数選択",
+                color = colors.ink2,
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .padding(horizontal = 18.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.chipBg)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            )
+        }
         // BulkCancelBarと取消エラー表示はプル領域の外に置く(絞り込み行の直下)。
         // 空のときに出さない条件は元のrows.isEmpty()分岐のまま維持する。
         if (state.rows.isNotEmpty()) {
-            BulkActionBar(
-                selectedCount = cancelState.selectedKeys.size,
-                actionLabel = "一斉取消",
-                enabled = cancelState.canCancelSelection,
-                onClick = {
-                    val candidates = ReservationsContentBuilder.cancelCandidates(state.rows, cancelState.selectedKeys)
-                    onRequestBulkCancel(candidates)
-                },
-            )
+            // 一斉取消のバーは選択モードのときだけ出す(設計§3.5)。
+            if (cancelState.selectionMode) {
+                BulkActionBar(
+                    selectedCount = cancelState.selectedKeys.size,
+                    actionLabel = "一斉取消",
+                    enabled = cancelState.canCancelSelection,
+                    onClick = {
+                        val candidates = ReservationsContentBuilder.cancelCandidates(state.rows, cancelState.selectedKeys)
+                        onRequestBulkCancel(candidates)
+                    },
+                )
+            }
             cancelState.errorMessage?.let {
                 Text(
                     text = it,
@@ -129,12 +161,14 @@ fun ReservationsScreen(
                     items(state.rows) { row ->
                         ReservationRowView(
                             row = row,
+                            selectionMode = cancelState.selectionMode,
                             selected = row.cancellable && row.cancelKey in cancelState.selectedKeys,
                             selectionEnabled = !cancelState.processing,
                             onClick = {
                                 onOpenDetail(row.tilcod, row.title, ReservationsContentBuilder.cancelTargetForDetail(row))
                             },
                             onToggleSelection = { onToggleSelection(row.cancelKey) },
+                            onEnterSelectionMode = { onEnterSelection(row.cancelKey, row.cancellable) },
                             onRequestCancel = {
                                 onRequestSingleCancel(
                                     ReservationCancelCandidate(
@@ -162,20 +196,20 @@ fun ReservationsScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ReservationRowView(
     row: ReservationRow,
+    /** 長押しによる選択モード(`docs/design/selection-mode.md` §3)。trueの間はタップが選択の切り替えになる。 */
+    selectionMode: Boolean,
     selected: Boolean,
     selectionEnabled: Boolean,
     onClick: () -> Unit,
     onToggleSelection: () -> Unit,
+    onEnterSelectionMode: () -> Unit,
     onRequestCancel: () -> Unit,
 ) {
     val colors = LocalAppColors.current
-    // レイアウト追い込み第2次(2026-08-05)項目7: 全行で確保していたチェックボックス幅(52dp)を廃止し、
-    // 内容を左詰めにする。チェックボックスは1行目(ステータスラベルの行)へ移し、行タップ(2行目以降の
-    // clickable Column)とは別のRowに置くことでタップ領域を分離する
-    // (docs/ui-design.md「選択用チェックボックスは常時表示する」を維持)。
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -188,20 +222,16 @@ private fun ReservationRowView(
                 RoundedCornerShape(14.dp),
             ),
     ) {
-        // 1行目: ステータスラベル。取消可能な行だけチェックボックスを添える(幅も確保しない)。
-        // このRowはクリック不可(行タップ領域の外)。チェックボックスは独立したタップ領域を持つ。
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    start = if (row.cancellable) 4.dp else 14.dp,
-                    end = 14.dp,
-                    top = if (row.cancellable) 2.dp else 10.dp,
-                    bottom = 4.dp,
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (row.cancellable) {
+        // 行の長押しを常に選択モードの受け口にするため、一覧の行はテキスト選択(コピー)を止める
+        // (設計§3.2 案A)。書誌名のコピーは書誌詳細のポップアップ側でSelectionContainerの内側のまま可能。
+        DisableSelection {
+        // 一斉取消のチェックボックスは、選択モードのときだけ、行タップ領域(下のColumn)とは別のRowに
+        // 置く(貸出中一覧のLoanRowViewと同じ流儀)。取消可能な行にだけ出す。
+        if (selectionMode && row.cancellable) {
+            Row(
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 SelectionCheckbox(
                     checked = selected,
                     enabled = selectionEnabled,
@@ -209,19 +239,24 @@ private fun ReservationRowView(
                     checkedColor = colors.alert,
                 )
             }
-            Text(
-                text = row.statusLabel,
-                color = if (row.isReady) colors.greenInk else colors.ink2,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-            )
         }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // 行タップは書誌詳細への遷移。チェックボックスの行(上記Row)とは別のRowなので領域が競合しない。
-                .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
-                .padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+                .combinedClickable(
+                    enabled = row.tilcod.isNotBlank() || (selectionMode && row.cancellable),
+                    onClick = {
+                        if (selectionMode) {
+                            if (row.cancellable && selectionEnabled) onToggleSelection()
+                        } else {
+                            onClick()
+                        }
+                    },
+                    onLongClick = {
+                        if (!selectionMode && row.cancellable && selectionEnabled) onEnterSelectionMode()
+                    },
+                )
+                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 12.dp),
         ) {
             // ドットは書誌名の左に置く(2026-08-05・個別行にメンバー名は出さない。絞り込み行の再掲を避ける)。
             // レイアウト追い込み第3次(2026-08-06)項目10: ドットは書誌名と同じRow(CenterVertically)に
@@ -282,12 +317,25 @@ private fun ReservationRowView(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    // 状態表示の移動(設計§3.7)。チェックボックスが常時出ないため、書誌名の下の行
+                    // (受取館・予約順位・取置期限と同じ行)の末尾へ移す。体裁(11sp・Bold)・isReadyのときの
+                    // 色(greenInk)は変えない。取消できない行(提供可能・移送中等)にも従来どおり出す
+                    // (設計§3.7、選択の可否と状態表示の有無は別)。
+                    Text(
+                        text = row.statusLabel,
+                        color = if (row.isReady) colors.greenInk else colors.ink2,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
                 // 取消ボタンは取消可能な行(cancelCodeが非空)だけに出す。無効化ではなく非表示にする。
                 // 書誌詳細の「この予約を取り消す」ボタン(BookDetailView)と同じ色・流儀を踏襲。
                 // 「受取館/順位」行の右端に収めるため、Material3のButton既定(高さ40dp)より
                 // heightとcontentPaddingを詰めて行の高さ増加を抑える(タップ領域は32dpを確保し押しやすさは維持)。
-                if (row.cancellable) {
+                // 行内の単独操作ボタンは選択モードの間は出さない(設計§3.5.1)。選択モード中はタイルの
+                // タップが選択の切り替えであり、単独取消ボタンを残すと誤タップで単独取消が走り、
+                // 選択モード中の選択を壊してしまう(貸出中一覧のLoanRowViewと同じ対応)。
+                if (row.cancellable && !selectionMode) {
                     Spacer(Modifier.width(8.dp))
                     Button(
                         onClick = onRequestCancel,
@@ -298,6 +346,7 @@ private fun ReservationRowView(
                 }
             }
         }
+        } // DisableSelection
     }
 }
 

@@ -76,6 +76,12 @@ data class ReservationCancelUiState(
     val initialized: Boolean = false,
     val members: List<Member> = emptyList(),
     val selectedKeys: Set<ReservationCancelKey> = emptySet(),
+    /**
+     * 長押しによる選択モード(`docs/design/selection-mode.md` §3)。選択0件になっても自動では
+     * falseに戻らない(§2-5)。選択集合と同じControllerに置く(§3.1、lost updateを避けるため。
+     * 貸出中のLoanExtensionUiControllerと同じ流儀)。
+     */
+    val selectionMode: Boolean = false,
     val pendingConfirmation: ReservationCancelConfirmationRequest? = null,
     val processing: Boolean = false,
     val waitingForAutomaticReservation: Boolean = false,
@@ -121,13 +127,32 @@ class ReservationCancelUiController(
         }
     }
 
-    /** チェックボックスのタップ。行タップ(書誌詳細を開く。経路3は第2段階)とはタップ領域を分けている。 */
+    /**
+     * チェックボックスのタップ。行タップ(書誌詳細を開く。経路3は第2段階)とはタップ領域を分けている。
+     * 選択モード中(`docs/design/selection-mode.md` §3.3)だけ働く。選択が0件になっても選択モードは
+     * 続ける(§2-5)。
+     */
     fun toggleSelection(key: ReservationCancelKey) {
-        if (state.value.processing) return
-        val current = state.value.selectedKeys
-        _state.value = state.value.copy(
-            selectedKeys = if (key in current) current - key else current + key,
-        )
+        if (state.value.processing || !state.value.selectionMode) return
+        _state.update { current ->
+            current.copy(selectedKeys = if (key in current.selectedKeys) current.selectedKeys - key else current.selectedKeys + key)
+        }
+    }
+
+    /**
+     * 書誌タイルの長押し(`docs/design/selection-mode.md` §3.3)。選択モードに入り、その行を選択する。
+     * [cancellable]はScreen側が現在の一覧(`ReservationRow.cancellable`)から渡す。長押しの受け口自体は
+     * Screen側で取消可能な行にだけ配線する想定だが、呼び出し側がそれを保証できない場合に備え、
+     * ここでも同じ条件を確認する(貸出中のLoanExtensionUiController.enterSelectionModeと同じ流儀)。
+     */
+    fun enterSelectionMode(key: ReservationCancelKey, cancellable: Boolean) {
+        if (state.value.processing || !cancellable) return
+        _state.update { it.copy(selectionMode = true, selectedKeys = it.selectedKeys + key) }
+    }
+
+    /** 「選択解除」・戻るキー・他画面への遷移で選択モードから抜ける(§3.8)。選択も空にする。 */
+    fun exitSelectionMode() {
+        _state.update { it.copy(selectionMode = false, selectedKeys = emptySet()) }
     }
 
     /** 経路1: 行の「取消」ボタン。 */
@@ -159,25 +184,31 @@ class ReservationCancelUiController(
             is ReservationCancelConfirmationRequest.Bulk -> ReservationCancelResultOrigin.BULK
         }
         updateProcessing(true)
-        _state.value = state.value.copy(pendingConfirmation = null)
+        _state.update { it.copy(pendingConfirmation = null) }
         scope.launch {
             try {
                 val titleByTarget = request.candidates.associate { it.target to it.title }
                 val batchResult = cancelRepository.cancelReservations(request.candidates.map { it.target })
-                _state.value = _state.value.copy(
-                    // 取消成立行はローカルDBから即時削除され一覧から消えるため、選択状態を引きずらない。
-                    selectedKeys = emptySet(),
-                    resultOrigin = origin,
-                    results = ReservationCancelContentBuilder.resultRows(batchResult, titleByTarget),
-                )
+                _state.update { current ->
+                    current.copy(
+                        // 取消成立行はローカルDBから即時削除され一覧から消えるため、一斉取消では選択状態を
+                        // 引きずらない。一斉取消の完了(成功・失敗のどちらでも)で選択モードからも抜ける
+                        // (§3.8-3)。単独取消の完了は選択・選択モードに触れない(設計§3.5.1、行内の単独取消
+                        // 導線は選択モードの間は出さないため、選択モード中に単独取消が起きることはない)。
+                        selectedKeys = if (origin == ReservationCancelResultOrigin.BULK) emptySet() else current.selectedKeys,
+                        selectionMode = if (origin == ReservationCancelResultOrigin.BULK) false else current.selectionMode,
+                        resultOrigin = origin,
+                        results = ReservationCancelContentBuilder.resultRows(batchResult, titleByTarget),
+                    )
+                }
                 updateProcessing(false)
             } catch (exception: CancellationException) {
                 updateProcessing(false)
                 throw exception
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    errorMessage = "取消処理を完了できませんでした。通信状態を確認して、残っている項目を再度お試しください。",
-                )
+                _state.update {
+                    it.copy(errorMessage = "取消処理を完了できませんでした。通信状態を確認して、残っている項目を再度お試しください。")
+                }
                 updateProcessing(false)
             }
         }
