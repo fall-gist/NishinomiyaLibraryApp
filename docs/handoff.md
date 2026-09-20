@@ -2999,3 +2999,28 @@ FROM-CACHEの接尾辞が無いことで確認)され`BUILD SUCCESSFUL`。
    画面の移動を許す（ただし同種の操作は禁止のまま）。本棚追加だけでなく、待ち時間が発生する操作全般が対象。
    まず対象の操作を洗い出すこと（一斉本棚追加・一斉カート追加・一斉直接予約・一斉延長・一斉取消・
    カート確定・手動同期など）
+
+## 長押しによる選択モード 段階1（貸出中）完了（2026-09-20）
+
+設計書: `docs/design/selection-mode.md`。モック: `docs/mockups/selection-mode.html`
+
+- コミット: `19e13ef`・`5951eff`・`c29b92d`（設計）、`47df534`（実装）、`05e30c1`（レビュー指摘対応）
+- CI: run 35510674098（`05e30c1`）success
+- `SelectionModeBar` を `ui/components/SelectionUi.kt` に追加（「N件を選択中」＋「選択解除」。
+  「すべて選択」は置かない）
+- `LoanExtensionUiController` に `selectionMode`・`enterSelectionMode(key, canExtend)`・
+  `exitSelectionMode()` を追加。`toggleSelection` は選択モード中だけ働く
+- `LoansScreen`: チェックボックスは選択モード中のみ。行に `combinedClickable`。行を `DisableSelection` で
+  包み、一覧のテキスト選択を止めた（設計§3.2 案A、所有者了承済み）。「延長可能」を書誌名の下へ移動。
+  「長押しで複数選択」の案内、`BackHandler`
+- レビュー指摘（主担当・独立レビューの双方）: 選択モード中も行内の「延長」ボタンが押せ、押すと選択が
+  全部消えた → ボタンを選択モード中は出さないようにし、単独延長の完了は選択モードに触れないよう戻した。
+  設計書に §3.5.1 を追記した
+- 未検証: 実機確認（設計書 §6 の11項目）。特に長押しの感度とレイアウトの崩れ
+
+### 次にやること
+
+- 段階2: 予約中画面への適用（`statusLabel` の移動を含む）
+- 段階3: 蔵書検索・新着資料への適用
+- 読書記録の検索をAND検索にする（設計済み: `docs/design/reading-records-search.md`、実装待ち）
+- 読書記録の複数選択、待ち時間の帯表示（どちらも設計前）
