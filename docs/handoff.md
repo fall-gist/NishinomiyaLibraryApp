@@ -3057,3 +3057,27 @@ FROM-CACHEの接尾辞が無いことで確認)され`BUILD SUCCESSFUL`。
 3. 読書記録の複数選択（設計前。一括操作はカート追加・直接予約・本棚追加。選択モード方式で作る。
    `ReadingRecordsScreenController` の `_state.value = newState` は、書き手が増えるため `update {}` 化すること）
 4. 待ち時間の帯表示（設計前。所有者の確定事項は「画面の下に出す」）
+
+## 読書記録の検索を単語AND検索にする 完了（2026-09-20）
+
+設計書: `docs/design/reading-records-search.md`
+
+- コミット: `779f6fb`（設計の追記）、`afeaf72`（実装）、`b2c9b06`（レビュー指摘対応）
+- CI: run 35514236463（`b2c9b06`）success
+- **所有者の見立ての訂正**: 従来も完全一致ではなく部分一致だった。正規化が空白をすべて削除するため、
+  複数語が1つの連続した文字列として照合されていた
+- `KeywordQuery`（`Models.kt`）を追加。入力をNFKC正規化してから空白で分割し、語ごとに正規化して
+  すべてを含むものを残す（AND）。タブ・改行・全角空白・ノーブレークスペースも区切りとして扱う
+- `ReadingRecordRepositoryImpl.search` はメモリ上の絞り込みへ変更。並び順とメンバー絞り込みは従来どおり
+- `ReadingRecordDao.search` は残した。`titleNormalized` 列の担保として `LocalDataTest` から使う
+- 未検証: 実機確認（設計書 §5 の6項目）
+
+## 読書記録画面の複数選択（設計完了・実装待ち、2026-09-20）
+
+設計書: `docs/design/reading-records-selection.md`（コミットは下記の記録コミット）
+
+- 一括操作はカート追加・直接予約・本棚追加の3つ。方式は長押しによる選択モード（他画面と同じ）
+- **選択キーは資料番号**。同じ資料の行は連動して選択され、件数も資料の数で数える
+  （読書記録は同じ資料が複数行に現れるため）
+- `ReadingRecordsScreenController` の `_state.value = newState`（全置換）を `update {}` の差し込みへ
+  直す必要がある。直さないと、絞り込みの更新で選択が消える
