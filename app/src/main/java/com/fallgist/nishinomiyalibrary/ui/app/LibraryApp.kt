@@ -150,6 +150,10 @@ fun LibraryApp(
         if (current == Destination.NEW_ARRIVALS && dest != Destination.NEW_ARRIVALS) {
             newArrivalsController.resetOnLeave()
         }
+        // 貸出中から他画面へ移ったら選択モードから抜ける(`docs/design/selection-mode.md` §3.8-4)。
+        if (current == Destination.LOANS && dest != Destination.LOANS) {
+            loanExtensionUiController.exitSelectionMode()
+        }
         currentName = dest.name
     }
     // 診断ログ閲覧は設定画面からだけ開ける、書誌詳細と同様の全画面オーバーレイとして扱う(ドロワー/下部ナビには出さない)。
@@ -359,6 +363,8 @@ fun LibraryApp(
                                     )
                                 },
                                 onToggleExtendSelection = loanExtensionUiController::toggleSelection,
+                                onEnterExtendSelection = loanExtensionUiController::enterSelectionMode,
+                                onExitExtendSelection = loanExtensionUiController::exitSelectionMode,
                                 onRequestExtend = loanExtensionUiController::requestConfirmation,
                                 onRequestBulkExtend = loanExtensionUiController::requestBulkConfirmation,
                                 onConfirmExtend = loanExtensionUiController::confirmPending,

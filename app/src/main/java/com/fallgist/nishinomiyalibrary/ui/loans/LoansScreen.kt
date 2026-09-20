@@ -1,8 +1,11 @@
 package com.fallgist.nishinomiyalibrary.ui.loans
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -49,10 +53,11 @@ import com.fallgist.nishinomiyalibrary.ui.components.MemberDotIndent
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
+import com.fallgist.nishinomiyalibrary.ui.components.SelectionModeBar
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import java.time.LocalDate
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun LoansScreen(
     state: LoansUiState,
@@ -65,6 +70,8 @@ fun LoansScreen(
     onOpenMenu: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
     onToggleExtendSelection: (LoanExtensionKey) -> Unit,
+    onEnterExtendSelection: (LoanExtensionKey, canExtend: Boolean) -> Unit,
+    onExitExtendSelection: () -> Unit,
     onRequestExtend: (LoanExtensionCandidate) -> Unit,
     onRequestBulkExtend: (List<LoanExtensionCandidate>) -> Unit,
     onConfirmExtend: () -> Unit,
@@ -74,6 +81,8 @@ fun LoansScreen(
     onClearExtendError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 選択モード中の戻るキーは選択モードから抜けるだけにする(§3.8-2)。それ以外は既存の戻る動作を妨げない。
+    BackHandler(enabled = extensionState.selectionMode, onBack = onExitExtendSelection)
     val colors = LocalAppColors.current
     val listState = rememberLazyListState()
     // rowsがまだ空(初期化前)の間はindexが決まらない。rowsの到着で再計算されるようrememberのキーに入れる。
@@ -90,6 +99,13 @@ fun LoansScreen(
     }
     Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar(title = "貸出中", onOpenMenu = onOpenMenu)
+        // 選択モードの上部バーは一覧の最上部、メンバー絞り込みチップの上に出す(設計§3.4)。
+        if (extensionState.selectionMode) {
+            SelectionModeBar(
+                selectedCount = extensionState.selectedKeys.size,
+                onClearSelection = onExitExtendSelection,
+            )
+        }
         MemberFilterRow(
             members = state.members,
             selectedMemberId = state.selectedMemberId,
@@ -97,18 +113,34 @@ fun LoansScreen(
             countByMemberId = state.countByMemberId,
             totalCount = state.totalCount,
         )
+        // 「長押しで複数選択」の案内(設計§3.6)。選択モード中・一覧が空のときは出さない。
+        if (!extensionState.selectionMode && state.rows.isNotEmpty()) {
+            Text(
+                text = "長押しで複数選択",
+                color = colors.ink2,
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .padding(horizontal = 18.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.chipBg)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            )
+        }
         // BulkActionBarと処理進捗・取消エラー表示はプル領域の外に置く(絞り込み行の直下、予約中一覧と同じ配置方針)。
         if (state.rows.isNotEmpty()) {
-            BulkActionBar(
-                selectedCount = extensionState.selectedKeys.size,
-                actionLabel = "一斉延長",
-                enabled = extensionState.canExtendSelection,
-                onClick = {
-                    onRequestBulkExtend(LoansContentBuilder.extensionCandidates(state.rows, extensionState.selectedKeys))
-                },
-                containerColor = colors.green,
-                contentColor = colors.card,
-            )
+            // 一斉延長のバーは選択モードのときだけ出す(設計§3.5)。
+            if (extensionState.selectionMode) {
+                BulkActionBar(
+                    selectedCount = extensionState.selectedKeys.size,
+                    actionLabel = "一斉延長",
+                    enabled = extensionState.canExtendSelection,
+                    onClick = {
+                        onRequestBulkExtend(LoansContentBuilder.extensionCandidates(state.rows, extensionState.selectedKeys))
+                    },
+                    containerColor = colors.green,
+                    contentColor = colors.card,
+                )
+            }
             extensionState.errorMessage?.let {
                 Text(
                     text = it,
@@ -153,12 +185,14 @@ fun LoansScreen(
                             row = row,
                             // 強調はindexではなく日付の一致で決める(絞り込みで行が動いてもずれない、設計§4.6)。
                             highlighted = focusDueDate != null && row.dueDate == focusDueDate,
+                            selectionMode = extensionState.selectionMode,
                             selected = key in extensionState.selectedKeys,
                             selectionEnabled = !extensionState.processing,
                             extending = extensionState.processingTarget == key,
                             extendDisabled = extensionState.processing,
                             onClick = { onOpenDetail(row.tilcod, row.title) },
                             onToggleSelection = { onToggleExtendSelection(key) },
+                            onEnterSelectionMode = { onEnterExtendSelection(key, row.canExtend) },
                             onRequestExtend = {
                                 onRequestExtend(
                                     LoanExtensionCandidate(
@@ -185,17 +219,21 @@ fun LoansScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LoanRowView(
     row: LoanRow,
     /** カレンダーからの遷移で対象日として強調するか(設計§4.6)。枠をcolors.greenにするだけで、状態は持たない。 */
     highlighted: Boolean,
+    /** 長押しによる選択モード(`docs/design/selection-mode.md` §3)。trueの間はタップが選択の切り替えになる。 */
+    selectionMode: Boolean,
     selected: Boolean,
     selectionEnabled: Boolean,
     extending: Boolean,
     extendDisabled: Boolean,
     onClick: () -> Unit,
     onToggleSelection: () -> Unit,
+    onEnterSelectionMode: () -> Unit,
     onRequestExtend: () -> Unit,
 ) {
     val colors = LocalAppColors.current
@@ -215,9 +253,12 @@ private fun LoanRowView(
                 RoundedCornerShape(12.dp),
             ),
     ) {
-        // 一斉延長(`docs/design/bulk-selection.md` §5.2)のチェックボックスは、行タップ領域(下のColumn)
-        // とは別のRowに置く(予約中一覧のReservationRowViewと同じ流儀)。canExtendな行にだけ出す。
-        if (row.canExtend) {
+        // 行の長押しを常に選択モードの受け口にするため、一覧の行はテキスト選択(コピー)を止める
+        // (設計§3.2 案A)。書誌名のコピーは書誌詳細のポップアップ側でSelectionContainerの内側のまま可能。
+        DisableSelection {
+        // 一斉延長(`docs/design/bulk-selection.md` §5.2)のチェックボックスは、選択モードのときだけ、
+        // 行タップ領域(下のColumn)とは別のRowに置く(予約中一覧のReservationRowViewと同じ流儀)。
+        if (selectionMode && row.canExtend) {
             Row(
                 modifier = Modifier.padding(start = 4.dp, top = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -228,14 +269,6 @@ private fun LoanRowView(
                     onToggle = onToggleSelection,
                     checkedColor = colors.green,
                 )
-                // チェックボックスが浮いて見える問題への対処(設計追補§4)。予約中の状態表示(statusLabel)と
-                // 完全に同じ体裁にする(11sp・Bold・ink2)。目立たせるのが目的ではないため緑等で強調しない。
-                Text(
-                    text = "延長可能",
-                    color = colors.ink2,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                )
             }
         }
         // レイアウト追い込み第3次(2026-08-06)項目10: ドットは書誌名と同じRow(CenterVertically)に置き、
@@ -244,7 +277,19 @@ private fun LoanRowView(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(enabled = row.tilcod.isNotBlank(), onClick = onClick)
+                .combinedClickable(
+                    enabled = row.tilcod.isNotBlank() || (selectionMode && row.canExtend),
+                    onClick = {
+                        if (selectionMode) {
+                            if (row.canExtend && !extendDisabled) onToggleSelection()
+                        } else {
+                            onClick()
+                        }
+                    },
+                    onLongClick = {
+                        if (!selectionMode && row.canExtend && !extendDisabled) onEnterSelectionMode()
+                    },
+                )
                 .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
             Row(
@@ -297,6 +342,16 @@ private fun LoanRowView(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // 状態表示の移動(設計§3.7)。チェックボックスが常時出ないため、書誌名の下の行
+                    // (館名・返却期限と同じ行)の末尾へ移す。体裁(11sp・Bold・ink2)は変えない。
+                    if (row.canExtend) {
+                        Text(
+                            text = "延長可能",
+                            color = colors.ink2,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
                 // 延長ボタンは extendable かつ tilcod が空でない行にだけ出す(`docs/design/loan-extension.md` §6・§9.1)。
                 // 除外条件はLoanRow.canExtendに集約し、UI側で条件を再実装しない。
@@ -322,6 +377,7 @@ private fun LoanRowView(
                 }
             }
         }
+        } // DisableSelection
     }
 }
 

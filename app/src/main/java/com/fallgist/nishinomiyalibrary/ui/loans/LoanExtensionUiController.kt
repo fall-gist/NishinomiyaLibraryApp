@@ -76,6 +76,11 @@ data class LoanExtensionResultRow(
 data class LoanExtensionUiState(
     /** 一斉延長の選択キー(`docs/design/bulk-selection.md` §4.2、既存の型をそのまま使う)。 */
     val selectedKeys: Set<LoanExtensionKey> = emptySet(),
+    /**
+     * 長押しによる選択モード(`docs/design/selection-mode.md` §3)。選択0件になっても自動では
+     * falseに戻らない(§2-5)。選択集合と同じControllerに置く(§3.1、lost updateを避けるため)。
+     */
+    val selectionMode: Boolean = false,
     val pendingConfirmation: LoanExtensionConfirmationRequest? = null,
     /** 処理中の対象行。行ごとのボタン無効化に使う。一斉延長中は現在処理中の対象を指す。 */
     val processingTarget: LoanExtensionKey? = null,
@@ -111,12 +116,33 @@ class LoanExtensionUiController(
     // CalendarScreenController・SettingsScreenControllerで実際に踏んだ不具合と同型(docs/handoff.md参照)。
     // **必ず`update {}`(CASループ)を使うこと。`_state.value = ...`を書いてはならない。**
 
-    /** チェックボックスのタップ(`docs/design/bulk-selection.md` §5.2)。行タップ・行内延長ボタンとは別のタップ領域。 */
+    /**
+     * チェックボックスのタップ(`docs/design/bulk-selection.md` §5.2)。行タップ・行内延長ボタンとは別のタップ領域。
+     * 選択モード中(`docs/design/selection-mode.md` §3.3)だけ働く。選択が0件になっても選択モードは
+     * 続ける(§2-5)。
+     */
     fun toggleSelection(key: LoanExtensionKey) {
-        if (state.value.processing) return
+        if (state.value.processing || !state.value.selectionMode) return
         _state.update { current ->
             current.copy(selectedKeys = if (key in current.selectedKeys) current.selectedKeys - key else current.selectedKeys + key)
         }
+    }
+
+    /**
+     * 書誌タイルの長押し(`docs/design/selection-mode.md` §3.3)。選択モードに入り、その行を選択する。
+     * [canExtend]はScreen側が現在の一覧(`LoanRow.canExtend`)から渡す。長押しの受け口自体は
+     * Screen側で延長可能な行にだけ配線する想定だが、呼び出し側がそれを保証できない場合に備え、
+     * ここでも同じ条件を確認する(toggleSelectionが選択不可な行のチェックボックスを描画させない
+     * ことで絞り込んでいるのと同じ規則を、長押しの受け口でも守る)。
+     */
+    fun enterSelectionMode(key: LoanExtensionKey, canExtend: Boolean) {
+        if (state.value.processing || !canExtend) return
+        _state.update { it.copy(selectionMode = true, selectedKeys = it.selectedKeys + key) }
+    }
+
+    /** 「選択解除」・戻るキー・他画面への遷移で選択モードから抜ける(§3.8)。選択も空にする。 */
+    fun exitSelectionMode() {
+        _state.update { it.copy(selectionMode = false, selectedKeys = emptySet()) }
     }
 
     /** 経路1: 行の「延長」ボタン。確定するまで通信は開始しない。 */
@@ -153,6 +179,9 @@ class LoanExtensionUiController(
                 val outcome = extensionRepository.extendLoan(candidate.target)
                 _state.update {
                     it.copy(
+                        // 単独延長の完了(成功・失敗のどちらでも)で選択モードから抜ける(§3.8-3)。
+                        selectionMode = false,
+                        selectedKeys = emptySet(),
                         processingTarget = null,
                         result = LoanExtensionContentBuilder.resultMessage(outcome),
                     )
@@ -202,6 +231,8 @@ class LoanExtensionUiController(
                 _state.update {
                     it.copy(
                         // 一斉延長の対象は完了後に選択を空にする(予約中の一斉取消と同じ流儀)。
+                        // 完了(成功・失敗のどちらでも)で選択モードからも抜ける(§3.8-3)。
+                        selectionMode = false,
                         selectedKeys = emptySet(),
                         processingTarget = null,
                         bulkProgress = null,

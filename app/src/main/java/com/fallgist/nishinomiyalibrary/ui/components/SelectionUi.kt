@@ -1,5 +1,6 @@
 package com.fallgist.nishinomiyalibrary.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +56,43 @@ fun SelectionCheckbox(
         colors = CheckboxDefaults.colors(checkedColor = checkedColor),
         modifier = modifier,
     )
+}
+
+/**
+ * 長押しによる選択モードの間、一覧最上部に出す上部バー(`docs/design/selection-mode.md` §3.4)。
+ * 左に選択件数、右に「選択解除」(選択を空にし選択モードからも抜ける)。「すべて選択」は置かない
+ * (誤タップで件数が一気に増えるのを避けるため、所有者確定事項)。
+ * 選択0件でも描画する(「0件を選択中」。§2-5、選択0件でも選択モードから自動では抜けないため)。
+ */
+@Composable
+fun SelectionModeBar(
+    selectedCount: Int,
+    onClearSelection: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalAppColors.current
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(colors.greenBg)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "${selectedCount}件を選択中",
+            color = colors.greenInk,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = "選択解除",
+            color = colors.greenInk,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.clickable(onClick = onClearSelection),
+        )
+    }
 }
 
 /**

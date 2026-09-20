@@ -94,6 +94,24 @@ class LoanExtensionUiControllerTest {
     }
 
     @Test
+    fun `単独延長の完了で選択モードから抜ける`() = runTest {
+        val repo = FakeExtensionRepository(outcome = LoanExtensionOutcome.Extended(LocalDate.of(2026, 8, 19)))
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        // 行内の「延長」ボタンは選択モードとは別の経路(§3.3)だが、選択モード中に押されても
+        // 選択状態を引きずらないことを確認する(§3.8-3)。
+        controller.enterSelectionMode(LoanExtensionKey(9, "999"), canExtend = true)
+
+        controller.requestConfirmation(candidate())
+        controller.confirmPending()
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.selectionMode)
+        assertTrue(controller.state.value.selectedKeys.isEmpty())
+        controller.close()
+    }
+
+    @Test
     fun `処理中は二重にconfirmPendingを呼んでも1回しか通信しない`() = runTest {
         val started = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
@@ -194,16 +212,104 @@ class LoanExtensionUiControllerTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `選択の切り替えでキーが追加削除される`() = runTest {
+    fun `選択モード中はtoggleSelectionでキーが追加削除される`() = runTest {
         val repo = FakeExtensionRepository()
         val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
         advanceUntilIdle()
         val key = LoanExtensionKey(1, "100")
 
-        controller.toggleSelection(key)
-        assertTrue(key in controller.state.value.selectedKeys)
+        // 選択モードに入っていないとtoggleSelectionは働かない(`docs/design/selection-mode.md` §3.3)。
         controller.toggleSelection(key)
         assertFalse(key in controller.state.value.selectedKeys)
+
+        controller.enterSelectionMode(key, canExtend = true)
+        assertTrue(controller.state.value.selectionMode)
+        assertTrue(key in controller.state.value.selectedKeys)
+
+        controller.toggleSelection(key)
+        assertFalse(key in controller.state.value.selectedKeys)
+        // 0件になっても選択モードは続く(§2-5)。
+        assertTrue(controller.state.value.selectionMode)
+
+        controller.toggleSelection(key)
+        assertTrue(key in controller.state.value.selectedKeys)
+        controller.close()
+    }
+
+    @Test
+    fun `enterSelectionModeで選択モードに入りその行が選択される`() = runTest {
+        val repo = FakeExtensionRepository()
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key = LoanExtensionKey(1, "100")
+
+        controller.enterSelectionMode(key, canExtend = true)
+
+        assertTrue(controller.state.value.selectionMode)
+        assertEquals(setOf(key), controller.state.value.selectedKeys)
+        controller.close()
+    }
+
+    @Test
+    fun `延長できない行では選択モードに入らない`() = runTest {
+        val repo = FakeExtensionRepository()
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key = LoanExtensionKey(1, "100")
+
+        controller.enterSelectionMode(key, canExtend = false)
+
+        assertFalse(controller.state.value.selectionMode)
+        assertTrue(controller.state.value.selectedKeys.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `exitSelectionModeで選択が空になり選択モードから抜ける`() = runTest {
+        val repo = FakeExtensionRepository()
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val key = LoanExtensionKey(1, "100")
+        controller.enterSelectionMode(key, canExtend = true)
+        controller.toggleSelection(LoanExtensionKey(1, "101"))
+
+        controller.exitSelectionMode()
+
+        assertFalse(controller.state.value.selectionMode)
+        assertTrue(controller.state.value.selectedKeys.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `処理中はenterSelectionModeとtoggleSelectionを受け付けない`() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val repo = FakeExtensionRepository(
+            onCall = {
+                started.complete(Unit)
+                release.await()
+            },
+        )
+        val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+        val selectedKey = LoanExtensionKey(1, "100")
+        controller.enterSelectionMode(selectedKey, canExtend = true)
+
+        controller.requestConfirmation(candidate(tilcod = "100"))
+        controller.confirmPending()
+        runCurrent()
+        started.await()
+        assertTrue(controller.state.value.processing)
+
+        val otherKey = LoanExtensionKey(1, "999")
+        controller.enterSelectionMode(otherKey, canExtend = true)
+        assertFalse(otherKey in controller.state.value.selectedKeys)
+
+        controller.toggleSelection(selectedKey)
+        assertTrue(selectedKey in controller.state.value.selectedKeys)
+
+        release.complete(Unit)
+        advanceUntilIdle()
         controller.close()
     }
 
@@ -225,6 +331,7 @@ class LoanExtensionUiControllerTest {
         val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
         advanceUntilIdle()
         val candidates = listOf(candidate(tilcod = "100"), candidate(tilcod = "101"), candidate(tilcod = "102"))
+        controller.enterSelectionMode(LoanExtensionKey(1, "100"), canExtend = true)
 
         controller.requestBulkConfirmation(candidates)
         controller.confirmPending()
@@ -233,6 +340,8 @@ class LoanExtensionUiControllerTest {
         assertEquals(listOf("100", "101", "102"), repo.extendedOrder)
         assertEquals(3, controller.state.value.results.size)
         assertTrue(controller.state.value.results.all { it.message.succeeded })
+        // 一斉延長が全件成功で完了しても選択モードから抜ける(§3.8-3)。
+        assertFalse(controller.state.value.selectionMode)
         controller.close()
     }
 
@@ -243,7 +352,7 @@ class LoanExtensionUiControllerTest {
         advanceUntilIdle()
         val key1 = LoanExtensionKey(1, "100")
         val key2 = LoanExtensionKey(1, "101")
-        controller.toggleSelection(key1)
+        controller.enterSelectionMode(key1, canExtend = true)
         controller.toggleSelection(key2)
 
         controller.requestBulkConfirmation(listOf(candidate(tilcod = "100"), candidate(tilcod = "101")))
@@ -251,6 +360,8 @@ class LoanExtensionUiControllerTest {
         advanceUntilIdle()
 
         assertTrue(controller.state.value.selectedKeys.isEmpty())
+        // 一斉延長の完了(成功・失敗のどちらでも)で選択モードからも抜ける(§3.8-3)。
+        assertFalse(controller.state.value.selectionMode)
         assertEquals(2, controller.state.value.results.size)
         assertFalse(controller.state.value.results.all { it.message.succeeded })
         controller.close()
