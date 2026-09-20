@@ -110,6 +110,14 @@ class ReservationCancelUiController(
     val state: StateFlow<ReservationCancelUiState> = _state
     private val membersJob: Job
 
+    // _stateは購読側(toggleSelection等、UIスレッド)と一斉取消のscope.launch(Defaultディスパッチャ)の
+    // 両方から更新される。一斉取消は通信を伴う長時間の処理で、その間も利用者はチェックボックスや
+    // 選択モードを操作できる。`_state.value = _state.value.copy(...)`は読みと書きの間に別コルーチンの
+    // 書きが挟まるとそれを取りこぼす(lost update)。CalendarScreenController・SettingsScreenControllerで
+    // 実際に踏んだ不具合と同型、かつ本Controllerでhandoffに記録されていたlost updateの残課題
+    // (`docs/design/selection-mode.md`のレビュー指摘、2026-09-20)。
+    // **必ず`update {}`(CASループ)を使うこと。`_state.value = ...`を書いてはならない。**
+
     init {
         scope.launch {
             operationGate.state.collect { gateState ->
@@ -122,7 +130,7 @@ class ReservationCancelUiController(
         }
         membersJob = scope.launch {
             familyRepository.members().collect { members ->
-                _state.value = _state.value.copy(initialized = true, members = members)
+                _state.update { it.copy(initialized = true, members = members) }
             }
         }
     }
@@ -158,21 +166,17 @@ class ReservationCancelUiController(
     /** 経路1: 行の「取消」ボタン。 */
     fun requestSingleCancelConfirmation(candidate: ReservationCancelCandidate) {
         if (state.value.processing) return
-        _state.value = state.value.copy(
-            pendingConfirmation = ReservationCancelConfirmationRequest.Single(listOf(candidate)),
-        )
+        _state.update { it.copy(pendingConfirmation = ReservationCancelConfirmationRequest.Single(listOf(candidate))) }
     }
 
     /** 経路2: 「一斉取消」ボタン。選択済みキーに対応する候補はScreen側で組み立てて渡す。 */
     fun requestBulkCancelConfirmation(candidates: List<ReservationCancelCandidate>) {
         if (state.value.processing || candidates.isEmpty()) return
-        _state.value = state.value.copy(
-            pendingConfirmation = ReservationCancelConfirmationRequest.Bulk(candidates),
-        )
+        _state.update { it.copy(pendingConfirmation = ReservationCancelConfirmationRequest.Bulk(candidates)) }
     }
 
     fun dismissConfirmation() {
-        if (!state.value.processing) _state.value = state.value.copy(pendingConfirmation = null)
+        if (!state.value.processing) _state.update { it.copy(pendingConfirmation = null) }
     }
 
     /** 最終確認ダイアログの肯定操作だけが取消通信(cancelReservations)を開始する。 */
@@ -215,11 +219,11 @@ class ReservationCancelUiController(
     }
 
     fun clearResults() {
-        _state.value = state.value.copy(results = emptyList(), resultOrigin = null)
+        _state.update { it.copy(results = emptyList(), resultOrigin = null) }
     }
 
     fun clearError() {
-        _state.value = state.value.copy(errorMessage = null)
+        _state.update { it.copy(errorMessage = null) }
     }
 
     fun close() {
@@ -228,10 +232,12 @@ class ReservationCancelUiController(
     }
 
     private fun updateProcessing(processing: Boolean) {
-        _state.value = _state.value.copy(
-            processing = processing,
-            waitingForAutomaticReservation = processing && operationGate.state.value.isWaitingForAutomaticReservation(),
-        )
+        _state.update {
+            it.copy(
+                processing = processing,
+                waitingForAutomaticReservation = processing && operationGate.state.value.isWaitingForAutomaticReservation(),
+            )
+        }
     }
 }
 
