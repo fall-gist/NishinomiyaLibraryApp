@@ -64,4 +64,22 @@ class KeywordQueryTest {
         val terms = KeywordQuery.terms("abc 著者")
         assertTrue(KeywordQuery.matches("ＡＢＣ　著者", terms))
     }
+
+    @Test
+    fun `タブ区切りでも2語に分かれAND検索になる レビュー指摘対応`() {
+        val terms = KeywordQuery.terms("ゾロリ\t大金")
+
+        assertEquals(listOf("ゾロリ", "大金"), terms)
+        assertTrue(KeywordQuery.matches("かいけつゾロリの大金もち", terms))
+        assertFalse(KeywordQuery.matches("かいけつゾロリの初恋", terms))
+    }
+
+    @Test
+    fun `ノーブレークスペース区切りでも2語に分かれAND検索になる レビュー指摘対応`() {
+        val terms = KeywordQuery.terms("ゾロリ 大金")
+
+        assertEquals(listOf("ゾロリ", "大金"), terms)
+        assertTrue(KeywordQuery.matches("かいけつゾロリの大金もち", terms))
+        assertFalse(KeywordQuery.matches("かいけつゾロリの初恋", terms))
+    }
 }

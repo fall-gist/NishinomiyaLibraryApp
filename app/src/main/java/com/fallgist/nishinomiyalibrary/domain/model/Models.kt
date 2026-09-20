@@ -53,10 +53,18 @@ object ReadingRecordTitleNormalizer {
  */
 object KeywordQuery {
     /**
-     * 入力を半角空白・全角空白で分割し、各語を[TextNormalizer.normalize]で正規化して返す。
+     * 入力を空白で分割し、各語を[TextNormalizer.normalize]で正規化して返す。
      * 連続した空白は1つの区切りとして扱い、空の語は除く。空白のみの入力では空リストを返す。
+     *
+     * 分割の前に入力全体をNFKC正規化し、全角空白・ノーブレークスペース等を半角空白へ寄せてから
+     * 空白（正規表現`\s+`）で分割する（区切りとして見る空白の種類を揃えるため。タブ・改行は
+     * NFKC正規化の前後にかかわらずそのまま`\s`にマッチする）。
+     * 分割してから各語を正規化する順序は変えないこと。[TextNormalizer.normalize]は空白を
+     * すべて削除するため、先に掛けると区切りの手がかりが失われ、入力全体が1語に潰れる
+     * (`docs/design/reading-records-search.md` §3.2)。
      */
-    fun terms(query: String): List<String> = query.split(' ', '　')
+    fun terms(query: String): List<String> = Normalizer.normalize(query, Normalizer.Form.NFKC)
+        .split(Regex("\\s+"))
         .map(TextNormalizer::normalize)
         .filter(String::isNotEmpty)
 
