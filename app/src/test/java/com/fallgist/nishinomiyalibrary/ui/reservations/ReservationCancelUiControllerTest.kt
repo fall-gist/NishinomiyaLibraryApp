@@ -218,7 +218,10 @@ class ReservationCancelUiControllerTest {
     }
 
     @Test
-    fun `一斉取消の完了(通信失敗)でも選択状態と選択モードから抜ける`() = runTest {
+    fun `一斉取消が通信例外で終わったときは選択状態と選択モードに触れない`() = runTest {
+        // 貸出中(LoanExtensionUiController.confirmBulk)と同じ流儀: 通信例外(cancelReservations自体が
+        // 失敗する経路)はバッチ結果としての「完了」ではないため、選択モードの解除対象に含めない。
+        // 「完了(成功・失敗のどちらでも)」はバッチ結果内の項目ごとの成否を指し、通信例外は別扱い。
         val repo = FakeCancelRepository(throwOnCall = true)
         val controller = controller(repo, StandardTestDispatcher(testScheduler))
         advanceUntilIdle()
@@ -229,8 +232,8 @@ class ReservationCancelUiControllerTest {
         controller.confirmPending()
         advanceUntilIdle()
 
-        assertTrue(controller.state.value.selectedKeys.isEmpty())
-        assertFalse(controller.state.value.selectionMode)
+        assertEquals(setOf(key), controller.state.value.selectedKeys)
+        assertTrue(controller.state.value.selectionMode)
         controller.close()
     }
 
