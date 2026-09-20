@@ -46,6 +46,31 @@ object ReadingRecordTitleNormalizer {
     fun normalize(value: String): String = TextNormalizer.normalize(value)
 }
 
+/**
+ * 空白区切りの検索語を扱う純関数群。すべての語を含むものだけを残す(AND)判定を提供する
+ * (`docs/design/reading-records-search.md` §3.2)。読書記録専用ではなく、単語AND検索が
+ * 必要な箇所から共通で使う想定。
+ */
+object KeywordQuery {
+    /**
+     * 入力を半角空白・全角空白で分割し、各語を[TextNormalizer.normalize]で正規化して返す。
+     * 連続した空白は1つの区切りとして扱い、空の語は除く。空白のみの入力では空リストを返す。
+     */
+    fun terms(query: String): List<String> = query.split(' ', '　')
+        .map(TextNormalizer::normalize)
+        .filter(String::isNotEmpty)
+
+    /**
+     * [terms]がすべて[target]（正規化済みでなくてよい）に含まれるか(AND)。
+     * [target]は内部で[TextNormalizer.normalize]してから判定する。[terms]が空なら常にtrue。
+     */
+    fun matches(target: String, terms: List<String>): Boolean {
+        if (terms.isEmpty()) return true
+        val normalizedTarget = TextNormalizer.normalize(target)
+        return terms.all { term -> normalizedTarget.contains(term) }
+    }
+}
+
 /** サイトの読書履歴、および同期時に併合する現在貸出の永続記録。 */
 data class ReadingRecord(
     val memberId: Long,

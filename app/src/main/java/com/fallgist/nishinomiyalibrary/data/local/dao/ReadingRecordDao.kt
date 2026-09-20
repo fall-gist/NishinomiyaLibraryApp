@@ -35,6 +35,12 @@ interface ReadingRecordDao {
     @Query("SELECT * FROM reading_records WHERE memberId = :memberId ORDER BY loanDate DESC, title ASC")
     fun observeForMember(memberId: Long): Flow<List<ReadingRecordEntity>>
 
+    /**
+     * 現在アプリからは使っていない。単語AND検索は`ReadingRecordRepositoryImpl.search`が
+     * [observeAll]/[observeForMember]を購読してメモリ上で行う
+     * (`docs/design/reading-records-search.md` §3.1・§3.4)。このメソッドは、保存時の
+     * `titleNormalized`列が正しく作られていることをテストから確かめるためだけに残している。
+     */
     @Query(
         "SELECT * FROM reading_records " +
             "WHERE (:memberId IS NULL OR memberId = :memberId) " +
