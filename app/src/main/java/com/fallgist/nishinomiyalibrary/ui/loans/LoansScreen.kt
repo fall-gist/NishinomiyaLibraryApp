@@ -367,13 +367,18 @@ private fun LoanRowView(
                             modifier = Modifier.padding(end = 8.dp),
                         )
                     }
-                    Button(
-                        onClick = onRequestExtend,
-                        enabled = !extendDisabled,
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.green, contentColor = colors.card),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                        modifier = Modifier.height(32.dp),
-                    ) { Text("延長") }
+                    // 行内の単独操作ボタンは選択モードの間は出さない(設計§3.5.1、レビュー指摘対応)。
+                    // 選択モード中はタイルのタップが選択の切り替えであり、単独延長ボタンを残すと
+                    // 誤タップで単独延長が走り選択モード中の選択を壊してしまう。
+                    if (!selectionMode) {
+                        Button(
+                            onClick = onRequestExtend,
+                            enabled = !extendDisabled,
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.green, contentColor = colors.card),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp),
+                        ) { Text("延長") }
+                    }
                 }
             }
         }

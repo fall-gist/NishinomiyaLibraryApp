@@ -179,9 +179,8 @@ class LoanExtensionUiController(
                 val outcome = extensionRepository.extendLoan(candidate.target)
                 _state.update {
                     it.copy(
-                        // 単独延長の完了(成功・失敗のどちらでも)で選択モードから抜ける(§3.8-3)。
-                        selectionMode = false,
-                        selectedKeys = emptySet(),
+                        // 単独延長の完了は選択モードに触れない(設計§3.5.1)。行内の単独操作ボタンは
+                        // 選択モードの間は出さないため、選択モード中に単独延長が起きることはない。
                         processingTarget = null,
                         result = LoanExtensionContentBuilder.resultMessage(outcome),
                     )

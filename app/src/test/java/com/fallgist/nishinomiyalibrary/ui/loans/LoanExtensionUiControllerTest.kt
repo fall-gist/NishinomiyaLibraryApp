@@ -94,20 +94,25 @@ class LoanExtensionUiControllerTest {
     }
 
     @Test
-    fun `単独延長の完了で選択モードから抜ける`() = runTest {
+    fun `単独延長の完了では選択モードと選択が変わらない`() = runTest {
         val repo = FakeExtensionRepository(outcome = LoanExtensionOutcome.Extended(LocalDate.of(2026, 8, 19)))
         val controller = LoanExtensionUiController(repo, StandardTestDispatcher(testScheduler))
         advanceUntilIdle()
-        // 行内の「延長」ボタンは選択モードとは別の経路(§3.3)だが、選択モード中に押されても
-        // 選択状態を引きずらないことを確認する(§3.8-3)。
-        controller.enterSelectionMode(LoanExtensionKey(9, "999"), canExtend = true)
+        // 実際のUIでは選択モード中は行内の単独操作ボタンを出さないため単独延長は起こせないが
+        // (設計§3.5.1)、コントローラの契約として「単独延長の完了は選択モードに触れない」ことを
+        // ここで固定する。
+        val key1 = LoanExtensionKey(9, "999")
+        val key2 = LoanExtensionKey(9, "998")
+        controller.enterSelectionMode(key1, canExtend = true)
+        controller.toggleSelection(key2)
+        assertEquals(setOf(key1, key2), controller.state.value.selectedKeys)
 
         controller.requestConfirmation(candidate())
         controller.confirmPending()
         advanceUntilIdle()
 
-        assertFalse(controller.state.value.selectionMode)
-        assertTrue(controller.state.value.selectedKeys.isEmpty())
+        assertTrue(controller.state.value.selectionMode)
+        assertEquals(setOf(key1, key2), controller.state.value.selectedKeys)
         controller.close()
     }
 
