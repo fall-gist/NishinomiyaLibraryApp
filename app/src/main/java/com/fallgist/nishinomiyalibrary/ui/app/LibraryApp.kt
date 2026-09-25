@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
@@ -613,27 +614,36 @@ fun LibraryApp(
                                 onDismissRequest = bookDetailController::close,
                                 properties = DialogProperties(usePlatformDefaultWidth = false),
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.94f)
-                                        .fillMaxHeight(0.86f)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(colors.paper),
-                                ) {
-                                    BookDetailView(
-                                        detail = detailState,
-                                        onBack = bookDetailController::close,
-                                        reservation = reservationState,
-                                        onSelectReservationMember = reservationUiController::selectMember,
-                                        onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
-                                        onAddToCart = reservationUiController::addToCart,
-                                        onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
-                                        onOpenOfficialBookDetail = openOfficialBookDetail,
-                                        bookshelfEditing = editingState,
-                                        onRequestAddToBookshelf = bookshelfEditingUiController::requestAddItem,
-                                        onRequestCancel = onRequestCancelFromDetail,
-                                        modifier = Modifier.fillMaxSize(),
-                                    )
+                                // 画面全体を包む外側のSelectionContainer(このファイル冒頭)はCompositionLocal経由で
+                                // Dialog(別のAndroid Window)の中にも及ぶため、そのままでは長押し選択の座標変換が
+                                // 破綻して落ちる(設計`docs/design/selection-mode.md` §8)。DisableSelectionで
+                                // 外側の選択対象から切り離し、その内側に新しいSelectionContainerを置いて
+                                // ダイアログの中だけで独立した選択を成り立たせる。
+                                DisableSelection {
+                                    SelectionContainer {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth(0.94f)
+                                                .fillMaxHeight(0.86f)
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(colors.paper),
+                                        ) {
+                                            BookDetailView(
+                                                detail = detailState,
+                                                onBack = bookDetailController::close,
+                                                reservation = reservationState,
+                                                onSelectReservationMember = reservationUiController::selectMember,
+                                                onSelectPickupLibrary = reservationUiController::selectPickupLibrary,
+                                                onAddToCart = reservationUiController::addToCart,
+                                                onRequestReserveNow = reservationUiController::requestImmediateConfirmation,
+                                                onOpenOfficialBookDetail = openOfficialBookDetail,
+                                                bookshelfEditing = editingState,
+                                                onRequestAddToBookshelf = bookshelfEditingUiController::requestAddItem,
+                                                onRequestCancel = onRequestCancelFromDetail,
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         } else {
