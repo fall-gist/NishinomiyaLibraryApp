@@ -328,16 +328,6 @@ private fun LoanRowView(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    // 状態表示の移動(設計§3.7)。チェックボックスが常時出ないため、書誌名の下の行
-                    // (館名・返却期限と同じ行)の末尾へ移す。体裁(11sp・Bold・ink2)は変えない。
-                    if (row.canExtend) {
-                        Text(
-                            text = "延長可能",
-                            color = colors.ink2,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
                 }
                 // 延長ボタンは extendable かつ tilcod が空でない行にだけ出す(`docs/design/loan-extension.md` §6・§9.1)。
                 // 除外条件はLoanRow.canExtendに集約し、UI側で条件を再実装しない。
