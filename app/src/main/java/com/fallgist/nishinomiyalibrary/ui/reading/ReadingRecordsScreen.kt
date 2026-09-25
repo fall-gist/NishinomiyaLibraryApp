@@ -288,7 +288,10 @@ private fun ReadingRowView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .combinedClickable(
-                        enabled = row.tilcod.isNotBlank() || !selectionMode,
+                        // 資料番号が無い行は、通常モード・選択モードのどちらでも反応しない
+                        // (改修前の`clickable(enabled = row.tilcod.isNotBlank())`と同じ規則に揃える。
+                        // レビュー指摘: `|| !selectionMode`だと通常モードで空の行までタップに反応してしまう)。
+                        enabled = row.tilcod.isNotBlank(),
                         onClick = {
                             if (selectionMode) {
                                 if (row.tilcod.isNotBlank() && selectionEnabled) onToggleSelection()

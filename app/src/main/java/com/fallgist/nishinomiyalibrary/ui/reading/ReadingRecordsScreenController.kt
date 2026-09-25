@@ -117,7 +117,13 @@ object ReadingRecordsContentBuilder {
 class ReadingRecordsScreenController(
     private val familyRepository: FamilyRepository,
     private val readingRecordRepository: ReadingRecordRepository,
-    private val cartRepository: ReservationCartRepository = NoOpCartRepository,
+    /**
+     * カート・予約の実処理を担う必須の依存(既定値を持たない)。
+     * カートへ追加・一斉直接予約はサイトに実データを作る操作であり、DIの渡し忘れをno-opで
+     * 静かに成功させてはならない(レビュー指摘。蔵書検索の[com.fallgist.nishinomiyalibrary.ui.search.SearchScreenController]
+     * と同じ判断)。渡し忘れはコンパイルエラーで検出する。
+     */
+    private val cartRepository: ReservationCartRepository,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
     /** 一斉直接予約の受取館選択に使う。既定館はcalendarRepository.librariesと同じ一覧から選ぶ。 */
     private val calendarRepository: CalendarRepository = NoOpCalendarRepository,
@@ -399,32 +405,10 @@ class ReadingRecordsScreenController(
 }
 
 /**
- * [ReadingRecordsScreenController]の既定引数用。cartRepositoryを渡さない既存呼び出しを壊さないためのno-op実装。
- * 一斉カート追加・一斉直接予約を使わない呼び出し(既存テスト等)では呼ばれない。
- */
-private object NoOpCartRepository : ReservationCartRepository {
-    override fun cartItems() = flowOf(emptyList<com.fallgist.nishinomiyalibrary.domain.model.ReservationCartItem>())
-    override suspend fun addToCart(target: com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget) = Unit
-    override suspend fun addToCart(targets: List<com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget>) =
-        ReservationCartAddSummary(added = 0, skipped = 0)
-    override suspend fun removeFromCart(cartItemId: Long) = Unit
-    override suspend fun removeFromCart(cartItemIds: List<Long>) = Unit
-    override suspend fun clearCart() = Unit
-    override suspend fun confirmCart(confirmation: ReservationConfirmation) =
-        com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult(emptyList())
-    override suspend fun reserveNow(
-        target: com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget,
-        confirmation: ReservationConfirmation,
-    ) = com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult(emptyList())
-    override suspend fun reserveNow(
-        targets: List<com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget>,
-        confirmation: ReservationConfirmation,
-    ) = com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult(emptyList())
-}
-
-/**
  * [ReadingRecordsScreenController]の既定引数用。calendarRepositoryを渡さない既存呼び出しを壊さないためのno-op実装。
- * 一斉直接予約を使わない画面(既存テスト等)では呼ばれない。
+ * 受取館の一覧が空になるだけで、カート追加・予約のようにno-opが「成功」を偽ることはないため
+ * 既定値を残す(レビュー指摘。cartRepositoryとは性質が異なる)。一斉直接予約を使わない画面
+ * (既存テスト等)では呼ばれない。
  */
 private object NoOpCalendarRepository : CalendarRepository {
     override fun closedDays(libraryCode: String) = flowOf(emptyList<com.fallgist.nishinomiyalibrary.domain.model.ClosedDay>())
