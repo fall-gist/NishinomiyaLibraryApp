@@ -159,6 +159,11 @@ fun LibraryApp(
         if (current == Destination.RESERVATIONS && dest != Destination.RESERVATIONS) {
             reservationCancelUiController.exitSelectionMode()
         }
+        // 読書記録から他画面へ移ったら選択モードから抜ける
+        // (`docs/design/reading-records-selection.md` §3.3、貸出中・予約中と同じ形)。
+        if (current == Destination.READING && dest != Destination.READING) {
+            readingRecordsController.exitSelectionMode()
+        }
         currentName = dest.name
     }
     // 診断ログ閲覧は設定画面からだけ開ける、書誌詳細と同様の全画面オーバーレイとして扱う(ドロワー/下部ナビには出さない)。
@@ -425,6 +430,29 @@ fun LibraryApp(
                                 onQueryChange = readingRecordsController::updateQuery,
                                 onOpenMenu = openMenu,
                                 onOpenDetail = openDetail,
+                                onToggleSelection = readingRecordsController::toggleSelection,
+                                onEnterSelectionMode = readingRecordsController::enterSelectionMode,
+                                onExitSelectionMode = readingRecordsController::exitSelectionMode,
+                                onRequestBulkCartAddition = readingRecordsController::requestBulkCartAddition,
+                                onSelectBulkCartAdditionMember = readingRecordsController::selectBulkCartAdditionMember,
+                                onConfirmBulkCartAddition = readingRecordsController::confirmBulkCartAddition,
+                                onDismissBulkCartAdditionConfirmation = readingRecordsController::dismissBulkCartAdditionConfirmation,
+                                onClearBulkCartAdditionResult = readingRecordsController::clearBulkCartAdditionResult,
+                                onClearBulkCartAdditionError = readingRecordsController::clearBulkCartAdditionError,
+                                onRequestBulkDirectReservation = readingRecordsController::requestBulkDirectReservation,
+                                onSelectBulkDirectReservationMember = readingRecordsController::selectBulkDirectReservationMember,
+                                onSelectBulkDirectReservationPickupLibrary = readingRecordsController::selectBulkDirectReservationPickupLibrary,
+                                onConfirmBulkDirectReservation = readingRecordsController::confirmBulkDirectReservation,
+                                onDismissBulkDirectReservationConfirmation = readingRecordsController::dismissBulkDirectReservationConfirmation,
+                                onClearBulkDirectReservationResults = readingRecordsController::clearBulkDirectReservationResults,
+                                onClearBulkDirectReservationError = readingRecordsController::clearBulkDirectReservationError,
+                                bookshelfEditingProcessing = editingState.processing,
+                                onRequestBulkAddToBookshelf = { candidates ->
+                                    bookshelfEditingUiController.requestBulkAddItems(
+                                        candidates.map { BookshelfBulkAddItem(it.tilcod, it.title) },
+                                        onCompleted = readingRecordsController::clearSelection,
+                                    )
+                                },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }

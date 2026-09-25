@@ -122,9 +122,15 @@ object DebugUiProvisionModule {
     fun provideReadingRecordsScreenController(
         familyRepository: FamilyRepository,
         readingRecordRepository: ReadingRecordRepository,
+        cartRepository: ReservationCartRepository,
+        settingsStore: SettingsStore,
+        calendarRepository: CalendarRepository,
     ): ReadingRecordsScreenController = ReadingRecordsScreenController(
         familyRepository = familyRepository,
         readingRecordRepository = readingRecordRepository,
+        cartRepository = cartRepository,
+        calendarRepository = calendarRepository,
+        defaultPickupLibraryCode = settingsStore.settings.map { it.defaultCalendarLibrary },
     )
 
     @Provides
