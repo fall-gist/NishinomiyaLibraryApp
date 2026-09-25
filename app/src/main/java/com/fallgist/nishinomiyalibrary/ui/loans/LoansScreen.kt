@@ -53,7 +53,7 @@ import com.fallgist.nishinomiyalibrary.ui.components.MemberDotIndent
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
-import com.fallgist.nishinomiyalibrary.ui.components.SelectionModeBar
+import com.fallgist.nishinomiyalibrary.ui.components.SelectionHintChip
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 import java.time.LocalDate
 
@@ -99,13 +99,6 @@ fun LoansScreen(
     }
     Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar(title = "貸出中", onOpenMenu = onOpenMenu)
-        // 選択モードの上部バーは一覧の最上部、メンバー絞り込みチップの上に出す(設計§3.4)。
-        if (extensionState.selectionMode) {
-            SelectionModeBar(
-                selectedCount = extensionState.selectedKeys.size,
-                onClearSelection = onExitExtendSelection,
-            )
-        }
         MemberFilterRow(
             members = state.members,
             selectedMemberId = state.selectedMemberId,
@@ -113,22 +106,9 @@ fun LoansScreen(
             countByMemberId = state.countByMemberId,
             totalCount = state.totalCount,
         )
-        // 「長押しで複数選択」の案内(設計§3.6)。選択モード中・一覧が空のときは出さない。
-        if (!extensionState.selectionMode && state.rows.isNotEmpty()) {
-            Text(
-                text = "長押しで複数選択",
-                color = colors.ink2,
-                fontSize = 11.sp,
-                modifier = Modifier
-                    .padding(horizontal = 18.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.chipBg)
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-            )
-        }
-        // BulkActionBarと処理進捗・取消エラー表示はプル領域の外に置く(絞り込み行の直下、予約中一覧と同じ配置方針)。
+        // 通常時は「長押しで複数選択」の案内、選択モード中は「選択解除」+一斉延長ボタンを同じ行に出す
+        // (設計§3.4・§3.6、2026-09-20 実機確認を受けて改訂)。一覧が空のときは出さない。
         if (state.rows.isNotEmpty()) {
-            // 一斉延長のバーは選択モードのときだけ出す(設計§3.5)。
             if (extensionState.selectionMode) {
                 BulkActionBar(
                     selectedCount = extensionState.selectedKeys.size,
@@ -139,8 +119,14 @@ fun LoansScreen(
                     },
                     containerColor = colors.green,
                     contentColor = colors.card,
+                    leadingContent = { SelectionHintChip(text = "選択解除", onClick = onExitExtendSelection) },
                 )
+            } else {
+                SelectionHintChip(text = "長押しで複数選択", modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
             }
+        }
+        // 処理進捗・取消エラー表示はプル領域の外に置く(絞り込み行の直下、予約中一覧と同じ配置方針)。
+        if (state.rows.isNotEmpty()) {
             extensionState.errorMessage?.let {
                 Text(
                     text = it,

@@ -48,7 +48,7 @@ import com.fallgist.nishinomiyalibrary.ui.components.MemberDotIndent
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
-import com.fallgist.nishinomiyalibrary.ui.components.SelectionModeBar
+import com.fallgist.nishinomiyalibrary.ui.components.SelectionHintChip
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
@@ -80,13 +80,6 @@ fun ReservationsScreen(
     val colors = LocalAppColors.current
     Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar(title = "予約中", onOpenMenu = onOpenMenu)
-        // 選択モードの上部バーは一覧の最上部、メンバー絞り込みチップの上に出す(設計§3.4)。
-        if (cancelState.selectionMode) {
-            SelectionModeBar(
-                selectedCount = cancelState.selectedKeys.size,
-                onClearSelection = onExitSelection,
-            )
-        }
         MemberFilterRow(
             members = state.members,
             selectedMemberId = state.selectedMemberId,
@@ -94,23 +87,9 @@ fun ReservationsScreen(
             countByMemberId = state.countByMemberId,
             totalCount = state.totalCount,
         )
-        // 「長押しで複数選択」の案内(設計§3.6)。選択モード中・一覧が空のときは出さない。
-        if (!cancelState.selectionMode && state.rows.isNotEmpty()) {
-            Text(
-                text = "長押しで複数選択",
-                color = colors.ink2,
-                fontSize = 11.sp,
-                modifier = Modifier
-                    .padding(horizontal = 18.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.chipBg)
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-            )
-        }
-        // BulkCancelBarと取消エラー表示はプル領域の外に置く(絞り込み行の直下)。
-        // 空のときに出さない条件は元のrows.isEmpty()分岐のまま維持する。
+        // 通常時は「長押しで複数選択」の案内、選択モード中は「選択解除」+一斉取消ボタンを同じ行に出す
+        // (設計§3.4・§3.6、2026-09-20 実機確認を受けて改訂)。一覧が空のときは出さない。
         if (state.rows.isNotEmpty()) {
-            // 一斉取消のバーは選択モードのときだけ出す(設計§3.5)。
             if (cancelState.selectionMode) {
                 BulkActionBar(
                     selectedCount = cancelState.selectedKeys.size,
@@ -120,8 +99,15 @@ fun ReservationsScreen(
                         val candidates = ReservationsContentBuilder.cancelCandidates(state.rows, cancelState.selectedKeys)
                         onRequestBulkCancel(candidates)
                     },
+                    leadingContent = { SelectionHintChip(text = "選択解除", onClick = onExitSelection) },
                 )
+            } else {
+                SelectionHintChip(text = "長押しで複数選択", modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
             }
+        }
+        // BulkCancelBarと取消エラー表示はプル領域の外に置く(絞り込み行の直下)。
+        // 空のときに出さない条件は元のrows.isEmpty()分岐のまま維持する。
+        if (state.rows.isNotEmpty()) {
             cancelState.errorMessage?.let {
                 Text(
                     text = it,

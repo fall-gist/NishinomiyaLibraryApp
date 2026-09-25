@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -59,40 +61,28 @@ fun SelectionCheckbox(
 }
 
 /**
- * 長押しによる選択モードの間、一覧最上部に出す上部バー(`docs/design/selection-mode.md` §3.4)。
- * 左に選択件数、右に「選択解除」(選択を空にし選択モードからも抜ける)。「すべて選択」は置かない
- * (誤タップで件数が一気に増えるのを避けるため、所有者確定事項)。
- * 選択0件でも描画する(「0件を選択中」。§2-5、選択0件でも選択モードから自動では抜けないため)。
+ * 通常時の「長押しで複数選択」の案内、および選択モード中の「選択解除」を描く小さな帯
+ * (`docs/design/selection-mode.md` §3.4、2026-09-20 実機確認を受けて改訂)。
+ * 両者は同じ見た目(11sp・ink2・chipBg の角丸チップ)で揃える。[onClick]を渡すと押せるようになり、
+ * 「選択解除」はこれで [onClick] に選択モードを抜ける処理を渡す。案内文言だけのときは渡さない。
  */
 @Composable
-fun SelectionModeBar(
-    selectedCount: Int,
-    onClearSelection: () -> Unit,
+fun SelectionHintChip(
+    text: String,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAppColors.current
-    Row(
+    Text(
+        text = text,
+        color = colors.ink2,
+        fontSize = 11.sp,
         modifier = modifier
-            .fillMaxWidth()
-            .background(colors.greenBg)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = "${selectedCount}件を選択中",
-            color = colors.greenInk,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = "選択解除",
-            color = colors.greenInk,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.clickable(onClick = onClearSelection),
-        )
-    }
+            .clip(RoundedCornerShape(8.dp))
+            .background(colors.chipBg)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+    )
 }
 
 /**
@@ -116,6 +106,11 @@ data class BulkOverflowAction(val label: String, val enabled: Boolean, val onCli
  * (`docs/design/bulk-bookshelf-add.md` §5.1、検索・新着の「カートへ追加」「本棚へ追加」)。
  * **空リスト(既定値)のときは「⋯」自体を描画せず、主ボタンだけの現行の見た目から1ピクセルも変わらない**
  * (予約中の一斉取消・予約カートの一括削除・貸出中の一斉延長はこれを指定しない)。
+ *
+ * [leadingContent]を指定すると、ボタン列の左に並べて描く(2026-09-20 実機確認を受けて追加。
+ * `docs/design/selection-mode.md` §3.4、選択モード中の「選択解除」をボタンと同じ行の左端に置くため)。
+ * **既定値(空)のときは左側に何も描かず、Rowの見た目は変更前と1ピクセルも変わらない**
+ * (SpaceBetweenでも空のBoxは幅0のため、ボタン列は変更前どおり右端に寄る)。
  */
 @Composable
 fun BulkActionBar(
@@ -127,36 +122,41 @@ fun BulkActionBar(
     containerColor: Color = LocalAppColors.current.alert,
     contentColor: Color = LocalAppColors.current.card,
     overflowActions: List<BulkOverflowAction> = emptyList(),
+    leadingContent: @Composable () -> Unit = {},
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 18.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, alignment = Alignment.End),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Button(
-            onClick = onClick,
-            enabled = enabled,
-            colors = ButtonDefaults.buttonColors(containerColor = containerColor, contentColor = contentColor),
-        ) {
-            Text(if (selectedCount > 0) "$actionLabel（${selectedCount}件）" else actionLabel)
-        }
-        if (overflowActions.isNotEmpty()) {
-            var overflowExpanded by remember { mutableStateOf(false) }
-            Box {
-                IconButton(onClick = { overflowExpanded = true }) {
-                    Text("⋯", fontSize = 20.sp, color = LocalAppColors.current.ink2)
-                }
-                DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
-                    overflowActions.forEach { action ->
-                        DropdownMenuItem(
-                            text = { Text(action.label) },
-                            enabled = action.enabled,
-                            onClick = {
-                                overflowExpanded = false
-                                action.onClick()
-                            },
-                        )
+        Box { leadingContent() }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp, alignment = Alignment.End)) {
+            Button(
+                onClick = onClick,
+                enabled = enabled,
+                colors = ButtonDefaults.buttonColors(containerColor = containerColor, contentColor = contentColor),
+            ) {
+                Text(if (selectedCount > 0) "$actionLabel（${selectedCount}件）" else actionLabel)
+            }
+            if (overflowActions.isNotEmpty()) {
+                var overflowExpanded by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { overflowExpanded = true }) {
+                        Text("⋯", fontSize = 20.sp, color = LocalAppColors.current.ink2)
+                    }
+                    DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
+                        overflowActions.forEach { action ->
+                            DropdownMenuItem(
+                                text = { Text(action.label) },
+                                enabled = action.enabled,
+                                onClick = {
+                                    overflowExpanded = false
+                                    action.onClick()
+                                },
+                            )
+                        }
                     }
                 }
             }

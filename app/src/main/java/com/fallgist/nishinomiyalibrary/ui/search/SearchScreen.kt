@@ -42,7 +42,7 @@ import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
 import com.fallgist.nishinomiyalibrary.ui.components.SelectionCheckbox
-import com.fallgist.nishinomiyalibrary.ui.components.SelectionModeBar
+import com.fallgist.nishinomiyalibrary.ui.components.SelectionHintChip
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.BulkCartAdditionCandidate
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.BulkCartAdditionConfirmDialog
 import com.fallgist.nishinomiyalibrary.ui.reservationcart.BulkDirectReservationConfirmDialog
@@ -188,39 +188,17 @@ private fun SearchView(
                 },
             )
         }
-        // 選択モードの上部バーは一覧の最上部、検索欄・オートコンプリート候補の下に出す(設計§3.4)。
-        if (state.results.isNotEmpty()) {
-            if (state.selectionMode) {
-                val displayedCountForBar = SearchContentBuilder.cartAdditionCandidates(state.results, state.selectedCartTilcods).size
-                SelectionModeBar(
-                    selectedCount = displayedCountForBar,
-                    onClearSelection = onExitCartSelection,
-                )
-            } else {
-                // 「長押しで複数選択」の案内(設計§3.6)。選択モード中・一覧が空のときは出さない。
-                Text(
-                    text = "長押しで複数選択",
-                    color = colors.ink2,
-                    fontSize = 11.sp,
-                    modifier = Modifier
-                        .padding(horizontal = 18.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.chipBg)
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                )
-            }
-        }
-        // BulkActionBarと一斉追加の結果・エラー表示は結果一覧の直上に置く(予約中一覧のBulkCancelBarと同じ配置方針)。
+        // 通常時は「長押しで複数選択」の案内、選択モード中は「選択解除」+一斉操作ボタンを同じ行に出す
+        // (設計§3.4・§3.6、2026-09-20 実機確認を受けて改訂)。一覧が空のときは出さない。
         if (state.results.isNotEmpty()) {
             // 件数規則の統一(設計追補§6.1)。バーの件数は全選択件数ではなく「表示中の選択」に揃える。
             // 実行対象(cartAdditionCandidates)と同じ集合を数えることで、バーの件数と実際の処理件数の
             // ずれ(絞り込みで隠れた選択を含めて数えてしまう不具合)を無くす。
             val displayedCandidates = SearchContentBuilder.cartAdditionCandidates(state.results, state.selectedCartTilcods)
-            // 一斉直接予約(設計追補§5、機能F)。設計§5.3どおり同じバーに2ボタンを並べる
-            // (主=予約する・件数付き、副=カートへ追加・件数なし)。赤(colors.alert)は一斉取消等の
-            // 破壊的操作の色であり、資料を確保する予約操作には使わない(書誌詳細の前例に合わせ緑)。
-            // 一斉操作バーは選択モードのときだけ出す(設計§3.5)。
             if (state.selectionMode) {
+                // 一斉直接予約(設計追補§5、機能F)。設計§5.3どおり同じバーに2ボタンを並べる
+                // (主=予約する・件数付き、副=カートへ追加・件数なし)。赤(colors.alert)は一斉取消等の
+                // 破壊的操作の色であり、資料を確保する予約操作には使わない(書誌詳細の前例に合わせ緑)。
                 BulkActionBar(
                     selectedCount = displayedCandidates.size,
                     actionLabel = "予約する",
@@ -240,8 +218,14 @@ private fun SearchView(
                             onClick = { onRequestBulkAddToBookshelf(displayedCandidates) },
                         ),
                     ),
+                    leadingContent = { SelectionHintChip(text = "選択解除", onClick = onExitCartSelection) },
                 )
+            } else {
+                SelectionHintChip(text = "長押しで複数選択", modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
             }
+        }
+        // 一斉追加の結果・エラー表示は結果一覧の直上に置く(予約中一覧のBulkCancelBarと同じ配置方針)。
+        if (state.results.isNotEmpty()) {
             // 一斉操作の結果・エラー表示は、選択モードでなくても出したままにする(処理の結果であり、
             // 選択とは別である)。
             state.bulkCartAdditionErrorMessage?.let {
