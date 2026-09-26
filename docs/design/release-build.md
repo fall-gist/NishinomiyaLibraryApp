@@ -237,3 +237,19 @@ R8を有効にするとJsoup（リフレクション）・Room・Hilt・kotlinx.
 
 詳細は各設計書の手動確認の節（`bulk-selection.md` §8.3、`bulk-selection-followup.md` §7.3、
 `bulk-bookshelf-add.md` §6.3）を参照。
+
+## 1.7の実機確認記録（2026-09-26）
+
+所有者から「1.7の確認完了」との報告を受けた（項目単位の内訳は報告に含まれない。**報告の範囲で確認済みとする**）。
+確認の対象とした項目は次の設計書の手動確認の節である。
+
+| 設計書 | 節 | 項目数 |
+|---|---|---|
+| `selection-mode.md` | §6 | 15（長押しでの選択モード、状態表示の位置、選択解除の位置、書誌詳細の長押し） |
+| `search-result-reset.md` | §6 | 5（蔵書検索の結果と一時表示のリセット） |
+| `reading-records-search.md` | §5 | 6（読書記録の単語AND検索） |
+| `reading-records-selection.md` | §5 | 8（読書記録の複数選択） |
+
+特記事項: **予約中・予約カートから開く書誌詳細で長押しするとクラッシュする不具合**（`selection-mode.md` §8、
+改修前から存在したもの）について、対処は §8.3 の案1（`DisableSelection` の内側に新しい `SelectionContainer`）
+であり、これも上記の確認に含まれる。案2への切り下げは不要となった。
