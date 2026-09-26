@@ -20,7 +20,7 @@ class ReleaseNotesTest {
     @Test
     fun `一覧は版番号の降順(新しい順)に並んでいる`() {
         val versions = ReleaseNotes.all.map { it.version }
-        val sortedDescending = versions.sortedWith(compareByDescending { parseVersion(it) })
+        val sortedDescending = versions.sortedWith { a, b -> compareVersions(b, a) }
         assertEquals(sortedDescending, versions)
     }
 
@@ -41,4 +41,15 @@ class ReleaseNotesTest {
      */
     private fun parseVersion(version: String): List<Int> =
         version.split(".").map { it.toInt() }
+
+    /** 版番号を要素ごとの数値として比較する(List<Int>自体はComparableではないため)。 */
+    private fun compareVersions(a: String, b: String): Int {
+        val partsA = parseVersion(a)
+        val partsB = parseVersion(b)
+        for (i in 0 until maxOf(partsA.size, partsB.size)) {
+            val cmp = partsA.getOrElse(i) { 0 }.compareTo(partsB.getOrElse(i) { 0 })
+            if (cmp != 0) return cmp
+        }
+        return 0
+    }
 }
