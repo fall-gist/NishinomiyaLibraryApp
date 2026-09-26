@@ -59,9 +59,18 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import java.time.Clock
 import java.time.ZoneId
+import javax.inject.Qualifier
 import javax.inject.Singleton
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+
+/**
+ * 閲覧専用セッション（Cookie・順番待ちの仕組みとも根セッションと独立）を根セッションと
+ * 区別するためのQualifier(docs/design/browse-lane.md §2.3)。
+ */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class BrowseSession
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -158,13 +167,34 @@ object RepositoryProvisionModule {
         diagnosticObserver = DiagnosticLogObserver(diagnosticLog),
     )
 
+    /**
+     * 閲覧専用セッション。根セッションとはCookie・`RequestRateLimiter`とも独立した
+     * 別インスタンスであること(docs/design/browse-lane.md §2.1)。[LicsXpSession.newIsolatedSession]は
+     * 順番待ちの仕組みを根セッションと共有してしまうため使わず、根セッションと同じ内部コンストラクタで
+     * 独立したインスタンスを生成する。診断ログは根セッションと同じ[diagnosticLog]を使う(同§2.3)。
+     */
     @Provides
     @Singleton
-    fun provideLibraryGateway(session: LicsXpSession): LibraryGateway = LicsXpClient(session)
+    @BrowseSession
+    fun provideBrowseLicsXpSession(diagnosticLog: DiagnosticLog): LicsXpSession = LicsXpSession(
+        baseUrl = LicsXpSession.DEFAULT_BASE_URL.toHttpUrl(),
+        client = OkHttpClient(),
+        diagnosticObserver = DiagnosticLogObserver(diagnosticLog),
+    )
 
     @Provides
     @Singleton
-    fun provideCurrentCirculationGateway(session: LicsXpSession): CurrentCirculationGateway = LicsXpClient(session)
+    fun provideLibraryGateway(
+        session: LicsXpSession,
+        @BrowseSession browseSession: LicsXpSession,
+    ): LibraryGateway = LicsXpClient(session, browseSession)
+
+    @Provides
+    @Singleton
+    fun provideCurrentCirculationGateway(
+        session: LicsXpSession,
+        @BrowseSession browseSession: LicsXpSession,
+    ): CurrentCirculationGateway = LicsXpClient(session, browseSession)
 
     @Provides
     @Singleton

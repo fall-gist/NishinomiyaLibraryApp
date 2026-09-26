@@ -28,8 +28,19 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.jsoup.Jsoup
 import okhttp3.FormBody
 
+/**
+ * [session] はメンバーとしての通信（同期・予約・取消・延長・本棚の変更）に使う根セッション。
+ * [browseSession] は閲覧6操作（[search]・[autocomplete]・[isLendable]・[bookDetail]・
+ * [closedDays]・[newArrivals]）専用のセッションで、Cookieも順番待ちの仕組みも[session]と
+ * 独立させることで、メンバーの一連の通信（[LicsXpSession.withExclusiveRequestSequence]による占有）が
+ * 閲覧の通信を遅らせないようにする(docs/design/browse-lane.md)。
+ * 既定値[session]は既存呼出し(テスト等)との互換用であり、分離は効かない。
+ * 本番のDI([com.fallgist.nishinomiyalibrary.data.repository.di.RepositoryProvisionModule])では
+ * 必ず別インスタンスを渡すこと。
+ */
 class LicsXpClient(
     private val session: LicsXpSession = LicsXpSession(),
+    private val browseSession: LicsXpSession = session,
 ) : LibraryGateway, CurrentCirculationGateway {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -40,11 +51,11 @@ class LicsXpClient(
     override suspend fun search(keyword: String, page: Int): SearchPage = mapErrors {
         require(page >= 1) { "page は1以上で指定してください" }
 
-        val searchForm = session.get("WOpacEsSchCmpdDispAction.do")
+        val searchForm = browseSession.get("WOpacEsSchCmpdDispAction.do")
         requireNotMaintenance(searchForm)
-        session.updateTokens(searchForm)
+        browseSession.updateTokens(searchForm)
 
-        val firstPageHtml = session.post(
+        val firstPageHtml = browseSession.post(
             path = "WOpacEsSchCmpdExecAction.do",
             form = FormBody.Builder()
                 .add("condition1Text", keyword)
@@ -57,13 +68,13 @@ class LicsXpClient(
                 .build(),
         )
         requireNotMaintenance(firstPageHtml)
-        session.updateTokens(firstPageHtml)
+        browseSession.updateTokens(firstPageHtml)
 
         val pageHtml = if (page == 1) {
             firstPageHtml
         } else {
-            val tokens = session.requireTokens()
-            session.post(
+            val tokens = browseSession.requireTokens()
+            browseSession.post(
                 path = "WOpacWebEsTilSubListAction.do",
                 query = mapOf(
                     "sortKey" to "",
@@ -73,14 +84,14 @@ class LicsXpClient(
                 form = tokenForm(tokens),
             ).also {
                 requireNotMaintenance(it)
-                session.updateTokens(it)
+                browseSession.updateTokens(it)
             }
         }
         SearchResultParser.parse(pageHtml)
     }
 
     override suspend fun autocomplete(keyword: String): List<String> = mapErrors {
-        val body = session.get(
+        val body = browseSession.get(
             path = "WOpacEsApiAutoCompleteAction.do",
             query = mapOf("keyword" to keyword),
         )
@@ -89,7 +100,7 @@ class LicsXpClient(
     }
 
     override suspend fun isLendable(tilcod: String): Boolean? = mapErrors {
-        val body = session.post(
+        val body = browseSession.post(
             path = "getIsLend.do",
             form = FormBody.Builder().add("tilcod", tilcod).build(),
         )
@@ -103,7 +114,7 @@ class LicsXpClient(
     }
 
     override suspend fun bookDetail(tilcod: String): BookDetail = mapErrors {
-        val html = session.get(
+        val html = browseSession.get(
             path = "WOpacTifTilListToTifTilDetailAction.do",
             query = mapOf("urlNotFlag" to "1", "tilcod" to tilcod),
         )
@@ -112,7 +123,7 @@ class LicsXpClient(
     }
 
     override suspend fun closedDays(libraryCode: String): List<LocalDate> = mapErrors {
-        val html = session.get(
+        val html = browseSession.get(
             path = "WOpacMnuTopInitAction.do",
             query = mapOf(
                 "WebLinkFlag" to "1",
@@ -126,7 +137,7 @@ class LicsXpClient(
 
     override suspend fun newArrivals(): List<NewArrival> = mapErrors {
         // 認証不要の公開ページ。ジャンル一覧→各ジャンルの順にGETし、tilcodで名寄せする。
-        val menuHtml = session.get(
+        val menuHtml = browseSession.get(
             path = "WOpacMsgNewMenuDispAction.do",
             query = mapOf("moveToGamenId" to "msgnewmenu"),
         )
@@ -136,7 +147,7 @@ class LicsXpClient(
         // 先勝ちで重複を除く。複数ジャンルに現れる資料は最初に見つけたジャンルの行を採用。
         val byTilcod = LinkedHashMap<String, NewArrival>()
         for (code in genreCodes) {
-            val listHtml = session.get(
+            val listHtml = browseSession.get(
                 path = "WOpacMsgNewMenuToMsgNewListAction.do",
                 query = mapOf("newMenuCode" to code),
             )
