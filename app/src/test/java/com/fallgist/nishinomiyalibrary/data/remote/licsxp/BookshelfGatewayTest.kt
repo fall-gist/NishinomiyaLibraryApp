@@ -651,20 +651,26 @@ class BookshelfGatewayTest {
 
     @Test
     fun `本棚1件からの削除で0件になった場合はAppliedとし2件以上から解析不能になった場合はUnknownのままにする`() = runBlocking {
-        // ケースA: 削除前がちょうど1件のとき、削除後の「otherbookのselect無し」応答を0件成立と解釈する。
+        // ケースA: 削除前がちょうど1件のとき、削除後の実物の0件画面(fixtures/mybooklist_empty.html)を
+        // 0件成立と解釈する。
+        // レビュー指摘・設計書§6: 以前はScreen=="shelf_list"(ShelfListParserの失敗)を合図にした
+        // 合成HTMLで固定していたが、実物の0件画面ではShelfListParserは成功しShelfParserが失敗するため
+        // 古い前提のまま機能していなかった。共通判定(EmptyBookshelfPage.matches)へ置き換え、
+        // 実物フィクスチャで固定し直す(docs/design/bookshelf-create-from-empty.md §6.2・§6.4項目2)。
         val onlyItem = FixtureItem("1000000000001", "唯一の資料", "メモ")
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "唯一の棚", items = listOf(onlyItem))))
         server.enqueue(page(shelfPage(1, "唯一の棚", items = listOf(onlyItem))))
         server.enqueue(page(confirmPage(deleteShelfFields(1), "OPACSDI010")))
         server.enqueue(page("<html>完了</html>"))
-        server.enqueue(page(noShelfSelectPage()))
+        server.enqueue(page(fixture("mybooklist_empty.html")))
 
         val zeroOutcome = session().mutate(RemoteBookshelfMutation.DeleteShelf(1, expected(1)))
 
         assertEquals(RemoteBookshelfOutcome.Applied(emptyList(), emptyList()), zeroOutcome)
 
-        // ケースB: 削除前が2件以上のときに同じ解析不能が起きても、0件と決め付けずUnknownのままにする。
+        // ケースB: 削除前が2件以上のときに実物の0件画面が返っても、0件と決め付けずUnknownのままにする
+        // (削除前が1件だったという文脈が無いため。設計書§6.4項目3)。
         val kept = FixtureItem("1000000000002", "残る資料", "メモ2")
         val shelves = listOf(1 to "残る棚", 2 to "消す棚")
         enqueueLogin()
@@ -673,22 +679,12 @@ class BookshelfGatewayTest {
         server.enqueue(page(shelfPage(2, "消す棚", shelves)))
         server.enqueue(page(confirmPage(deleteShelfFields(2), "OPACSDI010")))
         server.enqueue(page("<html>完了</html>"))
-        server.enqueue(page(noShelfSelectPage()))
+        server.enqueue(page(fixture("mybooklist_empty.html")))
 
         val unknownOutcome = session().mutate(RemoteBookshelfMutation.DeleteShelf(2, expected(2)))
 
         assertEquals(RemoteBookshelfOutcome.Unknown, unknownOutcome)
     }
-
-    /** 「マイ本棚」新規作成画面相当。form[name=LBForm]のhash/gamenidだけは持つが、otherbookのselectを持たない。 */
-    private fun noShelfSelectPage() = """
-        <html><body><h1>マイ本棚の新規作成</h1>
-        <form name="LBForm">
-          <input type="hidden" name="hash" value="masked" />
-          <input type="hidden" name="gamenid" value="tiles.WSdiBookListInput" />
-        </form>
-        </body></html>
-    """.trimIndent()
 
     @Test
     fun `stage1確認不成立ではstage2を送らず操作前と同一ならFailureにする`() = runBlocking {

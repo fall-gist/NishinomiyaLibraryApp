@@ -8,6 +8,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfDelete
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfDetailAddFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfEditFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookshelfFormField
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.EmptyBookshelfPage
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoginFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParseException
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ParserSupport
@@ -391,9 +392,12 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
     }
 
     /**
-     * zeroShelfFallbackが与えられ、かつ再取得が「otherbookのselectが見つからない」(=新規作成/0件画面)
-     * ParseExceptionで失敗した場合だけ、その結果を採用する。それ以外の解析不能は従来どおりUnknown。
-     * (docs/design/account-and-bookshelf-fixes.md §2.3.B: 本棚1件からの削除限定で0件成立と解釈する)
+     * zeroShelfFallbackが与えられ、かつ再取得が本棚0件の画面(EmptyBookshelfPage.matches。
+     * docs/design/bookshelf-create-from-empty.md §6.3)のParseExceptionで失敗した場合だけ、
+     * その結果を採用する。それ以外の解析不能は従来どおりUnknown。
+     * (docs/design/account-and-bookshelf-fixes.md §2.3.B: 本棚1件からの削除限定で0件成立と解釈する。
+     * 以前は`screen == "shelf_list"`を合図にしていたが、実物の0件画面ではShelfListParserは成功し
+     * ShelfParserが失敗するため古い前提のまま機能していなかった。§6.2で訂正した。)
      */
     private suspend fun LicsXpSession.ExclusiveRequestSequence.afterPost(
         before: BookshelfSnapshot,
@@ -401,11 +405,15 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
         zeroShelfFallback: (() -> RemoteBookshelfOutcome)? = null,
     ): RemoteBookshelfOutcome {
         val after = try {
-            fetchAllShelves()
+            val currentPage = fetchMyBooklistPage()
+            try {
+                parseShelfSnapshot(currentPage)
+            } catch (exception: ParseException) {
+                if (zeroShelfFallback != null && EmptyBookshelfPage.matches(currentPage)) return zeroShelfFallback()
+                throw exception
+            }
         } catch (exception: CancellationException) {
             throw exception
-        } catch (exception: ParseException) {
-            return if (zeroShelfFallback != null && exception.screen == "shelf_list") zeroShelfFallback() else RemoteBookshelfOutcome.Unknown
         } catch (_: Exception) {
             return RemoteBookshelfOutcome.Unknown
         }
@@ -428,19 +436,13 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
     }
 
     /**
-     * 本棚0件の画面かどうかを、次の条件すべてで判定する(docs/design/bookshelf-create-from-empty.md §2.1)。
-     * 3. ShelfParserが失敗する 4. BookshelfCreateFormParserが成功する
-     * 5. ShelfListParserの結果がプレースホルダ(番号0)だけである
-     * いずれかを欠けばnullを返し、呼び出し側は従来どおり例外を送出する。
-     * (条件1・2は呼び出し元でCreateShelf・期待値0件のときだけ呼ばれることで保証する。)
+     * 本棚0件の画面かどうかを、共通判定(EmptyBookshelfPage.matches。docs/design/bookshelf-create-from-empty.md
+     * §2.1・§6.3)で判定する。満たさなければnullを返し、呼び出し側は従来どおり例外を送出する。
+     * (条件「操作が作成」「期待値0件」は呼び出し元でCreateShelf・期待値0件のときだけ呼ばれることで保証する。)
      */
     private fun zeroShelfSnapshot(currentPage: String): BookshelfSnapshot? {
-        val listed = try { ShelfListParser.parse(currentPage) } catch (_: ParseException) { return null }
-        if (listed.singleOrNull()?.no != 0) return null
-        val shelfParses = try { ShelfParser.parse(currentPage); true } catch (_: ParseException) { false }
-        if (shelfParses) return null
-        try { BookshelfCreateFormParser.parse(currentPage) } catch (_: ParseException) { return null }
-        // listedはプレースホルダ(番号0)だけの一覧であり実在の本棚ではないため、shelvesは空とする。
+        if (!EmptyBookshelfPage.matches(currentPage)) return null
+        // EmptyBookshelfPageが返す一覧はプレースホルダ(番号0)だけで実在の本棚ではないため、shelvesは空とする。
         return BookshelfSnapshot(emptyList(), emptyMap(), currentPage)
     }
 

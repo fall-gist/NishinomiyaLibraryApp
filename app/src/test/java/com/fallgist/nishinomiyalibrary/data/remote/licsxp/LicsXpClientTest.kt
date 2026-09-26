@@ -220,11 +220,16 @@ class LicsXpClientTest {
     }
 
     @Test
-    fun `本棚0件の実測フィクスチャ応答では本棚取得だけをスキップし他データは取得できる`() = runBlocking {
+    fun `本棚0件の実測フィクスチャ応答では本棚0件として取得できる`() = runBlocking {
         // 新規アカウント等、本棚0件のときの画面は実物では新規作成フォーム(見出し「マイ本棚の新規作成」)を返す。
         // select[name=otherbook]自体はプレースホルダoption(value=0)を持って存在するためShelfListParserは
-        // 成功してしまい、input[name=otherbook]が無いことでShelfParserがParseExceptionを投げて初めて
-        // 本棚取得ブロック全体がスキップされる (docs/design/account-and-bookshelf-fixes.md §2.1, §2.3.A)。
+        // 成功してしまい、input[name=otherbook]が無いことでShelfParserがParseExceptionを投げる
+        // (docs/design/account-and-bookshelf-fixes.md §2.1)。
+        // 以前はここで本棚取得ブロック全体をスキップし、shelvesAvailable=falseのままローカルの本棚を
+        // 変えずにいた。しかし実物の0件画面は共通判定(EmptyBookshelfPage.matches)の3条件をすべて満たすため、
+        // これを識別子として使い、本棚0件として取得できたことにする
+        // (docs/design/bookshelf-create-from-empty.md §6.3。本棚1件からの削除後に同じ画面へ戻ったまま
+        // ローカルが更新されず操作不能になる不具合の修正)。
         server.enqueue(html("<html><body>温めページ</body></html>", setCookie = true))
         server.enqueue(html(fixture("login_form.html")))
         server.enqueue(html(fixture("after_login.html")))
@@ -237,7 +242,7 @@ class LicsXpClientTest {
 
         val result = client().fetchUserData(generatedCardNumber(), generatedPassword())
 
-        assertFalse(result.shelvesAvailable)
+        assertTrue(result.shelvesAvailable)
         assertTrue(result.shelves.isEmpty())
         assertTrue(result.shelfItems.isEmpty())
         assertEquals(12, result.loans.size)
@@ -245,13 +250,39 @@ class LicsXpClientTest {
 
         val requests = List(9) { takeRequest() }
         assertUserPageRequest(requests[6], "mybooklist", PageTokens("1249c619e529de0b66c5fb9d64dfb98392615089", "tiles.WUsrRsvList"))
-        // 本棚取得をスキップするため、切り替えPOSTは一切送らない。
+        // 本棚0件と確定できるため、切り替えPOSTは一切送らない(切り替え対象の本棚が無い)。
         assertTrue(requests.none { it.requestUrl!!.encodedPath == "/WOpacSdiBookListToOtherBookDispAction.do" })
         assertEquals("/WOpacMnuTopToPwdLibraryAction.do", requests[7].requestUrl!!.encodedPath)
         assertEquals("usrread", requests[7].requestUrl!!.queryParameter("gamen"))
         assertEquals("masked-hash-token-2026-08-17", formValue(requests[7], "hash"))
         assertEquals("history-open", formValue(requests[8], "hash"))
         assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun `本棚0件の判定を満たさない解析不能な本棚画面は従来どおり取得をスキップする`() = runBlocking {
+        // 実物の0件画面から作成フォーム(listname)を取り除いた、0件の判定を満たさない解析不能な画面。
+        // 別の理由で壊れた画面まで0件と誤判定するとローカルの本棚を誤って消すため、この場合は
+        // 従来どおり本棚取得だけをスキップし、ローカルの本棚は変えない
+        // (docs/design/account-and-bookshelf-fixes.md §2.3.A、bookshelf-create-from-empty.md §6.4項目5)。
+        val unmatched = fixture("mybooklist_empty.html").replace("name=\"listname\"", "name=\"renamed\"")
+        server.enqueue(html("<html><body>温めページ</body></html>", setCookie = true))
+        server.enqueue(html(fixture("login_form.html")))
+        server.enqueue(html(fixture("after_login.html")))
+        server.enqueue(html(fixture("menu.html")))
+        server.enqueue(html(fixture("usrlend.html")))
+        server.enqueue(html(fixture("usrrsv.html")))
+        server.enqueue(html(unmatched))
+        server.enqueue(html(usrReadPage(hash = "history-open", records = emptyList())))
+        server.enqueue(html(emptyUsrReadPage()))
+
+        val result = client().fetchUserData(generatedCardNumber(), generatedPassword())
+
+        assertFalse(result.shelvesAvailable)
+        assertTrue(result.shelves.isEmpty())
+        assertTrue(result.shelfItems.isEmpty())
+        assertEquals(12, result.loans.size)
+        assertEquals(19, result.reservations.size)
     }
 
     @Test

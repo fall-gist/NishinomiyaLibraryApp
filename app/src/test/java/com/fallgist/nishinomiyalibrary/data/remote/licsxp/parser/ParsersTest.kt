@@ -785,6 +785,30 @@ class ParsersTest {
         }
     }
 
+    /**
+     * 本棚0件の画面かどうかを一元判定するEmptyBookshelfPage.matches
+     * (docs/design/bookshelf-create-from-empty.md §6.3)を、実物フィクスチャで固定する
+     * (設計書§6.4項目1)。合成HTMLだけで済ませず、実物とその改変版で真偽を確かめる。
+     */
+    @Test
+    fun `EmptyBookshelfPageは実物の0件画面だけを真と判定する`() {
+        val emptyHtml = fixture("mybooklist_empty.html")
+        assertTrue(EmptyBookshelfPage.matches(emptyHtml))
+
+        // 本棚がある一覧のフィクスチャでは偽(ShelfListParserは成功するがプレースホルダだけではない)。
+        assertFalse(EmptyBookshelfPage.matches(fixture("mybooklist.html")))
+
+        // 実物から作成フォーム(listname)を取り除くと、BookshelfCreateFormParserが失敗し偽になる。
+        val withoutCreateForm = emptyHtml.replace("name=\"listname\"", "name=\"renamed\"")
+        assertFalse(EmptyBookshelfPage.matches(withoutCreateForm))
+
+        // 実物のselectにプレースホルダ以外の本棚を足すと、一覧がプレースホルダだけでなくなり偽になる
+        // (実物には</select>が1箇所しかないことをfixtures/mybooklist_empty.htmlで確認済み)。
+        val withExtraShelf = emptyHtml.replace("</select>", "<option value='5'>本棚5</option></select>")
+        assertTrue(withExtraShelf != emptyHtml)
+        assertFalse(EmptyBookshelfPage.matches(withExtraShelf))
+    }
+
     @Test
     fun `利用状況サマリフィクスチャをパースできる`() {
         val result = SummaryParser.parse(fixture("usrlend.html"))

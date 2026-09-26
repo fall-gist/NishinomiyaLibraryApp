@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.data.remote.licsxp
 
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.BookDetailParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.CalendarParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.EmptyBookshelfPage
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoanListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.LoginFormParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.NewArrivalListParser
@@ -162,6 +163,8 @@ class LicsXpClient(
         // (通信障害を「本棚が無い」と誤読しないため)。
         // 別理由の解析不能を0件と誤判定してローカルの本棚を消さないよう、失敗時は本棚取得だけをスキップし、
         // 他データは通常どおり取得する (docs/design/account-and-bookshelf-fixes.md §2.3.A)。
+        // ただし、実物の0件画面と共通判定できる場合(EmptyBookshelfPage.matches)に限り、本棚0件として
+        // 取得できたことにする(docs/design/bookshelf-create-from-empty.md §6.3)。
         val shelfSync = try {
             val listedShelves = ShelfListParser.parse(shelfHtml)
             val currentShelf = ShelfParser.parse(shelfHtml)
@@ -198,7 +201,11 @@ class LicsXpClient(
                 shelfItems = listedShelves.flatMap { shelf -> requireNotNull(parsedShelves[shelf.no]).items },
             )
         } catch (exception: ParseException) {
-            null
+            if (EmptyBookshelfPage.matches(shelfHtml)) {
+                ShelfSyncResult(shelves = emptyList(), shelfItems = emptyList())
+            } else {
+                null
+            }
         }
         val readingRecords = fetchReadingRecords(userSession, knownReadingRecordKeys)
 
