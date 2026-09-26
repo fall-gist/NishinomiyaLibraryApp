@@ -44,10 +44,113 @@ class BookshelfGatewayTest {
 
         assertEquals(RemoteBookshelfOutcome.Applied(listOf(Shelf(1, "作成前"), Shelf(2, "新しい棚")), emptyList()), outcome)
         val requests = requests(10)
+        // 既存の本棚がある場合は、従来どおり入力画面への移動を経てから作成フォームを組む
+        // (docs/design/bookshelf-create-from-empty.md §3 項目8)。
+        assertEquals("/WOpacSdiBookListToInputAction.do", requests[5].path)
         assertEquals("/WOpacSdiBookListExecAction.do", requests[6].path)
         assertEquals("/WOpacSdiBookListExecAction.do", requests[7].path)
         assertEquals("hash=masked&returnid=tiles.WSdiBookList&gamenid=tiles.WSdiBookListNew&listname=%E6%96%B0%E3%81%97%E3%81%84%E6%A3%9A&commnt=", requests[6].body.readUtf8())
         assertEquals("okCodes=OPACSDI017", requests[7].body.readUtf8().substringAfterLast('&'))
+    }
+
+    @Test
+    fun `本棚0件の画面からは入力画面への移動を送らずその画面の作成フォームで二段階POSTする`() = runBlocking {
+        enqueueLogin()
+        server.enqueue(page(zeroShelfCreatePage()))
+        server.enqueue(page(confirmPage(zeroShelfCreateFields("新しい棚"), "OPACSDI017")))
+        server.enqueue(page("<html>完了</html>"))
+        server.enqueue(page(shelfPage(1, "新しい棚")))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(0)))
+
+        assertEquals(RemoteBookshelfOutcome.Applied(listOf(Shelf(1, "新しい棚")), emptyList()), outcome)
+        val requests = requests(8)
+        assertEquals(0, requests.count { it.path == "/WOpacSdiBookListToInputAction.do" })
+        assertEquals("/WOpacSdiBookListExecAction.do", requests[5].path)
+        assertEquals("/WOpacSdiBookListExecAction.do", requests[6].path)
+        assertEquals(
+            "hash=masked&returnid=tiles.WPwdPortalMenuSpl&gamenid=tiles.WSdiBookListNew&btnflg=0&listname=%E6%96%B0%E3%81%97%E3%81%84%E6%A3%9A&commnt=",
+            requests[5].body.readUtf8(),
+        )
+        assertEquals("okCodes=OPACSDI017", requests[6].body.readUtf8().substringAfterLast('&'))
+    }
+
+    @Test
+    fun `本棚0件からの作成で送信後も0件のままならAppliedにしない`() = runBlocking {
+        enqueueLogin()
+        server.enqueue(page(zeroShelfCreatePage()))
+        server.enqueue(page(confirmPage(zeroShelfCreateFields("新しい棚"), "OPACSDI017")))
+        server.enqueue(page("<html>完了</html>"))
+        server.enqueue(page(zeroShelfCreatePage()))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(0)))
+
+        // 作成にはzeroShelfFallbackを渡していないため、送信後も0件のままの解析不能はUnknownのままにする
+        // (deleteShelfの1件限定救済とは別物であることを固定する)。
+        assertEquals(RemoteBookshelfOutcome.Unknown, outcome)
+    }
+
+    @Test
+    fun `期待値の本棚数が0でないのに0件の画面が返ったら送信せず停止する`() = runBlocking {
+        enqueueLogin()
+        server.enqueue(page(zeroShelfCreatePage()))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(1)))
+
+        assertEquals(
+            RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, "${BookshelfStopDiagnosticCode.PARSE_EXCEPTION.value}(shelf)"),
+            outcome,
+        )
+        assertEquals(5, server.requestCount)
+        assertEquals(0, requests(5).count { it.path == "/WOpacSdiBookListExecAction.do" })
+    }
+
+    @Test
+    fun `作成以外の操作で0件の画面が返ったら従来どおり停止する`() = runBlocking {
+        enqueueLogin()
+        server.enqueue(page(zeroShelfCreatePage()))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.AddItem(1, "1000000000002", "メモ", expected(0)))
+
+        assertEquals(
+            RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, "${BookshelfStopDiagnosticCode.PARSE_EXCEPTION.value}(shelf)"),
+            outcome,
+        )
+        assertEquals(5, server.requestCount)
+        assertEquals(0, requests(5).count { it.path == "/WOpacTifDetailAddBookListAction.do" })
+    }
+
+    @Test
+    fun `0件の画面に作成フォームが無い改変HTMLでは送信せず停止する`() = runBlocking {
+        enqueueLogin()
+        server.enqueue(page(zeroShelfCreatePage().replace("name='listname'", "name='renamed'")))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(0)))
+
+        assertEquals(
+            RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, "${BookshelfStopDiagnosticCode.PARSE_EXCEPTION.value}(shelf)"),
+            outcome,
+        )
+        assertEquals(5, server.requestCount)
+        assertEquals(0, requests(5).count { it.path == "/WOpacSdiBookListExecAction.do" })
+    }
+
+    @Test
+    fun `本棚解析失敗の診断コードと診断ログに画面識別子が付く`() = runBlocking {
+        val notes = mutableListOf<Pair<String, String>>()
+        enqueueLogin()
+        server.enqueue(page(zeroShelfCreatePage()))
+
+        val outcome = diagnosticSession(notes).mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(1)))
+
+        assertEquals(
+            RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, "${BookshelfStopDiagnosticCode.PARSE_EXCEPTION.value}(shelf)"),
+            outcome,
+        )
+        assertEquals(
+            listOf("bookshelf-stop" to "code=${BookshelfStopDiagnosticCode.PARSE_EXCEPTION.value} screen=shelf reason=${BookshelfStopDiagnosticCode.PARSE_EXCEPTION.reason}"),
+            notes,
+        )
     }
 
     @Test
@@ -744,6 +847,29 @@ class BookshelfGatewayTest {
     private fun createPage() = "<form name='LBForm'><input name='hash' value='masked'><input name='returnid' value='tiles.WSdiBookList'><input name='gamenid' value='tiles.WSdiBookListNew'><input name='listname' value=''><textarea name='commnt'></textarea></form>"
     private fun tokenPage(hash: String, gamenId: String) = "<form name='LBForm'><input name='hash' value='$hash'><input name='gamenid' value='$gamenId'></form>"
     private fun createFields(name: String) = listOf("hash" to "masked", "returnid" to "tiles.WSdiBookList", "gamenid" to "tiles.WSdiBookListNew", "listname" to name, "commnt" to "")
+
+    /**
+     * 本棚0件のときの「マイ本棚」応答相当(実物: fixtures/mybooklist_empty.html)。
+     * h1は「マイ本棚の新規作成」でShelfParserの見出し検証は通るが、LBForm内にinput[name=otherbook]が
+     * 無いため現在の本棚番号が取れずShelfParserは失敗する。otherbookのselect(プレースホルダ1件、
+     * 番号0)はLBFormの外に置き、ShelfListParserはコメント内も含む生HTMLを正規表現で読むため実物同様に
+     * 検出できる一方、jsoupベースのBookshelfCreateFormParserの対象(LBForm内)には含めない
+     * (実物ではこのselectはHTMLコメント内にあり、同じくLBFormの実フィールドにならない)。
+     */
+    private fun zeroShelfCreatePage() = """
+        <h1>マイ本棚の新規作成</h1>
+        <select name='otherbook'><option value='0' selected>------------------</option></select>
+        <form name='LBForm'>
+          <input type='hidden' name='hash' value='masked'>
+          <input type='hidden' name='returnid' value='tiles.WPwdPortalMenuSpl'>
+          <input type='hidden' name='gamenid' value='tiles.WSdiBookListNew'>
+          <input type='hidden' name='btnflg' value='0'>
+          <input type='text' name='listname' value=''>
+          <textarea name='commnt'></textarea>
+        </form>
+    """.trimIndent()
+    private fun zeroShelfCreateFields(name: String) =
+        listOf("hash" to "masked", "returnid" to "tiles.WPwdPortalMenuSpl", "gamenid" to "tiles.WSdiBookListNew", "btnflg" to "0", "listname" to name, "commnt" to "")
 
     private fun editPage(no: Int, name: String, items: List<FixtureItem>) = fieldsForm(editFields(no, name, items))
     private fun editFields(no: Int, name: String, items: List<FixtureItem>) = buildList {

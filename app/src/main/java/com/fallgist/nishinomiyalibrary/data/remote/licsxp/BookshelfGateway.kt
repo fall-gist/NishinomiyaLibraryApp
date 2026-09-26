@@ -101,17 +101,23 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
             RemoteBookshelfOutcome.Failure(FailureReason.SITE_MAINTENANCE)
         } catch (exception: LibraryError.Network) {
             RemoteBookshelfOutcome.Failure(FailureReason.NETWORK)
-        } catch (_: ParseException) {
-            changedFailure(BookshelfStopDiagnosticCode.PARSE_EXCEPTION)
-        } catch (_: LibraryError.Parse) {
-            changedFailure(BookshelfStopDiagnosticCode.PARSE_EXCEPTION)
+        } catch (exception: ParseException) {
+            changedFailure(BookshelfStopDiagnosticCode.PARSE_EXCEPTION, exception.screen)
+        } catch (exception: LibraryError.Parse) {
+            changedFailure(BookshelfStopDiagnosticCode.PARSE_EXCEPTION, exception.screen)
         }
     }
 
     override fun close() = Unit
 
     private suspend fun LicsXpSession.ExclusiveRequestSequence.mutateExclusively(mutation: RemoteBookshelfMutation, stateChangePost: StateChangePostTracker): RemoteBookshelfOutcome {
-        val before = fetchAllShelves()
+        // 作成だけは、期待値0件のときに限り送信前取得のParseExceptionを0件スナップショットへ救済する
+        // (docs/design/bookshelf-create-from-empty.md §2.1)。作成以外・期待値0件以外は従来どおり。
+        val before = if (mutation is RemoteBookshelfMutation.CreateShelf) {
+            fetchAllShelvesForCreate(mutation.expected)
+        } else {
+            fetchAllShelves()
+        }
         if (!mutation.expected.matches(before)) return changedFailure(BookshelfStopDiagnosticCode.PRECONDITION_MISMATCH)
         return when (mutation) {
             is RemoteBookshelfMutation.AddItem -> add(before, mutation, stateChangePost)
@@ -157,10 +163,18 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
 
     private suspend fun LicsXpSession.ExclusiveRequestSequence.create(before: BookshelfSnapshot, mutation: RemoteBookshelfMutation.CreateShelf, stateChangePost: StateChangePostTracker): RemoteBookshelfOutcome {
         val page = before.currentPage ?: return changedFailure()
-        val nav = BookshelfDeleteFormParser.parse(page).buildForm()
-        val input = post("WOpacSdiBookListToInputAction.do", form = nav)
-        requireBookshelfNotMaintenance(input)
-        val stage1 = BookshelfCreateFormParser.parse(input).buildForm(mutation.name)
+        // before.shelvesが空なのは、fetchAllShelvesForCreateが0件スナップショットとして救済した場合だけ
+        // (通常のfetchAllShelvesはShelfListParserが必ず1件以上返すため空にならない)。
+        // このときpageそのものが作成画面であり、入力画面への移動(WOpacSdiBookListToInputAction.do)を
+        // 送らずこの画面の作成フォームをそのまま使う (docs/design/bookshelf-create-from-empty.md §2.2)。
+        val stage1 = if (before.shelves.isEmpty()) {
+            BookshelfCreateFormParser.parse(page).buildForm(mutation.name)
+        } else {
+            val nav = BookshelfDeleteFormParser.parse(page).buildForm()
+            val input = post("WOpacSdiBookListToInputAction.do", form = nav)
+            requireBookshelfNotMaintenance(input)
+            BookshelfCreateFormParser.parse(input).buildForm(mutation.name)
+        }
         return twoStage(before, "WOpacSdiBookListExecAction.do", emptyMap(), stage1, BookshelfConfirmationKind.CREATE, stateChangePost) { after ->
             val added = after.shelves.filter { shelf -> before.shelves.none { it.no == shelf.no } }
             added.size == 1 && added.single().name == mutation.name && unchangedExistingShelves(before, after)
@@ -377,6 +391,32 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
         return RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, code.value)
     }
 
+    /**
+     * 解析失敗の画面識別子を診断コードへ添える版 (docs/design/bookshelf-create-from-empty.md §2.4)。
+     * 画面識別子はコード内の固定文字列(ParseException.screen)であり、サイトの応答本文や
+     * 利用者の情報は含まない。
+     */
+    private fun changedFailure(code: BookshelfStopDiagnosticCode, screen: String): RemoteBookshelfOutcome.Failure {
+        session.noteDiagnostic("bookshelf-stop", "code=${code.value} screen=$screen reason=${code.reason}")
+        return RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, "${code.value}(${screen})")
+    }
+
+    /**
+     * 本棚0件の画面かどうかを、次の条件すべてで判定する(docs/design/bookshelf-create-from-empty.md §2.1)。
+     * 3. ShelfParserが失敗する 4. BookshelfCreateFormParserが成功する
+     * 5. ShelfListParserの結果がプレースホルダ(番号0)だけである
+     * いずれかを欠けばnullを返し、呼び出し側は従来どおり例外を送出する。
+     * (条件1・2は呼び出し元でCreateShelf・期待値0件のときだけ呼ばれることで保証する。)
+     */
+    private fun zeroShelfSnapshot(currentPage: String): BookshelfSnapshot? {
+        val listed = try { ShelfListParser.parse(currentPage) } catch (_: ParseException) { return null }
+        if (listed.singleOrNull()?.no != 0) return null
+        val shelfParses = try { ShelfParser.parse(currentPage); true } catch (_: ParseException) { false }
+        if (shelfParses) return null
+        try { BookshelfCreateFormParser.parse(currentPage) } catch (_: ParseException) { return null }
+        return BookshelfSnapshot(listed, emptyMap(), currentPage)
+    }
+
     private suspend fun LicsXpSession.ExclusiveRequestSequence.refetchOrNull(): BookshelfSnapshot? = try {
         fetchAllShelves()
     } catch (exception: CancellationException) {
@@ -385,12 +425,16 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
         null
     }
 
-    private suspend fun LicsXpSession.ExclusiveRequestSequence.fetchAllShelves(): BookshelfSnapshot {
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.fetchMyBooklistPage(): String {
         val tokens = session.requireTokens()
         val currentPage = post("WOpacMnuTopToPwdLibraryAction.do", mapOf("gamen" to "mybooklist"), tokenForm(tokens))
         requireBookshelfNotMaintenance(currentPage)
         if (isBookshelfLoginForm(currentPage)) throw LibraryError.Auth(memberName = null)
         session.updateTokens(currentPage)
+        return currentPage
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.parseShelfSnapshot(currentPage: String): BookshelfSnapshot {
         val listed = ShelfListParser.parse(currentPage)
         val current = ShelfParser.parse(currentPage)
         if (listed.singleOrNull { it.no == current.shelf.no }?.name != current.shelf.name) throw ParseException("shelf", "現在の本棚が一覧と一致しません")
@@ -407,6 +451,27 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
         // このスナップショットのcurrentPageは取得直後の表示にすぎない。状態変更操作の直前には必ず
         // switchToShelf()で対象へ改めて切り替え、その応答からフォームを組み立てる(キャッシュ不使用)。
         return BookshelfSnapshot(listed, parsed, currentPage)
+    }
+
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.fetchAllShelves(): BookshelfSnapshot =
+        parseShelfSnapshot(fetchMyBooklistPage())
+
+    /**
+     * 作成(CreateShelf)専用。期待値の本棚数が0のときに限り、通常解析のParseExceptionを
+     * 0件スナップショットとして救済してよいか試す。誤判定を避けるため、期待値0件以外や
+     * 条件を一つでも欠く場合は例外をそのまま再送出し、fetchAllShelves()と同じく安全側に停止する
+     * (docs/design/bookshelf-create-from-empty.md §2.1)。
+     */
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.fetchAllShelvesForCreate(
+        expected: BookshelfMutationExpectation,
+    ): BookshelfSnapshot {
+        val currentPage = fetchMyBooklistPage()
+        return try {
+            parseShelfSnapshot(currentPage)
+        } catch (exception: ParseException) {
+            if (expected.shelfCount == 0) zeroShelfSnapshot(currentPage)?.let { return it }
+            throw exception
+        }
     }
 
     private fun tokenForm(tokens: com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.PageTokens): FormBody =
