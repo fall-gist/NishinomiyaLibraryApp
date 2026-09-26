@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfBulkAddProgress
@@ -111,7 +112,7 @@ fun OperationProgressBannerBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(colors.chipBg)
+            .background(colors.greenBg)
             .let { if (!inProgress && onDismiss != null) it.clickable(onClick = onDismiss) else it }
             .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -120,10 +121,10 @@ fun OperationProgressBannerBar(
             CircularProgressIndicator(
                 modifier = Modifier.size(14.dp),
                 strokeWidth = 2.dp,
-                color = colors.ink2,
+                color = colors.greenInk,
             )
             Spacer(Modifier.size(8.dp))
         }
-        Text(text, color = colors.ink2, fontSize = 12.sp)
+        Text(text, color = colors.greenInk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
