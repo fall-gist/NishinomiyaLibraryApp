@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -48,6 +49,9 @@ import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItem
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreen
 import com.fallgist.nishinomiyalibrary.ui.calendar.CalendarScreenController
+import com.fallgist.nishinomiyalibrary.ui.components.OperationKind
+import com.fallgist.nishinomiyalibrary.ui.components.OperationProgressBannerBar
+import com.fallgist.nishinomiyalibrary.ui.components.OperationProgressContentBuilder
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailCancelTarget
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailContentBuilder
 import com.fallgist.nishinomiyalibrary.ui.detail.BookDetailController
@@ -138,6 +142,48 @@ fun LibraryApp(
     val colors = LocalAppColors.current
     val context = LocalContext.current
     val reservationState by reservationUiController.state.collectAsState()
+    // 画面下の帯(`docs/design/operation-progress-banner.md`)の文言を決めるため、現在の画面に関わらず
+    // 全操作の進行状態をここで購読する。新しいコントローラや状態の複製は作らない(既存のstateを
+    // OperationProgressContentBuilder.bannerへ渡すだけ、§2.2)。ここは`bottomBar`と画面本体の
+    // 両方から参照するため、Scaffoldより外側(このComposable関数のトップレベル)に置く。
+    val detailStateForBanner by bookDetailController.state.collectAsState()
+    val editingStateForBanner by bookshelfEditingUiController.state.collectAsState()
+    val extensionStateForBanner by loanExtensionUiController.state.collectAsState()
+    val cancelStateForBanner by reservationCancelUiController.state.collectAsState()
+    val searchStateForBanner by searchController.state.collectAsState()
+    val newArrivalsStateForBanner by newArrivalsController.state.collectAsState()
+    val readingStateForBanner by readingRecordsController.state.collectAsState()
+    val progressBanner = OperationProgressContentBuilder.banner(
+        bookshelfBulkAdd = editingStateForBanner.bulkAddProgress,
+        loanBulkExtend = extensionStateForBanner.bulkProgress,
+        cancelProcessing = cancelStateForBanner.processing,
+        // カートへ追加・直接予約は蔵書検索・新着資料・読書記録の3画面で独立して起こり得るが、
+        // 帯は1本だけ出すため、どの画面が処理中でもまとめて真として扱う(§2.4)。
+        cartAddProcessing = searchStateForBanner.bulkCartAdditionProcessing ||
+            newArrivalsStateForBanner.bulkCartAdditionProcessing ||
+            readingStateForBanner.bulkCartAdditionProcessing,
+        directReservationProcessing = searchStateForBanner.bulkDirectReservationProcessing ||
+            newArrivalsStateForBanner.bulkDirectReservationProcessing ||
+            readingStateForBanner.bulkDirectReservationProcessing,
+        cartConfirmProcessing = reservationState.processing,
+        bookshelfMutationProcessing = editingStateForBanner.processingMutation != null,
+        syncing = syncState.isSyncing,
+    )
+    // 完了の帯(§2.7)。直前のbannerが非nullで今回nullになった瞬間を「完了」とみなす。
+    // 新しい状態の複製ではなく、直前のOperationKindだけをrememberして検出する。
+    var lastProgressKind by remember { mutableStateOf<OperationKind?>(null) }
+    var completionBannerText by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(progressBanner?.kind) {
+        val previousKind = lastProgressKind
+        if (progressBanner == null && previousKind != null) {
+            OperationProgressContentBuilder.completionText(previousKind)?.let { text ->
+                completionBannerText = text
+                kotlinx.coroutines.delay(5_000)
+                completionBannerText = null
+            }
+        }
+        lastProgressKind = progressBanner?.kind
+    }
     val primaryTabs = Destination.entries.filter { it.primary }
     var currentName by rememberSaveable { mutableStateOf(Destination.HOME.name) }
     val current = Destination.valueOf(currentName)
@@ -269,19 +315,37 @@ fun LibraryApp(
             containerColor = colors.paper,
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
-                NavigationBar(containerColor = colors.card) {
-                    primaryTabs.forEach { dest ->
-                        NavigationBarItem(
-                            selected = current == dest,
-                            onClick = {
-                                navigateTo(dest)
-                                bookDetailController.close()
-                                // 重ねて表示しているオーバーレイを閉じないと、下部ナビをタップしても画面が変わらない。
-                                diagnosticLogOpen = false
-                            },
-                            icon = { Text(dest.emoji, fontSize = 16.sp) },
-                            label = { Text(dest.label, fontSize = 10.sp) },
+                Column {
+                    // 待ち時間の帯(`docs/design/operation-progress-banner.md` §2.1)。下部ナビの直上、
+                    // 進行中の操作が無く完了の帯も出ていないときは何も描かない(高さ0)。
+                    // 書誌詳細・診断ログの全画面オーバーレイより下に置く(オーバーレイの上に帯を重ねない、
+                    // §2.1)ため、オーバーレイを見ている間は帯自体を描かない(処理は続いており、
+                    // 閉じれば再び見える)。
+                    val overlayOpen = detailStateForBanner.open || diagnosticLogOpen
+                    val bannerText = if (overlayOpen) null else progressBanner?.text ?: completionBannerText
+                    if (bannerText != null) {
+                        OperationProgressBannerBar(
+                            text = bannerText,
+                            inProgress = progressBanner != null,
+                            onDismiss = if (progressBanner == null) {
+                                { completionBannerText = null }
+                            } else null,
                         )
+                    }
+                    NavigationBar(containerColor = colors.card) {
+                        primaryTabs.forEach { dest ->
+                            NavigationBarItem(
+                                selected = current == dest,
+                                onClick = {
+                                    navigateTo(dest)
+                                    bookDetailController.close()
+                                    // 重ねて表示しているオーバーレイを閉じないと、下部ナビをタップしても画面が変わらない。
+                                    diagnosticLogOpen = false
+                                },
+                                icon = { Text(dest.emoji, fontSize = 16.sp) },
+                                label = { Text(dest.label, fontSize = 10.sp) },
+                            )
+                        }
                     }
                 }
             },

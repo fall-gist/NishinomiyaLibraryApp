@@ -138,14 +138,8 @@ fun LoansScreen(
                         .padding(horizontal = 18.dp, vertical = 4.dp),
                 )
             }
-            extensionState.bulkProgress?.let { progress ->
-                Text(
-                    text = "延長処理中… ${progress.completed + 1}件目/${progress.total}件",
-                    color = colors.ink2,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
-                )
-            }
+            // 一斉延長の進捗表示は画面下の帯へ移した(`docs/design/operation-progress-banner.md` §2.6)。
+            // 行の中の単独延長の表示(下のLoanRowViewのextending)は残す。
         }
         PullToRefreshBox(
             isRefreshing = isRefreshing,

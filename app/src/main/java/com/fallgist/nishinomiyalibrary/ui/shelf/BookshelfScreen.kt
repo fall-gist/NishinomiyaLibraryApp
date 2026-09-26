@@ -385,8 +385,8 @@ fun BookshelfEditingDialogs(
         BookshelfBulkAddConfirmDialog(confirmation, onConfirmBulkAdd, onDismissBulkAddConfirmation)
     }
     editingState.result?.let { result -> BookshelfEditingResultDialog(result, onClearResult) }
-    // 進捗中は確認・結果ダイアログと排他(bulkAddProgressが立つ間はpendingConfirmation/resultsは無い)。
-    editingState.bulkAddProgress?.let { progress -> BookshelfBulkAddProgressDialog(progress) }
+    // 進捗表示は画面下の帯へ移した(`docs/design/operation-progress-banner.md` §2.5)。閉じられない
+    // ダイアログはここでは出さない。結果ダイアログは残す。
     editingState.bulkAddResults?.let { results -> BookshelfBulkAddResultsDialog(results, onClearBulkAddResults) }
 }
 
@@ -583,24 +583,6 @@ private fun BookshelfBulkAddConfirmDialog(
                 ) { Text("この本棚に追加") }
             },
             dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
-        )
-    }
-}
-
-/**
- * 一斉本棚追加の進捗表示(`docs/design/bulk-bookshelf-add.md` §5.3「N件目/M件」)。
- * 1件あたり4往復かかり時間を要するため、閉じるボタンは置かず処理完了まで表示し続ける。
- */
-@Composable
-private fun BookshelfBulkAddProgressDialog(progress: BookshelfBulkAddProgress) {
-    DisableSelection {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("本棚へ追加しています") },
-            // completed==totalの瞬間(最後の1件が終わった直後、結果表示へ切り替わるまでの間)に
-            // 「(total+1)件目/total件」と出ないよう、表示上の件数をtotalで頭打ちにする。
-            text = { Text("${minOf(progress.completed + 1, progress.total)}件目/${progress.total}件") },
-            confirmButton = {},
         )
     }
 }
