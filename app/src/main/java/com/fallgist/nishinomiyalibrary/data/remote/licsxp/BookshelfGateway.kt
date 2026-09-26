@@ -414,7 +414,8 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
         val shelfParses = try { ShelfParser.parse(currentPage); true } catch (_: ParseException) { false }
         if (shelfParses) return null
         try { BookshelfCreateFormParser.parse(currentPage) } catch (_: ParseException) { return null }
-        return BookshelfSnapshot(listed, emptyMap(), currentPage)
+        // listedはプレースホルダ(番号0)だけの一覧であり実在の本棚ではないため、shelvesは空とする。
+        return BookshelfSnapshot(emptyList(), emptyMap(), currentPage)
     }
 
     private suspend fun LicsXpSession.ExclusiveRequestSequence.refetchOrNull(): BookshelfSnapshot? = try {
