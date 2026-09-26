@@ -484,6 +484,39 @@ class BookshelfFormsTest {
     private fun fixture(name: String): String =
         requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
 
+    /**
+     * 本棚0件のときの「マイ本棚」実測フィクスチャ(`mybooklist_empty.html`)から作成フォームを組み立てられる
+     * ことを固定する(レビュー指摘: 合成HTMLだけでBookshelfCreateFormParserを検証していた)。
+     * ShelfParserが失敗する一方、BookshelfCreateFormParserは成功し、送信フォームに
+     * otherbook(実物ではLBForm内のHTMLコメント内にありjsoupの実フィールドにならない)を含まないこと、
+     * listname・commntだけを置換し他はそのまま送ることを、実測値そのもので固定する
+     * (docs/design/bookshelf-create-from-empty.md §2.1・§2.2)。hashの実値は秘匿ポリシーにより
+     * マスク済み(`masked-hash-token-2026-08-17`)。
+     */
+    @Test
+    fun `実測の本棚0件画面からBookshelfCreateFormParserがotherbookを含まない作成フォームを組み立てる`() {
+        val html = fixture("mybooklist_empty.html")
+
+        assertEquals(listOf(Shelf(0, "------------------")), ShelfListParser.parse(html))
+        assertTrue(runCatching { ShelfParser.parse(html) }.exceptionOrNull() is ParseException)
+
+        val stage1 = BookshelfCreateFormParser.parse(html).buildForm("新しい棚")
+        val fields = (0 until stage1.size).map { BookshelfFormField(stage1.name(it), stage1.value(it)) }
+
+        assertEquals(
+            listOf(
+                BookshelfFormField("hash", "masked-hash-token-2026-08-17"),
+                BookshelfFormField("returnid", "tiles.WPwdPortalMenuSpl"),
+                BookshelfFormField("gamenid", "tiles.WSdiBookListNew"),
+                BookshelfFormField("btnflg", "0"),
+                BookshelfFormField("listname", "新しい棚"),
+                BookshelfFormField("commnt", ""),
+            ),
+            fields,
+        )
+        assertTrue(fields.none { it.name == "otherbook" })
+    }
+
     @Test
     fun `確認フォームは異なる項目名間だけのDOM順変更を受理する`() {
         val expected = stage1FieldsForOrderingTest()

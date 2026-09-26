@@ -360,8 +360,34 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
     }
 
     private suspend fun LicsXpSession.ExclusiveRequestSequence.beforeStage2(before: BookshelfSnapshot, success: (BookshelfSnapshot) -> Boolean): RemoteBookshelfOutcome {
-        val after = refetchOrNull() ?: return RemoteBookshelfOutcome.Unknown
+        val after = refetchBeforeStage2OrNull(before) ?: return RemoteBookshelfOutcome.Unknown
         return when { success(after) -> after.applied(); after.sameAs(before) -> changedFailure(); else -> RemoteBookshelfOutcome.Unknown }
+    }
+
+    /**
+     * beforeStage2専用の再取得。この経路に来るのはstage1が確認画面でなかった場合(通信断・
+     * メンテナンス・確認画面の検証失敗)に限られ、状態変更POST(onRequestStartedを渡すpostExactlyOnce)は
+     * 一度も呼ばれていないことがコード上確定している。0件からの作成(before.shelvesが空)のときだけ、
+     * 通常解析のParseExceptionを0件スナップショットとして再度読めるようにする。まだ0件のままなら
+     * after.sameAs(before)が成立し、送っていないと明言できるchangedFailure()に倒れる(Unknownのまま
+     * 「結果を確認できません」と案内し公式サイトでの確認を強いることを避ける)。
+     * 状態変更を送った後の再取得(afterPost)はこの対象ではなく、従来どおりUnknownのままにする。
+     */
+    private suspend fun LicsXpSession.ExclusiveRequestSequence.refetchBeforeStage2OrNull(before: BookshelfSnapshot): BookshelfSnapshot? = try {
+        if (before.shelves.isEmpty()) {
+            val currentPage = fetchMyBooklistPage()
+            try {
+                parseShelfSnapshot(currentPage)
+            } catch (exception: ParseException) {
+                zeroShelfSnapshot(currentPage) ?: throw exception
+            }
+        } else {
+            fetchAllShelves()
+        }
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (_: Exception) {
+        null
     }
 
     /**

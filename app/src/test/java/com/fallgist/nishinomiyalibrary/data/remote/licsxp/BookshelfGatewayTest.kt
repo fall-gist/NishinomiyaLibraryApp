@@ -54,10 +54,13 @@ class BookshelfGatewayTest {
     }
 
     @Test
-    fun `本棚0件の画面からは入力画面への移動を送らずその画面の作成フォームで二段階POSTする`() = runBlocking {
+    fun `本棚0件の実測画面からは入力画面への移動を送らずその画面の作成フォームで二段階POSTする`() = runBlocking {
+        // レビュー指摘: 合成HTMLだけでBookshelfCreateFormParserを検証していたため、実物フィクスチャ
+        // (fixtures/mybooklist_empty.html)をそのまま流し、5条件と送信フォームの実測値を固定する
+        // (docs/design/bookshelf-create-from-empty.md §2.1・§2.2)。
         enqueueLogin()
-        server.enqueue(page(zeroShelfCreatePage()))
-        server.enqueue(page(confirmPage(zeroShelfCreateFields("新しい棚"), "OPACSDI017")))
+        server.enqueue(page(fixture("mybooklist_empty.html")))
+        server.enqueue(page(confirmPage(zeroShelfCreateFieldsReal("新しい棚"), "OPACSDI017")))
         server.enqueue(page("<html>完了</html>"))
         server.enqueue(page(shelfPage(1, "新しい棚")))
 
@@ -68,8 +71,10 @@ class BookshelfGatewayTest {
         assertEquals(0, requests.count { it.path == "/WOpacSdiBookListToInputAction.do" })
         assertEquals("/WOpacSdiBookListExecAction.do", requests[5].path)
         assertEquals("/WOpacSdiBookListExecAction.do", requests[6].path)
+        // otherbook(実物ではLBForm内のHTMLコメント内にあり実フィールドにならない)を含まないこと、
+        // listname・commntだけを置換し他は実測値のまま送ることを固定する。
         assertEquals(
-            "hash=masked&returnid=tiles.WPwdPortalMenuSpl&gamenid=tiles.WSdiBookListNew&btnflg=0&listname=%E6%96%B0%E3%81%97%E3%81%84%E6%A3%9A&commnt=",
+            "hash=masked-hash-token-2026-08-17&returnid=tiles.WPwdPortalMenuSpl&gamenid=tiles.WSdiBookListNew&btnflg=0&listname=%E6%96%B0%E3%81%97%E3%81%84%E6%A3%9A&commnt=",
             requests[5].body.readUtf8(),
         )
         assertEquals("okCodes=OPACSDI017", requests[6].body.readUtf8().substringAfterLast('&'))
@@ -78,10 +83,10 @@ class BookshelfGatewayTest {
     @Test
     fun `本棚0件からの作成で送信後も0件のままならAppliedにしない`() = runBlocking {
         enqueueLogin()
-        server.enqueue(page(zeroShelfCreatePage()))
-        server.enqueue(page(confirmPage(zeroShelfCreateFields("新しい棚"), "OPACSDI017")))
+        server.enqueue(page(fixture("mybooklist_empty.html")))
+        server.enqueue(page(confirmPage(zeroShelfCreateFieldsReal("新しい棚"), "OPACSDI017")))
         server.enqueue(page("<html>完了</html>"))
-        server.enqueue(page(zeroShelfCreatePage()))
+        server.enqueue(page(fixture("mybooklist_empty.html")))
 
         val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(0)))
 
@@ -91,9 +96,65 @@ class BookshelfGatewayTest {
     }
 
     @Test
+    fun `本棚0件からの作成で送信後に名前の違う本棚1件になってもAppliedにしない`() = runBlocking {
+        // 設計書§3項目3: 「0件のまま、または名前が違うならAppliedにしない」のうち、
+        // 名前不一致側を固定する(0件のまま側は既存テストで固定済み)。
+        enqueueLogin()
+        server.enqueue(page(fixture("mybooklist_empty.html")))
+        server.enqueue(page(confirmPage(zeroShelfCreateFieldsReal("新しい棚"), "OPACSDI017")))
+        server.enqueue(page("<html>完了</html>"))
+        server.enqueue(page(shelfPage(1, "別の棚名")))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(0)))
+
+        assertEquals(RemoteBookshelfOutcome.Unknown, outcome)
+        assertEquals(8, server.requestCount)
+    }
+
+    @Test
+    fun `本棚0件からの作成で送信後に本棚が2件になってもAppliedにしない`() = runBlocking {
+        val shelves = listOf(1 to "新しい棚", 2 to "別本棚")
+        enqueueLogin()
+        server.enqueue(page(fixture("mybooklist_empty.html")))
+        server.enqueue(page(confirmPage(zeroShelfCreateFieldsReal("新しい棚"), "OPACSDI017")))
+        server.enqueue(page("<html>完了</html>"))
+        server.enqueue(page(shelfPage(1, "新しい棚", shelves = shelves)))
+        server.enqueue(page(shelfPage(2, "別本棚", shelves = shelves)))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(0)))
+
+        assertEquals(RemoteBookshelfOutcome.Unknown, outcome)
+        assertEquals(9, server.requestCount)
+    }
+
+    @Test
+    fun `本棚0件からの作成でstage1応答が確認画面でないときは未送信のままFailureにする`() = runBlocking {
+        // レビュー指摘: stage1が確認画面でない(通信断・メンテナンス・確認画面の検証失敗)ときは
+        // 状態変更POST(onRequestStarted付き)を一度も呼んでいないことがコード上確定している。
+        // にもかかわらずbeforeStage2の再取得が通常のfetchAllShelves()のままだと、0件の画面のままの
+        // 解析失敗でUnknown(結果不明)になってしまい、利用者に公式サイトでの確認を強いていた。
+        // 0件からの作成に限りzeroShelfSnapshotで再取得を読めるようにし、まだ0件のままなら
+        // sameAs(before)によりchangedFailure()(送っていないと明言するFailure)に倒す。
+        enqueueLogin()
+        server.enqueue(page(fixture("mybooklist_empty.html")))
+        server.enqueue(page("<html>想定外の応答(確認画面ではない)</html>"))
+        server.enqueue(page(fixture("mybooklist_empty.html")))
+
+        val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(0)))
+
+        assertEquals(
+            RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, BookshelfStopDiagnosticCode.STATE_CHANGED.value),
+            outcome,
+        )
+        val requests = requests(7)
+        // 状態変更POST(okCodes付き確定送信)がゼロ件であることを固定する。
+        assertEquals(0, requests.count { it.body.readUtf8().contains("okCodes") })
+    }
+
+    @Test
     fun `期待値の本棚数が0でないのに0件の画面が返ったら送信せず停止する`() = runBlocking {
         enqueueLogin()
-        server.enqueue(page(zeroShelfCreatePage()))
+        server.enqueue(page(fixture("mybooklist_empty.html")))
 
         val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(1)))
 
@@ -108,7 +169,7 @@ class BookshelfGatewayTest {
     @Test
     fun `作成以外の操作で0件の画面が返ったら従来どおり停止する`() = runBlocking {
         enqueueLogin()
-        server.enqueue(page(zeroShelfCreatePage()))
+        server.enqueue(page(fixture("mybooklist_empty.html")))
 
         val outcome = session().mutate(RemoteBookshelfMutation.AddItem(1, "1000000000002", "メモ", expected(0)))
 
@@ -123,7 +184,7 @@ class BookshelfGatewayTest {
     @Test
     fun `0件の画面に作成フォームが無い改変HTMLでは送信せず停止する`() = runBlocking {
         enqueueLogin()
-        server.enqueue(page(zeroShelfCreatePage().replace("name='listname'", "name='renamed'")))
+        server.enqueue(page(fixture("mybooklist_empty.html").replace("name=\"listname\"", "name=\"renamed\"")))
 
         val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(0)))
 
@@ -139,7 +200,7 @@ class BookshelfGatewayTest {
     fun `本棚解析失敗の診断コードと診断ログに画面識別子が付く`() = runBlocking {
         val notes = mutableListOf<Pair<String, String>>()
         enqueueLogin()
-        server.enqueue(page(zeroShelfCreatePage()))
+        server.enqueue(page(fixture("mybooklist_empty.html")))
 
         val outcome = diagnosticSession(notes).mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(1)))
 
@@ -848,28 +909,12 @@ class BookshelfGatewayTest {
     private fun tokenPage(hash: String, gamenId: String) = "<form name='LBForm'><input name='hash' value='$hash'><input name='gamenid' value='$gamenId'></form>"
     private fun createFields(name: String) = listOf("hash" to "masked", "returnid" to "tiles.WSdiBookList", "gamenid" to "tiles.WSdiBookListNew", "listname" to name, "commnt" to "")
 
-    /**
-     * 本棚0件のときの「マイ本棚」応答相当(実物: fixtures/mybooklist_empty.html)。
-     * h1は「マイ本棚の新規作成」でShelfParserの見出し検証は通るが、LBForm内にinput[name=otherbook]が
-     * 無いため現在の本棚番号が取れずShelfParserは失敗する。otherbookのselect(プレースホルダ1件、
-     * 番号0)はLBFormの外に置き、ShelfListParserはコメント内も含む生HTMLを正規表現で読むため実物同様に
-     * 検出できる一方、jsoupベースのBookshelfCreateFormParserの対象(LBForm内)には含めない
-     * (実物ではこのselectはHTMLコメント内にあり、同じくLBFormの実フィールドにならない)。
-     */
-    private fun zeroShelfCreatePage() = """
-        <h1>マイ本棚の新規作成</h1>
-        <select name='otherbook'><option value='0' selected>------------------</option></select>
-        <form name='LBForm'>
-          <input type='hidden' name='hash' value='masked'>
-          <input type='hidden' name='returnid' value='tiles.WPwdPortalMenuSpl'>
-          <input type='hidden' name='gamenid' value='tiles.WSdiBookListNew'>
-          <input type='hidden' name='btnflg' value='0'>
-          <input type='text' name='listname' value=''>
-          <textarea name='commnt'></textarea>
-        </form>
-    """.trimIndent()
-    private fun zeroShelfCreateFields(name: String) =
-        listOf("hash" to "masked", "returnid" to "tiles.WPwdPortalMenuSpl", "gamenid" to "tiles.WSdiBookListNew", "btnflg" to "0", "listname" to name, "commnt" to "")
+    /** 実物フィクスチャ(fixtures/mybooklist_empty.html)のLBFormの実測値。hashは秘匿ポリシーによりマスク済み。 */
+    private fun zeroShelfCreateFieldsReal(name: String) =
+        listOf("hash" to "masked-hash-token-2026-08-17", "returnid" to "tiles.WPwdPortalMenuSpl", "gamenid" to "tiles.WSdiBookListNew", "btnflg" to "0", "listname" to name, "commnt" to "")
+
+    private fun fixture(name: String): String =
+        requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
 
     private fun editPage(no: Int, name: String, items: List<FixtureItem>) = fieldsForm(editFields(no, name, items))
     private fun editFields(no: Int, name: String, items: List<FixtureItem>) = buildList {
