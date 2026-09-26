@@ -171,18 +171,36 @@ fun LibraryApp(
     )
     // 完了の帯(§2.7)。直前のbannerが非nullで今回nullになった瞬間を「完了」とみなす。
     // 新しい状態の複製ではなく、直前のOperationKindだけをrememberして検出する。
+    //
+    // 「検出」と「消えるまでの時間管理」を2つのLaunchedEffectに分ける(レビュー指摘で判明した不具合の
+    // 回避)。1つにまとめて`delay(5_000)`の後に`lastProgressKind`を更新すると、5秒待っている間に
+    // 別の操作(例: 手動同期)が始まってprogressBanner?.kindが変わり、このコルーチンがキャンセル
+    // されたとき、`lastProgressKind`の更新も`completionBannerText`のクリアも行われないまま
+    // 取り残される。手動同期の完了はcompletionTextがnullを返す(§2.8、帯に出さない)ため、次に
+    // syncingがnullへ戻っても`completionBannerText`は誰にも触られず、古い完了文言が消えないまま
+    // 復活してしまう(タップするまで残る、§2.7「約5秒で消える」に反する)。
+    // 検出側は`lastProgressKind`の更新を`delay`より前・分岐の外で必ず行い、キャンセルの影響を受けない
+    // ようにする。消えるまでの時間は`completionBannerText`をキーにした別のLaunchedEffectへ任せ、
+    // 値が変わるたびにタイマーを張り直す(同じ操作を連続して2回行った場合も、2回目の完了時に
+    // completionBannerTextがいったんnullを経由するため、2回目のタイマーも正しく張られる)。
     var lastProgressKind by remember { mutableStateOf<OperationKind?>(null) }
     var completionBannerText by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(progressBanner?.kind) {
         val previousKind = lastProgressKind
-        if (progressBanner == null && previousKind != null) {
-            OperationProgressContentBuilder.completionText(previousKind)?.let { text ->
-                completionBannerText = text
-                kotlinx.coroutines.delay(5_000)
-                completionBannerText = null
-            }
-        }
         lastProgressKind = progressBanner?.kind
+        if (progressBanner != null) {
+            // 新しい操作が始まったら、古い完了の帯を残さない(進行中の帯が優先表示されるため
+            // 見た目には影響しないが、状態を持ち越さない方が筋がよい、レビュー指摘)。
+            completionBannerText = null
+        } else if (previousKind != null) {
+            completionBannerText = OperationProgressContentBuilder.completionText(previousKind)
+        }
+    }
+    LaunchedEffect(completionBannerText) {
+        if (completionBannerText != null) {
+            kotlinx.coroutines.delay(5_000)
+            completionBannerText = null
+        }
     }
     val primaryTabs = Destination.entries.filter { it.primary }
     var currentName by rememberSaveable { mutableStateOf(Destination.HOME.name) }
