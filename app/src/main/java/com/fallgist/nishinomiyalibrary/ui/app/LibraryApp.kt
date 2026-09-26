@@ -86,6 +86,7 @@ import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfEditingDialogs
 import com.fallgist.nishinomiyalibrary.ui.shelf.BookshelfScreenController
 import com.fallgist.nishinomiyalibrary.ui.sync.SyncUiState
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
+import com.fallgist.nishinomiyalibrary.ui.version.VersionInfoScreen
 import java.time.LocalDate
 import kotlinx.coroutines.launch
 
@@ -108,6 +109,7 @@ private enum class Destination(val label: String, val emoji: String, val primary
     NEW_ARRIVALS("新着資料", "🆕", false),
     CALENDAR("カレンダー", "📅", false),
     SETTINGS("設定", "⚙️", false),
+    VERSION_INFO("バージョン情報", "ℹ️", false),
 }
 
 @Composable
@@ -678,6 +680,13 @@ fun LibraryApp(
                                 onMoveAutoReservationRule = settingsController::moveAutoReservationRule,
                                 onExportBackup = settingsController::exportBackup,
                                 onImportBackup = settingsController::importBackup,
+                                onOpenMenu = openMenu,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+
+                        Destination.VERSION_INFO -> {
+                            VersionInfoScreen(
                                 onOpenMenu = openMenu,
                                 modifier = Modifier.fillMaxSize(),
                             )
