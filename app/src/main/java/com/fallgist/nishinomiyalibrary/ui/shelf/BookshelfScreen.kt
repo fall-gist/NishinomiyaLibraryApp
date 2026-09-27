@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,8 +21,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,22 +41,35 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
@@ -306,7 +323,7 @@ fun BookshelfEditingDialogs(
     onSelectAddItemShelf: (Int) -> Unit,
     onUpdateInput: (String) -> Unit,
     onUpdateEditShelfMemo: (String, String) -> Unit,
-    onMoveEditShelfItem: (String, Int) -> Unit = { _, _ -> },
+    onMoveEditShelfItemTo: (String, Int) -> Unit = { _, _ -> },
     onRequestInputConfirmation: () -> Unit,
     onDismissDialog: () -> Unit,
     onConfirm: () -> Unit,
@@ -377,7 +394,7 @@ fun BookshelfEditingDialogs(
                 onSelectCreateMember = onSelectCreateMember,
                 onInputChange = onUpdateInput,
                 onEditMemoChange = onUpdateEditShelfMemo,
-                onMoveEditShelfItem = onMoveEditShelfItem,
+                onMoveEditShelfItemTo = onMoveEditShelfItemTo,
                 onConfirm = onRequestInputConfirmation,
                 onDismiss = onDismissDialog,
                 onRequestDeleteItem = onRequestDeleteItem,
@@ -652,6 +669,38 @@ private fun BookshelfShelfTarget.toItemTarget(item: BookshelfEditItem) = Bookshe
     shelfCount = shelfCount,
 )
 
+/**
+ * 本棚編集の資料メモ欄(縮小版)。`OutlinedTextField`の最小の高さ(56dp)をやめ、
+ * `BasicTextField`と自前の枠で余白を詰める(docs/design/bookshelf-order.md §4.5)。
+ * 値の保持・文字数の検証はこれまでどおり呼び出し元([onValueChange]の先)に委ねる。
+ */
+@Composable
+private fun CompactMemoField(value: String, onValueChange: (String) -> Unit) {
+    val colors = LocalAppColors.current
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(colors.paper, RoundedCornerShape(6.dp))
+            .border(1.dp, colors.line, RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        textStyle = TextStyle(fontSize = 12.sp, color = colors.ink),
+        minLines = 1,
+        maxLines = 3,
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.ink),
+        decorationBox = { innerTextField ->
+            Box {
+                if (value.isEmpty()) {
+                    Text("メモ", fontSize = 12.sp, color = colors.ink2)
+                }
+                innerTextField()
+            }
+        },
+    )
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun BookshelfEditingInputDialog(
     dialog: BookshelfEditingDialog,
@@ -661,7 +710,7 @@ private fun BookshelfEditingInputDialog(
     onSelectCreateMember: (Long) -> Unit,
     onInputChange: (String) -> Unit,
     onEditMemoChange: (String, String) -> Unit,
-    onMoveEditShelfItem: (String, Int) -> Unit = { _, _ -> },
+    onMoveEditShelfItemTo: (String, Int) -> Unit = { _, _ -> },
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     onRequestDeleteItem: (BookshelfItemTarget) -> Unit,
@@ -720,68 +769,193 @@ private fun BookshelfEditingInputDialog(
                 )
                 if (dialog is BookshelfEditingDialog.EditShelf) {
                     Text(
-                        "資料メモ（1000文字以内）・ドラッグで並べ替え",
+                        "資料メモ（1000文字以内）・「⠿」の長押しドラッグで並べ替え",
                         color = LocalAppColors.current.ink2,
                         fontSize = 12.sp,
                     )
-                    Column(modifier = Modifier.height(280.dp).verticalScroll(rememberScrollState())) {
-                        dialog.items.forEach { item ->
-                            var dragDistance by remember(item.tilcod) { mutableStateOf(0f) }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                // 並べ替えは自動予約のルール画面(AutoReservationRuleDrag)と同じ
-                                // 長押しドラッグ+id/delta方式(docs/design/bookshelf-order.md §4.1)。
-                                Text(
-                                    "⠿",
-                                    color = LocalAppColors.current.ink2,
-                                    fontSize = 18.sp,
-                                    modifier = Modifier
-                                        .testTag(BookshelfEditingDialogTestTags.editItemDragHandle(item.tilcod))
-                                        .pointerInput(item.tilcod, dragThresholdPx, editingDisabled) {
-                                            if (editingDisabled) return@pointerInput
-                                            detectDragGesturesAfterLongPress(
-                                                onDragStart = { dragDistance = 0f },
-                                                onDrag = { change, amount ->
-                                                    change.consume()
-                                                    dragDistance += amount.y
-                                                    val steps = com.fallgist.nishinomiyalibrary.ui.settings.AutoReservationRuleDrag.steps(dragDistance, dragThresholdPx)
-                                                    if (steps != 0) {
-                                                        repeat(kotlin.math.abs(steps)) {
-                                                            onMoveEditShelfItem(item.tilcod, if (steps > 0) 1 else -1)
-                                                        }
-                                                        dragDistance -= steps * dragThresholdPx
+                    // ------------------------------------------------------------------
+                    // ドラッグの操作性改善(docs/design/bookshelf-order.md §4.5)。
+                    // 以前は各行の「⠿」ごとにドラッグ検知を持ち、キーを資料番号にしていたため、
+                    // 1回入れ替わると行の並びが変わって検知が途切れ「隣とだけ入れ替わる」不具合になっていた。
+                    // ここではドラッグの状態(どの資料を掴んでいるか・指の位置)を一覧の側(この画面)でまとめて持ち、
+                    // 一覧の並びはmoveEditShelfItemTo経由でControllerへ通知する(並びの正本はControllerのまま)。
+                    // ------------------------------------------------------------------
+                    val density = LocalDensity.current
+                    val haptics = LocalHapticFeedback.current
+                    val scrollState = rememberScrollState()
+                    val coroutineScope = rememberCoroutineScope()
+                    // ドラッグ中は全行のメモを畳んで高さを揃える(§4.5)ため、実測した行の高さを
+                    // 「1件分の移動量」として使う(未計測の間はしきい値48dpで代用)。
+                    var rowHeightPx by remember { mutableFloatStateOf(dragThresholdPx) }
+                    var draggedTilcod by remember { mutableStateOf<String?>(null) }
+                    var dragStartIndex by remember { mutableStateOf(0) }
+                    // 指の移動量(px)の累積。自動スクロール分もここへ足し込む。AutoReservationRuleDragと同じ考え方だが、
+                    // 1ステップずつ隣と入れ替えるのではなく、開始位置+ステップ数で目標位置を直接計算する
+                    // (何件もまたいで一度に動かせるようにするため)。
+                    var accumulatedPx by remember { mutableFloatStateOf(0f) }
+                    var pointerRootY by remember { mutableFloatStateOf(0f) }
+                    var containerTopRoot by remember { mutableFloatStateOf(0f) }
+                    var containerBottomRoot by remember { mutableFloatStateOf(0f) }
+                    val handleTopRoot = remember { mutableStateMapOf<String, Float>() }
+                    val bringIntoViewRequesters = remember { mutableStateMapOf<String, BringIntoViewRequester>() }
+
+                    fun applyDragProgress() {
+                        val tilcod = draggedTilcod ?: return
+                        val items = dialog.items
+                        val currentIndex = items.indexOfFirst { it.tilcod == tilcod }
+                        if (currentIndex == -1) return
+                        val steps = com.fallgist.nishinomiyalibrary.ui.settings.AutoReservationRuleDrag.steps(accumulatedPx, rowHeightPx)
+                        val targetIndex = (dragStartIndex + steps).coerceIn(0, items.lastIndex)
+                        if (targetIndex != currentIndex) onMoveEditShelfItemTo(tilcod, targetIndex)
+                    }
+
+                    // 指が一覧の見えている範囲の上端・下端に近づいている間、その方向へスクロールし続ける(自動スクロール)。
+                    // スクロールした分もaccumulatedPxへ足し込み、スクロール中も落とす先を更新し続ける。
+                    LaunchedEffect(draggedTilcod) {
+                        if (draggedTilcod == null) return@LaunchedEffect
+                        val edgeZonePx = with(density) { 56.dp.toPx() }
+                        val maxSpeedPx = with(density) { 20.dp.toPx() }
+                        while (true) {
+                            val distanceFromTop = pointerRootY - containerTopRoot
+                            val distanceFromBottom = containerBottomRoot - pointerRootY
+                            val scrollDelta = when {
+                                distanceFromTop in 0f..edgeZonePx -> -maxSpeedPx * (1f - distanceFromTop / edgeZonePx)
+                                distanceFromBottom in 0f..edgeZonePx -> maxSpeedPx * (1f - distanceFromBottom / edgeZonePx)
+                                else -> 0f
+                            }
+                            if (scrollDelta != 0f) {
+                                val consumed = scrollState.scrollBy(scrollDelta)
+                                if (consumed != 0f) {
+                                    accumulatedPx += consumed
+                                    applyDragProgress()
+                                }
+                            }
+                            delay(16)
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .height(280.dp)
+                            .onGloballyPositioned { coordinates ->
+                                containerTopRoot = coordinates.positionInRoot().y
+                                containerBottomRoot = containerTopRoot + coordinates.size.height
+                            },
+                    ) {
+                        Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
+                            dialog.items.forEach { item ->
+                                key(item.tilcod) {
+                                    val isDragged = item.tilcod == draggedTilcod
+                                    // ドラッグ開始時に全行のメモを畳み、書名だけの短い行にする(§4.5)。
+                                    val collapsed = draggedTilcod != null
+                                    val requester = remember(item.tilcod) {
+                                        BringIntoViewRequester().also { bringIntoViewRequesters[item.tilcod] = it }
+                                    }
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .bringIntoViewRequester(requester)
+                                            .onGloballyPositioned { coordinates ->
+                                                if (collapsed) rowHeightPx = coordinates.size.height.toFloat()
+                                            }
+                                            .graphicsLayer {
+                                                if (isDragged) {
+                                                    alpha = 0.6f
+                                                    shadowElevation = 12f
+                                                }
+                                            }
+                                            // タイル: 書誌ごとの領域が分かるよう、背景と枠を付ける(§4.5)。
+                                            .background(LocalAppColors.current.card, RoundedCornerShape(8.dp))
+                                            .border(
+                                                width = 1.dp,
+                                                color = if (isDragged) LocalAppColors.current.green else LocalAppColors.current.line,
+                                                shape = RoundedCornerShape(8.dp),
+                                            )
+                                            .padding(8.dp),
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            // 「⠿」の長押しドラッグで並べ替えを開始する(docs/design/bookshelf-order.md §4.5)。
+                                            Text(
+                                                "⠿",
+                                                color = LocalAppColors.current.ink2,
+                                                fontSize = 18.sp,
+                                                modifier = Modifier
+                                                    .testTag(BookshelfEditingDialogTestTags.editItemDragHandle(item.tilcod))
+                                                    .onGloballyPositioned { coordinates ->
+                                                        handleTopRoot[item.tilcod] = coordinates.positionInRoot().y
                                                     }
-                                                },
+                                                    .pointerInput(item.tilcod, editingDisabled) {
+                                                        if (editingDisabled) return@pointerInput
+                                                        detectDragGesturesAfterLongPress(
+                                                            onDragStart = { offset ->
+                                                                val startIndex = dialog.items.indexOfFirst { it.tilcod == item.tilcod }
+                                                                if (startIndex != -1) {
+                                                                    draggedTilcod = item.tilcod
+                                                                    dragStartIndex = startIndex
+                                                                    accumulatedPx = 0f
+                                                                    pointerRootY = (handleTopRoot[item.tilcod] ?: 0f) + offset.y
+                                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                }
+                                                            },
+                                                            onDrag = { change, amount ->
+                                                                change.consume()
+                                                                if (draggedTilcod == item.tilcod) {
+                                                                    accumulatedPx += amount.y
+                                                                    pointerRootY += amount.y
+                                                                    applyDragProgress()
+                                                                }
+                                                            },
+                                                            onDragEnd = {
+                                                                val moved = draggedTilcod
+                                                                draggedTilcod = null
+                                                                accumulatedPx = 0f
+                                                                if (moved != null) {
+                                                                    // 離した位置(空の枠の位置)にメモ欄が戻り、
+                                                                    // 動かした資料が見える位置までスクロールする(§4.5)。
+                                                                    coroutineScope.launch { bringIntoViewRequesters[moved]?.bringIntoView() }
+                                                                }
+                                                            },
+                                                            onDragCancel = {
+                                                                draggedTilcod = null
+                                                                accumulatedPx = 0f
+                                                            },
+                                                        )
+                                                    }
+                                                    .padding(end = 6.dp),
+                                            )
+                                            Text(item.title, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                            if (!collapsed) {
+                                                // 資料削除は本棚編集(名前+メモの一括更新)とは別の送信経路のため、
+                                                // ここでの削除は編集中の入力を保存しない(修正1)。
+                                                Text(
+                                                    text = "削除",
+                                                    color = LocalAppColors.current.alert,
+                                                    fontSize = 12.sp,
+                                                    modifier = Modifier
+                                                        .testTag(BookshelfEditingDialogTestTags.editItemDelete(item.tilcod))
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .clickable(enabled = !editingDisabled) {
+                                                            onRequestDeleteItem(dialog.target.toItemTarget(item))
+                                                        }
+                                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                                )
+                                            }
+                                        }
+                                        // ドラッグ中は全行のメモ欄を畳む(§4.5)。メモ欄自体もOutlinedTextFieldから
+                                        // CompactMemoFieldへ縮小した(文字12sp・余白を詰める)。
+                                        if (!collapsed) {
+                                            CompactMemoField(
+                                                value = item.newMemo,
+                                                onValueChange = { onEditMemoChange(item.tilcod, it) },
                                             )
                                         }
-                                        .padding(end = 6.dp),
-                                )
-                                Text(item.title, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                                // 資料削除は本棚編集(名前+メモの一括更新)とは別の送信経路のため、
-                                // ここでの削除は編集中の入力を保存しない(修正1)。
-                                Text(
-                                    text = "削除",
-                                    color = LocalAppColors.current.alert,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier
-                                        .testTag(BookshelfEditingDialogTestTags.editItemDelete(item.tilcod))
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .clickable(enabled = !editingDisabled) {
-                                            onRequestDeleteItem(dialog.target.toItemTarget(item))
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                )
+                                    }
+                                }
                             }
-                            OutlinedTextField(
-                                value = item.newMemo,
-                                onValueChange = { onEditMemoChange(item.tilcod, it) },
-                                label = { Text("メモ") },
-                                minLines = 2,
-                                maxLines = 5,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
                         }
                     }
                 }

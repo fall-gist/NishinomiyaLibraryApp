@@ -183,6 +183,95 @@ class BookshelfEditingUiControllerTest {
         controller.close()
     }
 
+    /**
+     * ドラッグの操作性改善(`docs/design/bookshelf-order.md` §4.5)で追加した任意位置への移動。
+     * 隣り合う行だけでなく、何件もまたいで一度に移動できることを固定する。
+     */
+    @Test
+    fun `本棚編集の資料はmoveEditShelfItemToで任意の位置へ何件もまたいで移動できる`() = runTest {
+        val target = shelfTarget.copy(
+            itemCount = 4,
+            items = listOf(
+                BookshelfEditItem("t-1", "資料A", "", ""),
+                BookshelfEditItem("t-2", "資料B", "", ""),
+                BookshelfEditItem("t-3", "資料C", "", ""),
+                BookshelfEditItem("t-4", "資料D", "", ""),
+            ),
+        )
+        val controller = controller(FakeBookshelfRepository(), StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestEditShelf(target)
+        assertEquals(listOf("t-1", "t-2", "t-3", "t-4"), editItemsTilcods(controller))
+
+        // 先頭を末尾へ、隣同士ではなく一度に移動できる。
+        controller.moveEditShelfItemTo("t-1", 3)
+        assertEquals(listOf("t-2", "t-3", "t-4", "t-1"), editItemsTilcods(controller))
+
+        // 範囲外のindexは無視する。
+        controller.moveEditShelfItemTo("t-2", -1)
+        controller.moveEditShelfItemTo("t-2", 4)
+        assertEquals(listOf("t-2", "t-3", "t-4", "t-1"), editItemsTilcods(controller))
+
+        // 存在しないtilcodは無視する。
+        controller.moveEditShelfItemTo("unknown", 0)
+        assertEquals(listOf("t-2", "t-3", "t-4", "t-1"), editItemsTilcods(controller))
+
+        // 移動元と移動先が同じ場合も何もしない。
+        controller.moveEditShelfItemTo("t-2", 0)
+        assertEquals(listOf("t-2", "t-3", "t-4", "t-1"), editItemsTilcods(controller))
+        controller.close()
+    }
+
+    /** 処理中は[moveEditShelfItemTo]も他の編集入口と同様に無視する。 */
+    @Test
+    fun `moveEditShelfItemToは処理中には無視される`() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val repo = FakeBookshelfRepository(onMutate = {
+            started.complete(Unit)
+            release.await()
+        })
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestDeleteItem(itemTarget)
+        controller.confirmPending()
+        runCurrent()
+        started.await()
+        assertTrue(controller.state.value.processing)
+
+        controller.requestEditShelf(shelfTarget)
+        controller.moveEditShelfItemTo("t-1", 1)
+        assertNull(controller.state.value.dialog)
+
+        release.complete(Unit)
+        advanceUntilIdle()
+        controller.close()
+    }
+
+    /** moveEditShelfItemToで並べ替えた後も、送信直前照合用のbaseOrderは編集画面を開いた時点の並びのまま変わらない。 */
+    @Test
+    fun `moveEditShelfItemToで並べ替えてもbaseOrderは変わらない`() = runTest {
+        val repo = FakeBookshelfRepository()
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestEditShelf(shelfTarget)
+        controller.moveEditShelfItemTo("t-2", 0)
+        controller.requestInputConfirmation()
+        val confirmation = controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.EditShelf
+        assertEquals(listOf("t-2", "t-1"), confirmation.items.map { it.tilcod })
+        assertEquals(listOf("t-1", "t-2"), confirmation.mutation.baseOrder)
+
+        controller.confirmPending()
+        advanceUntilIdle()
+        val sentMutation = repo.calls.single() as BookshelfMutation.EditShelf
+        assertEquals(listOf("t-2", "t-1"), sentMutation.items.map { it.tilcod })
+        assertEquals(listOf("t-1", "t-2"), sentMutation.baseOrder)
+        controller.close()
+    }
+
     /** 並べ替えだけ(名前・メモは変えない)でも確認へ進める(§4.1 案B: 並べ替えも変更として扱う)。 */
     @Test
     fun `本棚編集は並べ替えだけでも確認へ進みmutationの列順に反映される`() = runTest {

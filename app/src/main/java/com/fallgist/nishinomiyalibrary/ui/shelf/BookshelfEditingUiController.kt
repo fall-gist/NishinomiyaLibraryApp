@@ -429,6 +429,31 @@ class BookshelfEditingUiController(
         }
     }
 
+    /**
+     * 本棚編集画面で資料を任意の位置へ動かす(`docs/design/bookshelf-order.md` §4.5)。
+     * 何件もまたいで一度に動かす操作性改善のために追加した。[moveEditShelfItem]と異なり、
+     * 隣同士に限らず指定した位置(0始まり)へ直接移動する。並びの正本はこれまでどおり
+     * このControllerが持ち、画面側は指が越えた行を通知するだけでよい。
+     * [tilcod]が見つからない・[targetIndex]が範囲外・移動元と移動先が同じ・処理中のいずれかなら何もしない。
+     */
+    fun moveEditShelfItemTo(tilcod: String, targetIndex: Int) {
+        _state.update { current ->
+            val dialog = current.dialog as? BookshelfEditingDialog.EditShelf ?: return@update current
+            if (current.processing) return@update current
+            val index = dialog.items.indexOfFirst { it.tilcod == tilcod }
+            if (index !in dialog.items.indices || targetIndex !in dialog.items.indices || index == targetIndex) current
+            else current.copy(
+                dialog = dialog.copy(
+                    items = dialog.items.toMutableList().also { list ->
+                        val item = list.removeAt(index)
+                        list.add(targetIndex, item)
+                    },
+                ),
+                inputError = null,
+            )
+        }
+    }
+
     /** 入力画面の「次へ」。検証を通った場合だけ、通信しない最終確認へ進む。 */
     fun requestInputConfirmation() {
         _state.update { current ->
