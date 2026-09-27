@@ -35,6 +35,8 @@ sealed interface RemoteBookshelfMutation {
         val shelfNo: Int,
         val newName: String,
         val items: List<BookshelfEditItem>,
+        /** 利用者が編集画面を開いた時点の資料番号の並び。送信直前の照合に使う(docs/design/bookshelf-order.md §4.1.1)。 */
+        val baseOrder: List<String>,
         override val expected: BookshelfMutationExpectation,
     ) : RemoteBookshelfMutation
     data class DeleteShelf(val shelfNo: Int, override val expected: BookshelfMutationExpectation) : RemoteBookshelfMutation
@@ -230,6 +232,11 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
         if (mutationByTilcod.size != mutation.items.size || beforeByTilcod.size != beforeItems.size ||
             mutationByTilcod.keys != beforeByTilcod.keys
         ) return changedFailure(BookshelfStopDiagnosticCode.EDIT_ITEM_ID)
+        // 利用者が編集画面を開いた時点の並び(baseOrder)と、送信直前に取得したサイトの現在の並びが
+        // 食い違っていれば送信しない(docs/design/bookshelf-order.md §4.1.1)。並べ替えの有無を問わない。
+        // これが無いと、ローカルの並びが古いまま(未同期・サイト側での並べ替え後)保存すると、
+        // 利用者が並べ替えていないのにサイトの並びが黙って書き換わってしまう。
+        if (beforeItems.map { it.tilcod } != mutation.baseOrder) return changedFailure(BookshelfStopDiagnosticCode.STATE_CHANGED)
         if (!beforeByTilcod.all { (tilcod, actual) ->
                 val expected = mutationByTilcod.getValue(tilcod)
                 actual.title == expected.title && normalized(actual.memo) == normalized(expected.originalMemo)

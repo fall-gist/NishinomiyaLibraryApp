@@ -77,7 +77,7 @@ class BookshelfRepositoryMutationTest {
         listOf(
             BookshelfMutation.AddItem(member.id, 1, "a", "memo", expected()),
             BookshelfMutation.DeleteItem(member.id, 1, "b", expected()),
-            BookshelfMutation.EditShelf(member.id, 1, "棚", listOf(BookshelfEditItem("c", "資料", "old", "updated")), expected()),
+            BookshelfMutation.EditShelf(member.id, 1, "棚", listOf(BookshelfEditItem("c", "資料", "old", "updated")), listOf("c"), expected()),
             BookshelfMutation.CreateShelf(member.id, "new", expected()),
             BookshelfMutation.DeleteShelf(member.id, 3, expected()),
         ).forEach { mutation -> assertEquals(BookshelfMutationOutcome.Unknown, repository.mutate(mutation)) }
@@ -86,7 +86,7 @@ class BookshelfRepositoryMutationTest {
             listOf(
                 RemoteBookshelfMutation.AddItem(1, "a", "memo", expected()),
                 RemoteBookshelfMutation.DeleteItem(1, "b", expected()),
-                RemoteBookshelfMutation.EditShelf(1, "棚", listOf(BookshelfEditItem("c", "資料", "old", "updated")), expected()),
+                RemoteBookshelfMutation.EditShelf(1, "棚", listOf(BookshelfEditItem("c", "資料", "old", "updated")), listOf("c"), expected()),
                 RemoteBookshelfMutation.CreateShelf("new", expected()),
                 RemoteBookshelfMutation.DeleteShelf(3, expected()),
             ),

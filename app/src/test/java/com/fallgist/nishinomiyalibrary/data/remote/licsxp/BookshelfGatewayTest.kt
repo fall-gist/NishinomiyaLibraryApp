@@ -468,6 +468,8 @@ class BookshelfGatewayTest {
                 items = listOf(domLast, domFirst),
                 expected = expected(),
                 newMemos = listOf(updatedLast.memo, updatedFirst.memo),
+                // 編集画面を開いた時点の並びは実際のDOM順(domFirst, domLast)。
+                baseOrder = domItems.map { it.code },
             ),
         )
 
@@ -499,12 +501,68 @@ class BookshelfGatewayTest {
             enqueueLogin()
             server.enqueue(page(shelfPage(1, "棚", items = listOf(first, second))))
 
-            val outcome = session().mutate(RemoteBookshelfMutation.EditShelf(1, "棚", items, expected()))
+            val outcome = session().mutate(RemoteBookshelfMutation.EditShelf(1, "棚", items, listOf(first.code, second.code), expected()))
 
             assertEquals(RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, diagnosticCode), outcome)
             assertEquals((index + 1) * 5, server.requestCount)
             assertEquals(0, requests(5).count { it.path == "/WOpacSdiBookListUpdateAction.do" })
         }
+    }
+
+    /**
+     * 段階2レビュー指摘への対応(docs/design/bookshelf-order.md §4.1.1)。
+     * ローカルの並び(利用者が編集画面を開いた時点の並び=baseOrder)が、未同期やサイト側での
+     * 並べ替え後で古いままだと、案Bにより「利用者が並べ替えていないのに保存でサイトの並びが
+     * 黙って変わる」おそれがある。送信直前に取得したサイトの現在の並び(DOM順)とbaseOrderが
+     * 完全一致しない限り送信しないことを、並べ替えなし・並べ替えありの両方で固定する。
+     */
+    @Test
+    fun `本棚編集はbaseOrderとサイトの現在の並びが食い違うと並べ替えの有無を問わず送信しない`() = runBlocking {
+        val first = FixtureItem("1000000000001", "一冊目", "メモ1")
+        val second = FixtureItem("1000000000002", "二冊目", "メモ2")
+        // サイトの現在のDOM順は常に[first, second]。baseOrderはそれと食い違う[second, first]に固定する。
+        val mismatchedBaseOrder = listOf(second.code, first.code)
+        listOf(
+            // 並べ替えなし: mutation.itemsはDOM順のまま。
+            edit(1, "棚", listOf(first, second), expected(), baseOrder = mismatchedBaseOrder),
+            // 並べ替えあり: mutation.itemsを逆順にする。
+            edit(1, "棚", listOf(second, first), expected(), baseOrder = mismatchedBaseOrder),
+        ).forEachIndexed { index, mutation ->
+            enqueueLogin()
+            server.enqueue(page(shelfPage(1, "棚", items = listOf(first, second))))
+
+            val outcome = session().mutate(mutation)
+
+            assertEquals(
+                RemoteBookshelfOutcome.Failure(FailureReason.SITE_RESPONSE_CHANGED, BookshelfStopDiagnosticCode.STATE_CHANGED.value),
+                outcome,
+            )
+            // server.requestCountはテスト全体で累積するため、1回あたり5リクエストの積算で確かめる。
+            assertEquals((index + 1) * 5, server.requestCount)
+            assertEquals(0, requests(5).count { it.path == "/WOpacSdiBookListUpdateAction.do" })
+        }
+    }
+
+    /** baseOrderがサイトの現在の並びと一致する場合は、並べ替えありでも従来どおり送信される(回帰確認)。 */
+    @Test
+    fun `本棚編集はbaseOrderがサイトの現在の並びと一致すれば並べ替えても送信される`() = runBlocking {
+        val first = FixtureItem("1000000000001", "一冊目", "メモ1")
+        val second = FixtureItem("1000000000002", "二冊目", "メモ2")
+        enqueueLogin()
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(first, second))))
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(first, second))))
+        server.enqueue(page(editPage(1, "棚", listOf(first, second))))
+        server.enqueue(page(inlineUpdateConfirmPage(updateMemosFields(1, "棚", listOf(first, second), listOf(first.memo, second.memo), listOf(2, 1)))))
+        server.enqueue(page(completionPage(updateMemosFields(1, "棚", listOf(first, second), listOf(first.memo, second.memo), listOf(2, 1)))))
+        server.enqueue(page("<html>完了</html>"))
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(second, first))))
+
+        val outcome = session().mutate(
+            edit(1, "棚", listOf(second, first), expected(), baseOrder = listOf(first.code, second.code)),
+        )
+
+        assertTrue(outcome is RemoteBookshelfOutcome.Applied)
+        assertEquals(11, server.requestCount)
     }
 
     @Test
@@ -870,18 +928,22 @@ class BookshelfGatewayTest {
 
     private fun expected(shelfCount: Int = 1) = BookshelfMutationExpectation("利用者", shelfCount)
 
+    // baseOrder(利用者が編集画面を開いた時点の並び)は既定ではitems引数の列順とする。
+    // itemsをDOM順と別に(逆順などで)渡すテストでは、実際のDOM順を明示的に渡すこと。
     private fun edit(
         shelfNo: Int,
         newName: String,
         items: List<FixtureItem>,
         expected: BookshelfMutationExpectation,
         newMemos: List<String> = items.map(FixtureItem::memo),
+        baseOrder: List<String>? = null,
     ): RemoteBookshelfMutation.EditShelf = RemoteBookshelfMutation.EditShelf(
         shelfNo = shelfNo,
         newName = newName,
         items = items.mapIndexed { index, item ->
             BookshelfEditItem(item.code, item.title, item.memo, newMemos[index])
         },
+        baseOrder = baseOrder ?: items.map { it.code },
         expected = expected,
     )
 

@@ -541,6 +541,9 @@ class BookshelfEditingUiController(
                                 dialog.target.shelfNo,
                                 dialog.name,
                                 dialog.items,
+                                // 利用者が編集画面を開いた時点の並び(ドラッグ前)。dialog.itemsはドラッグ後の並びなので
+                                // 別に持つ(docs/design/bookshelf-order.md §4.1.1)。
+                                dialog.target.items.map { it.tilcod },
                                 dialog.target.expectation(),
                             ),
                         ),

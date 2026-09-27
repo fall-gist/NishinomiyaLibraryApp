@@ -293,7 +293,7 @@ private fun BookshelfMutation.toRemote(): RemoteBookshelfMutation = when (this) 
     is BookshelfMutation.AddItem -> RemoteBookshelfMutation.AddItem(shelfNo, tilcod, memo, expected)
     is BookshelfMutation.DeleteItem -> RemoteBookshelfMutation.DeleteItem(shelfNo, tilcod, expected)
     is BookshelfMutation.CreateShelf -> RemoteBookshelfMutation.CreateShelf(name, expected)
-    is BookshelfMutation.EditShelf -> RemoteBookshelfMutation.EditShelf(shelfNo, newName, items, expected)
+    is BookshelfMutation.EditShelf -> RemoteBookshelfMutation.EditShelf(shelfNo, newName, items, baseOrder, expected)
     is BookshelfMutation.DeleteShelf -> RemoteBookshelfMutation.DeleteShelf(shelfNo, expected)
 }
 

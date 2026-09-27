@@ -193,6 +193,12 @@ sealed interface BookshelfMutation {
         val shelfNo: Int,
         val newName: String,
         val items: List<BookshelfEditItem>,
+        /**
+         * 利用者が編集画面を開いた時点の資料番号の並び(ドラッグ前、`dialog.target.items`の列順)。
+         * 送信直前にサイトの現在の並びと照合するために使う(docs/design/bookshelf-order.md §4.1.1)。
+         * `items`(送信する並び。ドラッグ後)とは別に持つ。
+         */
+        val baseOrder: List<String>,
         override val expected: BookshelfMutationExpectation,
     ) : BookshelfMutation
     data class DeleteShelf(override val memberId: Long, val shelfNo: Int, override val expected: BookshelfMutationExpectation) : BookshelfMutation

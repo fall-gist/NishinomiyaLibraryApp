@@ -197,10 +197,15 @@ class BookshelfEditingUiControllerTest {
         val confirmation = controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.EditShelf
         assertEquals(listOf("t-2", "t-1"), confirmation.items.map { it.tilcod })
         assertEquals(listOf("t-2", "t-1"), confirmation.mutation.items.map { it.tilcod })
+        // baseOrder(送信直前の照合用)は編集画面を開いた時点(=shelfTargetの列順)のまま、
+        // ドラッグ後の並びに引きずられない(docs/design/bookshelf-order.md §4.1.1、レビュー指摘対応)。
+        assertEquals(listOf("t-1", "t-2"), confirmation.mutation.baseOrder)
 
         controller.confirmPending()
         advanceUntilIdle()
-        assertEquals(listOf("t-2", "t-1"), (repo.calls.single() as BookshelfMutation.EditShelf).items.map { it.tilcod })
+        val sentMutation = repo.calls.single() as BookshelfMutation.EditShelf
+        assertEquals(listOf("t-2", "t-1"), sentMutation.items.map { it.tilcod })
+        assertEquals(listOf("t-1", "t-2"), sentMutation.baseOrder)
         controller.close()
     }
 
