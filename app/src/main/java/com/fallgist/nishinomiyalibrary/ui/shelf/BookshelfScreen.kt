@@ -67,6 +67,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -793,6 +794,9 @@ private fun BookshelfEditingInputDialog(
                     // 1ステップずつ隣と入れ替えるのではなく、開始位置+ステップ数で目標位置を直接計算する
                     // (何件もまたいで一度に動かせるようにするため)。
                     var accumulatedPx by remember { mutableFloatStateOf(0f) }
+                    // 並びの入れ替え(1行ぶん=rowHeightPx)で吸収しきれなかった端数。掴んだタイルをこの分だけ
+                    // graphicsLayerのtranslationYでずらし、指に付いて動いて見えるようにする(§4.5レビュー指摘対応)。
+                    var dragOffsetPx by remember { mutableFloatStateOf(0f) }
                     var pointerRootY by remember { mutableFloatStateOf(0f) }
                     var containerTopRoot by remember { mutableFloatStateOf(0f) }
                     var containerBottomRoot by remember { mutableFloatStateOf(0f) }
@@ -804,8 +808,12 @@ private fun BookshelfEditingInputDialog(
                         val items = dialog.items
                         val currentIndex = items.indexOfFirst { it.tilcod == tilcod }
                         if (currentIndex == -1) return
-                        val steps = com.fallgist.nishinomiyalibrary.ui.settings.AutoReservationRuleDrag.steps(accumulatedPx, rowHeightPx)
-                        val targetIndex = (dragStartIndex + steps).coerceIn(0, items.lastIndex)
+                        val rawSteps = com.fallgist.nishinomiyalibrary.ui.settings.AutoReservationRuleDrag.steps(accumulatedPx, rowHeightPx)
+                        val targetIndex = (dragStartIndex + rawSteps).coerceIn(0, items.lastIndex)
+                        // 一覧の端で移動しきれない(クランプされた)分も含め、実際に反映された行数(appliedSteps)
+                        // ぶんだけをaccumulatedPxから差し引いた残りが、指の位置とタイルの現在位置のずれになる。
+                        val appliedSteps = targetIndex - dragStartIndex
+                        dragOffsetPx = accumulatedPx - appliedSteps * rowHeightPx
                         if (targetIndex != currentIndex) onMoveEditShelfItemTo(tilcod, targetIndex)
                     }
 
@@ -851,29 +859,43 @@ private fun BookshelfEditingInputDialog(
                                     val requester = remember(item.tilcod) {
                                         BringIntoViewRequester().also { bringIntoViewRequesters[item.tilcod] = it }
                                     }
-                                    Column(
-                                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .bringIntoViewRequester(requester)
-                                            .onGloballyPositioned { coordinates ->
-                                                if (collapsed) rowHeightPx = coordinates.size.height.toFloat()
-                                            }
-                                            .graphicsLayer {
-                                                if (isDragged) {
-                                                    alpha = 0.6f
-                                                    shadowElevation = 12f
-                                                }
-                                            }
-                                            // タイル: 書誌ごとの領域が分かるよう、背景と枠を付ける(§4.5)。
-                                            .background(LocalAppColors.current.card, RoundedCornerShape(8.dp))
-                                            .border(
-                                                width = 1.dp,
-                                                color = if (isDragged) LocalAppColors.current.green else LocalAppColors.current.line,
-                                                shape = RoundedCornerShape(8.dp),
+                                    // 掴んだタイルはgraphicsLayerのtranslationYでレイアウト上の位置からずらして描く
+                                    // (指に付いて動く§4.5)。そのためレイアウト上の元の場所は空いたままになるので、
+                                    // 同じ場所に「落とす先」を示す空の枠を背面(zIndexなし)に描く。
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        if (isDragged) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .matchParentSize()
+                                                    .background(LocalAppColors.current.paper, RoundedCornerShape(8.dp))
+                                                    .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp)),
                                             )
-                                            .padding(8.dp),
-                                    ) {
+                                        }
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .zIndex(if (isDragged) 1f else 0f)
+                                                .bringIntoViewRequester(requester)
+                                                .onGloballyPositioned { coordinates ->
+                                                    if (collapsed) rowHeightPx = coordinates.size.height.toFloat()
+                                                }
+                                                .graphicsLayer {
+                                                    if (isDragged) {
+                                                        translationY = dragOffsetPx
+                                                        alpha = 0.6f
+                                                        shadowElevation = 12f
+                                                    }
+                                                }
+                                                // タイル: 書誌ごとの領域が分かるよう、背景と枠を付ける(§4.5)。
+                                                .background(LocalAppColors.current.card, RoundedCornerShape(8.dp))
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (isDragged) LocalAppColors.current.green else LocalAppColors.current.line,
+                                                    shape = RoundedCornerShape(8.dp),
+                                                )
+                                                .padding(8.dp),
+                                        ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             modifier = Modifier.fillMaxWidth(),
@@ -897,6 +919,7 @@ private fun BookshelfEditingInputDialog(
                                                                     draggedTilcod = item.tilcod
                                                                     dragStartIndex = startIndex
                                                                     accumulatedPx = 0f
+                                                                    dragOffsetPx = 0f
                                                                     pointerRootY = (handleTopRoot[item.tilcod] ?: 0f) + offset.y
                                                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                                                 }
@@ -913,6 +936,7 @@ private fun BookshelfEditingInputDialog(
                                                                 val moved = draggedTilcod
                                                                 draggedTilcod = null
                                                                 accumulatedPx = 0f
+                                                                dragOffsetPx = 0f
                                                                 if (moved != null) {
                                                                     // 離した位置(空の枠の位置)にメモ欄が戻り、
                                                                     // 動かした資料が見える位置までスクロールする(§4.5)。
@@ -922,6 +946,7 @@ private fun BookshelfEditingInputDialog(
                                                             onDragCancel = {
                                                                 draggedTilcod = null
                                                                 accumulatedPx = 0f
+                                                                dragOffsetPx = 0f
                                                             },
                                                         )
                                                     }
@@ -952,6 +977,7 @@ private fun BookshelfEditingInputDialog(
                                                 value = item.newMemo,
                                                 onValueChange = { onEditMemoChange(item.tilcod, it) },
                                             )
+                                        }
                                         }
                                     }
                                 }
