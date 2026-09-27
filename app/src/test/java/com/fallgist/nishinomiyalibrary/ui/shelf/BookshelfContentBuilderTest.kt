@@ -12,7 +12,7 @@ class BookshelfContentBuilderTest {
     private val hana = Member(id = 2, name = "はな", colorHex = "#5FA05A", cardNumber = "", sortOrder = 1)
     private val members = listOf(papa, hana)
 
-    private fun item(memberId: Long, title: String, shelfNo: Int, shelfName: String, date: LocalDate) = ShelfItem(
+    private fun item(memberId: Long, title: String, shelfNo: Int, shelfName: String, date: LocalDate, position: Int = 0) = ShelfItem(
         memberId = memberId,
         tilcod = "t-$title",
         title = title,
@@ -20,6 +20,7 @@ class BookshelfContentBuilderTest {
         registeredDate = date,
         shelfNo = shelfNo,
         shelfName = shelfName,
+        position = position,
     )
 
     private fun shelf(memberId: Long, shelfNo: Int, name: String, vararg items: ShelfItem) = BookshelfContent(
@@ -60,6 +61,32 @@ class BookshelfContentBuilderTest {
         assertEquals("2026/7/1", columns[0].books[0].registeredDateLabel)
         // 書誌詳細遷移用にタイトルコードを保持する
         assertEquals("t-パパ本C", columns[0].books[0].tilcod)
+    }
+
+    @Test
+    fun booksWithinShelf_areOrderedByPositionThenRegisteredDateDescending() {
+        val shelves = mapOf(
+            papa.id to listOf(
+                shelf(
+                    papa.id,
+                    1,
+                    "技術書",
+                    // positionが登録日より優先される(サイトの表示順)。
+                    item(papa.id, "後で登録したが先頭", 1, "技術書", LocalDate.of(2026, 1, 1), position = 0),
+                    item(papa.id, "先に登録したが2番目", 1, "技術書", LocalDate.of(2026, 6, 1), position = 1),
+                    // positionが同じなら登録日の新しい順(移行直後の全件position=0を想定)。
+                    item(papa.id, "同じ位置だが新しい", 1, "技術書", LocalDate.of(2026, 7, 1), position = 2),
+                    item(papa.id, "同じ位置で古い", 1, "技術書", LocalDate.of(2026, 5, 1), position = 2),
+                ),
+            ),
+        )
+
+        val columns = BookshelfContentBuilder.build(members, shelves, selectedMemberId = papa.id)
+
+        assertEquals(
+            listOf("後で登録したが先頭", "先に登録したが2番目", "同じ位置だが新しい", "同じ位置で古い"),
+            columns.single().books.map { it.title },
+        )
     }
 
     @Test

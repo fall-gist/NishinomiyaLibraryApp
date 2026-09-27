@@ -43,7 +43,7 @@ import java.time.LocalDate
  * 情報であり読み込みの可否判定には使わない)に使う。アノテーション引数への自己参照を避けるため、
  * `@Database`側は引き続きリテラルの9を書き、こちらは手動で同期させる。
  */
-const val APP_DATABASE_VERSION = 9
+const val APP_DATABASE_VERSION = 10
 
 @Database(
     entities = [
@@ -66,7 +66,7 @@ const val APP_DATABASE_VERSION = 9
         AutoReservationLatestItemEntity::class,
         ReservationPickupSubmissionEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 @TypeConverters(LocalDateConverters::class)

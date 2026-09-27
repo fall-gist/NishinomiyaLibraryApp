@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.shelf
 
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
+import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.repository.BookshelfRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import java.time.format.DateTimeFormatter
@@ -74,7 +75,8 @@ object BookshelfContentBuilder {
                         memberColorHex = member.colorHex.takeIf { it.isNotBlank() } ?: FALLBACK_COLOR,
                         shelfName = shelf.name.takeIf { it.isNotBlank() } ?: "マイ本棚",
                         books = shelf.items
-                            .sortedByDescending { it.registeredDate }
+                            // 公式サイトの本棚画面の表示順(position)を優先し、同じなら登録日の新しい順とする。
+                            .sortedWith(compareBy<ShelfItem> { it.position }.thenByDescending { it.registeredDate })
                             .map { item ->
                                 ShelfBook(
                                     title = item.title,

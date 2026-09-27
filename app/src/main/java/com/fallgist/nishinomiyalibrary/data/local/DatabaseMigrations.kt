@@ -151,4 +151,14 @@ object DatabaseMigrations {
             database.execSQL("ALTER TABLE loans ADD COLUMN extendable INTEGER NOT NULL DEFAULT 0")
         }
     }
+
+    /**
+     * v10で本棚内の表示順`position`(公式サイトの本棚画面のDOM順)を追加する(docs/design/bookshelf-order.md §3.1)。
+     * 既存行は0になり、次回の同期(全置換の`ShelfParser`経由)で実際の順序に置き換わる。
+     */
+    val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE shelf_items ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 }

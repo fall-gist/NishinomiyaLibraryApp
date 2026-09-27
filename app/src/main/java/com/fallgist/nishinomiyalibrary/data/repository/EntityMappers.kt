@@ -130,6 +130,7 @@ internal fun ShelfItemWithShelfName.toDomain(): ShelfItem = ShelfItem(
     registeredDate = registeredDate,
     shelfNo = shelfNo,
     shelfName = shelfName,
+    position = position,
 )
 
 internal fun ShelfItem.toEntity(memberId: Long): ShelfItemEntity = ShelfItemEntity(
@@ -139,6 +140,7 @@ internal fun ShelfItem.toEntity(memberId: Long): ShelfItemEntity = ShelfItemEnti
     title,
     memo,
     registeredDate,
+    position,
 )
 
 internal fun Shelf.toEntity(memberId: Long): ShelfEntity = ShelfEntity(memberId, no, name)

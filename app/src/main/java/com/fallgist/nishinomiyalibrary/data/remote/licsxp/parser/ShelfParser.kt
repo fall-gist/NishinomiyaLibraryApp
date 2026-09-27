@@ -24,7 +24,7 @@ object ShelfParser {
             ?.takeIf { it.isNotEmpty() }
             ?: throw ParseException(screen, "本棚名が見つかりません")
         val shelf = Shelf(shelfNo, shelfName)
-        val items = document.selectFirst("table[summary=リスト詳細]")?.select("tbody > tr")?.map { row ->
+        val items = document.selectFirst("table[summary=リスト詳細]")?.select("tbody > tr")?.mapIndexed { index, row ->
             val titleText = row.selectFirst(".title")?.text()?.let { ParserSupport.run { it.normalized() } }
                 ?: throw ParseException(screen, ".title が見つかりません")
             val match = Regex("^(\\d{13})\\s*(.*)$").matchEntire(titleText)
@@ -43,6 +43,8 @@ object ShelfParser {
                 registeredDate = ParserSupport.parseFullDate(registered, screen, "登録日"),
                 shelfNo = shelf.no,
                 shelfName = shelf.name,
+                // 本棚画面のDOM順(サイトの表示順)をそのまま0始まりの位置として保存する。
+                position = index,
             )
         } ?: emptyList()
         return ShelfParseResult(shelf, items)

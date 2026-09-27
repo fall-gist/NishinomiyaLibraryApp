@@ -140,6 +140,8 @@ data class ShelfItem(
     val registeredDate: LocalDate,
     val shelfNo: Int = 0,
     val shelfName: String = "",
+    /** 本棚内の0始まりの位置。公式サイトの本棚画面の表示順(DOM順)。既定値0は未同期・移行直後を表す。 */
+    val position: Int = 0,
 )
 
 /** 資料が0件の棚も含む、本棚画面用の読み取りモデル。 */

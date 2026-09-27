@@ -726,6 +726,8 @@ class ParsersTest {
         assertEquals("1001000581719", result.items.first().tilcod)
         assertEquals("見て考えたい", result.items.first().memo)
         assertEquals(LocalDate.of(2021, 9, 2), result.items.first().registeredDate)
+        // 本棚画面のDOM順(サイトの表示順)を0始まりの位置として保持する(docs/design/bookshelf-order.md §3.1)。
+        assertEquals(listOf(0, 1, 2, 3, 4, 5), result.items.map { it.position })
     }
 
     @Test

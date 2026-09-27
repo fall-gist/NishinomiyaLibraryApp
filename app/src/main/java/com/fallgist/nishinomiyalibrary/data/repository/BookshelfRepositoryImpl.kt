@@ -49,7 +49,7 @@ class BookshelfRepositoryImpl @Inject constructor(
                 memberId = shelf.memberId,
                 shelfNo = shelf.shelfNo,
                 name = shelf.name,
-                // DAOの登録日降順を保つ。棚番号順はDAO側の責務とする。
+                // DAOのposition→登録日降順を保つ。棚番号順はDAO側の責務とする。
                 items = itemsByShelfNo[shelf.shelfNo].orEmpty().map { item ->
                     ShelfItem(
                         memberId = item.memberId,
@@ -59,6 +59,7 @@ class BookshelfRepositoryImpl @Inject constructor(
                         registeredDate = item.registeredDate,
                         shelfNo = item.shelfNo,
                         shelfName = shelf.name,
+                        position = item.position,
                     )
                 },
             )

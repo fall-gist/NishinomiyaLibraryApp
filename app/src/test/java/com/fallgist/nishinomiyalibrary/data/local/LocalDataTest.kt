@@ -92,12 +92,37 @@ class LocalDataTest {
         suspend fun getAll(): List<LegacyLoanEntity>
     }
 
+    /**
+     * v10で`position`列を追加する前のshelf_itemsテーブル形状。
+     * 本物の`ShelfItemEntity`(main)はv10で`position`を持つため、v7/v8/v9を模したRoom DBでは
+     * この凍結済みの形状を使わないと、移行前から列が存在してしまいMIGRATION_9_10のALTER TABLEが
+     * 列重複で失敗する(v9で`extendable`を足したときのLegacyLoanEntityと同じ理由)。
+     */
+    @Entity(
+        tableName = "shelf_items",
+        primaryKeys = ["memberId", "shelfNo", "tilcod"],
+    )
+    data class LegacyShelfItemEntity(
+        val memberId: Long,
+        val shelfNo: Int,
+        val tilcod: String,
+        val title: String,
+        val memo: String,
+        val registeredDate: LocalDate,
+    )
+
+    @Dao
+    interface LegacyShelfItemDao {
+        @Insert
+        suspend fun insert(item: LegacyShelfItemEntity)
+    }
+
     @Database(
         entities = [
             MemberEntity::class,
             LegacyLoanEntity::class,
             ReservationEntity::class,
-            ShelfItemEntity::class,
+            LegacyShelfItemEntity::class,
             ShelfEntity::class,
             ClosedDayEntity::class,
             SyncLogEntity::class,
@@ -122,7 +147,7 @@ class LocalDataTest {
             MemberEntity::class,
             LegacyLoanEntity::class,
             ReservationEntity::class,
-            ShelfItemEntity::class,
+            LegacyShelfItemEntity::class,
             ShelfEntity::class,
             ClosedDayEntity::class,
             SyncLogEntity::class,
@@ -145,6 +170,38 @@ class LocalDataTest {
     abstract class V8Database : RoomDatabase() {
         abstract fun memberDao(): com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
         abstract fun legacyLoanDao(): LegacyLoanDao
+    }
+
+    /** v10で`position`が追加される直前(v9)のフルスキーマ。MIGRATION_9_10単独のRoom検証に使う。 */
+    @Database(
+        entities = [
+            MemberEntity::class,
+            LoanEntity::class,
+            ReservationEntity::class,
+            LegacyShelfItemEntity::class,
+            ShelfEntity::class,
+            ClosedDayEntity::class,
+            SyncLogEntity::class,
+            UserSummaryEntity::class,
+            ReadingRecordEntity::class,
+            ReadingHistoryCheckpointEntity::class,
+            NewArrivalEntity::class,
+            ReservationCartItemEntity::class,
+            AutoReservationRuleEntity::class,
+            AutoReservationTermEntity::class,
+            AutoReservationControlEntity::class,
+            AutoReservationLatestRunEntity::class,
+            AutoReservationLatestItemEntity::class,
+            ReservationPickupSubmissionEntity::class,
+        ],
+        version = 9,
+        exportSchema = false,
+    )
+    @TypeConverters(LocalDateConverters::class)
+    abstract class V9Database : RoomDatabase() {
+        abstract fun memberDao(): com.fallgist.nishinomiyalibrary.data.local.dao.MemberDao
+        abstract fun shelfDao(): com.fallgist.nishinomiyalibrary.data.local.dao.ShelfDao
+        abstract fun legacyShelfItemDao(): LegacyShelfItemDao
     }
 
     @Test
@@ -181,7 +238,7 @@ class LocalDataTest {
             }
 
             val v8Database = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
-                .addMigrations(DatabaseMigrations.MIGRATION_7_8, DatabaseMigrations.MIGRATION_8_9)
+                .addMigrations(DatabaseMigrations.MIGRATION_7_8, DatabaseMigrations.MIGRATION_8_9, DatabaseMigrations.MIGRATION_9_10)
                 .allowMainThreadQueries()
                 .build()
             try {
@@ -299,7 +356,7 @@ class LocalDataTest {
             // Room自身にv8→v9のMIGRATION_8_9を適用させ、ALTER後のスキーマが現行LoanEntityと
             // 完全一致することを実際のRoom検証(openHelper.writableDatabase)で確かめる。
             val v9Database = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
-                .addMigrations(DatabaseMigrations.MIGRATION_8_9)
+                .addMigrations(DatabaseMigrations.MIGRATION_8_9, DatabaseMigrations.MIGRATION_9_10)
                 .allowMainThreadQueries()
                 .build()
             try {
@@ -311,6 +368,56 @@ class LocalDataTest {
                 assertFalse(loan.extendable)
             } finally {
                 v9Database.close()
+            }
+        } finally {
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
+    fun `v9からv10移行はposition列を既定0で追加し既存の本棚項目を保持する`() = runBlocking {
+        val databaseName = "migration-shelf-position-${UUID.randomUUID()}.db"
+        try {
+            // schema export は無効で MigrationTestHelper を利用できないため、コミット済みv9と
+            // 同じエンティティ集合のRoom DBを作成してから、実際のv10 Room DBで移行・検証する。
+            val v9Database = Room.databaseBuilder(context, V9Database::class.java, databaseName)
+                .allowMainThreadQueries()
+                .build()
+            val memberId = try {
+                val id = v9Database.memberDao().insert(
+                    MemberEntity(name = "v9利用者", colorHex = "#000000", cardNumber = "v9-card", sortOrder = 0),
+                )
+                v9Database.shelfDao().insertAll(listOf(ShelfEntity(id, 1, "v9本棚")))
+                v9Database.legacyShelfItemDao().insert(
+                    LegacyShelfItemEntity(
+                        memberId = id,
+                        shelfNo = 1,
+                        tilcod = "v9-tilcod",
+                        title = "v9本棚資料",
+                        memo = "v9メモ",
+                        registeredDate = LocalDate.of(2026, 8, 1),
+                    ),
+                )
+                id
+            } finally {
+                v9Database.close()
+            }
+
+            // Room自身にv9→v10のMIGRATION_9_10を適用させ、ALTER後のスキーマが現行ShelfItemEntityと
+            // 完全一致することを実際のRoom検証(openHelper.writableDatabase)で確かめる。
+            val v10Database = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
+                .addMigrations(DatabaseMigrations.MIGRATION_9_10)
+                .allowMainThreadQueries()
+                .build()
+            try {
+                v10Database.openHelper.writableDatabase
+                val item = v10Database.shelfItemDao().observeForMember(memberId).first().single()
+                assertEquals("v9-tilcod", item.tilcod)
+                assertEquals("v9本棚資料", item.title)
+                assertEquals("v9メモ", item.memo)
+                assertEquals(0, item.position)
+            } finally {
+                v10Database.close()
             }
         } finally {
             context.deleteDatabase(databaseName)
@@ -1106,6 +1213,25 @@ class LocalDataTest {
         credentialStore.delete(77L)
         assertNull(credentialStore.getPassword(77L))
         scope.cancel()
+    }
+
+    @Test
+    fun `本棚項目はpositionの昇順、同じ位置なら登録日の新しい順で並ぶ`() = runBlocking {
+        val memberId = database.memberDao().insert(member("並び順確認", 0))
+        database.shelfDao().insertAll(listOf(ShelfEntity(memberId, 1, "並び順棚")))
+        database.shelfItemDao().insertAll(
+            listOf(
+                ShelfItemEntity(memberId, 1, "B", "本B", "", LocalDate.of(2026, 6, 1), position = 1),
+                ShelfItemEntity(memberId, 1, "A", "本A", "", LocalDate.of(2026, 1, 1), position = 0),
+                // positionが同じ(移行直後は全件0を想定)場合は登録日の新しい順。
+                ShelfItemEntity(memberId, 1, "C-new", "本C新", "", LocalDate.of(2026, 7, 1), position = 2),
+                ShelfItemEntity(memberId, 1, "C-old", "本C旧", "", LocalDate.of(2026, 5, 1), position = 2),
+            ),
+        )
+
+        val ordered = database.shelfItemDao().observeForMember(memberId).first()
+
+        assertEquals(listOf("A", "B", "C-new", "C-old"), ordered.map { it.tilcod })
     }
 
     @Test

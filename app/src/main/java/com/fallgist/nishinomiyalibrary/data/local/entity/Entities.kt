@@ -216,6 +216,8 @@ data class ShelfItemEntity(
     val title: String,
     val memo: String,
     val registeredDate: LocalDate,
+    /** 本棚内の0始まりの位置(サイトの表示順)。v10で追加。既存行の既定値は0。 */
+    val position: Int = 0,
 )
 
 @Entity(
@@ -236,6 +238,7 @@ data class ShelfItemWithShelfName(
     val title: String,
     val memo: String,
     val registeredDate: LocalDate,
+    val position: Int = 0,
 )
 
 @Entity(

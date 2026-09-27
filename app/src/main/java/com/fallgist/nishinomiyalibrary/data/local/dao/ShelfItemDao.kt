@@ -14,11 +14,12 @@ import kotlinx.coroutines.flow.Flow
 interface ShelfItemDao {
     @Query(
         "SELECT shelf_items.memberId, shelf_items.shelfNo, shelves.name AS shelfName, " +
-            "shelf_items.tilcod, shelf_items.title, shelf_items.memo, shelf_items.registeredDate " +
+            "shelf_items.tilcod, shelf_items.title, shelf_items.memo, shelf_items.registeredDate, " +
+            "shelf_items.position " +
             "FROM shelf_items INNER JOIN shelves " +
             "ON shelf_items.memberId = shelves.memberId AND shelf_items.shelfNo = shelves.shelfNo " +
             "WHERE shelf_items.memberId = :memberId " +
-            "ORDER BY shelf_items.shelfNo, shelf_items.registeredDate DESC",
+            "ORDER BY shelf_items.shelfNo, shelf_items.position, shelf_items.registeredDate DESC",
     )
     fun observeForMember(memberId: Long): Flow<List<ShelfItemWithShelfName>>
 
