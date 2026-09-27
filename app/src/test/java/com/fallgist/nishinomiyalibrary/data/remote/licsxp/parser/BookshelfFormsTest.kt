@@ -34,16 +34,26 @@ class BookshelfFormsTest {
         // 上書きしてしまうため、両方が新値になることをここで固定する（今回の修正の本体）。
         val html = form(listOf("hash", "returnid", "gamenid", "tilcod", "dispflg", "otherbook", "listname", "commnt", "bookcmnt", "eachcmnt", "sortno", "eachsortno", "bookcmnt", "eachcmnt", "sortno", "eachsortno"))
             .replace("name='otherbook' value='otherbook'", "name='otherbook' value='4'")
-        val body = BookshelfEditFormParser.parse(html).edit("変更後の棚", listOf("一件目", "新しい\r\nメモ"))
+        // 並べ替え後の並び順(1〜N、案B)として2,1(1件目と2件目が入れ替わる)を渡す。
+        // 行(DOM順)自体は変わらず、値だけが希望の順位に置き換わることを固定する。
+        val body = BookshelfEditFormParser.parse(html).edit("変更後の棚", listOf("一件目", "新しい\r\nメモ"), listOf(2, 1))
         assertEquals("変更後の棚", body.value(6))
         assertEquals("bookcmnt", body.name(8))
         assertEquals("eachcmnt", body.name(9))
+        assertEquals("sortno", body.name(10))
+        assertEquals("eachsortno", body.name(11))
         assertEquals("bookcmnt", body.name(12))
         assertEquals("eachcmnt", body.name(13))
+        assertEquals("sortno", body.name(14))
+        assertEquals("eachsortno", body.name(15))
         assertEquals("一件目", body.value(8))
         assertEquals("一件目", body.value(9))
+        assertEquals("2", body.value(10))
+        assertEquals("2", body.value(11))
         assertEquals("新しい\r\nメモ", body.value(12))
         assertEquals("新しい\r\nメモ", body.value(13))
+        assertEquals("1", body.value(14))
+        assertEquals("1", body.value(15))
     }
 
     @Test
@@ -59,13 +69,60 @@ class BookshelfFormsTest {
 
         assertEquals(1, withoutForm.itemCount)
         assertEquals(1, withForm.itemCount)
-        val withBody = withForm.edit("変更後の棚", listOf("新メモ"))
+        val withBody = withForm.edit("変更後の棚", listOf("新メモ"), listOf(1))
         assertEquals("disp_chk", withBody.name(8))
         assertEquals("on", withBody.value(8))
         assertEquals("bookcmnt", withBody.name(9))
         assertEquals("新メモ", withBody.value(9))
         assertEquals("eachcmnt", withBody.name(10))
         assertEquals("新メモ", withBody.value(10))
+    }
+
+    @Test
+    fun `編集フォームは並べ替えなくても見えている順の1からNを送る`() {
+        // 案B(docs/design/bookshelf-order.md §4.1・§4.3-2): 並べ替えていなくても、
+        // 常に編集画面に見えている順(DOM順)の1〜Nの連番を送る。
+        val html = form(
+            listOf(
+                "hash", "returnid", "gamenid", "tilcod", "dispflg", "otherbook", "listname", "commnt",
+                "bookcmnt", "eachcmnt", "sortno", "eachsortno",
+                "bookcmnt", "eachcmnt", "sortno", "eachsortno",
+                "bookcmnt", "eachcmnt", "sortno", "eachsortno",
+            ),
+        ).replace("name='otherbook' value='otherbook'", "name='otherbook' value='4'")
+        val body = BookshelfEditFormParser.parse(html).edit("棚", listOf("一件目", "二件目", "三件目"), listOf(1, 2, 3))
+        assertEquals("1", body.value(10)); assertEquals("1", body.value(11))
+        assertEquals("2", body.value(14)); assertEquals("2", body.value(15))
+        assertEquals("3", body.value(18)); assertEquals("3", body.value(19))
+    }
+
+    @Test
+    fun `requireMatchesはsortno要素のidが資料番号と一致しなければ拒否する`() {
+        // 追加の安全確認(docs/design/bookshelf-order.md §4.1、docs/site-research.md §13.9の実測)。
+        // sortno要素のidが`sortno<tilcod>`でない・無い場合は送信せず停止する。
+        val htmlWithRows = buildString {
+            append("<form name='LBForm'>")
+            append("<input type='hidden' name='hash' value='hash'>")
+            append("<input type='hidden' name='returnid' value='returnid'>")
+            append("<input type='hidden' name='gamenid' value='gamenid'>")
+            append("<input type='hidden' name='tilcod' value='tilcod'>")
+            append("<input type='hidden' name='dispflg' value='dispflg'>")
+            append("<input type='hidden' name='otherbook' value='4'>")
+            append("<input type='hidden' name='listname' value='棚'>")
+            append("<input type='hidden' name='commnt' value='commnt'>")
+            append("<input type='hidden' name='bookcmnt' value='メモ'>")
+            append("<textarea name='eachcmnt'>メモ</textarea>")
+            append("<input type='hidden' name='sortno' id='sortno-wrong' value='1'>")
+            append("<input type='hidden' name='eachsortno' value='1'>")
+            append("</form>")
+        }
+        val form = BookshelfEditFormParser.parse(htmlWithRows)
+        val shelf = Shelf(4, "棚")
+        val items = listOf(
+            ShelfItem(memberId = 0, tilcod = "t1", title = "本1", memo = "メモ", registeredDate = LocalDate.of(2026, 1, 1), shelfNo = 4, shelfName = "棚"),
+        )
+
+        assertTrue(runCatching { form.requireMatches(shelf, items) }.exceptionOrNull() is ParseException)
     }
 
     @Test
@@ -382,11 +439,11 @@ class BookshelfFormsTest {
             append("<input type='hidden' name='commnt' value='commnt'>")
             append("<input type='hidden' name='bookcmnt' value='改行&#10;混じり&#10;メモ'>")
             append("<textarea name='eachcmnt'>改行&#10;混じり&#10;メモ</textarea>")
-            append("<input type='hidden' name='sortno' value='1'>")
+            append("<input type='hidden' name='sortno' id='sortnot1' value='1'>")
             append("<input type='hidden' name='eachsortno' value='1'>")
             append("<input type='hidden' name='bookcmnt' value=''>")
             append("<textarea name='eachcmnt'></textarea>")
-            append("<input type='hidden' name='sortno' value='2'>")
+            append("<input type='hidden' name='sortno' id='sortnot2' value='2'>")
             append("<input type='hidden' name='eachsortno' value='2'>")
             append("</form>")
         }
@@ -415,7 +472,7 @@ class BookshelfFormsTest {
             append("<input type='hidden' name='commnt' value='commnt'>")
             append("<input type='hidden' name='bookcmnt' value='元のメモ'>")
             append("<textarea name='eachcmnt'>元のメモ</textarea>")
-            append("<input type='hidden' name='sortno' value='1'>")
+            append("<input type='hidden' name='sortno' id='sortnot1' value='1'>")
             append("<input type='hidden' name='eachsortno' value='1'>")
             append("</form>")
         }

@@ -41,7 +41,7 @@ import java.time.LocalDate
 /**
  * `@Database(version = ...)`と同じ値を保つ複製定数。バックアップの`sourceDbVersion`(診断用の
  * 情報であり読み込みの可否判定には使わない)に使う。アノテーション引数への自己参照を避けるため、
- * `@Database`側は引き続きリテラルの9を書き、こちらは手動で同期させる。
+ * `@Database`側は引き続きリテラルの10を書き、こちらは手動で同期させる。
  */
 const val APP_DATABASE_VERSION = 10
 

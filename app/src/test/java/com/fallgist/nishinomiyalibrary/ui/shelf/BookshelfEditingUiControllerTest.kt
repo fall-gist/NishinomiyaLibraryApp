@@ -155,6 +155,70 @@ class BookshelfEditingUiControllerTest {
         controller.close()
     }
 
+    /**
+     * ドラッグの並べ替え(docs/design/bookshelf-order.md §4.1)。移動先が範囲外なら何もしない。
+     * dialog.itemsの列順そのものが送信するS(1〜N)になるため、ここでは列順の変化だけを固定する。
+     */
+    @Test
+    fun `本棚編集の資料はドラッグでid指定の上下移動ができ範囲外では変わらない`() = runTest {
+        val controller = controller(FakeBookshelfRepository(), StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestEditShelf(shelfTarget)
+        assertEquals(listOf("t-1", "t-2"), editItemsTilcods(controller))
+
+        controller.moveEditShelfItem("t-2", -1)
+        assertEquals(listOf("t-2", "t-1"), editItemsTilcods(controller))
+
+        // 先頭をさらに上へは移動できない(範囲外)。
+        controller.moveEditShelfItem("t-2", -1)
+        assertEquals(listOf("t-2", "t-1"), editItemsTilcods(controller))
+
+        controller.moveEditShelfItem("t-1", 1)
+        assertEquals(listOf("t-2", "t-1"), editItemsTilcods(controller))
+
+        // 存在しないtilcodは無視する。
+        controller.moveEditShelfItem("unknown", 1)
+        assertEquals(listOf("t-2", "t-1"), editItemsTilcods(controller))
+        controller.close()
+    }
+
+    /** 並べ替えだけ(名前・メモは変えない)でも確認へ進める(§4.1 案B: 並べ替えも変更として扱う)。 */
+    @Test
+    fun `本棚編集は並べ替えだけでも確認へ進みmutationの列順に反映される`() = runTest {
+        val repo = FakeBookshelfRepository()
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestEditShelf(shelfTarget)
+        controller.moveEditShelfItem("t-2", -1)
+        controller.requestInputConfirmation()
+        assertNull(controller.state.value.inputError)
+        val confirmation = controller.state.value.pendingConfirmation as BookshelfEditingConfirmation.EditShelf
+        assertEquals(listOf("t-2", "t-1"), confirmation.items.map { it.tilcod })
+        assertEquals(listOf("t-2", "t-1"), confirmation.mutation.items.map { it.tilcod })
+
+        controller.confirmPending()
+        advanceUntilIdle()
+        assertEquals(listOf("t-2", "t-1"), (repo.calls.single() as BookshelfMutation.EditShelf).items.map { it.tilcod })
+        controller.close()
+    }
+
+    /** 並べ替えず名前・メモも変えない場合は、従来どおり変更なしとして拒否する。 */
+    @Test
+    fun `本棚編集は並べ替えも名前もメモも変えなければ確認へ進まない`() = runTest {
+        val controller = controller(FakeBookshelfRepository(), StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestEditShelf(shelfTarget)
+        controller.requestInputConfirmation()
+        assertEquals("変更内容がありません。名前・資料メモまたは並び順を変更してください", controller.state.value.inputError)
+        controller.close()
+    }
+
+    private fun editItemsTilcods(controller: BookshelfEditingUiController): List<String> =
+        (controller.state.value.dialog as BookshelfEditingDialog.EditShelf).items.map { it.tilcod }
+
     @Test
     fun `削除確認は正確な本棚名と件数および資料名と本棚名を表示する`() {
         val deleteShelf = BookshelfEditingConfirmation.DeleteShelf(

@@ -234,19 +234,28 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
                 val expected = mutationByTilcod.getValue(tilcod)
                 actual.title == expected.title && normalized(actual.memo) == normalized(expected.originalMemo)
             }) return changedFailure(BookshelfStopDiagnosticCode.EDIT_ITEM_CONTENT)
+        // 送信する並び順(S)は、常に mutation.items の列順=編集画面に見えている順の1〜Nとする
+        // (並べ替えの有無を問わない「案B」、docs/design/bookshelf-order.md §4.1)。
+        val desiredPositionByTilcod = mutation.items.withIndex().associate { (index, item) -> item.tilcod to index + 1 }
+        val desiredOrder = mutation.items.map { it.tilcod }
         return edit(
             before = before,
             shelfNo = mutation.shelfNo,
             kind = BookshelfConfirmationKind.UPDATE,
             expectedItemCount = beforeItems.size,
             transform = { form ->
-                form.edit(mutation.newName, beforeItems.map { mutationByTilcod.getValue(it.tilcod).newMemo })
+                form.edit(
+                    mutation.newName,
+                    beforeItems.map { mutationByTilcod.getValue(it.tilcod).newMemo },
+                    beforeItems.map { desiredPositionByTilcod.getValue(it.tilcod) },
+                )
             },
             success = { after ->
                 val afterItems = after.itemsFor(mutation.shelfNo)
                 val afterByTilcod = afterItems.associateBy { it.tilcod }
                 after.shelves == before.shelves.map { shelf -> if (shelf.no == mutation.shelfNo) shelf.copy(name = mutation.newName) else shelf } &&
                     afterByTilcod.size == afterItems.size && afterByTilcod.keys == beforeByTilcod.keys &&
+                    afterItems.map { it.tilcod } == desiredOrder &&
                     beforeByTilcod.all { (tilcod, old) ->
                         val new = afterByTilcod.getValue(tilcod)
                         old.title == new.title && old.registeredDate == new.registeredDate &&

@@ -405,6 +405,30 @@ class BookshelfEditingUiController(
         }
     }
 
+    /**
+     * 本棚編集画面で資料をドラッグして並べ替える(`docs/design/bookshelf-order.md` §4.1)。
+     * [dialog.items]の列順そのものが送信する並び順(1〜N、案B)になるため、ここでは
+     * リストの要素を入れ替えるだけでよい。[AutoReservationRuleDrag]と同じid+delta方式。
+     */
+    fun moveEditShelfItem(tilcod: String, delta: Int) {
+        _state.update { current ->
+            val dialog = current.dialog as? BookshelfEditingDialog.EditShelf ?: return@update current
+            if (current.processing) return@update current
+            val index = dialog.items.indexOfFirst { it.tilcod == tilcod }
+            val target = index + delta
+            if (index !in dialog.items.indices || target !in dialog.items.indices) current
+            else current.copy(
+                dialog = dialog.copy(
+                    items = dialog.items.toMutableList().also { list ->
+                        val item = list.removeAt(index)
+                        list.add(target, item)
+                    },
+                ),
+                inputError = null,
+            )
+        }
+    }
+
     /** 入力画面の「次へ」。検証を通った場合だけ、通信しない最終確認へ進む。 */
     fun requestInputConfirmation() {
         _state.update { current ->
@@ -498,8 +522,12 @@ class BookshelfEditingUiController(
                     current.copy(inputError = "資料メモは${MAX_MEMO_LENGTH}文字以内で入力してください")
                 } else if (dialog.items.map { it.tilcod }.distinct().size != dialog.items.size || dialog.items.size != dialog.target.itemCount) {
                     current.copy(inputError = "本棚の資料構成が一致しません。画面を更新してやり直してください")
-                } else if (dialog.name == dialog.target.shelfName && dialog.items.all { it.newMemo == it.originalMemo }) {
-                    current.copy(inputError = "変更内容がありません。名前または資料メモを変更してください")
+                } else if (dialog.name == dialog.target.shelfName && dialog.items.all { it.newMemo == it.originalMemo } &&
+                    dialog.items.map { it.tilcod } == dialog.target.items.map { it.tilcod }
+                ) {
+                    // 並べ替え(ドラッグ)も変更として扱う(docs/design/bookshelf-order.md §4.1)。
+                    // 並び順だけを変えた場合も送信できるよう、列順(tilcodの並び)の比較を条件に含める。
+                    current.copy(inputError = "変更内容がありません。名前・資料メモまたは並び順を変更してください")
                 } else {
                     current.copy(
                         dialog = null,

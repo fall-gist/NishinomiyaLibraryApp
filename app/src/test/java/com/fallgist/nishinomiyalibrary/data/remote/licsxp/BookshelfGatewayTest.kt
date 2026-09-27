@@ -412,7 +412,9 @@ class BookshelfGatewayTest {
         assertEquals("/WOpacSdiBookListDispAction.do", requests[9].path)
         val thirdPostBody = requests[9].body.readUtf8()
         assertTrue(thirdPostBody.endsWith("jp.co.necsoft.licsxp.base.util.validation.MessageUtil.CONFIRM_DIALOG_SEND_REDIRECT=true"))
-        assertEquals("hash=masked&returnid=tiles.WSdiBookList&gamenid=tiles.WSdiBookList&tilcod=&dispflg=&otherbook=1&listname=%E5%A4%89%E6%9B%B4%E5%BE%8C&commnt=&bookcmnt=%E5%A4%89%E6%9B%B4%E5%89%8D&eachcmnt=%E5%A4%89%E6%9B%B4%E5%89%8D&sortno=0&eachsortno=0&okCodes=OPACSDI011&jp.co.necsoft.licsxp.base.util.validation.MessageUtil.CONFIRM_DIALOG_SEND_REDIRECT=true", thirdPostBody)
+        // sortno/eachsortnoは1(案B: 見えている順の1〜N。docs/design/bookshelf-order.md §4.1)。
+        // 段階2までは従来どおりDOM取得時の値(0)だったが、送信時は常に1始まりの連番へ置き換わる。
+        assertEquals("hash=masked&returnid=tiles.WSdiBookList&gamenid=tiles.WSdiBookList&tilcod=&dispflg=&otherbook=1&listname=%E5%A4%89%E6%9B%B4%E5%BE%8C&commnt=&bookcmnt=%E5%A4%89%E6%9B%B4%E5%89%8D&eachcmnt=%E5%A4%89%E6%9B%B4%E5%89%8D&sortno=1&eachsortno=1&okCodes=OPACSDI011&jp.co.necsoft.licsxp.base.util.validation.MessageUtil.CONFIRM_DIALOG_SEND_REDIRECT=true", thirdPostBody)
     }
 
     @Test
@@ -438,20 +440,26 @@ class BookshelfGatewayTest {
     }
 
     @Test
-    fun `本棚編集は表示順がDOM順と逆でもDOM順のメモで第3POSTまで進める`() = runBlocking {
+    fun `本棚編集は表示順がDOM順と逆でもDOM順のメモと並び替え後のS付きで第3POSTまで進める`() = runBlocking {
+        // items(mutationの列順)をDOM順(domItems)と逆にすることで、メモ対応がtilcodベースで
+        // 正しく行われること(従来からの検証)と、送信するS(sortno/eachsortno)がmutation.itemsの
+        // 列順=見えている順の1〜N(domLastが1、domFirstが2。案B)になること(段階2で追加)の両方を検証する。
         val domFirst = FixtureItem("1000000000001", "先に登録した資料", "先頭メモ")
         val domLast = FixtureItem("1000000000002", "後に登録した資料", "末尾メモ")
         val domItems = listOf(domFirst, domLast)
         val updatedFirst = domFirst.copy(memo = "先頭の新メモ")
         val updatedLast = domLast.copy(memo = "末尾の新メモ")
+        // DOM順(domFirst, domLast)に対する希望のS: domFirstは2番目、domLastは1番目。
+        val sortNos = listOf(2, 1)
         enqueueLogin()
         server.enqueue(page(shelfPage(1, "棚", items = domItems)))
         server.enqueue(page(shelfPage(1, "棚", items = domItems)))
         server.enqueue(page(editPage(1, "棚", domItems)))
-        server.enqueue(page(inlineUpdateConfirmPage(updateMemosFields(1, "棚", domItems, listOf(updatedFirst.memo, updatedLast.memo)))))
-        server.enqueue(page(completionPage(updateMemosFields(1, "棚", domItems, listOf(updatedFirst.memo, updatedLast.memo)))))
+        server.enqueue(page(inlineUpdateConfirmPage(updateMemosFields(1, "棚", domItems, listOf(updatedFirst.memo, updatedLast.memo), sortNos))))
+        server.enqueue(page(completionPage(updateMemosFields(1, "棚", domItems, listOf(updatedFirst.memo, updatedLast.memo), sortNos))))
         server.enqueue(page("<html>完了</html>"))
-        server.enqueue(page(shelfPage(1, "棚", items = listOf(updatedFirst, updatedLast))))
+        // サーバは送信したSの昇順に並べ替える(design §4.0の推定)ため、再取得後の順はdomLast→domFirst。
+        server.enqueue(page(shelfPage(1, "棚", items = listOf(updatedLast, updatedFirst))))
 
         val outcome = session().mutate(
             edit(
@@ -471,6 +479,8 @@ class BookshelfGatewayTest {
             displayBody.indexOf("eachcmnt=%E5%85%88%E9%A0%AD%E3%81%AE%E6%96%B0%E3%83%A1%E3%83%A2") <
                 displayBody.indexOf("eachcmnt=%E6%9C%AB%E5%B0%BE%E3%81%AE%E6%96%B0%E3%83%A1%E3%83%A2"),
         )
+        // DOM順(domFirst, domLast)に対して、送ったSはdomFirst=2, domLast=1(mutation.itemsの列順どおり)。
+        assertEquals(listOf("2", "1"), Regex("(?<!each)sortno=(\\d+)").findAll(displayBody).map { it.groupValues[1] }.toList())
     }
 
     @Test
@@ -912,11 +922,22 @@ class BookshelfGatewayTest {
     private fun fixture(name: String): String =
         requireNotNull(javaClass.classLoader).getResource("fixtures/$name")!!.readText()
 
-    private fun editPage(no: Int, name: String, items: List<FixtureItem>) = fieldsForm(editFields(no, name, items))
-    private fun editFields(no: Int, name: String, items: List<FixtureItem>) = buildList {
+    // editPage()は資料行のsortno要素にid='sortno<tilcod>'を持たせる(実測docs/site-research.md §13.9)。
+    // requireMatches()の追加安全確認が、この形式でないと送信を停止するため必須。
+    private fun editPage(no: Int, name: String, items: List<FixtureItem>) = fieldsForm(editFields(no, name, items), editFieldIds(items))
+    private fun editFieldIds(items: List<FixtureItem>): List<String?> = buildList {
+        repeat(8) { add(null) }
+        items.forEach { item -> add(null); add(null); add("sortno${item.code}"); add(null) }
+    }
+    // 並び順(S)は既定では1〜NのDOM順(=見えている順、案B)とする。[sortNos]を渡すと
+    // 資料行(DOM順)ごとに希望の値へ差し替えられる(並べ替え済みの送信フォーム再現用)。
+    private fun editFields(no: Int, name: String, items: List<FixtureItem>, sortNos: List<Int>? = null) = buildList {
         add("hash" to "masked"); add("returnid" to "tiles.WSdiBookList"); add("gamenid" to "tiles.WSdiBookList")
         add("tilcod" to ""); add("dispflg" to ""); add("otherbook" to no.toString()); add("listname" to name); add("commnt" to "")
-        items.forEachIndexed { index, item -> add("bookcmnt" to item.memo); add("eachcmnt" to item.memo); add("sortno" to index.toString()); add("eachsortno" to index.toString()) }
+        items.forEachIndexed { index, item ->
+            val sortNo = (sortNos?.get(index) ?: (index + 1)).toString()
+            add("bookcmnt" to item.memo); add("eachcmnt" to item.memo); add("sortno" to sortNo); add("eachsortno" to sortNo)
+        }
     }
     private fun deleteItemFields(no: Int, name: String, items: List<FixtureItem>, code: String) = editFields(no, name, items).map { if (it.first == "tilcod") "tilcod" to code else it }.let { listOf("flg" to "1") + it }
     @Test
@@ -1008,17 +1029,17 @@ class BookshelfGatewayTest {
 
     // サイトのchangcmnt(cmtValue, valcod)はhidden bookcmntとtextarea eachcmntの両方に同じ新値を
     // 入れて送信するため、確認・完了ページのfixtureもbookcmnt/eachcmnt双方を新値にして作る。
-    private fun updateMemoFields(no: Int, name: String, items: List<FixtureItem>, memo: String): List<Pair<String, String>> {
+    private fun updateMemoFields(no: Int, name: String, items: List<FixtureItem>, memo: String, sortNos: List<Int>? = null): List<Pair<String, String>> {
         var index = -1
-        return editFields(no, name, items).map { field ->
+        return editFields(no, name, items, sortNos).map { field ->
             if (field.first == "bookcmnt") index++
             if ((field.first == "bookcmnt" || field.first == "eachcmnt") && index == 0) field.first to memo else field
         }
     }
 
-    private fun updateMemosFields(no: Int, name: String, items: List<FixtureItem>, memos: List<String>): List<Pair<String, String>> {
+    private fun updateMemosFields(no: Int, name: String, items: List<FixtureItem>, memos: List<String>, sortNos: List<Int>? = null): List<Pair<String, String>> {
         var index = -1
-        return editFields(no, name, items).map { field ->
+        return editFields(no, name, items, sortNos).map { field ->
             if (field.first == "bookcmnt") index++
             if (field.first == "bookcmnt" || field.first == "eachcmnt") field.first to memos[index] else field
         }
@@ -1036,7 +1057,12 @@ class BookshelfGatewayTest {
     private fun actionFor(code: String) = when (code) { "OPACSDI017" -> "WOpacSdiBookListExecAction.do"; "OPACSDI011" -> "WOpacSdiBookListUpdateAction.do"; "OPACSDI033" -> "WOpacSdiBookDelAction.do"; else -> "WOpacSdiBookListDelAction.do" }
     private fun inlineUpdateConfirmPage(fields: List<Pair<String, String>>) = "<form name='prevRequestForm'>${fields.joinToString("") { (name, value) -> if (name == "commnt" || name == "eachcmnt") "<textarea name='$name'>$value</textarea>" else "<input name='$name' value='$value'>" }}</form><script>var OK_CODES_NAME = 'okCodes'; var CANCEL_CODES_NAME = 'cancelCodes'; var okArray = new Array(); var cancelArray = new Array(); if (rest) { okArray[okArray.length] = 'OPACSDI011'; submitFlg = false; } else { return cancelDialog(); } for (var i = 0; i < okArray.length; i++) { var newHidden = document.createElement('input'); newHidden.type = 'hidden'; newHidden.name = OK_CODES_NAME; newHidden.value = okArray[i]; document.prevRequestForm.appendChild(newHidden); } for (var c = 0; c < cancelArray.length; c++) { var cancelHidden = document.createElement('input'); cancelHidden.type = 'hidden'; cancelHidden.name = CANCEL_CODES_NAME; cancelHidden.value = cancelArray[c]; document.prevRequestForm.appendChild(cancelHidden); } document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListUpdateAction.do'; document.prevRequestForm.submit();</script>"
     private fun completionPage(fields: List<Pair<String, String>>) = "<form name='prevRequestForm'>${(fields + ("okCodes" to "OPACSDI011")).joinToString("") { (name, value) -> if (name == "commnt" || name == "eachcmnt") "<textarea name='$name'>$value</textarea>" else "<input name='$name' value='$value'>" }}</form><script>var CONFIRM_DIALOG_SEND_REDIRECT_NAME = \"jp.co.necsoft.licsxp.base.util.validation.MessageUtil.CONFIRM_DIALOG_SEND_REDIRECT\"; var OK_CODES_NAME = 'okCodes'; var CANCEL_CODES_NAME = 'cancelCodes'; var browser = navigator.userAgent; function createConfirmDialog() { for (var i = 0; i < okArray.length; i++) { var ok = document.createElement('input'); ok.type = 'hidden'; ok.name = OK_CODES_NAME; ok.value = okArray[i]; document.prevRequestForm.appendChild(ok); } for (var c = 0; c < cancelArray.length; c++) { var cancel = document.createElement('input'); cancel.type = 'hidden'; cancel.name = CANCEL_CODES_NAME; cancel.value = cancelArray[c]; document.prevRequestForm.appendChild(cancel); } var redirect = document.createElement('input'); redirect.type = 'hidden'; redirect.name = CONFIRM_DIALOG_SEND_REDIRECT_NAME; redirect.value = 'true'; document.prevRequestForm.appendChild(redirect); document.prevRequestForm.action = '/licsxp-opac/WOpacSdiBookListDispAction.do'; document.prevRequestForm.submit(); } window.onload = createConfirmDialog;</script>"
-    private fun fieldsForm(fields: List<Pair<String, String>>) = "<form name='LBForm'>${fields.joinToString("") { (name, value) -> if (name == "commnt" || name == "eachcmnt") "<textarea name='$name'>$value</textarea>" else "<input name='$name' value='$value'>" }}</form>"
+    private fun fieldsForm(fields: List<Pair<String, String>>, ids: List<String?> = emptyList()) = "<form name='LBForm'>${
+        fields.mapIndexed { index, (name, value) ->
+            val idAttr = ids.getOrNull(index)?.let { " id='$it'" }.orEmpty()
+            if (name == "commnt" || name == "eachcmnt") "<textarea name='$name'$idAttr>$value</textarea>" else "<input name='$name' value='$value'$idAttr>"
+        }.joinToString("")
+    }</form>"
     private fun page(body: String) = MockResponse().setBody(body)
 
     private data class FixtureItem(val code: String, val title: String, val memo: String, val date: String = "2026/08/01")

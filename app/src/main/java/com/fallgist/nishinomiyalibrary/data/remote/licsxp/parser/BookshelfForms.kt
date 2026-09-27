@@ -90,7 +90,10 @@ internal object BookshelfEditFormParser {
     private val prefix = listOf("hash", "returnid", "gamenid", "tilcod", "dispflg", "otherbook", "listname", "commnt")
     private val row = listOf("bookcmnt", "eachcmnt", "sortno", "eachsortno")
     fun parse(html: String): BookshelfEditForm {
-        val fields = parseNamedForm(html, "bookshelf-edit") { true }
+        val forms = Jsoup.parse(html).select("form[name=LBForm]")
+        if (forms.size != 1) throw ParseException("bookshelf-edit", "LBFormを一意に特定できません")
+        val formElement = forms.single()
+        val fields = formElement.bookshelfFields()
         val names = fields.map { it.name }
         if (names.take(prefix.size) != prefix) {
             throw ParseException("bookshelf-edit", "編集LBFormの項目または資料行順が実測契約と一致しません")
@@ -101,7 +104,11 @@ internal object BookshelfEditFormParser {
             throw ParseException("bookshelf-edit", "編集LBFormの項目または資料行順が実測契約と一致しません")
         }
         val shelfNo = fields[5].value.toIntOrNull() ?: throw ParseException("bookshelf-edit", "otherbookが不正です")
-        return BookshelfEditForm(fields, shelfNo, rowNames.size / row.size, prefixSize)
+        // sortno要素のidをDOM順で取得する(追加の安全確認。docs/design/bookshelf-order.md §4.1、
+        // docs/site-research.md §13.9の実測「sortno<tilcod>」)。requireMatches()で行と資料の対応を
+        // 二重に確かめるために使う。
+        val sortNoElementIds = formElement.select("input[name=sortno]").map { it.id() }
+        return BookshelfEditForm(fields, shelfNo, rowNames.size / row.size, prefixSize, sortNoElementIds)
     }
 }
 
@@ -110,6 +117,7 @@ internal class BookshelfEditForm(
     val shelfNo: Int,
     val itemCount: Int,
     private val prefixSize: Int,
+    private val sortNoElementIds: List<String>,
 ) {
     /**
      * 表示した本棚と編集ページが同一であることを、送信前に fail-closed で照合する。
@@ -117,9 +125,12 @@ internal class BookshelfEditForm(
      * sort 値の一致までを検証する。すべての control 自体は buildForm でそのまま保持する。
      * メモの比較は、表示メモ（改行が空白に潰れ前後trimされたもの）とフォームの生値（改行を保持）を
      * 同じ正規化を通してから突き合わせる。正規化は比較にのみ使い、送信値そのものは加工しない。
+     * 追加の安全確認(docs/design/bookshelf-order.md §4.1): 各行の sortno 要素の id が
+     * `sortno<その行の資料番号>` であることも確かめる。行とShelfParserが読んだ資料の対応を、
+     * DOM順の一致だけでなく id 単位でも二重に確かめるため。
      */
     fun requireMatches(shelf: Shelf, items: List<ShelfItem>) {
-        if (shelfNo != shelf.no || fields[6].value != shelf.name || itemCount != items.size) {
+        if (shelfNo != shelf.no || fields[6].value != shelf.name || itemCount != items.size || sortNoElementIds.size != items.size) {
             throw ParseException("bookshelf-edit", "編集フォームの対象本棚が表示内容と一致しません")
         }
         val rows = fields.drop(prefixSize).chunked(4)
@@ -128,28 +139,34 @@ internal class BookshelfEditForm(
             val expectedMemo = ParserSupport.normalizeWhitespace(items[index].memo)
             if (ParserSupport.normalizeWhitespace(bookComment) != expectedMemo ||
                 ParserSupport.normalizeWhitespace(eachComment) != expectedMemo ||
-                sortNo != eachSortNo || sortNo.toIntOrNull() == null) {
+                sortNo != eachSortNo || sortNo.toIntOrNull() == null ||
+                sortNoElementIds[index] != "sortno${items[index].tilcod}") {
                 throw ParseException("bookshelf-edit", "編集フォームの資料行が表示内容と一致しません")
             }
         }
     }
     /**
-     * listnameと全資料のメモを、同じLBFormのまま一度に置換する。
+     * listname・全資料のメモ・並び順(S)を、同じLBFormのまま一度に置換する。
      * サイトの changcmnt(cmtValue, valcod) は hidden の bookcmnt と textarea の eachcmnt の
      * 両方に同じ新値を入れて送信するため、ここでも両方を新しいメモ値に置換する
      * （eachcmnt だけを新値にすると bookcmnt の旧値でサーバがメモを上書きしてしまう）。
-     * sortno/eachsortno はこの機能のスコープ外なのでサイト取得値のまま保持する。
+     * 並び順も同じ構造(サーバが読むのは hidden の sortno、入力欄は eachsortno)のため、
+     * 両方を [sortNos] の値に置換する(docs/design/bookshelf-order.md §4.1)。
      * 行の対応付けは、資料行が必ず bookcmnt→eachcmnt→sortno→eachsortno の順で繰り返す
-     * という parse() 時点のDOM順検証に依拠する（tilcod による id 単位の検証は行っていない）。
+     * という parse() 時点のDOM順検証に依拠する（tilcod による id 単位の検証は requireMatches で行う）。
      */
-    fun edit(name: String, memos: List<String>): FormBody {
+    fun edit(name: String, memos: List<String>, sortNos: List<Int>): FormBody {
         if (memos.size != itemCount) throw ParseException("bookshelf-edit", "資料メモ件数が一致しません")
+        if (sortNos.size != itemCount) throw ParseException("bookshelf-edit", "並び順の件数が一致しません")
         var rowIndex = -1
+        var sortRowIndex = -1
         return fields.toFormBody { field, _ ->
             when (field.name) {
                 "listname" -> name
                 "bookcmnt" -> { rowIndex++; memos[rowIndex] }
                 "eachcmnt" -> memos[rowIndex]
+                "sortno" -> { sortRowIndex++; sortNos[sortRowIndex].toString() }
+                "eachsortno" -> sortNos[sortRowIndex].toString()
                 else -> field.value
             }
         }

@@ -3,6 +3,7 @@ package com.fallgist.nishinomiyalibrary.ui.shelf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,7 +43,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -75,6 +78,7 @@ object BookshelfEditingDialogTestTags {
     const val BULK_ADD_ITEMS_RESULTS_CLOSE = "bookshelf-bulk-add-items-results-close"
 
     fun editItemDelete(tilcod: String): String = "bookshelf-edit-item-delete-$tilcod"
+    fun editItemDragHandle(tilcod: String): String = "bookshelf-edit-item-drag-$tilcod"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -302,6 +306,7 @@ fun BookshelfEditingDialogs(
     onSelectAddItemShelf: (Int) -> Unit,
     onUpdateInput: (String) -> Unit,
     onUpdateEditShelfMemo: (String, String) -> Unit,
+    onMoveEditShelfItem: (String, Int) -> Unit = { _, _ -> },
     onRequestInputConfirmation: () -> Unit,
     onDismissDialog: () -> Unit,
     onConfirm: () -> Unit,
@@ -372,6 +377,7 @@ fun BookshelfEditingDialogs(
                 onSelectCreateMember = onSelectCreateMember,
                 onInputChange = onUpdateInput,
                 onEditMemoChange = onUpdateEditShelfMemo,
+                onMoveEditShelfItem = onMoveEditShelfItem,
                 onConfirm = onRequestInputConfirmation,
                 onDismiss = onDismissDialog,
                 onRequestDeleteItem = onRequestDeleteItem,
@@ -655,11 +661,13 @@ private fun BookshelfEditingInputDialog(
     onSelectCreateMember: (Long) -> Unit,
     onInputChange: (String) -> Unit,
     onEditMemoChange: (String, String) -> Unit,
+    onMoveEditShelfItem: (String, Int) -> Unit = { _, _ -> },
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     onRequestDeleteItem: (BookshelfItemTarget) -> Unit,
 ) {
     var memberMenuExpanded by remember(dialog) { mutableStateOf(false) }
+    val dragThresholdPx = with(LocalDensity.current) { 48.dp.toPx() }
     val title = when (dialog) {
         is BookshelfEditingDialog.CreateShelf -> "本棚を作成"
         is BookshelfEditingDialog.AddItem -> "本棚へ追加"
@@ -711,13 +719,45 @@ private fun BookshelfEditingInputDialog(
                     maxLines = if (isMemo) 6 else 1,
                 )
                 if (dialog is BookshelfEditingDialog.EditShelf) {
-                    Text("資料メモ（1000文字以内）", color = LocalAppColors.current.ink2, fontSize = 12.sp)
+                    Text(
+                        "資料メモ（1000文字以内）・ドラッグで並べ替え",
+                        color = LocalAppColors.current.ink2,
+                        fontSize = 12.sp,
+                    )
                     Column(modifier = Modifier.height(280.dp).verticalScroll(rememberScrollState())) {
                         dialog.items.forEach { item ->
+                            var dragDistance by remember(item.tilcod) { mutableStateOf(0f) }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
+                                // 並べ替えは自動予約のルール画面(AutoReservationRuleDrag)と同じ
+                                // 長押しドラッグ+id/delta方式(docs/design/bookshelf-order.md §4.1)。
+                                Text(
+                                    "⠿",
+                                    color = LocalAppColors.current.ink2,
+                                    fontSize = 18.sp,
+                                    modifier = Modifier
+                                        .testTag(BookshelfEditingDialogTestTags.editItemDragHandle(item.tilcod))
+                                        .pointerInput(item.tilcod, dragThresholdPx, editingDisabled) {
+                                            if (editingDisabled) return@pointerInput
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = { dragDistance = 0f },
+                                                onDrag = { change, amount ->
+                                                    change.consume()
+                                                    dragDistance += amount.y
+                                                    val steps = com.fallgist.nishinomiyalibrary.ui.settings.AutoReservationRuleDrag.steps(dragDistance, dragThresholdPx)
+                                                    if (steps != 0) {
+                                                        repeat(kotlin.math.abs(steps)) {
+                                                            onMoveEditShelfItem(item.tilcod, if (steps > 0) 1 else -1)
+                                                        }
+                                                        dragDistance -= steps * dragThresholdPx
+                                                    }
+                                                },
+                                            )
+                                        }
+                                        .padding(end = 6.dp),
+                                )
                                 Text(item.title, fontSize = 12.sp, modifier = Modifier.weight(1f))
                                 // 資料削除は本棚編集(名前+メモの一括更新)とは別の送信経路のため、
                                 // ここでの削除は編集中の入力を保存しない(修正1)。
