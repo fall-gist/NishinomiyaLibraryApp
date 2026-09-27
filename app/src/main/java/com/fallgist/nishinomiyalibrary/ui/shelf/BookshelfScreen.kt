@@ -810,21 +810,16 @@ private fun BookshelfEditingInputDialog(
                     // (2回目以降のドラッグで、掴んだ資料の現在位置を古い並びから取ってしまう不具合の原因)。
                     // ドラッグ開始位置の計算・移動先の計算は、必ずこの`latestDialog`(常に最新)経由で行う。
                     val latestDialog by rememberUpdatedState(dialog)
-                    // ドラッグ中は全行のメモを畳んで高さを揃える(§4.5)ため、実測した行の高さを
-                    // 「1件分の移動量」として使う(未計測の間はしきい値48dpで代用)。
-                    var rowHeightPx by remember { mutableFloatStateOf(dragThresholdPx) }
                     var draggedTilcod by remember { mutableStateOf<String?>(null) }
-                    var dragStartIndex by remember { mutableStateOf(0) }
-                    // 指の移動量(px)の累積。自動スクロール分もここへ足し込む。AutoReservationRuleDragと同じ考え方だが、
-                    // 1ステップずつ隣と入れ替えるのではなく、開始位置+ステップ数で目標位置を直接計算する
-                    // (何件もまたいで一度に動かせるようにするため)。
-                    var accumulatedPx by remember { mutableFloatStateOf(0f) }
-                    // 並びの入れ替え(1行ぶん=rowHeightPx)で吸収しきれなかった端数。掴んだタイルをこの分だけ
-                    // graphicsLayerのtranslationYでずらし、指に付いて動いて見えるようにする(§4.5レビュー指摘対応)。
-                    var dragOffsetPx by remember { mutableFloatStateOf(0f) }
-                    // 畳んだ直後、掴んだ書誌の「⠿」が指の位置からずれた分を補正する見た目のずれ(§4.7)。
-                    // 一覧のスクロールで打ち消しきれなかった残りをここに持ち、translationYへdragOffsetPxと合算する。
-                    var grabCorrectionPx by remember { mutableFloatStateOf(0f) }
+                    // 長押し成立後、指が押した位置からtouch slop以上動くまでは並びを変えない(§4.8)。
+                    // §4.7で一覧の端に合わせきれず、タイルと枠がずれている状態のまま長押ししただけで
+                    // 並びが変わってしまうのを防ぐためのフラグ。一度trueになったら、このドラッグの間はtrueのまま。
+                    var hasMovedPastTouchSlop by remember { mutableStateOf(false) }
+                    // 掴んだ書誌の「⠿」が指の真下に来るための、タイルの上端から見た指のオフセット(§4.8)。
+                    // タイルの画面上の上端は常に「pointerRootY - grabOffset」で求める。
+                    // (§4.7までの指の移動量の累積・行の高さでの割り算は使わない。落とす先は下記のとおり
+                    // 画面上の位置そのもの(タイルの中心yと他の行の中心yの位置関係)から直接決める)
+                    var grabOffset by remember { mutableFloatStateOf(0f) }
                     var pointerRootY by remember { mutableFloatStateOf(0f) }
                     var containerTopRoot by remember { mutableFloatStateOf(0f) }
                     var containerBottomRoot by remember { mutableFloatStateOf(0f) }
@@ -843,6 +838,12 @@ private fun BookshelfEditingInputDialog(
                     // (positionInRoot()は祖先のgraphicsLayerのtranslationY等も反映するため、
                     // 待っている間に自動スクロールで指が動いても、ここで測るdiffは畳みによるずれだけになる)
                     val handleCenterRootY = remember { mutableStateMapOf<String, Float>() }
+                    // 各行の「枠」(行全体のBox。translationYを持たない=落とす先の枠の位置)の画面上の上端と高さ(§4.8)。
+                    // 切り取られない座標(positionInRoot・size)で記録する。落とす先は、掴んだタイルの中心yと
+                    // 他の行の枠の中心yの位置関係から決める(BookshelfEditItemDrag.targetIndexByPosition)。
+                    // 離した後の位置合わせ(§4.8方針2)にも使う。
+                    val rowFrameTopRoot = remember { mutableStateMapOf<String, Float>() }
+                    val rowFrameHeightRoot = remember { mutableStateMapOf<String, Float>() }
                     val bringIntoViewRequesters = remember { mutableStateMapOf<String, BringIntoViewRequester>() }
                     // レビュー指摘(付随): 資料の削除等で一覧から無くなった資料番号のエントリが
                     // 上記のマップに残り続けないよう、最新の並びに無いキーを毎回の再構成後に取り除く。
@@ -850,60 +851,112 @@ private fun BookshelfEditingInputDialog(
                         val currentTilcods = dialog.items.map { it.tilcod }.toSet()
                         handleBoundsRoot.keys.retainAll(currentTilcods)
                         handleCenterRootY.keys.retainAll(currentTilcods)
+                        rowFrameTopRoot.keys.retainAll(currentTilcods)
+                        rowFrameHeightRoot.keys.retainAll(currentTilcods)
                         bringIntoViewRequesters.keys.retainAll(currentTilcods)
                     }
 
+                    // 掴んだ書誌以外の各行の中心yの一覧(現在の並び順)を求める。フレーム未計測の行は除く
+                    // (計測が届き次第、次のフレームや指のイベントで自然に反映される)。
+                    fun otherRowCentersExcluding(tilcod: String): List<Float> =
+                        latestDialog.items.mapNotNull { other ->
+                            if (other.tilcod == tilcod) return@mapNotNull null
+                            val top = rowFrameTopRoot[other.tilcod] ?: return@mapNotNull null
+                            val height = rowFrameHeightRoot[other.tilcod] ?: dragThresholdPx
+                            top + height / 2f
+                        }
+
+                    // §4.8: 落とす先を、指の移動量ではなく画面上の位置(掴んだタイルの中心yと他の行の中心yの
+                    // 位置関係)から決める。長押しして指をtouch slop以上動かすまでは並びを変えない
+                    // (§4.7で一覧の端に合わせきれず、タイルと枠がずれている状態のまま長押ししただけで
+                    // 並びが変わるのを防ぐ)。
                     fun applyDragProgress() {
                         val tilcod = draggedTilcod ?: return
+                        if (!hasMovedPastTouchSlop) return
                         // 必ず最新の並び(latestDialog)から件数と現在位置を取る(古い並びに固定されないため)。
                         val items = latestDialog.items
                         val currentIndex = items.indexOfFirst { it.tilcod == tilcod }
                         if (currentIndex == -1) return
-                        val targetIndex = BookshelfEditItemDrag.targetIndex(dragStartIndex, accumulatedPx, rowHeightPx, items.size)
-                        // 一覧の端で移動しきれない(クランプされた)分も含め、実際に反映された行数(appliedSteps)
-                        // ぶんだけをaccumulatedPxから差し引いた残りが、指の位置とタイルの現在位置のずれになる。
-                        val appliedSteps = targetIndex - dragStartIndex
-                        dragOffsetPx = accumulatedPx - appliedSteps * rowHeightPx
+                        // 自分の枠がまだ計測されていない間は、正しい高さ・落とす先が求まらないため何もしない。
+                        val myFrameTop = rowFrameTopRoot[tilcod] ?: return
+                        val myHeight = rowFrameHeightRoot[tilcod] ?: dragThresholdPx
+                        val tileTop = pointerRootY - grabOffset
+                        val tileCenterY = tileTop + myHeight / 2f
+                        val otherCenters = otherRowCentersExcluding(tilcod)
+                        val targetIndex = BookshelfEditItemDrag.targetIndexByPosition(tileCenterY, otherCenters)
+                            .coerceIn(0, items.size - 1)
                         if (targetIndex != currentIndex) onMoveEditShelfItemTo(tilcod, targetIndex)
                     }
 
                     // 長押しが成立し、並べ替えを開始する。pointerRootYには押した位置の画面上のyを渡す。
                     fun startDrag(tilcod: String, rootPointerY: Float) {
-                        // 開始位置は必ず開始した時点の最新の並び(latestDialog)から取る
+                        // latestDialogに存在しない資料番号では開始しない
                         // (古いdialogを直接読むと、2回目以降のドラッグで開始位置がずれて誤った位置へ飛ぶ)。
                         val startIndex = latestDialog.items.indexOfFirst { it.tilcod == tilcod }
                         if (startIndex == -1) return
                         draggedTilcod = tilcod
-                        dragStartIndex = startIndex
-                        accumulatedPx = 0f
-                        dragOffsetPx = 0f
-                        grabCorrectionPx = 0f
+                        hasMovedPastTouchSlop = false
                         pointerRootY = rootPointerY
+                        // 畳んだ後(§4.7の合わせ込み後)にhandleCenterRootY基準で更新するまでの仮のgrabOffset。
+                        // 未計測の間はrootPointerY自身を使い、オフセット0(タイル上端=指の位置)として破綻を避ける。
+                        grabOffset = rootPointerY - (rowFrameTopRoot[tilcod] ?: rootPointerY)
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+
+                    // 離した後、配置が確定してから動かした書誌を見せる(§4.8方針2)。
+                    // §4.7の合わせ込みと同じ考え方で、動かした書誌の枠の位置が変わるのを
+                    // 数フレームの上限つきで待つ(畳む処理と同じくアニメーションが無いことが前提)。
+                    // 待っている間に新しいドラッグが始まったら、この処理は中止する。
+                    suspend fun settleReleasedPlacement(tilcod: String, releasedTopRoot: Float) {
+                        val topBeforeSettle = rowFrameTopRoot[tilcod]
+                        var settledTop = topBeforeSettle
+                        var framesWaited = 0
+                        while (framesWaited < 5) {
+                            if (draggedTilcod != null) return
+                            withFrameNanos { }
+                            framesWaited++
+                            val current = rowFrameTopRoot[tilcod]
+                            settledTop = current
+                            if (current != null && current != topBeforeSettle) break
+                        }
+                        if (draggedTilcod != null) return
+                        val finalTop = settledTop ?: return
+                        // 動かした書誌の上端(finalTop)が、離した時点のタイルの上端(releasedTopRoot)に
+                        // 来るように一覧をスクロールする(離した場所に書誌が残って見える)。
+                        val diff = finalTop - releasedTopRoot
+                        if (diff != 0f) {
+                            scrollState.scrollBy(diff)
+                        }
+                        if (draggedTilcod != null) return
+                        // それでも一覧の見えている範囲からはみ出す場合は、見える位置へ寄せる。
+                        val topAfterScroll = rowFrameTopRoot[tilcod] ?: finalTop
+                        val heightAfterScroll = rowFrameHeightRoot[tilcod] ?: dragThresholdPx
+                        val bottomAfterScroll = topAfterScroll + heightAfterScroll
+                        if (topAfterScroll < containerTopRoot || bottomAfterScroll > containerBottomRoot) {
+                            bringIntoViewRequesters[tilcod]?.bringIntoView()
+                        }
                     }
 
                     // 指を離して並べ替えを終える。
                     fun finishDrag() {
                         val moved = draggedTilcod ?: return
+                        // 離した時点のタイルの画面上の上端を覚えておく(§4.8方針2)。配置確定後、この位置へ戻す。
+                        val releasedTopRoot = pointerRootY - grabOffset
                         draggedTilcod = null
-                        accumulatedPx = 0f
-                        dragOffsetPx = 0f
-                        grabCorrectionPx = 0f
-                        // 離した位置(空の枠の位置)にメモ欄が戻り、動かした資料が見える位置までスクロールする(§4.5)。
-                        coroutineScope.launch { bringIntoViewRequesters[moved]?.bringIntoView() }
+                        hasMovedPastTouchSlop = false
+                        grabOffset = 0f
+                        coroutineScope.launch { settleReleasedPlacement(moved, releasedTopRoot) }
                     }
 
                     // コルーチンの取り消し(ダイアログが閉じた等)やポインタが失われた場合に、
-                    // 並べ替えの状態を破棄する(finishDragと違い、bringIntoViewは行わない)。
+                    // 並べ替えの状態を破棄する(finishDragと違い、離した後の位置合わせは行わない)。
                     fun cancelDrag() {
                         draggedTilcod = null
-                        accumulatedPx = 0f
-                        dragOffsetPx = 0f
-                        grabCorrectionPx = 0f
+                        hasMovedPastTouchSlop = false
+                        grabOffset = 0f
                     }
 
                     // 指が一覧の見えている範囲の上端・下端に近づいている間、その方向へスクロールし続ける(自動スクロール)。
-                    // スクロールした分もaccumulatedPxへ足し込み、スクロール中も落とす先を更新し続ける。
                     LaunchedEffect(draggedTilcod) {
                         val tilcod = draggedTilcod ?: return@LaunchedEffect
                         // ------------------------------------------------------------------
@@ -937,17 +990,17 @@ private fun BookshelfEditingInputDialog(
                         // 待っている間にドラッグが終了・取り消されていれば、以降の合わせ込みは行わない
                         // (finishDrag/cancelDragが既に状態をリセットしている)。
                         if (settledCenterY != null && draggedTilcod == tilcod) {
+                            // grabOffset: 畳んだ後の「⠿」の中心 − 自分の枠の上端(§4.8)。
+                            // これでタイルの上端(pointerRootY - grabOffset)を求めれば、常に「⠿」が指の真下に来る。
+                            val myFrameTop = rowFrameTopRoot[tilcod]
+                            if (myFrameTop != null) {
+                                grabOffset = settledCenterY - myFrameTop
+                            }
                             val diff = pointerRootY - settledCenterY
                             if (diff != 0f) {
-                                // 指は動いていないので、このスクロールは並べ替えの移動量(accumulatedPx)には足さない。
-                                val consumed = scrollState.scrollBy(-diff)
-                                // scrollByはsuspendのため、復帰後に再度draggedTilcodを確認する
-                                // (待っている間に指を離してリセット済みの値を上書きしないため。レビュー指摘対応)。
-                                if (draggedTilcod == tilcod) {
-                                    // 一覧の端でスクロールしきれなかった残り(diff + 実際に動いた量)を、
-                                    // 掴んだタイルの見た目のずれ(translationYへの補正)として持つ。
-                                    grabCorrectionPx = diff + consumed
-                                }
+                                // 指は動いていないので、このスクロールは並べ替え(落とす先の判定)には影響しない
+                                // (落とす先は画面上の位置から直接決めるため、§4.7のように補正値へ足す必要はない)。
+                                scrollState.scrollBy(-diff)
                             }
                         }
 
@@ -962,12 +1015,11 @@ private fun BookshelfEditingInputDialog(
                                 else -> 0f
                             }
                             if (scrollDelta != 0f) {
-                                val consumed = scrollState.scrollBy(scrollDelta)
-                                if (consumed != 0f) {
-                                    accumulatedPx += consumed
-                                    applyDragProgress()
-                                }
+                                scrollState.scrollBy(scrollDelta)
                             }
+                            // §4.8: 自動スクロールで周りの行が動くため、スクロールした・しないに関わらず
+                            // 毎回、最新の位置から落とす先を計算し直す。
+                            applyDragProgress()
                             delay(16)
                         }
                     }
@@ -1026,8 +1078,14 @@ private fun BookshelfEditingInputDialog(
                                             }
                                             val deltaY = change.positionChange().y
                                             change.consume()
-                                            accumulatedPx += deltaY
                                             pointerRootY += deltaY
+                                            // §4.8: 押した位置(down.position)からtouch slopを超えて動くまでは
+                                            // 並びを変えない(一度超えたら、このドラッグの間はtrueのまま)。
+                                            if (!hasMovedPastTouchSlop &&
+                                                (change.position - down.position).getDistance() > viewConfiguration.touchSlop
+                                            ) {
+                                                hasMovedPastTouchSlop = true
+                                            }
                                             applyDragProgress()
                                         }
                                     } finally {
@@ -1053,7 +1111,16 @@ private fun BookshelfEditingInputDialog(
                                     // 掴んだタイルはgraphicsLayerのtranslationYでレイアウト上の位置からずらして描く
                                     // (指に付いて動く§4.5)。そのためレイアウト上の元の場所は空いたままになるので、
                                     // 同じ場所に「落とす先」を示す空の枠を背面(zIndexなし)に描く。
-                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                    // この外側のBox(行の「枠」。translationYを持たない)の画面上の上端と高さを
+                                    // 切り取られない座標で記録し、落とす先の判定(§4.8)に使う。
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .onGloballyPositioned { coordinates ->
+                                                rowFrameTopRoot[item.tilcod] = coordinates.positionInRoot().y
+                                                rowFrameHeightRoot[item.tilcod] = coordinates.size.height.toFloat()
+                                            },
+                                    ) {
                                         if (isDragged) {
                                             Box(
                                                 modifier = Modifier
@@ -1068,13 +1135,14 @@ private fun BookshelfEditingInputDialog(
                                                 .fillMaxWidth()
                                                 .zIndex(if (isDragged) 1f else 0f)
                                                 .bringIntoViewRequester(requester)
-                                                .onGloballyPositioned { coordinates ->
-                                                    if (collapsed) rowHeightPx = coordinates.size.height.toFloat()
-                                                }
                                                 .graphicsLayer {
                                                     if (isDragged) {
-                                                        // grabCorrectionPx: 畳んだ直後に指の位置からずれた分の補正(§4.7)。
-                                                        translationY = dragOffsetPx + grabCorrectionPx
+                                                        // タイルの上端 = 指の位置(pointerRootY) - grabOffset(§4.8)。
+                                                        // 自分の枠(rowFrameTopRoot、translationYを持たない)の
+                                                        // 上端からのずれをtranslationYとして描く。
+                                                        val myFrameTop = rowFrameTopRoot[item.tilcod] ?: 0f
+                                                        val tileTop = pointerRootY - grabOffset
+                                                        translationY = tileTop - myFrameTop
                                                         alpha = 0.6f
                                                         shadowElevation = 12f
                                                     }
