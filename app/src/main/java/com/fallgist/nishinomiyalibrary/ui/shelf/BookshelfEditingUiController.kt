@@ -553,7 +553,7 @@ class BookshelfEditingUiController(
                     member == null -> current.copy(inputError = "対象メンバーを選択してください")
                     current.addItemShelvesLoadedForMemberId != member.id -> current.copy(inputError = "本棚を読み込んでいます")
                     // 「新しい本棚を作成」なら本棚0件でも進める(add-to-new-shelf.md §3.3・§1)。
-                    !dialog.creatingNewShelf && current.addItemShelves.isEmpty() -> current.copy(inputError = "本棚がありません。「新しい本棚を作成」を選んでください")
+                    !dialog.creatingNewShelf && current.addItemShelves.isEmpty() -> current.copy(inputError = "本棚がありません。【新しい本棚を作成】を選んでください")
                     !dialog.creatingNewShelf && shelf == null -> current.copy(inputError = "追加先の本棚を選択してください")
                     dialog.memo.length > MAX_MEMO_LENGTH -> current.copy(inputError = "資料メモは${MAX_MEMO_LENGTH}文字以内で入力してください")
                     dialog.creatingNewShelf && !isValidShelfName(dialog.newShelfName) -> current.copy(inputError = shelfNameError(dialog.newShelfName))
@@ -602,7 +602,7 @@ class BookshelfEditingUiController(
                 when {
                     member == null -> current.copy(inputError = "対象メンバーを選択してください")
                     current.addItemShelvesLoadedForMemberId != member.id -> current.copy(inputError = "本棚を読み込んでいます")
-                    !dialog.creatingNewShelf && current.addItemShelves.isEmpty() -> current.copy(inputError = "本棚がありません。「新しい本棚を作成」を選んでください")
+                    !dialog.creatingNewShelf && current.addItemShelves.isEmpty() -> current.copy(inputError = "本棚がありません。【新しい本棚を作成】を選んでください")
                     !dialog.creatingNewShelf && shelf == null -> current.copy(inputError = "追加先の本棚を選択してください")
                     dialog.creatingNewShelf && !isValidShelfName(dialog.newShelfName) -> current.copy(inputError = shelfNameError(dialog.newShelfName))
                     dialog.creatingNewShelf -> current.copy(

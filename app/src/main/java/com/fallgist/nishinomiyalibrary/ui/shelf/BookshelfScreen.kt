@@ -452,7 +452,7 @@ private fun AddItemDialog(
     var shelfMenuExpanded by remember(dialog.memberId) { mutableStateOf(false) }
     val memberName = members.find { it.id == dialog.memberId }?.name ?: "メンバーを選択"
     val shelfName = when {
-        dialog.creatingNewShelf -> "新しい本棚を作成"
+        dialog.creatingNewShelf -> "【新しい本棚を作成】"
         else -> shelves.find { it.shelfNo == dialog.shelfNo }?.name ?: "本棚を選択"
     }
     val confirmEnabled = dialog.memberId != null && shelvesLoaded &&
@@ -506,7 +506,7 @@ private fun AddItemDialog(
                         }
                         // 選択肢の末尾「新しい本棚を作成」(`docs/design/add-to-new-shelf.md` §1・§3.3)。
                         // 本棚を1つも持たないメンバーでも、一覧の読み込みが済んでいれば選べる。
-                        DropdownMenuItem(text = { Text("新しい本棚を作成") }, onClick = {
+                        DropdownMenuItem(text = { Text("【新しい本棚を作成】") }, onClick = {
                             shelfMenuExpanded = false
                             onSelectCreateNewShelf()
                         })
@@ -515,7 +515,7 @@ private fun AddItemDialog(
                 if (dialog.memberId != null && !shelvesLoaded) {
                     Text("本棚を読み込んでいます", color = LocalAppColors.current.ink2, fontSize = 12.sp)
                 } else if (dialog.memberId != null && shelves.isEmpty() && !dialog.creatingNewShelf) {
-                    Text("本棚がありません。「新しい本棚を作成」を選んでください", color = LocalAppColors.current.alert, fontSize = 12.sp)
+                    Text("本棚がありません。【新しい本棚を作成】を選んでください", color = LocalAppColors.current.alert, fontSize = 12.sp)
                 }
                 if (dialog.creatingNewShelf) {
                     OutlinedTextField(
@@ -572,7 +572,7 @@ private fun BulkAddItemsDialog(
     var shelfMenuExpanded by remember(dialog.memberId) { mutableStateOf(false) }
     val memberName = members.find { it.id == dialog.memberId }?.name ?: "メンバーを選択"
     val shelfName = when {
-        dialog.creatingNewShelf -> "新しい本棚を作成"
+        dialog.creatingNewShelf -> "【新しい本棚を作成】"
         else -> shelves.find { it.shelfNo == dialog.shelfNo }?.name ?: "本棚を選択"
     }
     val confirmEnabled = dialog.memberId != null && shelvesLoaded &&
@@ -620,7 +620,7 @@ private fun BulkAddItemsDialog(
                             })
                         }
                         // 選択肢の末尾「新しい本棚を作成」(`docs/design/add-to-new-shelf.md` §1・§3.3)。
-                        DropdownMenuItem(text = { Text("新しい本棚を作成") }, onClick = {
+                        DropdownMenuItem(text = { Text("【新しい本棚を作成】") }, onClick = {
                             shelfMenuExpanded = false
                             onSelectCreateNewShelf()
                         })
@@ -629,7 +629,7 @@ private fun BulkAddItemsDialog(
                 if (dialog.memberId != null && !shelvesLoaded) {
                     Text("本棚を読み込んでいます", color = LocalAppColors.current.ink2, fontSize = 12.sp)
                 } else if (dialog.memberId != null && shelves.isEmpty() && !dialog.creatingNewShelf) {
-                    Text("本棚がありません。「新しい本棚を作成」を選んでください", color = LocalAppColors.current.alert, fontSize = 12.sp)
+                    Text("本棚がありません。【新しい本棚を作成】を選んでください", color = LocalAppColors.current.alert, fontSize = 12.sp)
                 }
                 if (dialog.creatingNewShelf) {
                     OutlinedTextField(
