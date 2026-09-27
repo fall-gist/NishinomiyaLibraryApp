@@ -727,6 +727,8 @@ private fun BookshelfEditingInputDialog(
     onRequestDeleteItem: (BookshelfItemTarget) -> Unit,
 ) {
     var memberMenuExpanded by remember(dialog) { mutableStateOf(false) }
+    // §4.8時点では、行の高さ(rowFrameHeightRoot)がまだ計測されていない間だけに使う代わりの値
+    // (「1件分の移動量」としては使っていない。落とす先は画面上の位置そのものから決めるため)。
     val dragThresholdPx = with(LocalDensity.current) { 48.dp.toPx() }
     val title = when (dialog) {
         is BookshelfEditingDialog.CreateShelf -> "本棚を作成"
@@ -815,10 +817,20 @@ private fun BookshelfEditingInputDialog(
                     // §4.7で一覧の端に合わせきれず、タイルと枠がずれている状態のまま長押ししただけで
                     // 並びが変わってしまうのを防ぐためのフラグ。一度trueになったら、このドラッグの間はtrueのまま。
                     var hasMovedPastTouchSlop by remember { mutableStateOf(false) }
+                    // §4.7の合わせ込み(畳んだ後にgrabOffsetを確定させる処理)が済むまでtrueにしない
+                    // (レビュー指摘対応)。合わせ込み前は、掴んだタイルのtranslationYを強制的に0にする
+                    // (下記グラフィックスレイヤーを参照)。これは、handleCenterRootYが掴んだタイル
+                    // (translationYを持つColumn)の子孫の座標であるため、もしtranslationYが0でない間に
+                    // その値を読んでgrabOffsetやdiffを計算すると、まだ確定していないtranslationY自身が
+                    // 測定値に混ざり込み、以後の計算全体の基準がずれてしまうため
+                    // (「タイルを指の位置に描く」ためのtranslationYと「畳んだ後の配置を測る」ための
+                    // 座標取得が、お互いに依存し合う堂々巡りになる)。
+                    var alignmentSettled by remember { mutableStateOf(false) }
                     // 掴んだ書誌の「⠿」が指の真下に来るための、タイルの上端から見た指のオフセット(§4.8)。
                     // タイルの画面上の上端は常に「pointerRootY - grabOffset」で求める。
                     // (§4.7までの指の移動量の累積・行の高さでの割り算は使わない。落とす先は下記のとおり
                     // 画面上の位置そのもの(タイルの中心yと他の行の中心yの位置関係)から直接決める)
+                    // alignmentSettledがtrueになるまでは未確定の値(既定0)であり、使用しない。
                     var grabOffset by remember { mutableFloatStateOf(0f) }
                     var pointerRootY by remember { mutableFloatStateOf(0f) }
                     var containerTopRoot by remember { mutableFloatStateOf(0f) }
@@ -873,6 +885,10 @@ private fun BookshelfEditingInputDialog(
                     fun applyDragProgress() {
                         val tilcod = draggedTilcod ?: return
                         if (!hasMovedPastTouchSlop) return
+                        // §4.7の合わせ込み(grabOffsetの確定)が済むまでは、tileTopの計算が正しくないため
+                        // 落とす先を計算しない(レビュー指摘対応)。指の移動量はpointerRootYに積まれ続けるので、
+                        // 確定した時点の次の呼び出しで自然に追いつく。
+                        if (!alignmentSettled) return
                         // 必ず最新の並び(latestDialog)から件数と現在位置を取る(古い並びに固定されないため)。
                         val items = latestDialog.items
                         val currentIndex = items.indexOfFirst { it.tilcod == tilcod }
@@ -896,10 +912,11 @@ private fun BookshelfEditingInputDialog(
                         if (startIndex == -1) return
                         draggedTilcod = tilcod
                         hasMovedPastTouchSlop = false
+                        alignmentSettled = false
                         pointerRootY = rootPointerY
-                        // 畳んだ後(§4.7の合わせ込み後)にhandleCenterRootY基準で更新するまでの仮のgrabOffset。
-                        // 未計測の間はrootPointerY自身を使い、オフセット0(タイル上端=指の位置)として破綻を避ける。
-                        grabOffset = rootPointerY - (rowFrameTopRoot[tilcod] ?: rootPointerY)
+                        // grabOffsetは§4.7の合わせ込みが確定するまで使わない(alignmentSettled=falseの間、
+                        // 掴んだタイルのtranslationYは強制的に0にする)ため、ここでは既定値0のままでよい。
+                        grabOffset = 0f
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     }
 
@@ -941,9 +958,17 @@ private fun BookshelfEditingInputDialog(
                     fun finishDrag() {
                         val moved = draggedTilcod ?: return
                         // 離した時点のタイルの画面上の上端を覚えておく(§4.8方針2)。配置確定後、この位置へ戻す。
-                        val releasedTopRoot = pointerRootY - grabOffset
+                        // alignmentSettledがfalseの間はtranslationYを0にしているため、grabOffsetはまだ
+                        // 未確定(既定0のまま)であり、pointerRootY - grabOffsetは使えない。その場合は
+                        // 自分の枠の上端(見た目の位置そのもの)をそのまま使う(レビュー指摘対応)。
+                        val releasedTopRoot = if (alignmentSettled) {
+                            pointerRootY - grabOffset
+                        } else {
+                            rowFrameTopRoot[moved] ?: (pointerRootY - grabOffset)
+                        }
                         draggedTilcod = null
                         hasMovedPastTouchSlop = false
+                        alignmentSettled = false
                         grabOffset = 0f
                         coroutineScope.launch { settleReleasedPlacement(moved, releasedTopRoot) }
                     }
@@ -953,6 +978,7 @@ private fun BookshelfEditingInputDialog(
                     fun cancelDrag() {
                         draggedTilcod = null
                         hasMovedPastTouchSlop = false
+                        alignmentSettled = false
                         grabOffset = 0f
                     }
 
@@ -989,18 +1015,31 @@ private fun BookshelfEditingInputDialog(
                         }
                         // 待っている間にドラッグが終了・取り消されていれば、以降の合わせ込みは行わない
                         // (finishDrag/cancelDragが既に状態をリセットしている)。
-                        if (settledCenterY != null && draggedTilcod == tilcod) {
-                            // grabOffset: 畳んだ後の「⠿」の中心 − 自分の枠の上端(§4.8)。
-                            // これでタイルの上端(pointerRootY - grabOffset)を求めれば、常に「⠿」が指の真下に来る。
+                        // ここまでの待ち・handleCenterRootYの読み取りは、掴んだタイルのtranslationYが
+                        // まだ0のまま(alignmentSettled=false)で行っているため、測っている値は
+                        // 畳んだ後の配置そのもの(translationYを含まない)になっている(レビュー指摘対応)。
+                        if (draggedTilcod == tilcod) {
                             val myFrameTop = rowFrameTopRoot[tilcod]
-                            if (myFrameTop != null) {
+                            if (settledCenterY != null && myFrameTop != null) {
+                                // grabOffset: 畳んだ後の「⠿」の中心 − 自分の枠の上端(§4.8)。タイル内での
+                                // 「⠿」の位置を表すスクロール非依存の定数であり、以後はタイルの上端
+                                // (pointerRootY - grabOffset)を求めれば常に「⠿」が指の真下に来る。
+                                // このtranslationYを含まない値からgrabOffsetを先に確定させてから、
+                                // 指の位置へ寄せるスクロールを行う。
                                 grabOffset = settledCenterY - myFrameTop
+                                val diff = pointerRootY - settledCenterY
+                                if (diff != 0f) {
+                                    // 指は動いていないので、このスクロールは並べ替え(落とす先の判定)には
+                                    // 影響しない(落とす先は画面上の位置から直接決めるため)。
+                                    scrollState.scrollBy(-diff)
+                                }
                             }
-                            val diff = pointerRootY - settledCenterY
-                            if (diff != 0f) {
-                                // 指は動いていないので、このスクロールは並べ替え(落とす先の判定)には影響しない
-                                // (落とす先は画面上の位置から直接決めるため、§4.7のように補正値へ足す必要はない)。
-                                scrollState.scrollBy(-diff)
+                            // measure(myFrameTop・settledCenterY)が5フレームで取れなかった場合も、
+                            // 永久にtranslationYを0のままにはしない(grabOffsetは既定の0のまま確定させる)。
+                            // scrollByはsuspendのため、復帰後に再度draggedTilcodを確認してから書き込む
+                            // (待っている間に指を離してリセット済みの値を上書きしないため)。
+                            if (draggedTilcod == tilcod) {
+                                alignmentSettled = true
                             }
                         }
 
@@ -1137,12 +1176,22 @@ private fun BookshelfEditingInputDialog(
                                                 .bringIntoViewRequester(requester)
                                                 .graphicsLayer {
                                                     if (isDragged) {
-                                                        // タイルの上端 = 指の位置(pointerRootY) - grabOffset(§4.8)。
-                                                        // 自分の枠(rowFrameTopRoot、translationYを持たない)の
-                                                        // 上端からのずれをtranslationYとして描く。
-                                                        val myFrameTop = rowFrameTopRoot[item.tilcod] ?: 0f
-                                                        val tileTop = pointerRootY - grabOffset
-                                                        translationY = tileTop - myFrameTop
+                                                        // §4.7の合わせ込み(grabOffsetの確定)が済むまでは、translationYを
+                                                        // 強制的に0にする(レビュー指摘対応)。handleCenterRootYは
+                                                        // このColumn(掴んだタイル)の子孫の座標であるため、translationYが
+                                                        // 0でない間にその値を読んでgrabOffset・diffを計算すると、
+                                                        // まだ確定していないtranslationY自身が測定値に混ざり込み、
+                                                        // 以後の計算全体の基準がずれてしまう。
+                                                        translationY = if (alignmentSettled) {
+                                                            // タイルの上端 = 指の位置(pointerRootY) - grabOffset(§4.8)。
+                                                            // 自分の枠(rowFrameTopRoot、translationYを持たない)の
+                                                            // 上端からのずれをtranslationYとして描く。
+                                                            val myFrameTop = rowFrameTopRoot[item.tilcod] ?: 0f
+                                                            val tileTop = pointerRootY - grabOffset
+                                                            tileTop - myFrameTop
+                                                        } else {
+                                                            0f
+                                                        }
                                                         alpha = 0.6f
                                                         shadowElevation = 12f
                                                     }
