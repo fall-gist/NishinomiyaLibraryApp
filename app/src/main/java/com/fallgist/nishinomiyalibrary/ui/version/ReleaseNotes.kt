@@ -20,6 +20,11 @@ object ReleaseNotes {
     /** 新しい版が先頭になるように並べる。 */
     val all: List<ReleaseNote> = listOf(
         ReleaseNote(
+            version = "2.0",
+            date = "2026-09-28",
+            body = "本棚内の並び順を公式サイトと揃え、ドラッグでの並べ替えに対応。本棚への追加時に、新しい本棚を作成して追加することを可能とした。以上をもって、予定していた機能を一通り完成とする。",
+        ),
+        ReleaseNote(
             version = "1.10",
             date = "2026-09-27",
             body = "処理中でも書誌詳細・検索・新着資料を待たずに開けるよう改善。",
