@@ -3353,3 +3353,14 @@ versionName は所有者の指示で上げる（従来どおり）。版を据�
 - 所有者確定: 単件の追加ダイアログに「新しい本棚を作成」、一斉本棚追加でも使う、作成後に追加が失敗しても本棚は残す、作成が結果不明なら止める
 - 段階: 段階1＝通信層・ドメイン・リポジトリ（§3.1・§3.2・§5 の通信層とリポジトリのテスト）、段階2＝画面・コントローラ（§3.3・§4）
 - 本棚の並び順の件（bookshelf-order.md）は所有者の確認で完了
+
+## 新しい本棚を作って追加する 実装完了（2026-09-28）
+
+- 設計書: `docs/design/add-to-new-shelf.md`
+- 段階1 `3422a70`（通信層・リポジトリ。CI 成功）、段階2 `39a5863`（画面・コントローラ。CI run 36329516465 成功）、
+  レビュー指摘対応 `ec83182`（本棚0件の案内文、updateNewShelfName、コールバックの既定値。CI run 36331547374 成功）。全単体テスト 1084件成功
+- 独立レビュー（段階1・段階2）: 重大な指摘なし。低の指摘のうち、本棚名欄とメモ欄のエラー枠の共有（既存の作りの延長）は未対応
+- 型: `BookshelfBulkAddTarget`（ExistingShelf / NewShelf）、`BookshelfBulkAddCreateOutcome`、`RemoteBookshelfOutcome.Applied.createdShelfNo`、
+  単件の新しい本棚は `BookshelfBulkAddConfirmation.singleItemTitle` で一斉追加の確認・送信の経路に乗せる
+- 未検証: 実機・実サイト（設計書 §6。本棚を作るため所有者が行う）
+- versionName は 1.10 のまま
