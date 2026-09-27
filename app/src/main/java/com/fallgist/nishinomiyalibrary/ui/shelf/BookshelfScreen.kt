@@ -831,14 +831,25 @@ private fun BookshelfEditingInputDialog(
                     // 一覧を囲むBoxの画面上の位置(§4.6)。Box内で受け取る指の座標(Boxローカル)を、
                     // 「⠿」のboundsInRoot・containerTopRoot/BottomRootと同じ画面座標系に直すために使う。
                     var containerPositionInRoot by remember { mutableStateOf(Offset.Zero) }
-                    // 各「⠿」の画面上の範囲(§4.6)。Box側で受けた指の位置がどの行の「⠿」に乗っているかの判定に使う。
+                    // 各「⠿」の画面上の範囲(§4.6)。Box側で受けた指の位置がどの行の「⠿」に乗っているかの判定
+                    // (ヒットテスト)に使う。boundsInRoot()はclipBounds既定trueのため、verticalScrollの
+                    // clipScrollableContainer等の祖先で切り取られた範囲になる(見えていない部分を
+                    // 押せないようにするためには、この「切り取られた」性質がむしろ正しい)。
                     val handleBoundsRoot = remember { mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>() }
+                    // 各「⠿」の中心の画面上のy(§4.7レビュー指摘対応)。boundsInRootは祖先で切り取られるため、
+                    // 掴んだ行が一覧の見えている範囲の外(上端の外)へ出ると中心yが実際より下に潰れてしまい、
+                    // §4.7のdiff計算(畳んだ後のずれ)を過小評価する。畳んだ後の位置合わせには、切り取られない
+                    // positionInRoot().y + size.height/2fをこちらに記録して使う。
+                    // (positionInRoot()は祖先のgraphicsLayerのtranslationY等も反映するため、
+                    // 待っている間に自動スクロールで指が動いても、ここで測るdiffは畳みによるずれだけになる)
+                    val handleCenterRootY = remember { mutableStateMapOf<String, Float>() }
                     val bringIntoViewRequesters = remember { mutableStateMapOf<String, BringIntoViewRequester>() }
                     // レビュー指摘(付随): 資料の削除等で一覧から無くなった資料番号のエントリが
-                    // 上記2つのマップに残り続けないよう、最新の並びに無いキーを毎回の再構成後に取り除く。
+                    // 上記のマップに残り続けないよう、最新の並びに無いキーを毎回の再構成後に取り除く。
                     SideEffect {
                         val currentTilcods = dialog.items.map { it.tilcod }.toSet()
                         handleBoundsRoot.keys.retainAll(currentTilcods)
+                        handleCenterRootY.keys.retainAll(currentTilcods)
                         bringIntoViewRequesters.keys.retainAll(currentTilcods)
                     }
 
@@ -899,32 +910,44 @@ private fun BookshelfEditingInputDialog(
                         // §4.7: 長押しで畳むと、掴んだ書誌より上の行が縮んでスクロール位置(px)はそのままのため、
                         // 掴んだ書誌の画面上の位置が指からずれる(スクロールが0の1行目では起きない)。
                         // 畳んだ後のレイアウトが確定してからでないと正しい位置が取れないため、
-                        // 「⠿」のboundsInRoot(handleBoundsRoot)が開始時の値から変わるのを待つ。
+                        // 「⠿」の中心y(handleCenterRootY)が開始時の値から変わるのを待つ。
+                        // (レビュー指摘対応: handleBoundsRoot=boundsInRoot()はclipBounds既定trueのため、
+                        // verticalScrollのclipScrollableContainer等の祖先で切り取られる。掴んだ行が
+                        // 一覧の見えている範囲の外(上端の外)へ出ると、切り取られた範囲の中心yは実際より
+                        // 下に潰れてしまい、diffを過小評価する。位置合わせには切り取られない
+                        // handleCenterRootY(positionInRoot().y + size.height/2f)を使う。
+                        // positionInRootは祖先のgraphicsLayerのtranslationY等も反映するため、
+                        // 待っている間に自動スクロールで指が動いても、ここで測るdiffは畳みによるずれだけになる)
                         // 畳む→再コンポジション→再レイアウト→onGloballyPositioned通知は、通常1〜2フレームで
                         // 届く想定だが、1行目やスクロール0など畳んでも位置が変わらない場合は変化が来ないため、
                         // 永久に待たないよう最大5フレームで打ち切る(値が変わらなければdiff計算は実質0になる)。
+                        // 「最初の変化で確定とみなす」のは、畳む処理(collapsed分岐の出し入れ)に
+                        // アニメーションが無く、1回のレイアウトで最終位置へ飛ぶことが前提である。
                         // ------------------------------------------------------------------
-                        val boundsBeforeSettle = handleBoundsRoot[tilcod]
-                        var settledBounds = boundsBeforeSettle
+                        val centerYBeforeSettle = handleCenterRootY[tilcod]
+                        var settledCenterY = centerYBeforeSettle
                         var framesWaited = 0
                         while (framesWaited < 5) {
                             withFrameNanos { }
                             framesWaited++
-                            val current = handleBoundsRoot[tilcod]
-                            settledBounds = current
-                            if (current != null && current != boundsBeforeSettle) break
+                            val current = handleCenterRootY[tilcod]
+                            settledCenterY = current
+                            if (current != null && current != centerYBeforeSettle) break
                         }
-                        val handleCenterY = settledBounds?.let { (it.top + it.bottom) / 2f }
                         // 待っている間にドラッグが終了・取り消されていれば、以降の合わせ込みは行わない
                         // (finishDrag/cancelDragが既に状態をリセットしている)。
-                        if (handleCenterY != null && draggedTilcod == tilcod) {
-                            val diff = pointerRootY - handleCenterY
+                        if (settledCenterY != null && draggedTilcod == tilcod) {
+                            val diff = pointerRootY - settledCenterY
                             if (diff != 0f) {
                                 // 指は動いていないので、このスクロールは並べ替えの移動量(accumulatedPx)には足さない。
                                 val consumed = scrollState.scrollBy(-diff)
-                                // 一覧の端でスクロールしきれなかった残り(diff + 実際に動いた量)を、
-                                // 掴んだタイルの見た目のずれ(translationYへの補正)として持つ。
-                                grabCorrectionPx = diff + consumed
+                                // scrollByはsuspendのため、復帰後に再度draggedTilcodを確認する
+                                // (待っている間に指を離してリセット済みの値を上書きしないため。レビュー指摘対応)。
+                                if (draggedTilcod == tilcod) {
+                                    // 一覧の端でスクロールしきれなかった残り(diff + 実際に動いた量)を、
+                                    // 掴んだタイルの見た目のずれ(translationYへの補正)として持つ。
+                                    grabCorrectionPx = diff + consumed
+                                }
                             }
                         }
 
@@ -1071,8 +1094,9 @@ private fun BookshelfEditingInputDialog(
                                         ) {
                                             // 「⠿」の長押しドラッグで並べ替えを開始する(docs/design/bookshelf-order.md §4.5)。
                                             // 指の検知そのものは一覧を囲むBox側(verticalScrollの外)で行う(§4.6)。
-                                            // ここでは見た目とtestTagのほか、押した位置がこの行かどうかの判定に使う
-                                            // 画面上の範囲(boundsInRoot)をhandleBoundsRootへ記録するだけでよい。
+                                            // ここでは見た目とtestTagのほか、押した位置がこの行かどうかの判定(ヒットテスト)に使う
+                                            // 画面上の範囲(boundsInRoot、見えている範囲で切り取られる)をhandleBoundsRootへ、
+                                            // §4.7の位置合わせに使う切り取られない中心yをhandleCenterRootYへ記録する。
                                             Text(
                                                 "⠿",
                                                 color = LocalAppColors.current.ink2,
@@ -1081,6 +1105,8 @@ private fun BookshelfEditingInputDialog(
                                                     .testTag(BookshelfEditingDialogTestTags.editItemDragHandle(item.tilcod))
                                                     .onGloballyPositioned { coordinates ->
                                                         handleBoundsRoot[item.tilcod] = coordinates.boundsInRoot()
+                                                        handleCenterRootY[item.tilcod] =
+                                                            coordinates.positionInRoot().y + coordinates.size.height / 2f
                                                     }
                                                     .padding(end = 6.dp),
                                             )
