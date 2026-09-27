@@ -529,7 +529,7 @@ class BookshelfEditingUiControllerTest {
         assertEquals(child.id, controller.state.value.addItemShelvesLoadedForMemberId)
         assertEquals(null, (controller.state.value.dialog as BookshelfEditingDialog.AddItem).shelfNo)
         controller.requestInputConfirmation()
-        assertEquals("先に本棚を作成してください", controller.state.value.inputError)
+        assertEquals("本棚がありません。「新しい本棚を作成」を選んでください", controller.state.value.inputError)
         assertEquals(0, repo.calls.size)
 
         controller.dismissDialog()
@@ -692,7 +692,7 @@ class BookshelfEditingUiControllerTest {
         controller.selectAddItemMember(child.id)
         advanceUntilIdle()
         controller.requestInputConfirmation()
-        assertEquals("先に本棚を作成してください", controller.state.value.inputError)
+        assertEquals("本棚がありません。「新しい本棚を作成」を選んでください", controller.state.value.inputError)
         assertEquals(0, repo.addItemsRequests.size)
         assertNull(controller.state.value.bulkAddPendingConfirmation)
         controller.close()
@@ -973,6 +973,28 @@ class BookshelfEditingUiControllerTest {
         controller.requestInputConfirmation()
         assertEquals(null, controller.state.value.inputError)
         assertEquals("a".repeat(50), controller.state.value.bulkAddPendingConfirmation?.shelfName)
+        controller.close()
+    }
+
+    /** レビュー指摘: 「新しい本棚を作成」を選んでいない間はupdateNewShelfNameは何もせず、inputErrorも消さない。 */
+    @Test
+    fun `新しい本棚を作成を選んでいない間はupdateNewShelfNameは何もしない`() = runTest {
+        val fatherShelves = MutableStateFlow(emptyList<BookshelfContent>())
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-1", "資料A")
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        // 既存の本棚を選んだ状態(creatingNewShelf=false)で、先に何らかのinputErrorを出しておく。
+        controller.requestInputConfirmation()
+        assertEquals("本棚がありません。「新しい本棚を作成」を選んでください", controller.state.value.inputError)
+
+        controller.updateNewShelfName("無視されるはずの名前")
+
+        assertEquals("本棚がありません。「新しい本棚を作成」を選んでください", controller.state.value.inputError)
+        assertEquals("", (controller.state.value.dialog as BookshelfEditingDialog.AddItem).newShelfName)
         controller.close()
     }
 

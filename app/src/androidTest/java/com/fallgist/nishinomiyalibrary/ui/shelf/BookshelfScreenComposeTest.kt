@@ -129,7 +129,7 @@ class BookshelfScreenComposeTest {
             ),
         )
         composeRule.onNodeWithTag(BookshelfEditingDialogTestTags.ADD_ITEM_CONFIRM).assertIsNotEnabled()
-        composeRule.onNodeWithText("先に本棚を作成してください").assertExists()
+        composeRule.onNodeWithText("本棚がありません。「新しい本棚を作成」を選んでください").assertExists()
 
         setEditingDialogs(
             BookshelfEditingUiState(
@@ -168,6 +168,8 @@ class BookshelfScreenComposeTest {
                     onSelectCreateMember = {},
                     onSelectAddItemMember = {},
                     onSelectAddItemShelf = {},
+                    onSelectAddItemCreateNewShelf = {},
+                    onUpdateNewShelfName = {},
                     onUpdateInput = {},
                     onUpdateEditShelfMemo = { _, _ -> },
                     onRequestInputConfirmation = {},
@@ -200,6 +202,8 @@ class BookshelfScreenComposeTest {
                     onSelectCreateMember = {},
                     onSelectAddItemMember = {},
                     onSelectAddItemShelf = {},
+                    onSelectAddItemCreateNewShelf = {},
+                    onUpdateNewShelfName = {},
                     onUpdateInput = {},
                     onUpdateEditShelfMemo = { _, _ -> },
                     onRequestInputConfirmation = {},
@@ -255,6 +259,8 @@ class BookshelfScreenComposeTest {
                     onSelectCreateMember = {},
                     onSelectAddItemMember = {},
                     onSelectAddItemShelf = {},
+                    onSelectAddItemCreateNewShelf = {},
+                    onUpdateNewShelfName = {},
                     onUpdateInput = {},
                     onUpdateEditShelfMemo = { _, _ -> },
                     onRequestInputConfirmation = {},

@@ -337,8 +337,8 @@ fun BookshelfEditingDialogs(
     // ------------------------------------------------------------------
     // 新しい本棚を作って追加する(`docs/design/add-to-new-shelf.md` §3.3)
     // ------------------------------------------------------------------
-    onSelectAddItemCreateNewShelf: () -> Unit = {},
-    onUpdateNewShelfName: (String) -> Unit = {},
+    onSelectAddItemCreateNewShelf: () -> Unit,
+    onUpdateNewShelfName: (String) -> Unit,
     onMoveEditShelfItemTo: (String, Int) -> Unit = { _, _ -> },
     onRequestInputConfirmation: () -> Unit,
     onDismissDialog: () -> Unit,
@@ -515,7 +515,7 @@ private fun AddItemDialog(
                 if (dialog.memberId != null && !shelvesLoaded) {
                     Text("本棚を読み込んでいます", color = LocalAppColors.current.ink2, fontSize = 12.sp)
                 } else if (dialog.memberId != null && shelves.isEmpty() && !dialog.creatingNewShelf) {
-                    Text("先に本棚を作成してください", color = LocalAppColors.current.alert, fontSize = 12.sp)
+                    Text("本棚がありません。「新しい本棚を作成」を選んでください", color = LocalAppColors.current.alert, fontSize = 12.sp)
                 }
                 if (dialog.creatingNewShelf) {
                     OutlinedTextField(
@@ -629,7 +629,7 @@ private fun BulkAddItemsDialog(
                 if (dialog.memberId != null && !shelvesLoaded) {
                     Text("本棚を読み込んでいます", color = LocalAppColors.current.ink2, fontSize = 12.sp)
                 } else if (dialog.memberId != null && shelves.isEmpty() && !dialog.creatingNewShelf) {
-                    Text("先に本棚を作成してください", color = LocalAppColors.current.alert, fontSize = 12.sp)
+                    Text("本棚がありません。「新しい本棚を作成」を選んでください", color = LocalAppColors.current.alert, fontSize = 12.sp)
                 }
                 if (dialog.creatingNewShelf) {
                     OutlinedTextField(
