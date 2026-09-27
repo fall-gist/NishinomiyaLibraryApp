@@ -9,9 +9,11 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.BookshelfGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.BookshelfSession
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.RemoteBookshelfMutation
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.RemoteBookshelfOutcome
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddCreateOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItemOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddRequest
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddTarget
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfExpectedShelf
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
@@ -49,13 +51,26 @@ class BookshelfRepositoryBulkAddTest {
 
     private fun items(count: Int) = (1..count).map { BookshelfBulkAddItem(tilcod = "tilcod$it", title = "タイトル$it") }
 
-    private fun request(itemCount: Int = 3, confirmedExpectation: BookshelfMutationExpectation = confirmed()) =
-        BookshelfBulkAddRequest(memberId = member.id, shelfNo = 1, items = items(itemCount), confirmed = confirmedExpectation)
+    /** 追加先が新しい本棚のリクエスト(add-to-new-shelf.md §3.2)。confirmedはshelf=nullで組む。 */
+    private fun newShelfRequest(itemCount: Int, name: String = "新規棚") = BookshelfBulkAddRequest(
+        memberId = member.id,
+        target = BookshelfBulkAddTarget.NewShelf(name),
+        items = items(itemCount),
+        confirmed = BookshelfMutationExpectation(memberName = "利用者", shelfCount = 1),
+    )
 
-    /** 対象棚(shelfNo=1)にcountItems件、名前nameの本棚状態を持つAppliedを返す。 */
-    private fun applied(countItems: Int, name: String = "読みたい"): RemoteBookshelfOutcome.Applied {
-        val shelfItems = (1..countItems).map { shelfItem(shelfNo = 1, tilcod = "existing$it") }
-        return RemoteBookshelfOutcome.Applied(listOf(Shelf(1, name)), shelfItems)
+    private fun request(itemCount: Int = 3, confirmedExpectation: BookshelfMutationExpectation = confirmed()) =
+        BookshelfBulkAddRequest(
+            memberId = member.id,
+            target = BookshelfBulkAddTarget.ExistingShelf(1),
+            items = items(itemCount),
+            confirmed = confirmedExpectation,
+        )
+
+    /** 対象棚(既定shelfNo=1)にcountItems件、名前nameの本棚状態を持つAppliedを返す。 */
+    private fun applied(countItems: Int, name: String = "読みたい", shelfNo: Int = 1): RemoteBookshelfOutcome.Applied {
+        val shelfItems = (1..countItems).map { shelfItem(shelfNo = shelfNo, tilcod = "existing$it") }
+        return RemoteBookshelfOutcome.Applied(listOf(Shelf(shelfNo, name)), shelfItems)
     }
 
     private fun alreadyRegistered(countItems: Int, name: String = "読みたい"): RemoteBookshelfOutcome.AlreadyRegistered {
@@ -107,6 +122,8 @@ class BookshelfRepositoryBulkAddTest {
 
         assertEquals(3, result.items.size)
         assertTrue(result.items.all { it.outcome == BookshelfBulkAddItemOutcome.Added })
+        // 既存の本棚が追加先なので、本棚作成の結果は常にNotApplicable(回帰、§5-5)。
+        assertEquals(BookshelfBulkAddCreateOutcome.NotApplicable, result.create)
         // 1件目は確認時の値そのまま(資料数0)
         assertEquals(confirmed(itemCount = 0), receivedExpected[0])
         // 2件目は1件目の結果の実数(1件)
@@ -274,7 +291,7 @@ class BookshelfRepositoryBulkAddTest {
         )
     }
 
-    // 9: メモが常に空文字で送られる。
+    // 9: メモが常に空文字で送られる(既定のrequest.memo="")。
     @Test
     fun `メモは常に空文字で送られる`() = runBlocking {
         val receivedMemos = mutableListOf<String>()
@@ -285,6 +302,188 @@ class BookshelfRepositoryBulkAddTest {
         }
         repository.addItems(request(itemCount = 2))
         assertTrue(receivedMemos.all { it == "" })
+    }
+
+    // add-to-new-shelf.md §5-6: requestのメモが各AddItemのmemoに使われる(単件追加を模す)。
+    @Test
+    fun `requestのメモが各AddItemのmemoに使われる`() = runBlocking {
+        val receivedMemos = mutableListOf<String>()
+        val repository = repository { mutation ->
+            val add = mutation as RemoteBookshelfMutation.AddItem
+            receivedMemos += add.memo
+            applied(1)
+        }
+        repository.addItems(request(itemCount = 2).copy(memo = "メモ本文"))
+        assertTrue(receivedMemos.all { it == "メモ本文" })
+    }
+
+    // add-to-new-shelf.md §5-1: 新しい本棚+2件。作成→追加2件。2件目の期待値は
+    // 本棚の数+1・新しい番号・資料数更新。
+    @Test
+    fun `新しい本棚を作成して2件追加すると本棚の数と番号が更新される`() = runBlocking {
+        val receivedMutations = mutableListOf<RemoteBookshelfMutation>()
+        var addCallCount = 0
+        val repository = repository { mutation ->
+            receivedMutations += mutation
+            when (mutation) {
+                is RemoteBookshelfMutation.CreateShelf ->
+                    RemoteBookshelfOutcome.Applied(listOf(Shelf(2, "新規棚")), emptyList(), createdShelfNo = 2)
+                is RemoteBookshelfMutation.AddItem -> {
+                    addCallCount++
+                    applied(countItems = addCallCount, name = "新規棚", shelfNo = 2)
+                }
+                else -> error("想定外のmutation: $mutation")
+            }
+        }
+
+        val result = repository.addItems(newShelfRequest(itemCount = 2))
+
+        assertEquals(BookshelfBulkAddCreateOutcome.Created(2), result.create)
+        assertEquals(
+            listOf(BookshelfBulkAddItemOutcome.Added, BookshelfBulkAddItemOutcome.Added),
+            result.items.map { it.outcome },
+        )
+        val creates = receivedMutations.filterIsInstance<RemoteBookshelfMutation.CreateShelf>()
+        assertEquals(1, creates.size)
+        val adds = receivedMutations.filterIsInstance<RemoteBookshelfMutation.AddItem>()
+        assertEquals(2, adds.size)
+        assertTrue(adds.all { it.shelfNo == 2 })
+        // 1件目の期待値: 本棚の数=確認時(1)+1、対象棚=(2,"新規棚",0件)
+        assertEquals(2, adds[0].expected.shelfCount)
+        assertEquals(2, adds[0].expected.shelf?.shelfNo)
+        assertEquals("新規棚", adds[0].expected.shelf?.name)
+        assertEquals(0, adds[0].expected.shelf?.itemCount)
+        // 2件目は資料数だけ直前の実数(1件)で更新、それ以外は基準のまま
+        assertEquals(2, adds[1].expected.shelfCount)
+        assertEquals(2, adds[1].expected.shelf?.shelfNo)
+        assertEquals("新規棚", adds[1].expected.shelf?.name)
+        assertEquals(1, adds[1].expected.shelf?.itemCount)
+    }
+
+    // add-to-new-shelf.md §5-2: 作成Unknownでは追加を送らず、全件NotAttempted、作成は結果不明。
+    @Test
+    fun `新しい本棚の作成がUnknownなら追加を送らず全件NotAttemptedになる`() = runBlocking {
+        val repository = repository { mutation ->
+            when (mutation) {
+                is RemoteBookshelfMutation.CreateShelf -> RemoteBookshelfOutcome.Unknown
+                else -> error("作成が不明のときは追加を送ってはいけません")
+            }
+        }
+
+        val result = repository.addItems(newShelfRequest(itemCount = 2))
+
+        assertEquals(BookshelfBulkAddCreateOutcome.Unknown, result.create)
+        assertEquals(
+            listOf(BookshelfBulkAddItemOutcome.NotAttempted, BookshelfBulkAddItemOutcome.NotAttempted),
+            result.items.map { it.outcome },
+        )
+    }
+
+    // add-to-new-shelf.md §5-3: 作成Failureでは追加を送らず、全件NotAttempted。
+    @Test
+    fun `新しい本棚の作成がFailureなら追加を送らず全件NotAttemptedになる`() = runBlocking {
+        val repository = repository { mutation ->
+            when (mutation) {
+                is RemoteBookshelfMutation.CreateShelf -> RemoteBookshelfOutcome.Failure(FailureReason.SITE_MAINTENANCE)
+                else -> error("作成に失敗したときは追加を送ってはいけません")
+            }
+        }
+
+        val result = repository.addItems(newShelfRequest(itemCount = 2))
+
+        assertEquals(BookshelfBulkAddCreateOutcome.Failed(FailureReason.SITE_MAINTENANCE), result.create)
+        assertEquals(
+            listOf(BookshelfBulkAddItemOutcome.NotAttempted, BookshelfBulkAddItemOutcome.NotAttempted),
+            result.items.map { it.outcome },
+        )
+    }
+
+    // add-to-new-shelf.md §5-3: 作成中の例外でも追加を送らず、全件NotAttempted(理由はtoFailureReason)。
+    @Test
+    fun `新しい本棚の作成で例外が起きたら追加を送らず全件NotAttemptedになる`() = runBlocking {
+        val repository = repository { mutation ->
+            when (mutation) {
+                is RemoteBookshelfMutation.CreateShelf ->
+                    throw com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError.Network(IllegalStateException())
+                else -> error("作成が例外のときは追加を送ってはいけません")
+            }
+        }
+
+        val result = repository.addItems(newShelfRequest(itemCount = 2))
+
+        assertEquals(BookshelfBulkAddCreateOutcome.Failed(FailureReason.NETWORK), result.create)
+        assertEquals(
+            listOf(BookshelfBulkAddItemOutcome.NotAttempted, BookshelfBulkAddItemOutcome.NotAttempted),
+            result.items.map { it.outcome },
+        )
+    }
+
+    // add-to-new-shelf.md §5-4: 作成成功・1件目の追加Failure→本棚は削除しない(削除要求を送らない)、残りはNotAttempted。
+    @Test
+    fun `作成成功後に追加が失敗しても本棚を削除する要求を送らない`() = runBlocking {
+        var addCallCount = 0
+        val repository = repository { mutation ->
+            when (mutation) {
+                is RemoteBookshelfMutation.CreateShelf ->
+                    RemoteBookshelfOutcome.Applied(listOf(Shelf(2, "新規棚")), emptyList(), createdShelfNo = 2)
+                is RemoteBookshelfMutation.AddItem -> {
+                    addCallCount++
+                    RemoteBookshelfOutcome.Failure(FailureReason.SITE_MAINTENANCE)
+                }
+                is RemoteBookshelfMutation.DeleteShelf -> error("作成した本棚を削除してはいけません")
+                else -> error("想定外のmutation: $mutation")
+            }
+        }
+
+        val result = repository.addItems(newShelfRequest(itemCount = 2))
+
+        assertEquals(BookshelfBulkAddCreateOutcome.Created(2), result.create)
+        assertEquals(
+            listOf(BookshelfBulkAddItemOutcome.Failed(FailureReason.SITE_MAINTENANCE), BookshelfBulkAddItemOutcome.NotAttempted),
+            result.items.map { it.outcome },
+        )
+        assertEquals(1, addCallCount)
+    }
+
+    // add-to-new-shelf.md §3.2: Applied だがcreatedShelfNoが無ければ結果不明として止める(想定外経路)。
+    @Test
+    fun `作成のAppliedにcreatedShelfNoが無ければ結果不明として止める`() = runBlocking {
+        val repository = repository { mutation ->
+            when (mutation) {
+                is RemoteBookshelfMutation.CreateShelf -> RemoteBookshelfOutcome.Applied(emptyList(), emptyList(), createdShelfNo = null)
+                else -> error("createdShelfNoが無いときは追加を送ってはいけません")
+            }
+        }
+
+        val result = repository.addItems(newShelfRequest(itemCount = 1))
+
+        assertEquals(BookshelfBulkAddCreateOutcome.Unknown, result.create)
+        assertEquals(listOf(BookshelfBulkAddItemOutcome.NotAttempted), result.items.map { it.outcome })
+    }
+
+    // add-to-new-shelf.md §3の事前チェック失敗時の扱い: 開始時のメンバー名不一致では、
+    // 新しい本棚の作成も送っていないため、作成の結果も同じ理由のFailedにする。
+    @Test
+    fun `新しい本棚が追加先でも開始時のメンバー名不一致では作成も送らず全件Failedになる`() = runBlocking {
+        var openCalls = 0
+        val gateway = object : BookshelfGateway {
+            override suspend fun openAuthenticatedSession(cardNumber: String, password: String): BookshelfSession {
+                openCalls++
+                error("メンバー名不一致ではGatewayを呼んではいけません")
+            }
+        }
+        val mismatched = newShelfRequest(itemCount = 2).copy(
+            confirmed = BookshelfMutationExpectation(memberName = "確認時の別名", shelfCount = 1),
+        )
+
+        val result = repository(gateway).addItems(mismatched)
+
+        assertEquals(0, openCalls)
+        assertEquals(BookshelfBulkAddCreateOutcome.Failed(FailureReason.SITE_RESPONSE_CHANGED), result.create)
+        assertEquals(
+            listOf(BookshelfBulkAddItemOutcome.Failed(FailureReason.SITE_RESPONSE_CHANGED), BookshelfBulkAddItemOutcome.Failed(FailureReason.SITE_RESPONSE_CHANGED)),
+            result.items.map { it.outcome },
+        )
     }
 
     // 10: onProgressが件ごとに呼ばれ、打ち切った件でも呼ばれ、NotAttemptedでは呼ばれない。
@@ -323,7 +522,7 @@ class BookshelfRepositoryBulkAddTest {
             }
         }
         val result = repository(gateway).addItems(
-            BookshelfBulkAddRequest(memberId = member.id, shelfNo = 1, items = emptyList(), confirmed = confirmed()),
+            BookshelfBulkAddRequest(memberId = member.id, target = BookshelfBulkAddTarget.ExistingShelf(1), items = emptyList(), confirmed = confirmed()),
         )
         assertEquals(0, openCalls)
         assertEquals(com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddResult(emptyList(), localRefreshRequired = false), result)

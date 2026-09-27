@@ -752,7 +752,7 @@ class BookshelfEditingUiControllerTest {
         assertEquals(1, repo.addItemsRequests.size)
         val sent = repo.addItemsRequests.single()
         assertEquals(father.id, sent.memberId)
-        assertEquals(3, sent.shelfNo)
+        assertEquals(3, (sent.target as com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddTarget.ExistingShelf).shelfNo)
         assertEquals(items, sent.items)
         assertEquals("父", sent.confirmed.memberName)
         assertEquals(1, sent.confirmed.shelfCount)

@@ -44,7 +44,12 @@ sealed interface RemoteBookshelfMutation {
 
 /** Gateway内で照合済みの完全スナップショット。Room反映は次段階のRepositoryだけが行う。 */
 sealed interface RemoteBookshelfOutcome {
-    data class Applied(val shelves: List<Shelf>, val items: List<ShelfItem>) : RemoteBookshelfOutcome
+    /**
+     * [createdShelfNo]は本棚作成(CreateShelf)成功時だけ、新しく作られた本棚の番号を持つ
+     * (作成前と比べて増えた本棚の番号そのもの。`docs/design/add-to-new-shelf.md` §3.1)。
+     * 作成以外の操作結果では常にnull。
+     */
+    data class Applied(val shelves: List<Shelf>, val items: List<ShelfItem>, val createdShelfNo: Int? = null) : RemoteBookshelfOutcome
     data class AlreadyRegistered(val shelves: List<Shelf>, val items: List<ShelfItem>) : RemoteBookshelfOutcome
     data object Unknown : RemoteBookshelfOutcome
     data class Failure(val reason: FailureReason, val diagnosticCode: String? = null) : RemoteBookshelfOutcome
@@ -178,9 +183,17 @@ internal class LicsXpBookshelfSession(private val session: LicsXpSession) : Book
             requireBookshelfNotMaintenance(input)
             BookshelfCreateFormParser.parse(input).buildForm(mutation.name)
         }
-        return twoStage(before, "WOpacSdiBookListExecAction.do", emptyMap(), stage1, BookshelfConfirmationKind.CREATE, stateChangePost) { after ->
+        val outcome = twoStage(before, "WOpacSdiBookListExecAction.do", emptyMap(), stage1, BookshelfConfirmationKind.CREATE, stateChangePost) { after ->
             val added = after.shelves.filter { shelf -> before.shelves.none { it.no == shelf.no } }
             added.size == 1 && added.single().name == mutation.name && unchangedExistingShelves(before, after)
+        }
+        // successクロージャがtrueを返した場合に限りAppliedへ倒れるため、ここで同じ条件から
+        // 新しく作られた本棚の番号を安全に再導出できる(`docs/design/add-to-new-shelf.md` §3.1)。
+        return if (outcome is RemoteBookshelfOutcome.Applied) {
+            val added = outcome.shelves.filter { shelf -> before.shelves.none { it.no == shelf.no } }
+            outcome.copy(createdShelfNo = added.singleOrNull { it.name == mutation.name }?.no)
+        } else {
+            outcome
         }
     }
 

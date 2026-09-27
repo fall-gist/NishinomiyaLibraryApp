@@ -212,26 +212,55 @@ sealed interface BookshelfMutationOutcome {
 }
 
 /**
- * 検索・新着資料から選んだ複数の書誌を、1人のメンバーの1つの本棚へまとめて追加する要求
- * (`docs/design/bulk-bookshelf-add.md` §4.1)。[confirmed]は最終確認に表示した状態そのもので、
- * `shelf`は必須・`item`はnullとする。
+ * 一斉本棚追加の追加先。既存の本棚(本棚番号で指定)か、新しい本棚(本棚名で指定。まず作成してから
+ * その本棚へ追加する)のいずれか(`docs/design/add-to-new-shelf.md` §3.2)。
+ */
+sealed interface BookshelfBulkAddTarget {
+    data class ExistingShelf(val shelfNo: Int) : BookshelfBulkAddTarget
+    data class NewShelf(val name: String) : BookshelfBulkAddTarget
+}
+
+/**
+ * 検索・新着資料から選んだ複数の書誌を、1人のメンバーの1つの本棚(既存または新しく作る本棚)へ
+ * まとめて追加する要求(`docs/design/bulk-bookshelf-add.md` §4.1、`docs/design/add-to-new-shelf.md` §3.2)。
+ * [confirmed]は最終確認に表示した状態そのもの。[target]が[BookshelfBulkAddTarget.ExistingShelf]なら
+ * `shelf`は必須・`item`はnull。[BookshelfBulkAddTarget.NewShelf]なら`shelf`はnull(本棚作成の照合には
+ * メンバー名と本棚の総数だけを使う)。[memo]は単件の追加で使う値で、一斉追加では常に空文字とする。
  */
 data class BookshelfBulkAddRequest(
     val memberId: Long,
-    val shelfNo: Int,
+    val target: BookshelfBulkAddTarget,
     val items: List<BookshelfBulkAddItem>,
     val confirmed: BookshelfMutationExpectation,
+    val memo: String = "",
 )
 
 data class BookshelfBulkAddItem(val tilcod: String, val title: String)
 
 /**
+ * 一斉本棚追加における「本棚の作成」の結果(`docs/design/add-to-new-shelf.md` §3.2)。
+ * 追加先が既存の本棚のときは常に[NotApplicable]。
+ */
+sealed interface BookshelfBulkAddCreateOutcome {
+    /** 追加先が既存の本棚で、作成を行わなかった。 */
+    data object NotApplicable : BookshelfBulkAddCreateOutcome
+    /** 新しい本棚を作成した(番号)。 */
+    data class Created(val shelfNo: Int) : BookshelfBulkAddCreateOutcome
+    /** 作成のPOST後に成否が確認できなかった。追加は行っていない。 */
+    data object Unknown : BookshelfBulkAddCreateOutcome
+    /** 作成に失敗した(事前チェックの失敗を含む)。追加は行っていない。 */
+    data class Failed(val reason: FailureReason) : BookshelfBulkAddCreateOutcome
+}
+
+/**
  * 一斉本棚追加の結果。[localRefreshRequired]は途中のRoom置換が1回でも失敗したことを示し、
  * UIは「画面を更新してください」を付記する(`docs/design/bulk-bookshelf-add.md` §4.1)。
+ * [create]は本棚作成の結果(`docs/design/add-to-new-shelf.md` §3.2・§4)。
  */
 data class BookshelfBulkAddResult(
     val items: List<BookshelfBulkAddItemResult>,
     val localRefreshRequired: Boolean,
+    val create: BookshelfBulkAddCreateOutcome = BookshelfBulkAddCreateOutcome.NotApplicable,
 )
 
 data class BookshelfBulkAddItemResult(val item: BookshelfBulkAddItem, val outcome: BookshelfBulkAddItemOutcome)

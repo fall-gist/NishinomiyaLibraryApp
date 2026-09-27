@@ -10,6 +10,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItemOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddRequest
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddTarget
 import com.fallgist.nishinomiyalibrary.domain.model.FailureReason
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.repository.BookshelfRepository
@@ -528,7 +529,7 @@ class BookshelfEditingUiController(
                             shelfName = shelf.name,
                             request = BookshelfBulkAddRequest(
                                 memberId = member.id,
-                                shelfNo = shelf.shelfNo,
+                                target = BookshelfBulkAddTarget.ExistingShelf(shelf.shelfNo),
                                 items = dialog.items,
                                 confirmed = BookshelfMutationExpectation(
                                     member.name,
@@ -740,7 +741,10 @@ class BookshelfEditingUiController(
                 current.addItemShelvesLoadedForMemberId != confirmation.request.memberId ->
                     reject("本棚を読み込めませんでした。もう一度選択してください")
                 else -> {
-                    val shelf = current.addItemShelves.find { it.shelfNo == confirmation.request.shelfNo }
+                    // 段階2(画面・コントローラ)は未着手のため、現時点ではrequest.targetは常に
+                    // ExistingShelfとして組み立てている(コンパイルを通すための最小限の追従)。
+                    val targetShelfNo = (confirmation.request.target as? BookshelfBulkAddTarget.ExistingShelf)?.shelfNo
+                    val shelf = current.addItemShelves.find { it.shelfNo == targetShelfNo }
                     when {
                         shelf == null -> reject("追加先の本棚が見つかりません。もう一度選択してください")
                         shelf.name != confirmation.shelfName -> reject("追加先の本棚名が変更されました。もう一度選択してください")

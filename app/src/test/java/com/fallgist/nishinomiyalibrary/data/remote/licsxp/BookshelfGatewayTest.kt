@@ -42,7 +42,8 @@ class BookshelfGatewayTest {
 
         val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected()))
 
-        assertEquals(RemoteBookshelfOutcome.Applied(listOf(Shelf(1, "作成前"), Shelf(2, "新しい棚")), emptyList()), outcome)
+        // createdShelfNoは作成前と比べて増えた本棚の番号(add-to-new-shelf.md §3.1)。
+        assertEquals(RemoteBookshelfOutcome.Applied(listOf(Shelf(1, "作成前"), Shelf(2, "新しい棚")), emptyList(), createdShelfNo = 2), outcome)
         val requests = requests(10)
         // 既存の本棚がある場合は、従来どおり入力画面への移動を経てから作成フォームを組む
         // (docs/design/bookshelf-create-from-empty.md §3 項目8)。
@@ -66,7 +67,8 @@ class BookshelfGatewayTest {
 
         val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected(0)))
 
-        assertEquals(RemoteBookshelfOutcome.Applied(listOf(Shelf(1, "新しい棚")), emptyList()), outcome)
+        // 0件からの作成でもcreatedShelfNoが載る(add-to-new-shelf.md §3.1)。
+        assertEquals(RemoteBookshelfOutcome.Applied(listOf(Shelf(1, "新しい棚")), emptyList(), createdShelfNo = 1), outcome)
         val requests = requests(8)
         assertEquals(0, requests.count { it.path == "/WOpacSdiBookListToInputAction.do" })
         assertEquals("/WOpacSdiBookListExecAction.do", requests[5].path)
@@ -782,6 +784,8 @@ class BookshelfGatewayTest {
         val outcome = session().mutate(RemoteBookshelfMutation.CreateShelf("新しい棚", expected()))
 
         assertTrue(outcome is RemoteBookshelfOutcome.Applied)
+        // beforeStage2経由のAppliedでもcreatedShelfNoが載る(add-to-new-shelf.md §3.1)。
+        assertEquals(2, (outcome as RemoteBookshelfOutcome.Applied).createdShelfNo)
         assertEquals(9, server.requestCount)
         assertEquals(1, requests(9).count { it.path == "/WOpacSdiBookListExecAction.do" })
     }
