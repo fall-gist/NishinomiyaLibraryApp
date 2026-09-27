@@ -1,5 +1,6 @@
 package com.fallgist.nishinomiyalibrary.ui.shelf
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -866,9 +867,29 @@ private fun BookshelfEditingInputDialog(
                                 containerBottomRoot = containerTopRoot + coordinates.size.height
                             },
                     ) {
-                        Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                // [一時的な計測] 一覧に届く指のイベントと、各段階での消費の状態
+                                .pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            val initial = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Final)
+                                            initial.changes.forEach { c ->
+                                                Log.d("DRAGDBG", "listFinal type=${initial.type} pos=${c.position} pressed=${c.pressed} consumed=${c.isConsumed}")
+                                            }
+                                        }
+                                    }
+                                }
+                                .verticalScroll(scrollState),
+                        ) {
                             dialog.items.forEach { item ->
                                 key(item.tilcod) {
+                                    // [一時的な計測] 行のコンポジションの生成・破棄
+                                    androidx.compose.runtime.DisposableEffect(Unit) {
+                                        Log.d("DRAGDBG", "row enter ${item.tilcod}")
+                                        onDispose { Log.d("DRAGDBG", "row dispose ${item.tilcod}") }
+                                    }
                                     val isDragged = item.tilcod == draggedTilcod
                                     // ドラッグ開始時に全行のメモを畳み、書名だけの短い行にする(§4.5)。
                                     val collapsed = draggedTilcod != null
@@ -927,9 +948,11 @@ private fun BookshelfEditingInputDialog(
                                                         handleTopRoot[item.tilcod] = coordinates.positionInRoot().y
                                                     }
                                                     .pointerInput(item.tilcod, editingDisabled) {
+                                                        Log.d("DRAGDBG", "pointerInput start ${item.tilcod} disabled=$editingDisabled")
                                                         if (editingDisabled) return@pointerInput
                                                         detectDragGesturesAfterLongPress(
                                                             onDragStart = { offset ->
+                                                                Log.d("DRAGDBG", "dragStart ${item.tilcod} offset=$offset")
                                                                 // このpointerInputはitem.tilcod+editingDisabledがキーのため、
                                                                 // 一覧の並びが変わってもコルーチンは再起動されない。開始位置は
                                                                 // 必ず開始した時点の最新の並び(latestDialog)から取る
@@ -946,6 +969,7 @@ private fun BookshelfEditingInputDialog(
                                                                 }
                                                             },
                                                             onDrag = { change, amount ->
+                                                                Log.d("DRAGDBG", "drag ${item.tilcod} amount=$amount pos=${change.position} consumedBefore=${change.isConsumed}")
                                                                 change.consume()
                                                                 if (draggedTilcod == item.tilcod) {
                                                                     accumulatedPx += amount.y
@@ -954,6 +978,7 @@ private fun BookshelfEditingInputDialog(
                                                                 }
                                                             },
                                                             onDragEnd = {
+                                                                Log.d("DRAGDBG", "dragEnd ${item.tilcod}")
                                                                 val moved = draggedTilcod
                                                                 draggedTilcod = null
                                                                 accumulatedPx = 0f
@@ -965,6 +990,7 @@ private fun BookshelfEditingInputDialog(
                                                                 }
                                                             },
                                                             onDragCancel = {
+                                                                Log.d("DRAGDBG", "dragCancel ${item.tilcod}", Throwable("cancel stack"))
                                                                 draggedTilcod = null
                                                                 accumulatedPx = 0f
                                                                 dragOffsetPx = 0f
