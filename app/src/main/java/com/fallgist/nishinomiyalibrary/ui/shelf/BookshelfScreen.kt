@@ -52,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -821,6 +822,9 @@ private fun BookshelfEditingInputDialog(
                     // 並びの入れ替え(1行ぶん=rowHeightPx)で吸収しきれなかった端数。掴んだタイルをこの分だけ
                     // graphicsLayerのtranslationYでずらし、指に付いて動いて見えるようにする(§4.5レビュー指摘対応)。
                     var dragOffsetPx by remember { mutableFloatStateOf(0f) }
+                    // 畳んだ直後、掴んだ書誌の「⠿」が指の位置からずれた分を補正する見た目のずれ(§4.7)。
+                    // 一覧のスクロールで打ち消しきれなかった残りをここに持ち、translationYへdragOffsetPxと合算する。
+                    var grabCorrectionPx by remember { mutableFloatStateOf(0f) }
                     var pointerRootY by remember { mutableFloatStateOf(0f) }
                     var containerTopRoot by remember { mutableFloatStateOf(0f) }
                     var containerBottomRoot by remember { mutableFloatStateOf(0f) }
@@ -862,6 +866,7 @@ private fun BookshelfEditingInputDialog(
                         dragStartIndex = startIndex
                         accumulatedPx = 0f
                         dragOffsetPx = 0f
+                        grabCorrectionPx = 0f
                         pointerRootY = rootPointerY
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     }
@@ -872,6 +877,7 @@ private fun BookshelfEditingInputDialog(
                         draggedTilcod = null
                         accumulatedPx = 0f
                         dragOffsetPx = 0f
+                        grabCorrectionPx = 0f
                         // 離した位置(空の枠の位置)にメモ欄が戻り、動かした資料が見える位置までスクロールする(§4.5)。
                         coroutineScope.launch { bringIntoViewRequesters[moved]?.bringIntoView() }
                     }
@@ -882,12 +888,46 @@ private fun BookshelfEditingInputDialog(
                         draggedTilcod = null
                         accumulatedPx = 0f
                         dragOffsetPx = 0f
+                        grabCorrectionPx = 0f
                     }
 
                     // 指が一覧の見えている範囲の上端・下端に近づいている間、その方向へスクロールし続ける(自動スクロール)。
                     // スクロールした分もaccumulatedPxへ足し込み、スクロール中も落とす先を更新し続ける。
                     LaunchedEffect(draggedTilcod) {
-                        if (draggedTilcod == null) return@LaunchedEffect
+                        val tilcod = draggedTilcod ?: return@LaunchedEffect
+                        // ------------------------------------------------------------------
+                        // §4.7: 長押しで畳むと、掴んだ書誌より上の行が縮んでスクロール位置(px)はそのままのため、
+                        // 掴んだ書誌の画面上の位置が指からずれる(スクロールが0の1行目では起きない)。
+                        // 畳んだ後のレイアウトが確定してからでないと正しい位置が取れないため、
+                        // 「⠿」のboundsInRoot(handleBoundsRoot)が開始時の値から変わるのを待つ。
+                        // 畳む→再コンポジション→再レイアウト→onGloballyPositioned通知は、通常1〜2フレームで
+                        // 届く想定だが、1行目やスクロール0など畳んでも位置が変わらない場合は変化が来ないため、
+                        // 永久に待たないよう最大5フレームで打ち切る(値が変わらなければdiff計算は実質0になる)。
+                        // ------------------------------------------------------------------
+                        val boundsBeforeSettle = handleBoundsRoot[tilcod]
+                        var settledBounds = boundsBeforeSettle
+                        var framesWaited = 0
+                        while (framesWaited < 5) {
+                            withFrameNanos { }
+                            framesWaited++
+                            val current = handleBoundsRoot[tilcod]
+                            settledBounds = current
+                            if (current != null && current != boundsBeforeSettle) break
+                        }
+                        val handleCenterY = settledBounds?.let { (it.top + it.bottom) / 2f }
+                        // 待っている間にドラッグが終了・取り消されていれば、以降の合わせ込みは行わない
+                        // (finishDrag/cancelDragが既に状態をリセットしている)。
+                        if (handleCenterY != null && draggedTilcod == tilcod) {
+                            val diff = pointerRootY - handleCenterY
+                            if (diff != 0f) {
+                                // 指は動いていないので、このスクロールは並べ替えの移動量(accumulatedPx)には足さない。
+                                val consumed = scrollState.scrollBy(-diff)
+                                // 一覧の端でスクロールしきれなかった残り(diff + 実際に動いた量)を、
+                                // 掴んだタイルの見た目のずれ(translationYへの補正)として持つ。
+                                grabCorrectionPx = diff + consumed
+                            }
+                        }
+
                         val edgeZonePx = with(density) { 56.dp.toPx() }
                         val maxSpeedPx = with(density) { 20.dp.toPx() }
                         while (true) {
@@ -1010,7 +1050,8 @@ private fun BookshelfEditingInputDialog(
                                                 }
                                                 .graphicsLayer {
                                                     if (isDragged) {
-                                                        translationY = dragOffsetPx
+                                                        // grabCorrectionPx: 畳んだ直後に指の位置からずれた分の補正(§4.7)。
+                                                        translationY = dragOffsetPx + grabCorrectionPx
                                                         alpha = 0.6f
                                                         shadowElevation = 12f
                                                     }
