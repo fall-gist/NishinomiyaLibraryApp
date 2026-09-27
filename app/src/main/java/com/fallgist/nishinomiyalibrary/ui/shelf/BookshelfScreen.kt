@@ -48,7 +48,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -785,6 +787,13 @@ private fun BookshelfEditingInputDialog(
                     val haptics = LocalHapticFeedback.current
                     val scrollState = rememberScrollState()
                     val coroutineScope = rememberCoroutineScope()
+                    // レビュー指摘: pointerInputの検知(下記)はitem.tilcod+editingDisabledがキーのため、
+                    // 一覧の並びが変わってもダイアログを開いている間ずっと同じコルーチンで動き続ける。
+                    // そのコルーチンの中で直接`dialog`(このコンポーザブルの引数)を読むと、
+                    // rememberUpdatedStateを使わない限りコルーチンが開始した時点の古い並びに固定されてしまう
+                    // (2回目以降のドラッグで、掴んだ資料の現在位置を古い並びから取ってしまう不具合の原因)。
+                    // ドラッグ開始位置の計算・移動先の計算は、必ずこの`latestDialog`(常に最新)経由で行う。
+                    val latestDialog by rememberUpdatedState(dialog)
                     // ドラッグ中は全行のメモを畳んで高さを揃える(§4.5)ため、実測した行の高さを
                     // 「1件分の移動量」として使う(未計測の間はしきい値48dpで代用)。
                     var rowHeightPx by remember { mutableFloatStateOf(dragThresholdPx) }
@@ -802,14 +811,21 @@ private fun BookshelfEditingInputDialog(
                     var containerBottomRoot by remember { mutableFloatStateOf(0f) }
                     val handleTopRoot = remember { mutableStateMapOf<String, Float>() }
                     val bringIntoViewRequesters = remember { mutableStateMapOf<String, BringIntoViewRequester>() }
+                    // レビュー指摘(付随): 資料の削除等で一覧から無くなった資料番号のエントリが
+                    // 上記2つのマップに残り続けないよう、最新の並びに無いキーを毎回の再構成後に取り除く。
+                    SideEffect {
+                        val currentTilcods = dialog.items.map { it.tilcod }.toSet()
+                        handleTopRoot.keys.retainAll(currentTilcods)
+                        bringIntoViewRequesters.keys.retainAll(currentTilcods)
+                    }
 
                     fun applyDragProgress() {
                         val tilcod = draggedTilcod ?: return
-                        val items = dialog.items
+                        // 必ず最新の並び(latestDialog)から件数と現在位置を取る(古い並びに固定されないため)。
+                        val items = latestDialog.items
                         val currentIndex = items.indexOfFirst { it.tilcod == tilcod }
                         if (currentIndex == -1) return
-                        val rawSteps = com.fallgist.nishinomiyalibrary.ui.settings.AutoReservationRuleDrag.steps(accumulatedPx, rowHeightPx)
-                        val targetIndex = (dragStartIndex + rawSteps).coerceIn(0, items.lastIndex)
+                        val targetIndex = BookshelfEditItemDrag.targetIndex(dragStartIndex, accumulatedPx, rowHeightPx, items.size)
                         // 一覧の端で移動しきれない(クランプされた)分も含め、実際に反映された行数(appliedSteps)
                         // ぶんだけをaccumulatedPxから差し引いた残りが、指の位置とタイルの現在位置のずれになる。
                         val appliedSteps = targetIndex - dragStartIndex
@@ -914,7 +930,12 @@ private fun BookshelfEditingInputDialog(
                                                         if (editingDisabled) return@pointerInput
                                                         detectDragGesturesAfterLongPress(
                                                             onDragStart = { offset ->
-                                                                val startIndex = dialog.items.indexOfFirst { it.tilcod == item.tilcod }
+                                                                // このpointerInputはitem.tilcod+editingDisabledがキーのため、
+                                                                // 一覧の並びが変わってもコルーチンは再起動されない。開始位置は
+                                                                // 必ず開始した時点の最新の並び(latestDialog)から取る
+                                                                // (古いdialogを直接読むと、2回目以降のドラッグで
+                                                                // 開始位置がずれて誤った位置へ飛ぶ)。
+                                                                val startIndex = latestDialog.items.indexOfFirst { it.tilcod == item.tilcod }
                                                                 if (startIndex != -1) {
                                                                     draggedTilcod = item.tilcod
                                                                     dragStartIndex = startIndex
