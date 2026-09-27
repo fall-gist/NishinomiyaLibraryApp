@@ -734,7 +734,7 @@ private fun BookshelfEditingInputDialog(
             onDismissRequest = onDismiss,
             title = { Text(title) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.dragDbg("dialogText")) {
                 if (dialog is BookshelfEditingDialog.CreateShelf) {
                     val memberName = members.find { it.id == dialog.memberId }?.name ?: "メンバーを選択"
                     Text("対象メンバー", color = LocalAppColors.current.ink2, fontSize = 12.sp)
@@ -861,6 +861,7 @@ private fun BookshelfEditingInputDialog(
 
                     Box(
                         modifier = Modifier
+                            .dragDbg("listBox")
                             .height(280.dp)
                             .onGloballyPositioned { coordinates ->
                                 containerTopRoot = coordinates.positionInRoot().y
@@ -869,6 +870,7 @@ private fun BookshelfEditingInputDialog(
                     ) {
                         Column(
                             modifier = Modifier
+                                .dragDbg("list")
                                 .fillMaxSize()
                                 // [一時的な計測] 一覧に届く指のイベントと、各段階での消費の状態
                                 .pointerInput(Unit) {
@@ -899,7 +901,7 @@ private fun BookshelfEditingInputDialog(
                                     // 掴んだタイルはgraphicsLayerのtranslationYでレイアウト上の位置からずらして描く
                                     // (指に付いて動く§4.5)。そのためレイアウト上の元の場所は空いたままになるので、
                                     // 同じ場所に「落とす先」を示す空の枠を背面(zIndexなし)に描く。
-                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                    Box(modifier = Modifier.dragDbg("rowBox ${item.tilcod}").fillMaxWidth()) {
                                         if (isDragged) {
                                             Box(
                                                 modifier = Modifier
@@ -911,6 +913,7 @@ private fun BookshelfEditingInputDialog(
                                         Column(
                                             verticalArrangement = Arrangement.spacedBy(4.dp),
                                             modifier = Modifier
+                                                .dragDbg("tileCol ${item.tilcod}")
                                                 .fillMaxWidth()
                                                 .zIndex(if (isDragged) 1f else 0f)
                                                 .bringIntoViewRequester(requester)
@@ -935,7 +938,7 @@ private fun BookshelfEditingInputDialog(
                                         ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.fillMaxWidth(),
+                                            modifier = Modifier.dragDbg("row ${item.tilcod}").fillMaxWidth(),
                                         ) {
                                             // 「⠿」の長押しドラッグで並べ替えを開始する(docs/design/bookshelf-order.md §4.5)。
                                             Text(
@@ -943,6 +946,7 @@ private fun BookshelfEditingInputDialog(
                                                 color = LocalAppColors.current.ink2,
                                                 fontSize = 18.sp,
                                                 modifier = Modifier
+                                                    .dragDbg("handle ${item.tilcod}")
                                                     .testTag(BookshelfEditingDialogTestTags.editItemDragHandle(item.tilcod))
                                                     .onGloballyPositioned { coordinates ->
                                                         handleTopRoot[item.tilcod] = coordinates.positionInRoot().y
@@ -1096,4 +1100,17 @@ private fun BookshelfEditingResultDialog(result: BookshelfEditingResultMessage, 
             },
         )
     }
+}
+
+// [一時的な計測] 部品(Modifier.Node)が木に付いた・外れたをログに出す
+private fun Modifier.dragDbg(tag: String): Modifier = this.then(DragDbgElement(tag))
+
+private data class DragDbgElement(val tag: String) : androidx.compose.ui.node.ModifierNodeElement<DragDbgNode>() {
+    override fun create() = DragDbgNode(tag)
+    override fun update(node: DragDbgNode) { node.tag = tag }
+}
+
+private class DragDbgNode(var tag: String) : Modifier.Node() {
+    override fun onAttach() { Log.d("DRAGDBG", "attach $tag") }
+    override fun onDetach() { Log.d("DRAGDBG", "detach $tag", Throwable("detach stack")) }
 }
