@@ -1053,7 +1053,11 @@ private fun BookshelfEditingInputDialog(
                                 distanceFromBottom in 0f..edgeZonePx -> maxSpeedPx * (1f - distanceFromBottom / edgeZonePx)
                                 else -> 0f
                             }
-                            if (scrollDelta != 0f) {
+                            // §4.9: 一覧の上端・下端に近い「⠿」を掴んだだけで、指を動かす前から
+                            // 自動スクロールが始まると気持ちが悪い(所有者の判断)。並べ替えの開始と同じ
+                            // hasMovedPastTouchSlopを条件にし、長押しの成立後に指がtouch slop以上
+                            // 動いてから始める(§4.7の合わせ込みのscrollByは対象外。従来どおり行う)。
+                            if (scrollDelta != 0f && hasMovedPastTouchSlop) {
                                 scrollState.scrollBy(scrollDelta)
                             }
                             // §4.8: 自動スクロールで周りの行が動くため、スクロールした・しないに関わらず
