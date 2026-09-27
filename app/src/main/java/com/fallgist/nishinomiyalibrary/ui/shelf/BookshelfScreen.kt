@@ -1,10 +1,10 @@
 package com.fallgist.nishinomiyalibrary.ui.shelf
 
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,14 +55,19 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -74,6 +79,7 @@ import androidx.compose.ui.zIndex
 import com.fallgist.nishinomiyalibrary.ui.components.EmptyNote
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import com.fallgist.nishinomiyalibrary.ui.components.MemberDot
 import com.fallgist.nishinomiyalibrary.ui.components.MemberFilterRow
 import com.fallgist.nishinomiyalibrary.ui.components.ScreenTopBar
@@ -734,7 +740,7 @@ private fun BookshelfEditingInputDialog(
             onDismissRequest = onDismiss,
             title = { Text(title) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.dragDbg("dialogText")) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (dialog is BookshelfEditingDialog.CreateShelf) {
                     val memberName = members.find { it.id == dialog.memberId }?.name ?: "メンバーを選択"
                     Text("対象メンバー", color = LocalAppColors.current.ink2, fontSize = 12.sp)
@@ -783,12 +789,20 @@ private fun BookshelfEditingInputDialog(
                     // 1回入れ替わると行の並びが変わって検知が途切れ「隣とだけ入れ替わる」不具合になっていた。
                     // ここではドラッグの状態(どの資料を掴んでいるか・指の位置)を一覧の側(この画面)でまとめて持ち、
                     // 一覧の並びはmoveEditShelfItemTo経由でControllerへ通知する(並びの正本はControllerのまま)。
+                    //
+                    // さらに§4.6: 実機調査で、検知を各行の「⠿」に付けたままだと、長押し成立直後の
+                    // 再構成(全行のメモを畳む)でverticalScroll内部の部品が木から外れ、その子である「⠿」の
+                    // 検知も道連れでonDragCancelされる不具合が見つかった。そのため検知そのものを
+                    // verticalScrollの外側(一覧を囲むBox)へ移し、PointerEventPass.Initialで
+                    // 祖先から先に指のイベントを見て消費することで、スクロール内部の部品の付け外しの
+                    // 影響を受けないようにしている。
                     // ------------------------------------------------------------------
                     val density = LocalDensity.current
                     val haptics = LocalHapticFeedback.current
                     val scrollState = rememberScrollState()
                     val coroutineScope = rememberCoroutineScope()
-                    // レビュー指摘: pointerInputの検知(下記)はitem.tilcod+editingDisabledがキーのため、
+                    val viewConfiguration = LocalViewConfiguration.current
+                    // レビュー指摘: pointerInputの検知(下記)はeditingDisabledがキーのため、
                     // 一覧の並びが変わってもダイアログを開いている間ずっと同じコルーチンで動き続ける。
                     // そのコルーチンの中で直接`dialog`(このコンポーザブルの引数)を読むと、
                     // rememberUpdatedStateを使わない限りコルーチンが開始した時点の古い並びに固定されてしまう
@@ -810,13 +824,17 @@ private fun BookshelfEditingInputDialog(
                     var pointerRootY by remember { mutableFloatStateOf(0f) }
                     var containerTopRoot by remember { mutableFloatStateOf(0f) }
                     var containerBottomRoot by remember { mutableFloatStateOf(0f) }
-                    val handleTopRoot = remember { mutableStateMapOf<String, Float>() }
+                    // 一覧を囲むBoxの画面上の位置(§4.6)。Box内で受け取る指の座標(Boxローカル)を、
+                    // 「⠿」のboundsInRoot・containerTopRoot/BottomRootと同じ画面座標系に直すために使う。
+                    var containerPositionInRoot by remember { mutableStateOf(Offset.Zero) }
+                    // 各「⠿」の画面上の範囲(§4.6)。Box側で受けた指の位置がどの行の「⠿」に乗っているかの判定に使う。
+                    val handleBoundsRoot = remember { mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>() }
                     val bringIntoViewRequesters = remember { mutableStateMapOf<String, BringIntoViewRequester>() }
                     // レビュー指摘(付随): 資料の削除等で一覧から無くなった資料番号のエントリが
                     // 上記2つのマップに残り続けないよう、最新の並びに無いキーを毎回の再構成後に取り除く。
                     SideEffect {
                         val currentTilcods = dialog.items.map { it.tilcod }.toSet()
-                        handleTopRoot.keys.retainAll(currentTilcods)
+                        handleBoundsRoot.keys.retainAll(currentTilcods)
                         bringIntoViewRequesters.keys.retainAll(currentTilcods)
                     }
 
@@ -832,6 +850,38 @@ private fun BookshelfEditingInputDialog(
                         val appliedSteps = targetIndex - dragStartIndex
                         dragOffsetPx = accumulatedPx - appliedSteps * rowHeightPx
                         if (targetIndex != currentIndex) onMoveEditShelfItemTo(tilcod, targetIndex)
+                    }
+
+                    // 長押しが成立し、並べ替えを開始する。pointerRootYには押した位置の画面上のyを渡す。
+                    fun startDrag(tilcod: String, rootPointerY: Float) {
+                        // 開始位置は必ず開始した時点の最新の並び(latestDialog)から取る
+                        // (古いdialogを直接読むと、2回目以降のドラッグで開始位置がずれて誤った位置へ飛ぶ)。
+                        val startIndex = latestDialog.items.indexOfFirst { it.tilcod == tilcod }
+                        if (startIndex == -1) return
+                        draggedTilcod = tilcod
+                        dragStartIndex = startIndex
+                        accumulatedPx = 0f
+                        dragOffsetPx = 0f
+                        pointerRootY = rootPointerY
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+
+                    // 指を離して並べ替えを終える。
+                    fun finishDrag() {
+                        val moved = draggedTilcod ?: return
+                        draggedTilcod = null
+                        accumulatedPx = 0f
+                        dragOffsetPx = 0f
+                        // 離した位置(空の枠の位置)にメモ欄が戻り、動かした資料が見える位置までスクロールする(§4.5)。
+                        coroutineScope.launch { bringIntoViewRequesters[moved]?.bringIntoView() }
+                    }
+
+                    // コルーチンの取り消し(ダイアログが閉じた等)やポインタが失われた場合に、
+                    // 並べ替えの状態を破棄する(finishDragと違い、bringIntoViewは行わない)。
+                    fun cancelDrag() {
+                        draggedTilcod = null
+                        accumulatedPx = 0f
+                        dragOffsetPx = 0f
                     }
 
                     // 指が一覧の見えている範囲の上端・下端に近づいている間、その方向へスクロールし続ける(自動スクロール)。
@@ -861,37 +911,76 @@ private fun BookshelfEditingInputDialog(
 
                     Box(
                         modifier = Modifier
-                            .dragDbg("listBox")
                             .height(280.dp)
                             .onGloballyPositioned { coordinates ->
-                                containerTopRoot = coordinates.positionInRoot().y
+                                containerPositionInRoot = coordinates.positionInRoot()
+                                containerTopRoot = containerPositionInRoot.y
                                 containerBottomRoot = containerTopRoot + coordinates.size.height
+                            }
+                            // §4.6: 並べ替えの指の検知はここ(verticalScrollの外側)で行う。
+                            .pointerInput(editingDisabled) {
+                                if (editingDisabled) return@pointerInput
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                    val downRootPosition = containerPositionInRoot + down.position
+                                    // 押した位置がどの行の「⠿」の範囲かを判定する。範囲外なら何もしない
+                                    // (従来どおりverticalScrollへイベントが渡り、スクロールできる)。
+                                    val tilcod = handleBoundsRoot.entries
+                                        .firstOrNull { (_, bounds) -> bounds.contains(downRootPosition) }
+                                        ?.key ?: return@awaitEachGesture
+                                    val pointerId = down.id
+
+                                    // 長押しの成立待ち。時間切れ(nullが返る)なら成立。それまでに指が離れる・
+                                    // 他の部品に消費される・touchSlopを超えて動けば、並べ替えを始めずに終える
+                                    // (ここでは消費しないので、そのままverticalScrollのスクロールに渡る)。
+                                    val declinedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                        while (true) {
+                                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                                            val change = event.changes.firstOrNull { it.id == pointerId }
+                                            if (change == null || !change.pressed || change.isConsumed) return@withTimeoutOrNull
+                                            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                                                return@withTimeoutOrNull
+                                            }
+                                        }
+                                    } != null
+                                    if (declinedEarly) return@awaitEachGesture
+
+                                    startDrag(tilcod, downRootPosition.y)
+                                    if (draggedTilcod != tilcod) return@awaitEachGesture
+
+                                    // 長押し成立後は、この指の変化をすべてInitialパスで消費し、
+                                    // verticalScrollを含む子には渡さない。
+                                    var endedNormally = false
+                                    try {
+                                        while (true) {
+                                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                                            val change = event.changes.firstOrNull { it.id == pointerId }
+                                            if (change == null || !change.pressed) {
+                                                change?.consume()
+                                                finishDrag()
+                                                endedNormally = true
+                                                break
+                                            }
+                                            val deltaY = change.positionChange().y
+                                            change.consume()
+                                            accumulatedPx += deltaY
+                                            pointerRootY += deltaY
+                                            applyDragProgress()
+                                        }
+                                    } finally {
+                                        // 正常終了(finishDragを既に呼んだ)後にcancelDragを二重に走らせない。
+                                        if (!endedNormally) cancelDrag()
+                                    }
+                                }
                             },
                     ) {
                         Column(
                             modifier = Modifier
-                                .dragDbg("list")
                                 .fillMaxSize()
-                                // [一時的な計測] 一覧に届く指のイベントと、各段階での消費の状態
-                                .pointerInput(Unit) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            val initial = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Final)
-                                            initial.changes.forEach { c ->
-                                                Log.d("DRAGDBG", "listFinal type=${initial.type} pos=${c.position} pressed=${c.pressed} consumed=${c.isConsumed}")
-                                            }
-                                        }
-                                    }
-                                }
                                 .verticalScroll(scrollState),
                         ) {
                             dialog.items.forEach { item ->
                                 key(item.tilcod) {
-                                    // [一時的な計測] 行のコンポジションの生成・破棄
-                                    androidx.compose.runtime.DisposableEffect(Unit) {
-                                        Log.d("DRAGDBG", "row enter ${item.tilcod}")
-                                        onDispose { Log.d("DRAGDBG", "row dispose ${item.tilcod}") }
-                                    }
                                     val isDragged = item.tilcod == draggedTilcod
                                     // ドラッグ開始時に全行のメモを畳み、書名だけの短い行にする(§4.5)。
                                     val collapsed = draggedTilcod != null
@@ -901,7 +990,7 @@ private fun BookshelfEditingInputDialog(
                                     // 掴んだタイルはgraphicsLayerのtranslationYでレイアウト上の位置からずらして描く
                                     // (指に付いて動く§4.5)。そのためレイアウト上の元の場所は空いたままになるので、
                                     // 同じ場所に「落とす先」を示す空の枠を背面(zIndexなし)に描く。
-                                    Box(modifier = Modifier.dragDbg("rowBox ${item.tilcod}").fillMaxWidth()) {
+                                    Box(modifier = Modifier.fillMaxWidth()) {
                                         if (isDragged) {
                                             Box(
                                                 modifier = Modifier
@@ -913,7 +1002,6 @@ private fun BookshelfEditingInputDialog(
                                         Column(
                                             verticalArrangement = Arrangement.spacedBy(4.dp),
                                             modifier = Modifier
-                                                .dragDbg("tileCol ${item.tilcod}")
                                                 .fillMaxWidth()
                                                 .zIndex(if (isDragged) 1f else 0f)
                                                 .bringIntoViewRequester(requester)
@@ -938,68 +1026,20 @@ private fun BookshelfEditingInputDialog(
                                         ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.dragDbg("row ${item.tilcod}").fillMaxWidth(),
+                                            modifier = Modifier.fillMaxWidth(),
                                         ) {
                                             // 「⠿」の長押しドラッグで並べ替えを開始する(docs/design/bookshelf-order.md §4.5)。
+                                            // 指の検知そのものは一覧を囲むBox側(verticalScrollの外)で行う(§4.6)。
+                                            // ここでは見た目とtestTagのほか、押した位置がこの行かどうかの判定に使う
+                                            // 画面上の範囲(boundsInRoot)をhandleBoundsRootへ記録するだけでよい。
                                             Text(
                                                 "⠿",
                                                 color = LocalAppColors.current.ink2,
                                                 fontSize = 18.sp,
                                                 modifier = Modifier
-                                                    .dragDbg("handle ${item.tilcod}")
                                                     .testTag(BookshelfEditingDialogTestTags.editItemDragHandle(item.tilcod))
                                                     .onGloballyPositioned { coordinates ->
-                                                        handleTopRoot[item.tilcod] = coordinates.positionInRoot().y
-                                                    }
-                                                    .pointerInput(item.tilcod, editingDisabled) {
-                                                        Log.d("DRAGDBG", "pointerInput start ${item.tilcod} disabled=$editingDisabled")
-                                                        if (editingDisabled) return@pointerInput
-                                                        detectDragGesturesAfterLongPress(
-                                                            onDragStart = { offset ->
-                                                                Log.d("DRAGDBG", "dragStart ${item.tilcod} offset=$offset")
-                                                                // このpointerInputはitem.tilcod+editingDisabledがキーのため、
-                                                                // 一覧の並びが変わってもコルーチンは再起動されない。開始位置は
-                                                                // 必ず開始した時点の最新の並び(latestDialog)から取る
-                                                                // (古いdialogを直接読むと、2回目以降のドラッグで
-                                                                // 開始位置がずれて誤った位置へ飛ぶ)。
-                                                                val startIndex = latestDialog.items.indexOfFirst { it.tilcod == item.tilcod }
-                                                                if (startIndex != -1) {
-                                                                    draggedTilcod = item.tilcod
-                                                                    dragStartIndex = startIndex
-                                                                    accumulatedPx = 0f
-                                                                    dragOffsetPx = 0f
-                                                                    pointerRootY = (handleTopRoot[item.tilcod] ?: 0f) + offset.y
-                                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                }
-                                                            },
-                                                            onDrag = { change, amount ->
-                                                                Log.d("DRAGDBG", "drag ${item.tilcod} amount=$amount pos=${change.position} consumedBefore=${change.isConsumed}")
-                                                                change.consume()
-                                                                if (draggedTilcod == item.tilcod) {
-                                                                    accumulatedPx += amount.y
-                                                                    pointerRootY += amount.y
-                                                                    applyDragProgress()
-                                                                }
-                                                            },
-                                                            onDragEnd = {
-                                                                Log.d("DRAGDBG", "dragEnd ${item.tilcod}")
-                                                                val moved = draggedTilcod
-                                                                draggedTilcod = null
-                                                                accumulatedPx = 0f
-                                                                dragOffsetPx = 0f
-                                                                if (moved != null) {
-                                                                    // 離した位置(空の枠の位置)にメモ欄が戻り、
-                                                                    // 動かした資料が見える位置までスクロールする(§4.5)。
-                                                                    coroutineScope.launch { bringIntoViewRequesters[moved]?.bringIntoView() }
-                                                                }
-                                                            },
-                                                            onDragCancel = {
-                                                                Log.d("DRAGDBG", "dragCancel ${item.tilcod}", Throwable("cancel stack"))
-                                                                draggedTilcod = null
-                                                                accumulatedPx = 0f
-                                                                dragOffsetPx = 0f
-                                                            },
-                                                        )
+                                                        handleBoundsRoot[item.tilcod] = coordinates.boundsInRoot()
                                                     }
                                                     .padding(end = 6.dp),
                                             )
@@ -1100,17 +1140,4 @@ private fun BookshelfEditingResultDialog(result: BookshelfEditingResultMessage, 
             },
         )
     }
-}
-
-// [一時的な計測] 部品(Modifier.Node)が木に付いた・外れたをログに出す
-private fun Modifier.dragDbg(tag: String): Modifier = this.then(DragDbgElement(tag))
-
-private data class DragDbgElement(val tag: String) : androidx.compose.ui.node.ModifierNodeElement<DragDbgNode>() {
-    override fun create() = DragDbgNode(tag)
-    override fun update(node: DragDbgNode) { node.tag = tag }
-}
-
-private class DragDbgNode(var tag: String) : Modifier.Node() {
-    override fun onAttach() { Log.d("DRAGDBG", "attach $tag") }
-    override fun onDetach() { Log.d("DRAGDBG", "detach $tag", Throwable("detach stack")) }
 }
