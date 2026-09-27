@@ -461,6 +461,43 @@ class BookshelfRepositoryBulkAddTest {
         assertEquals(listOf(BookshelfBulkAddItemOutcome.NotAttempted), result.items.map { it.outcome })
     }
 
+    // add-to-new-shelf.md 段階1レビュー指摘: 本棚を1つも持たないメンバー(confirmed.shelfCount=0)でも
+    // 新しい本棚を作成して追加できる。作成の期待値はshelfCount=0のまま、追加の期待値はshelfCount=1・
+    // 新しい番号・名前・資料0件で組み立てる。
+    @Test
+    fun `本棚0件のメンバーでも新しい本棚を作成して追加できる`() = runBlocking {
+        val receivedMutations = mutableListOf<RemoteBookshelfMutation>()
+        val repository = repository { mutation ->
+            receivedMutations += mutation
+            when (mutation) {
+                is RemoteBookshelfMutation.CreateShelf ->
+                    RemoteBookshelfOutcome.Applied(listOf(Shelf(1, "新規棚")), emptyList(), createdShelfNo = 1)
+                is RemoteBookshelfMutation.AddItem -> applied(countItems = 1, name = "新規棚", shelfNo = 1)
+                else -> error("想定外のmutation: $mutation")
+            }
+        }
+        val zeroShelfRequest = BookshelfBulkAddRequest(
+            memberId = member.id,
+            target = BookshelfBulkAddTarget.NewShelf("新規棚"),
+            items = items(1),
+            confirmed = BookshelfMutationExpectation(memberName = "利用者", shelfCount = 0),
+        )
+
+        val result = repository.addItems(zeroShelfRequest)
+
+        assertEquals(BookshelfBulkAddCreateOutcome.Created(1), result.create)
+        assertEquals(listOf(BookshelfBulkAddItemOutcome.Added), result.items.map { it.outcome })
+        val creates = receivedMutations.filterIsInstance<RemoteBookshelfMutation.CreateShelf>()
+        // 作成の期待値: 確認時のshelfCount(0)のまま。
+        assertEquals(0, creates.single().expected.shelfCount)
+        val adds = receivedMutations.filterIsInstance<RemoteBookshelfMutation.AddItem>()
+        // 追加の期待値: shelfCount=確認時(0)+1、対象棚=(新しい番号1,"新規棚",0件)。
+        assertEquals(1, adds.single().expected.shelfCount)
+        assertEquals(1, adds.single().expected.shelf?.shelfNo)
+        assertEquals("新規棚", adds.single().expected.shelf?.name)
+        assertEquals(0, adds.single().expected.shelf?.itemCount)
+    }
+
     // add-to-new-shelf.md §3の事前チェック失敗時の扱い: 開始時のメンバー名不一致では、
     // 新しい本棚の作成も送っていないため、作成の結果も同じ理由のFailedにする。
     @Test

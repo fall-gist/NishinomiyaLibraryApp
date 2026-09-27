@@ -803,6 +803,8 @@ fun LibraryApp(
                                     onUpdateInput = bookshelfEditingUiController::updateInput,
                                     onUpdateEditShelfMemo = bookshelfEditingUiController::updateEditShelfMemo,
                                     onMoveEditShelfItemTo = bookshelfEditingUiController::moveEditShelfItemTo,
+                        onSelectAddItemCreateNewShelf = bookshelfEditingUiController::selectAddItemCreateNewShelf,
+                        onUpdateNewShelfName = bookshelfEditingUiController::updateNewShelfName,
                         onRequestInputConfirmation = bookshelfEditingUiController::requestInputConfirmation,
                         onDismissDialog = bookshelfEditingUiController::dismissDialog,
                         onConfirm = bookshelfEditingUiController::confirmPending,

@@ -1,9 +1,12 @@
 package com.fallgist.nishinomiyalibrary.ui.shelf
 
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddCreateOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItemOutcome
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddItemResult
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddRequest
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddResult
+import com.fallgist.nishinomiyalibrary.domain.model.BookshelfBulkAddTarget
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfContent
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfEditItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
@@ -877,6 +880,355 @@ class BookshelfEditingUiControllerTest {
             BookshelfEditingContentBuilder.bulkAddResultMessage(BookshelfBulkAddItemOutcome.NotAttempted).message,
         )
         assertEquals(BookshelfEditingResultKind.FAILURE, BookshelfEditingContentBuilder.bulkAddResultMessage(BookshelfBulkAddItemOutcome.Failed(FailureReason.AUTH)).kind)
+    }
+
+    // ------------------------------------------------------------------
+    // 新しい本棚を作って追加する(`docs/design/add-to-new-shelf.md` §3.3・§4・§5、段階2)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `単件は新しい本棚の選択肢を読み込み前は選べず0件メンバーでも選べ既存選択とメンバー変更で解除される`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val childShelves = MutableStateFlow(emptyList<BookshelfContent>())
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves, child.id to childShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-1", "資料A")
+        // メンバー未選択では無視。
+        controller.selectAddItemCreateNewShelf()
+        assertFalse((controller.state.value.dialog as BookshelfEditingDialog.AddItem).creatingNewShelf)
+
+        controller.selectAddItemMember(father.id)
+        // 本棚の読み込み前は無視。
+        controller.selectAddItemCreateNewShelf()
+        assertFalse((controller.state.value.dialog as BookshelfEditingDialog.AddItem).creatingNewShelf)
+        advanceUntilIdle()
+
+        controller.selectAddItemCreateNewShelf()
+        assertTrue((controller.state.value.dialog as BookshelfEditingDialog.AddItem).creatingNewShelf)
+
+        // 既存の本棚を選び直すと解除される。
+        controller.selectAddItemShelf(3)
+        assertFalse((controller.state.value.dialog as BookshelfEditingDialog.AddItem).creatingNewShelf)
+
+        controller.selectAddItemCreateNewShelf()
+        controller.updateNewShelfName("新棚")
+        // メンバーを選び直すと解除される。
+        controller.selectAddItemMember(child.id)
+        assertFalse((controller.state.value.dialog as BookshelfEditingDialog.AddItem).creatingNewShelf)
+        assertEquals("", (controller.state.value.dialog as BookshelfEditingDialog.AddItem).newShelfName)
+        advanceUntilIdle()
+
+        // 本棚を1つも持たないメンバーでも、読み込み済みなら選べる。
+        controller.selectAddItemCreateNewShelf()
+        assertTrue((controller.state.value.dialog as BookshelfEditingDialog.AddItem).creatingNewShelf)
+        controller.close()
+    }
+
+    @Test
+    fun `一斉追加でも新しい本棚の選択肢はメンバー変更で解除され0件メンバーでも選べる`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val childShelves = MutableStateFlow(emptyList<BookshelfContent>())
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves, child.id to childShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestBulkAddItems(listOf(BookshelfBulkAddItem("t-1", "資料A"))) { }
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemCreateNewShelf()
+        assertTrue((controller.state.value.dialog as BookshelfEditingDialog.BulkAddItems).creatingNewShelf)
+
+        controller.selectAddItemMember(child.id)
+        assertFalse((controller.state.value.dialog as BookshelfEditingDialog.BulkAddItems).creatingNewShelf)
+        advanceUntilIdle()
+
+        controller.selectAddItemCreateNewShelf()
+        assertTrue((controller.state.value.dialog as BookshelfEditingDialog.BulkAddItems).creatingNewShelf)
+        controller.close()
+    }
+
+    @Test
+    fun `新しい本棚を作成する入力は本棚名の境界値を検証する`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-1", "資料A")
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemCreateNewShelf()
+
+        controller.requestInputConfirmation()
+        assertEquals("本棚名を入力してください", controller.state.value.inputError)
+        assertEquals(0, repo.addItemsRequests.size)
+
+        controller.updateNewShelfName("a".repeat(51))
+        controller.requestInputConfirmation()
+        assertEquals("本棚名は50文字以内で入力してください", controller.state.value.inputError)
+
+        controller.updateNewShelfName("a".repeat(50))
+        controller.requestInputConfirmation()
+        assertEquals(null, controller.state.value.inputError)
+        assertEquals("a".repeat(50), controller.state.value.bulkAddPendingConfirmation?.shelfName)
+        controller.close()
+    }
+
+    @Test
+    fun `新しい本棚を作成する確認文言は単件と一斉および既存の本棚で異なる`() {
+        val singleConfirmation = BookshelfBulkAddConfirmation(
+            memberName = "父",
+            shelfName = "新しい棚",
+            request = BookshelfBulkAddRequest(
+                memberId = 1,
+                target = BookshelfBulkAddTarget.NewShelf("新しい棚"),
+                items = listOf(BookshelfBulkAddItem("t-1", "資料A")),
+                confirmed = com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation("父", 1),
+                memo = "メモ本文",
+            ),
+            singleItemTitle = "資料A",
+        )
+        assertEquals(
+            "本棚『新しい棚』を作成し、この資料を追加します\n対象メンバー：父\n資料名：資料A\nメモ：メモ本文",
+            BookshelfEditingContentBuilder.bulkAddConfirmationMessage(singleConfirmation),
+        )
+        assertEquals("作成して追加", BookshelfEditingContentBuilder.bulkAddConfirmLabel(singleConfirmation))
+        assertTrue(
+            BookshelfEditingContentBuilder.bulkAddConfirmationMessage(singleConfirmation.copy(request = singleConfirmation.request.copy(memo = "")))
+                .endsWith("メモ：（なし）"),
+        )
+
+        val bulkConfirmation = singleConfirmation.copy(
+            request = singleConfirmation.request.copy(
+                items = listOf(BookshelfBulkAddItem("t-1", "資料A"), BookshelfBulkAddItem("t-2", "資料B")),
+            ),
+            singleItemTitle = null,
+        )
+        assertEquals(
+            "本棚『新しい棚』を作成し、2件の資料を追加します",
+            BookshelfEditingContentBuilder.bulkAddConfirmationMessage(bulkConfirmation),
+        )
+        assertEquals("作成して追加", BookshelfEditingContentBuilder.bulkAddConfirmLabel(bulkConfirmation))
+
+        val existingShelfConfirmation = bulkConfirmation.copy(
+            request = bulkConfirmation.request.copy(target = BookshelfBulkAddTarget.ExistingShelf(3)),
+        )
+        assertEquals(
+            "父の本棚『新しい棚』へ2件を追加します",
+            BookshelfEditingContentBuilder.bulkAddConfirmationMessage(existingShelfConfirmation),
+        )
+        assertEquals("この本棚に追加", BookshelfEditingContentBuilder.bulkAddConfirmLabel(existingShelfConfirmation))
+    }
+
+    @Test
+    fun `新しい本棚の確定前に本棚の数が変わると送信せず本棚状態変化を知らせる`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestBulkAddItems(listOf(BookshelfBulkAddItem("t-1", "資料A"))) { }
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemCreateNewShelf()
+        controller.updateNewShelfName("新棚")
+        controller.requestInputConfirmation()
+        assertTrue(controller.state.value.bulkAddPendingConfirmation != null)
+
+        // 確認後、送信直前に本棚が増えている(§3.3の再確認)。
+        fatherShelves.value = fatherShelves.value + BookshelfContent(father.id, 9, "追加された棚", emptyList())
+        runCurrent()
+
+        controller.confirmBulkAdd()
+        advanceUntilIdle()
+
+        assertEquals(0, repo.addItemsRequests.size)
+        assertEquals("本棚の状態が変わりました。もう一度選択してください", controller.state.value.errorMessage)
+        controller.close()
+    }
+
+    @Test
+    fun `単件で新しい本棚を選ぶとtarget=NewShelfでメモを載せた一斉追加要求を送る`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(shelves = mapOf(father.id to fatherShelves))
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-9", "新資料")
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemCreateNewShelf()
+        controller.updateNewShelfName("新しい棚")
+        controller.updateInput("大事なメモ")
+        controller.requestInputConfirmation()
+
+        val confirmation = controller.state.value.bulkAddPendingConfirmation
+        assertEquals("新しい棚", confirmation?.shelfName)
+        assertEquals("新資料", confirmation?.singleItemTitle)
+        assertNull(controller.state.value.pendingConfirmation)
+        assertNull(controller.state.value.dialog)
+
+        controller.confirmBulkAdd()
+        advanceUntilIdle()
+
+        val sent = repo.addItemsRequests.single()
+        assertEquals(father.id, sent.memberId)
+        assertEquals(BookshelfBulkAddTarget.NewShelf("新しい棚"), sent.target)
+        assertEquals(listOf(BookshelfBulkAddItem("t-9", "新資料")), sent.items)
+        assertEquals("大事なメモ", sent.memo)
+        assertEquals(1, sent.confirmed.shelfCount)
+        assertNull(sent.confirmed.shelf)
+        controller.close()
+    }
+
+    @Test
+    fun `新しい本棚を作成した単件の結果は作成と追加を合わせた1つのダイアログになる`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(
+            shelves = mapOf(father.id to fatherShelves),
+            addItemsResult = BookshelfBulkAddResult(
+                items = listOf(BookshelfBulkAddItemResult(BookshelfBulkAddItem("t-1", "資料A"), BookshelfBulkAddItemOutcome.Added)),
+                localRefreshRequired = false,
+                create = BookshelfBulkAddCreateOutcome.Created(9),
+            ),
+        )
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestAddItem("t-1", "資料A")
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemCreateNewShelf()
+        controller.updateNewShelfName("新棚")
+        controller.requestInputConfirmation()
+        controller.confirmBulkAdd()
+        advanceUntilIdle()
+
+        val result = controller.state.value.result
+        assertEquals(BookshelfEditingResultKind.APPLIED, result?.kind)
+        assertTrue(result?.message?.contains("本棚『新棚』を作成し、資料を追加しました") == true)
+        assertNull(controller.state.value.bulkAddResults)
+        controller.close()
+    }
+
+    @Test
+    fun `新しい本棚を作成した一斉追加の結果は先頭に作成結果を1行加える`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(
+            shelves = mapOf(father.id to fatherShelves),
+            addItemsResult = BookshelfBulkAddResult(
+                items = listOf(
+                    BookshelfBulkAddItemResult(BookshelfBulkAddItem("t-1", "資料A"), BookshelfBulkAddItemOutcome.Added),
+                    BookshelfBulkAddItemResult(BookshelfBulkAddItem("t-2", "資料B"), BookshelfBulkAddItemOutcome.Added),
+                ),
+                localRefreshRequired = false,
+                create = BookshelfBulkAddCreateOutcome.Created(9),
+            ),
+        )
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestBulkAddItems(listOf(BookshelfBulkAddItem("t-1", "資料A"), BookshelfBulkAddItem("t-2", "資料B"))) { }
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemCreateNewShelf()
+        controller.updateNewShelfName("新棚")
+        controller.requestInputConfirmation()
+        controller.confirmBulkAdd()
+        advanceUntilIdle()
+
+        val rows = controller.state.value.bulkAddResults?.rows
+        assertEquals(3, rows?.size)
+        assertEquals("本棚の作成", rows?.get(0)?.title)
+        assertTrue(rows?.get(0)?.message?.message?.contains("新棚") == true)
+        assertEquals("資料A", rows?.get(1)?.title)
+        assertEquals("資料B", rows?.get(2)?.title)
+        assertNull(controller.state.value.result)
+        controller.close()
+    }
+
+    @Test
+    fun `既存の本棚への一斉追加の結果には作成行を加えない`() = runTest {
+        val fatherShelves = MutableStateFlow(listOf(BookshelfContent(father.id, 3, "父の棚", emptyList())))
+        val repo = FakeBookshelfRepository(
+            shelves = mapOf(father.id to fatherShelves),
+            addItemsResult = BookshelfBulkAddResult(
+                items = listOf(BookshelfBulkAddItemResult(BookshelfBulkAddItem("t-1", "資料A"), BookshelfBulkAddItemOutcome.Added)),
+                localRefreshRequired = false,
+            ),
+        )
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestBulkAddItems(listOf(BookshelfBulkAddItem("t-1", "資料A"))) { }
+        controller.selectAddItemMember(father.id)
+        advanceUntilIdle()
+        controller.selectAddItemShelf(3)
+        controller.requestInputConfirmation()
+        controller.confirmBulkAdd()
+        advanceUntilIdle()
+
+        val rows = controller.state.value.bulkAddResults?.rows
+        assertEquals(1, rows?.size)
+        assertEquals("資料A", rows?.first()?.title)
+        controller.close()
+    }
+
+    @Test
+    fun `新しい本棚を作成する選択入口も処理中は無視される`() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val repo = FakeBookshelfRepository(onMutate = {
+            started.complete(Unit)
+            release.await()
+        })
+        val controller = controller(repo, StandardTestDispatcher(testScheduler))
+        advanceUntilIdle()
+
+        controller.requestDeleteItem(itemTarget)
+        controller.confirmPending()
+        runCurrent()
+        started.await()
+        assertTrue(controller.state.value.processing)
+
+        controller.requestAddItem("t-2", "資料B")
+        controller.selectAddItemCreateNewShelf()
+        controller.updateNewShelfName("棚")
+        assertNull(controller.state.value.dialog)
+
+        release.complete(Unit)
+        advanceUntilIdle()
+        controller.close()
+    }
+
+    @Test
+    fun `新しい本棚作成の単件結果文言は表のとおりkindを割り当てる`() {
+        fun message(create: BookshelfBulkAddCreateOutcome, item: BookshelfBulkAddItemOutcome) =
+            BookshelfEditingContentBuilder.singleNewShelfResultMessage(create, item, "新棚", localRefreshRequired = false)
+
+        val created = BookshelfBulkAddCreateOutcome.Created(1)
+        assertEquals(BookshelfEditingResultKind.APPLIED, message(created, BookshelfBulkAddItemOutcome.Added).kind)
+        assertTrue(message(created, BookshelfBulkAddItemOutcome.Added).message.contains("本棚『新棚』を作成し、資料を追加しました"))
+
+        assertEquals(BookshelfEditingResultKind.ALREADY_REGISTERED, message(created, BookshelfBulkAddItemOutcome.AlreadyRegistered).kind)
+        assertTrue(message(created, BookshelfBulkAddItemOutcome.AlreadyRegistered).message.contains("資料は既に登録済みでした"))
+
+        assertEquals(BookshelfEditingResultKind.UNKNOWN, message(created, BookshelfBulkAddItemOutcome.Unknown).kind)
+        assertTrue(message(created, BookshelfBulkAddItemOutcome.Unknown).message.contains("確認できませんでした"))
+
+        assertEquals(BookshelfEditingResultKind.FAILURE, message(created, BookshelfBulkAddItemOutcome.Failed(FailureReason.AUTH)).kind)
+
+        val unknownCreate = BookshelfBulkAddCreateOutcome.Unknown
+        val unknownMessage = message(unknownCreate, BookshelfBulkAddItemOutcome.NotAttempted)
+        assertEquals(BookshelfEditingResultKind.UNKNOWN, unknownMessage.kind)
+        assertTrue(unknownMessage.message.contains("資料は追加していません"))
+
+        val failedCreate = BookshelfBulkAddCreateOutcome.Failed(FailureReason.SITE_MAINTENANCE)
+        val failedMessage = message(failedCreate, BookshelfBulkAddItemOutcome.NotAttempted)
+        assertEquals(BookshelfEditingResultKind.FAILURE, failedMessage.kind)
+        assertTrue(failedMessage.message.contains("資料は追加していません"))
     }
 
     private fun controller(

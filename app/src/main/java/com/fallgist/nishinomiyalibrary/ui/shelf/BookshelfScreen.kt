@@ -334,6 +334,11 @@ fun BookshelfEditingDialogs(
     onSelectAddItemShelf: (Int) -> Unit,
     onUpdateInput: (String) -> Unit,
     onUpdateEditShelfMemo: (String, String) -> Unit,
+    // ------------------------------------------------------------------
+    // 新しい本棚を作って追加する(`docs/design/add-to-new-shelf.md` §3.3)
+    // ------------------------------------------------------------------
+    onSelectAddItemCreateNewShelf: () -> Unit = {},
+    onUpdateNewShelfName: (String) -> Unit = {},
     onMoveEditShelfItemTo: (String, Int) -> Unit = { _, _ -> },
     onRequestInputConfirmation: () -> Unit,
     onDismissDialog: () -> Unit,
@@ -382,6 +387,8 @@ fun BookshelfEditingDialogs(
                 inputError = editingState.inputError,
                 onSelectMember = onSelectAddItemMember,
                 onSelectShelf = onSelectAddItemShelf,
+                onSelectCreateNewShelf = onSelectAddItemCreateNewShelf,
+                onNewShelfNameChange = onUpdateNewShelfName,
                 onMemoChange = onUpdateInput,
                 onConfirm = onRequestInputConfirmation,
                 onDismiss = onDismissDialog,
@@ -394,6 +401,8 @@ fun BookshelfEditingDialogs(
                 inputError = editingState.inputError,
                 onSelectMember = onSelectAddItemMember,
                 onSelectShelf = onSelectAddItemShelf,
+                onSelectCreateNewShelf = onSelectAddItemCreateNewShelf,
+                onNewShelfNameChange = onUpdateNewShelfName,
                 onConfirm = onRequestInputConfirmation,
                 onDismiss = onDismissDialog,
             )
@@ -433,6 +442,8 @@ private fun AddItemDialog(
     inputError: String?,
     onSelectMember: (Long) -> Unit,
     onSelectShelf: (Int) -> Unit,
+    onSelectCreateNewShelf: () -> Unit,
+    onNewShelfNameChange: (String) -> Unit,
     onMemoChange: (String) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
@@ -440,9 +451,18 @@ private fun AddItemDialog(
     var memberMenuExpanded by remember(dialog) { mutableStateOf(false) }
     var shelfMenuExpanded by remember(dialog.memberId) { mutableStateOf(false) }
     val memberName = members.find { it.id == dialog.memberId }?.name ?: "メンバーを選択"
-    val shelfName = shelves.find { it.shelfNo == dialog.shelfNo }?.name ?: "本棚を選択"
-    val confirmEnabled = dialog.memberId != null && shelvesLoaded && shelves.isNotEmpty() &&
-        dialog.shelfNo != null && shelves.any { it.shelfNo == dialog.shelfNo } &&
+    val shelfName = when {
+        dialog.creatingNewShelf -> "新しい本棚を作成"
+        else -> shelves.find { it.shelfNo == dialog.shelfNo }?.name ?: "本棚を選択"
+    }
+    val confirmEnabled = dialog.memberId != null && shelvesLoaded &&
+        (
+            if (dialog.creatingNewShelf) {
+                BookshelfEditingUiController.isValidShelfName(dialog.newShelfName)
+            } else {
+                shelves.isNotEmpty() && dialog.shelfNo != null && shelves.any { it.shelfNo == dialog.shelfNo }
+            }
+        ) &&
         dialog.memo.length <= BookshelfEditingUiController.MAX_MEMO_LENGTH
     DisableSelection {
         AlertDialog(
@@ -475,7 +495,7 @@ private fun AddItemDialog(
                         shelfName,
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalAppColors.current.card)
                             .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp))
-                            .clickable(enabled = dialog.memberId != null && shelvesLoaded && shelves.isNotEmpty()) { shelfMenuExpanded = true }.padding(12.dp),
+                            .clickable(enabled = dialog.memberId != null && shelvesLoaded) { shelfMenuExpanded = true }.padding(12.dp),
                     )
                     DropdownMenu(expanded = shelfMenuExpanded, onDismissRequest = { shelfMenuExpanded = false }) {
                         shelves.forEach { shelf ->
@@ -484,12 +504,28 @@ private fun AddItemDialog(
                                 onSelectShelf(shelf.shelfNo)
                             })
                         }
+                        // 選択肢の末尾「新しい本棚を作成」(`docs/design/add-to-new-shelf.md` §1・§3.3)。
+                        // 本棚を1つも持たないメンバーでも、一覧の読み込みが済んでいれば選べる。
+                        DropdownMenuItem(text = { Text("新しい本棚を作成") }, onClick = {
+                            shelfMenuExpanded = false
+                            onSelectCreateNewShelf()
+                        })
                     }
                 }
                 if (dialog.memberId != null && !shelvesLoaded) {
                     Text("本棚を読み込んでいます", color = LocalAppColors.current.ink2, fontSize = 12.sp)
-                } else if (dialog.memberId != null && shelves.isEmpty()) {
+                } else if (dialog.memberId != null && shelves.isEmpty() && !dialog.creatingNewShelf) {
                     Text("先に本棚を作成してください", color = LocalAppColors.current.alert, fontSize = 12.sp)
+                }
+                if (dialog.creatingNewShelf) {
+                    OutlinedTextField(
+                        value = dialog.newShelfName,
+                        onValueChange = onNewShelfNameChange,
+                        label = { Text("本棚名（50文字以内）") },
+                        isError = inputError != null,
+                        minLines = 1,
+                        maxLines = 1,
+                    )
                 }
                 OutlinedTextField(
                     value = dialog.memo,
@@ -527,15 +563,24 @@ private fun BulkAddItemsDialog(
     inputError: String?,
     onSelectMember: (Long) -> Unit,
     onSelectShelf: (Int) -> Unit,
+    onSelectCreateNewShelf: () -> Unit,
+    onNewShelfNameChange: (String) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var memberMenuExpanded by remember(dialog) { mutableStateOf(false) }
     var shelfMenuExpanded by remember(dialog.memberId) { mutableStateOf(false) }
     val memberName = members.find { it.id == dialog.memberId }?.name ?: "メンバーを選択"
-    val shelfName = shelves.find { it.shelfNo == dialog.shelfNo }?.name ?: "本棚を選択"
-    val confirmEnabled = dialog.memberId != null && shelvesLoaded && shelves.isNotEmpty() &&
-        dialog.shelfNo != null && shelves.any { it.shelfNo == dialog.shelfNo }
+    val shelfName = when {
+        dialog.creatingNewShelf -> "新しい本棚を作成"
+        else -> shelves.find { it.shelfNo == dialog.shelfNo }?.name ?: "本棚を選択"
+    }
+    val confirmEnabled = dialog.memberId != null && shelvesLoaded &&
+        if (dialog.creatingNewShelf) {
+            BookshelfEditingUiController.isValidShelfName(dialog.newShelfName)
+        } else {
+            shelves.isNotEmpty() && dialog.shelfNo != null && shelves.any { it.shelfNo == dialog.shelfNo }
+        }
     DisableSelection {
         AlertDialog(
             onDismissRequest = onDismiss,
@@ -565,7 +610,7 @@ private fun BulkAddItemsDialog(
                         shelfName,
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalAppColors.current.card)
                             .border(1.dp, LocalAppColors.current.line, RoundedCornerShape(8.dp))
-                            .clickable(enabled = dialog.memberId != null && shelvesLoaded && shelves.isNotEmpty()) { shelfMenuExpanded = true }.padding(12.dp),
+                            .clickable(enabled = dialog.memberId != null && shelvesLoaded) { shelfMenuExpanded = true }.padding(12.dp),
                     )
                     DropdownMenu(expanded = shelfMenuExpanded, onDismissRequest = { shelfMenuExpanded = false }) {
                         shelves.forEach { shelf ->
@@ -574,12 +619,27 @@ private fun BulkAddItemsDialog(
                                 onSelectShelf(shelf.shelfNo)
                             })
                         }
+                        // 選択肢の末尾「新しい本棚を作成」(`docs/design/add-to-new-shelf.md` §1・§3.3)。
+                        DropdownMenuItem(text = { Text("新しい本棚を作成") }, onClick = {
+                            shelfMenuExpanded = false
+                            onSelectCreateNewShelf()
+                        })
                     }
                 }
                 if (dialog.memberId != null && !shelvesLoaded) {
                     Text("本棚を読み込んでいます", color = LocalAppColors.current.ink2, fontSize = 12.sp)
-                } else if (dialog.memberId != null && shelves.isEmpty()) {
+                } else if (dialog.memberId != null && shelves.isEmpty() && !dialog.creatingNewShelf) {
                     Text("先に本棚を作成してください", color = LocalAppColors.current.alert, fontSize = 12.sp)
+                }
+                if (dialog.creatingNewShelf) {
+                    OutlinedTextField(
+                        value = dialog.newShelfName,
+                        onValueChange = onNewShelfNameChange,
+                        label = { Text("本棚名（50文字以内）") },
+                        isError = inputError != null,
+                        minLines = 1,
+                        maxLines = 1,
+                    )
                 }
                 inputError?.let { Text(it, color = LocalAppColors.current.alert, fontSize = 12.sp) }
                 }
@@ -596,7 +656,11 @@ private fun BulkAddItemsDialog(
     }
 }
 
-/** 一斉本棚追加の最終確認(`docs/design/bulk-bookshelf-add.md` §5.2「太郎の本棚『読みたい』へ5件を追加します」)。 */
+/**
+ * 一斉本棚追加の最終確認(`docs/design/bulk-bookshelf-add.md` §5.2「太郎の本棚『読みたい』へ5件を追加します」、
+ * `docs/design/add-to-new-shelf.md` §3.3「新しい本棚を作成し、この資料/N件の資料を追加します」)。
+ * 単件(書誌詳細から新しい本棚を作成した場合)もこのダイアログを使う([confirmation.singleItemTitle]参照)。
+ */
 @Composable
 private fun BookshelfBulkAddConfirmDialog(
     confirmation: BookshelfBulkAddConfirmation,
@@ -606,15 +670,15 @@ private fun BookshelfBulkAddConfirmDialog(
     DisableSelection {
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("本棚に追加しますか？") },
+            title = { Text(BookshelfEditingContentBuilder.bulkAddConfirmationTitle()) },
             text = {
-                Text("${confirmation.memberName}の本棚『${confirmation.shelfName}』へ${confirmation.itemCount}件を追加します")
+                Text(BookshelfEditingContentBuilder.bulkAddConfirmationMessage(confirmation))
             },
             confirmButton = {
                 Button(
                     onClick = onConfirm,
                     modifier = Modifier.testTag(BookshelfEditingDialogTestTags.BULK_ADD_ITEMS_FINAL_CONFIRM),
-                ) { Text("この本棚に追加") }
+                ) { Text(BookshelfEditingContentBuilder.bulkAddConfirmLabel(confirmation)) }
             },
             dismissButton = { OutlinedButton(onClick = onDismiss) { Text("戻る") } },
         )
