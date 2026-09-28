@@ -34,12 +34,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.OutlinedTextField
+import com.fallgist.nishinomiyalibrary.R
 import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
 import com.fallgist.nishinomiyalibrary.data.backup.passwordRestoreMessage
 import com.fallgist.nishinomiyalibrary.ui.member.MemberRegistrationResult
@@ -144,7 +146,7 @@ fun MemberRegistrationForm(
             .verticalScroll(rememberScrollState())
             .padding(20.dp),
     ) {
-        Text("西宮市立図書館", color = colors.ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.app_name), color = colors.ink, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
         Text(
             text = "はじめに、家族のアカウントを1人登録してください。",

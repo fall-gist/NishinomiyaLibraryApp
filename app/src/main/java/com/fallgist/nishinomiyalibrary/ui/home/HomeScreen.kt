@@ -36,10 +36,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fallgist.nishinomiyalibrary.R
 import com.fallgist.nishinomiyalibrary.data.backup.BackupImportResult
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.ui.components.HamburgerButton
@@ -277,10 +279,12 @@ private fun AppBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "西宮市立図書館",
+                text = stringResource(R.string.app_name),
                 color = colors.ink,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.SemiBold,
+                // アプリ名が長くなったため、1行に収まらなければ折り返す(切らずにHamburgerButtonを圧迫しない)。
+                modifier = Modifier.weight(1f),
             )
             HamburgerButton(onClick = onOpenMenu)
         }
