@@ -175,9 +175,13 @@ class NewArrivalsScreenController(
     private val updateCoordinator: NewArrivalUpdateRunner,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val autoReservationEnabled: Flow<Boolean> = flowOf(false),
-    /** 一斉カート追加(`docs/design/bulk-selection.md` §7)のメンバー選択に使う。 */
-    familyRepository: FamilyRepository = NoOpFamilyRepository,
-    private val cartRepository: ReservationCartRepository = NoOpBulkCartAdditionRepository,
+    /**
+     * 一斉カート追加(`docs/design/bulk-selection.md` §7)のメンバー選択に使う。DIが渡し忘れると
+     * 一斉カート追加が静かに「成功」として振る舞う危険があるため必須引数にする
+     * (`ReadingRecordsScreenController`と同じ前例、`docs/handoff.md`参照)。
+     */
+    familyRepository: FamilyRepository,
+    private val cartRepository: ReservationCartRepository,
     /** 選択解除前の確認ダイアログ設定(`docs/design/bulk-selection-followup.md` §6.3)。既定はオン。 */
     private val warnBeforeClearingSelection: Flow<Boolean> = flowOf(DEFAULT_WARN_BEFORE_CLEARING_SELECTION),
     /** 「今後は表示しない」で設定をオフにするための書き込み。既定は何もしない(設定未接続のテスト等)。 */
@@ -609,41 +613,4 @@ private object NoOpCalendarRepository : CalendarRepository {
     override fun closedDays(libraryCode: String) = kotlinx.coroutines.flow.flowOf(emptyList<com.fallgist.nishinomiyalibrary.domain.model.ClosedDay>())
     override suspend fun refreshClosedDays(libraryCode: String) = Unit
     override val libraries: List<Library> = emptyList()
-}
-
-/** [NewArrivalsScreenController]の既定引数用。familyRepositoryを渡さない既存呼び出しを壊さないためのno-op実装。 */
-private object NoOpFamilyRepository : FamilyRepository {
-    override fun members(): Flow<List<Member>> = flowOf(emptyList())
-    override suspend fun addMember(name: String, colorHex: String, cardNumber: String, password: String) = Unit
-    override suspend fun updateMember(member: Member, newPassword: String?) = Unit
-    override suspend fun removeMember(memberId: Long) = Unit
-}
-
-/**
- * [NewArrivalsScreenController]の既定引数用。cartRepositoryを渡さない既存呼び出しを壊さないためのno-op実装。
- * 一斉カート追加を使わない画面(既存テスト等)では呼ばれない。
- */
-private object NoOpBulkCartAdditionRepository : ReservationCartRepository {
-    override fun cartItems(): Flow<List<com.fallgist.nishinomiyalibrary.domain.model.ReservationCartItem>> = flowOf(emptyList())
-    override suspend fun addToCart(target: com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget) = Unit
-    override suspend fun addToCart(
-        targets: List<com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget>,
-    ): ReservationCartAddSummary = ReservationCartAddSummary(0, 0)
-    override suspend fun removeFromCart(cartItemId: Long) = Unit
-    override suspend fun removeFromCart(cartItemIds: List<Long>) = Unit
-    override suspend fun clearCart() = Unit
-    override suspend fun confirmCart(
-        confirmation: com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation,
-    ): com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult =
-        com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult(emptyList())
-    override suspend fun reserveNow(
-        target: com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget,
-        confirmation: com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation,
-    ): com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult =
-        com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult(emptyList())
-    override suspend fun reserveNow(
-        targets: List<com.fallgist.nishinomiyalibrary.domain.model.ReservationTarget>,
-        confirmation: com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation,
-    ): com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult =
-        com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult(emptyList())
 }

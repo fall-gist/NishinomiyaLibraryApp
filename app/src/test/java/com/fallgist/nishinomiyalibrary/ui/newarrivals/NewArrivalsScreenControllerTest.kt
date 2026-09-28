@@ -57,7 +57,10 @@ class NewArrivalsScreenControllerTest {
                 entered.complete(Unit); release.await(); return NewArrivalUpdateResult.Completed(AutomaticReservationRunResult.NoMatch)
             }
         }
-        val controller = NewArrivalsScreenController(repository, updater, dispatcher, enabled)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher, enabled,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
         enabled.value = true; advanceUntilIdle(); assertEquals(true, controller.state.value.autoReservationEnabled)
         controller.refresh(); entered.await()
         assertEquals(com.fallgist.nishinomiyalibrary.data.repository.NewArrivalUpdatePhase.AUTOMATIC_RESERVATION, controller.state.value.updatePhase)
@@ -73,7 +76,10 @@ class NewArrivalsScreenControllerTest {
             lastFetchedAtEpochMillis = now.minusMillis(Duration.ofHours(1).toMillis()).toEpochMilli(),
         )
         val updater = FakeUpdateRunner(repository, NewArrivalUpdateResult.FreshnessSkipped)
-        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
 
         controller.onScreenLaunched()
         advanceUntilIdle()
@@ -92,7 +98,10 @@ class NewArrivalsScreenControllerTest {
             lastFetchedAtEpochMillis = now.minusMillis(Duration.ofHours(13).toMillis()).toEpochMilli(),
         )
         val updater = FakeUpdateRunner(repository)
-        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
 
         controller.onScreenLaunched()
         advanceUntilIdle()
@@ -109,7 +118,10 @@ class NewArrivalsScreenControllerTest {
             items = emptyList(),
             lastFetchedAtEpochMillis = now.minusMillis(Duration.ofMinutes(1).toMillis()).toEpochMilli(),
         )
-        val controller = NewArrivalsScreenController(repository, FakeUpdateRunner(repository), dispatcher)
+        val controller = NewArrivalsScreenController(repository, FakeUpdateRunner(repository), dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
 
         controller.onScreenLaunched()
         advanceUntilIdle()
@@ -127,7 +139,10 @@ class NewArrivalsScreenControllerTest {
             lastFetchedAtEpochMillis = now.minusMillis(Duration.ofMinutes(1).toMillis()).toEpochMilli(),
         )
         val updater = FakeUpdateRunner(repository)
-        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
 
         controller.refresh()
         advanceUntilIdle()
@@ -148,7 +163,10 @@ class NewArrivalsScreenControllerTest {
             entered.complete(Unit)
             release.await()
         })
-        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
 
         controller.refresh()
         entered.await()
@@ -176,6 +194,8 @@ class NewArrivalsScreenControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val controller = NewArrivalsScreenController(
             FakeNewArrivalRepository(listOf(newArrival("100")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
         )
         advanceUntilIdle()
 
@@ -198,6 +218,8 @@ class NewArrivalsScreenControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val controller = NewArrivalsScreenController(
             FakeNewArrivalRepository(listOf(newArrival("100")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
         )
         advanceUntilIdle()
 
@@ -213,6 +235,8 @@ class NewArrivalsScreenControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val controller = NewArrivalsScreenController(
             FakeNewArrivalRepository(listOf(newArrival("100")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
         )
         advanceUntilIdle()
 
@@ -228,6 +252,8 @@ class NewArrivalsScreenControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val controller = NewArrivalsScreenController(
             FakeNewArrivalRepository(listOf(newArrival("100")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
         )
         advanceUntilIdle()
 
@@ -243,6 +269,8 @@ class NewArrivalsScreenControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val controller = NewArrivalsScreenController(
             FakeNewArrivalRepository(listOf(newArrival("")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
         )
         advanceUntilIdle()
 
@@ -257,6 +285,8 @@ class NewArrivalsScreenControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val controller = NewArrivalsScreenController(
             FakeNewArrivalRepository(listOf(newArrival("100")), null), FakeUpdateRunner(FakeNewArrivalRepository(emptyList(), null)), dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
         )
         advanceUntilIdle()
         controller.enterSelectionMode("100")
@@ -633,7 +663,10 @@ class NewArrivalsScreenControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
         val updater = FakeUpdateRunner(repository)
-        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
         advanceUntilIdle()
 
         controller.refresh()
@@ -652,6 +685,8 @@ class NewArrivalsScreenControllerTest {
         val controller = NewArrivalsScreenController(
             repository, updater, dispatcher,
             warnBeforeClearingSelection = flowOf(false),
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
         )
         advanceUntilIdle()
         controller.enterSelectionMode("100")
@@ -669,7 +704,10 @@ class NewArrivalsScreenControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
         val updater = FakeUpdateRunner(repository)
-        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
         advanceUntilIdle()
         controller.enterSelectionMode("100")
 
@@ -687,7 +725,10 @@ class NewArrivalsScreenControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
         val updater = FakeUpdateRunner(repository)
-        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
         advanceUntilIdle()
         controller.enterSelectionMode("100")
         controller.refresh()
@@ -707,7 +748,10 @@ class NewArrivalsScreenControllerTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
         val updater = FakeUpdateRunner(repository)
-        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
         advanceUntilIdle()
         controller.enterSelectionMode("100")
         controller.refresh()
@@ -731,6 +775,8 @@ class NewArrivalsScreenControllerTest {
         val controller = NewArrivalsScreenController(
             repository, updater, dispatcher,
             disableWarnBeforeClearingSelection = { disableCalls++ },
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
         )
         advanceUntilIdle()
         controller.enterSelectionMode("100")
@@ -830,6 +876,8 @@ class NewArrivalsScreenControllerTest {
         val controller = NewArrivalsScreenController(
             repository, updater, dispatcher,
             warnBeforeClearingSelection = flowOf(false),
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
         )
         advanceUntilIdle()
         controller.enterSelectionMode("100")
@@ -918,7 +966,10 @@ class NewArrivalsScreenControllerTest {
     fun `resetOnLeaveで選択モードから抜ける(design §3,8-4)`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repository = FakeNewArrivalRepository(listOf(newArrival("100")), null)
-        val controller = NewArrivalsScreenController(repository, FakeUpdateRunner(repository), dispatcher)
+        val controller = NewArrivalsScreenController(repository, FakeUpdateRunner(repository), dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
         advanceUntilIdle()
         controller.enterSelectionMode("100")
         assertTrue(controller.state.value.selectionMode)
@@ -968,7 +1019,10 @@ class NewArrivalsScreenControllerTest {
             listOf(newArrival("100")),
             now.toEpochMilli(),
         )
-        val controller = NewArrivalsScreenController(repository, FakeUpdateRunner(repository), dispatcher)
+        val controller = NewArrivalsScreenController(repository, FakeUpdateRunner(repository), dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
         advanceUntilIdle()
         val rowsBefore = controller.state.value.rows
         val totalCountBefore = controller.state.value.totalCount
@@ -997,7 +1051,10 @@ class NewArrivalsScreenControllerTest {
             entered.complete(Unit)
             release.await()
         })
-        val controller = NewArrivalsScreenController(repository, updater, dispatcher)
+        val controller = NewArrivalsScreenController(repository, updater, dispatcher,
+            familyRepository = FakeFamilyRepository(emptyList()),
+            cartRepository = FakeCartRepository(),
+        )
 
         controller.refresh()
         entered.await()
