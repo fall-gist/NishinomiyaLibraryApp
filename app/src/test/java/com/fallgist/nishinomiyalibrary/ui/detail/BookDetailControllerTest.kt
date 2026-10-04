@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui.detail
 
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
 import com.fallgist.nishinomiyalibrary.domain.model.Member
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LicsXpSession
@@ -172,7 +173,7 @@ class BookDetailControllerTest {
     private class FakeSearchRepository(
         private val reservationCount: Int = 0,
     ) : SearchRepository {
-        override suspend fun search(keyword: String, page: Int) =
+        override suspend fun search(query: SearchQuery, page: Int) =
             throw UnsupportedOperationException("not used in this test")
 
         override suspend fun autocomplete(keyword: String): List<String> = emptyList()
@@ -193,7 +194,7 @@ class BookDetailControllerTest {
     }
 
     private class FailingSearchRepository : SearchRepository {
-        override suspend fun search(keyword: String, page: Int) =
+        override suspend fun search(query: SearchQuery, page: Int) =
             throw UnsupportedOperationException("not used in this test")
 
         override suspend fun autocomplete(keyword: String): List<String> = emptyList()

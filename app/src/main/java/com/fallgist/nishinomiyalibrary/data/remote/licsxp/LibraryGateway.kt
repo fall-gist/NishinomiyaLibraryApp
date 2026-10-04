@@ -7,13 +7,14 @@ import com.fallgist.nishinomiyalibrary.domain.model.Reservation
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
 import com.fallgist.nishinomiyalibrary.domain.model.Shelf
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
 import java.time.LocalDate
 
 interface LibraryGateway {
-    suspend fun search(keyword: String, page: Int = 1): SearchPage
+    suspend fun search(query: SearchQuery, page: Int = 1): SearchPage
     suspend fun autocomplete(keyword: String): List<String>
     suspend fun isLendable(tilcod: String): Boolean?
     suspend fun bookDetail(tilcod: String): BookDetail

@@ -31,6 +31,7 @@ import com.fallgist.nishinomiyalibrary.data.sync.nextScheduleDelay
 import com.fallgist.nishinomiyalibrary.data.sync.syncWorkerDecision
 import com.fallgist.nishinomiyalibrary.data.sync.executeScheduledSync
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
 import com.fallgist.nishinomiyalibrary.domain.model.Holding
 import com.fallgist.nishinomiyalibrary.domain.model.Loan
 import com.fallgist.nishinomiyalibrary.domain.model.Reservation
@@ -429,7 +430,7 @@ class RepositoryAndSyncTest {
             listOf("001", "002", "003", "004", "101", "102", "103", "104", "105", "106", "107", "109"),
             calendarRepository.libraries.map { it.code },
         )
-        assertEquals(0, searchRepository.search("任意", 1).totalCount)
+        assertEquals(0, searchRepository.search(SearchQuery.keywordOnly("任意"), 1).totalCount)
         assertEquals("https://example.invalid/cover", searchRepository.coverUrl("9780000000000"))
         calendarRepository.refreshClosedDays("106")
         assertEquals(
@@ -753,7 +754,7 @@ class RepositoryAndSyncTest {
         var closedDaysResult: List<LocalDate> = emptyList()
         var searchResult: SearchPage = SearchPage(emptyList(), 0, false)
 
-        override suspend fun search(keyword: String, page: Int): SearchPage = searchResult
+        override suspend fun search(query: SearchQuery, page: Int): SearchPage = searchResult
 
         override suspend fun autocomplete(keyword: String): List<String> = emptyList()
 

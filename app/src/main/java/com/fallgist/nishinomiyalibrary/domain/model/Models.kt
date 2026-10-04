@@ -286,17 +286,29 @@ data class UserSummary(
     val cartCount: Int,
 )
 
+/**
+ * 検索結果の1件。[writerLine] は著者、[materialType] は書誌種別(一般図書・児童図書・視聴覚など)。
+ * 以下の項目は詳細検索の結果の表(docs/design/search-sort-filter.md §3.3)から埋める。
+ * [lendable] は表の貸出列(○→true、×→false、その他→null)。
+ */
 data class SearchHit(
     val tilcod: String,
     val title: String,
     val writerLine: String,
     val materialType: String,
+    val publisher: String = "",
+    /** 出版年月。サイトの表記のまま(例 `2016/02`、月不明は `2016/00`)。空もある。 */
+    val publishedYearMonth: String = "",
+    val classification: String = "",
+    val lendable: Boolean? = null,
 )
 
 data class SearchPage(
     val hits: List<SearchHit>,
     val totalCount: Int,
     val hasNext: Boolean,
+    /** サイトが今表示している並べ替え(見出しの ▲▼ から読んだもの)。並べ替えが無ければ null。 */
+    val currentSort: SearchSort? = null,
 )
 
 data class BookDetail(

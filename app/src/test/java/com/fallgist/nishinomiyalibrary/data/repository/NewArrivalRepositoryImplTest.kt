@@ -7,6 +7,7 @@ import com.fallgist.nishinomiyalibrary.data.local.AppDatabase
 import com.fallgist.nishinomiyalibrary.data.local.SettingsStore
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryGateway
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
 import com.fallgist.nishinomiyalibrary.domain.model.Holding
 import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
@@ -113,7 +114,7 @@ class NewArrivalRepositoryImplTest {
     ) : LibraryGateway {
         var shouldFail = false
 
-        override suspend fun search(keyword: String, page: Int) = SearchPage(emptyList(), 0, false)
+        override suspend fun search(query: SearchQuery, page: Int) = SearchPage(emptyList(), 0, false)
 
         override suspend fun autocomplete(keyword: String): List<String> = emptyList()
 

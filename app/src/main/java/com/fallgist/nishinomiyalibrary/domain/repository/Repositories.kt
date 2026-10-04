@@ -16,6 +16,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReservationPickupSubmissionR
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
 import com.fallgist.nishinomiyalibrary.domain.model.ShelfItem
 import com.fallgist.nishinomiyalibrary.domain.model.UserSummary
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationBatchResult
@@ -86,7 +87,7 @@ interface BookshelfRepository {
 
 /** 検索はキャッシュせず、都度公式サイトとopenBDへ委譲する。 */
 interface SearchRepository {
-    suspend fun search(keyword: String, page: Int): SearchPage
+    suspend fun search(query: SearchQuery, page: Int): SearchPage
 
     suspend fun autocomplete(keyword: String): List<String>
 

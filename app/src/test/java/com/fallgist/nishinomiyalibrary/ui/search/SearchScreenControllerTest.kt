@@ -1,6 +1,7 @@
 package com.fallgist.nishinomiyalibrary.ui.search
 
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
 import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
 import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Member
@@ -983,7 +984,8 @@ class SearchScreenControllerTest {
         var gatesByKeyword: Map<String, CompletableDeferred<Unit>> = emptyMap()
         /** キーワードごとに異なる結果を返すテスト用。指定が無いキーワードは[hits]を返す。 */
         var hitsByKeyword: Map<String, List<SearchHit>> = emptyMap()
-        override suspend fun search(keyword: String, page: Int): SearchPage {
+        override suspend fun search(query: SearchQuery, page: Int): SearchPage {
+            val keyword = query.keyword
             gate?.await()
             gatesByKeyword[keyword]?.await()
             val effectiveHits = hitsByKeyword[keyword] ?: hits

@@ -13,10 +13,13 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SearchResultPar
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.ShelfListParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.SummaryParser
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.TifSearchResultParser
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.parser.UsrReadListParser
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
 import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
+import com.fallgist.nishinomiyalibrary.domain.model.StockFilter
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecord
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationState
@@ -48,7 +51,86 @@ class LicsXpClient(
     suspend fun fetchUserData(cardNumber: String, password: String): UserData =
         fetchUserData(cardNumber, password, emptySet())
 
-    override suspend fun search(keyword: String, page: Int): SearchPage = mapErrors {
+    /**
+     * 詳細検索(`WOpacTifSchCmpd`)の経路で検索する(docs/design/search-sort-filter.md §3.2)。
+     * キーワード検索も「キーワードだけの条件」としてここを通る。ページを取るたびに、
+     * 検索→(在庫状況)→(並べ替え)→(ページ送り)を1つの閲覧セッションの中で順に行う。
+     */
+    override suspend fun search(query: SearchQuery, page: Int): SearchPage = mapErrors {
+        require(page >= 1) { "page は1以上で指定してください" }
+        require(query.validate().isEmpty()) { "検索条件が不正です: ${query.validate()}" }
+
+        val searchForm = browseSession.get("WOpacTifSchCmpdDispAction.do")
+        requireNotMaintenance(searchForm)
+        browseSession.updateTokens(searchForm)
+
+        var html = browseSession.post(
+            path = "WOpacTifSchCmpdExecAction.do",
+            query = mapOf("tifschcmpd" to "1"),
+            form = TifSearchRequests.executeForm(query),
+        )
+        requireNotMaintenance(html)
+        browseSession.updateTokens(html)
+
+        if (query.stock != StockFilter.ALL) {
+            html = browseSession.post(
+                path = "WOpacWebTifTilListStockStateSearchAction.do",
+                form = TifSearchRequests.stockStateForm(html, query.stock),
+            )
+            requireNotMaintenance(html)
+            browseSession.updateTokens(html)
+        }
+
+        val sort = query.sort
+        if (sort != null) {
+            // 同じキーを送るたびに向きが切り替わる(サーバ側の状態)。見出しの▲▼で確かめ、
+            // 2回送っても望む向きにならなければサイトの仕様変更として失敗にする。
+            var attempts = 0
+            while (TifSearchResultParser.parseSort(html) != sort) {
+                if (attempts == MAX_SORT_ATTEMPTS) {
+                    throw LibraryError.Parse("search_sort", "並べ替えを指定の向きにできませんでした")
+                }
+                attempts += 1
+                html = browseSession.get(
+                    path = "WOpacTifTilListDispAction.do",
+                    query = mapOf(
+                        "sortKey" to sort.key.siteKey,
+                        "startIndex" to "0",
+                        "notPageSort" to "1",
+                        "hash" to browseSession.requireTokens().hash,
+                    ),
+                )
+                requireNotMaintenance(html)
+                browseSession.updateTokens(html)
+            }
+        }
+
+        if (page >= 2) {
+            html = browseSession.get(
+                path = "WOpacTifTilListDispAction.do",
+                query = mapOf(
+                    "sortKey" to sort?.key?.siteKey.orEmpty(),
+                    "startIndex" to ((page - 1) * SEARCH_PAGE_SIZE).toString(),
+                    "hash" to browseSession.requireTokens().hash,
+                ),
+            )
+            requireNotMaintenance(html)
+            browseSession.updateTokens(html)
+            // ページ送りで向きが保たれていることを確かめる。
+            if (sort != null && TifSearchResultParser.parseSort(html) != sort) {
+                throw LibraryError.Parse("search_sort", "ページ送りで並べ替えの向きが保たれませんでした")
+            }
+        }
+        TifSearchResultParser.parse(html)
+    }
+
+    /**
+     * 旧キーワード検索(かんたん検索 `WOpacEsSchCmpd`)。現在は使っていない。
+     * 設計書 §7-1 のとおり、詳細検索の経路とかんたん検索で中身が違って問題になった場合に、
+     * キーワード検索だけをこちらへ戻せるよう通信の入口を残してある(戻す手順: [search] から
+     * キーワードだけの条件をこれへ委譲する)。
+     */
+    internal suspend fun searchByEsKeyword(keyword: String, page: Int): SearchPage = mapErrors {
         require(page >= 1) { "page は1以上で指定してください" }
 
         val searchForm = browseSession.get("WOpacEsSchCmpdDispAction.do")
@@ -437,6 +519,8 @@ class LicsXpClient(
 
     private companion object {
         const val SEARCH_PAGE_SIZE = 20
+        /** 並べ替えの向きを合わせるために同じキーを送る最大回数(昇順→降順で2回)。 */
+        const val MAX_SORT_ATTEMPTS = 2
         const val USR_READ_PAGE_SIZE = 100
         val MAINTENANCE_MARKERS = listOf("メンテナンス中", "メンテナンスのため", "システムメンテナンス", "ただいまメンテナンス")
     }

@@ -8,6 +8,7 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartAddSummary
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
 import com.fallgist.nishinomiyalibrary.domain.model.SearchHit
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
 import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
@@ -45,7 +46,7 @@ data class ReadBadgeEntry(
     val loanMonthLabel: String,
 )
 
-/** 検索結果の1行。貸出可否は取得完了までnull。 */
+/** 検索結果の1行。貸出可否は結果の表の貸出列から取る(○→true、×→false、その他→null)。 */
 data class SearchResultRow(
     val tilcod: String,
     val title: String,
@@ -116,6 +117,7 @@ object SearchContentBuilder {
             title = hit.title,
             writerLine = hit.writerLine,
             materialType = hit.materialType,
+            lendable = hit.lendable,
             readEntries = readBadges(members, readInfoByTilcod[hit.tilcod].orEmpty()),
         )
     }
@@ -172,8 +174,8 @@ class SearchScreenController(
     val state: StateFlow<SearchUiState> = _state
 
     // _stateは購読側(init、UIスレッドからのtoggleCartSelection等)と、検索・追加読み込み
-    // (search/loadMore、fetchLendabilityForの貸出可否取得ループ)の複数のscope.launchから
-    // 更新される。検索結果が返るまでの間や貸出可否を1件ずつ取得している間も、利用者は
+    // (search/loadMore)の複数のscope.launchから
+    // 更新される。検索結果が返るまでの間も、利用者は
     // チェックボックスを操作できる。`_state.value = _state.value.copy(...)`は読みと書きの間に
     // 別コルーチンの書きが挟まるとそれを取りこぼす(lost update)。CalendarScreenController・
     // SettingsScreenController・LoanExtensionUiController・NewArrivalsScreenControllerで
@@ -183,7 +185,6 @@ class SearchScreenController(
     private val members = MutableStateFlow<List<Member>>(emptyList())
     private var autocompleteJob: Job? = null
     private var searchJob: Job? = null
-    private var lendableJob: Job? = null
     private var currentPage = 1
 
     // scopeはDispatchers.Default(マルチスレッド)であり、cancel()は協調的にしか止まらない。
@@ -483,7 +484,6 @@ class SearchScreenController(
     private fun executeSearch(trimmed: String) {
         autocompleteJob?.cancel()
         searchJob?.cancel()
-        lendableJob?.cancel()
         // launchの前に世代を進めて確定する(§3.2)。この後に発生する古い世代の書き込みはすべて捨てる。
         val generation = searchGeneration.incrementAndGet()
         _state.update {
@@ -505,7 +505,7 @@ class SearchScreenController(
         }
         searchJob = scope.launch {
             try {
-                val page = searchRepository.search(trimmed, page = 1)
+                val page = searchRepository.search(SearchQuery.keywordOnly(trimmed), page = 1)
                 currentPage = 1
                 val rows = buildRows(page.hits)
                 // ラムダの中は読み取りだけ(世代の比較)にとどめ、副作用は入れない(§3.2)。
@@ -521,9 +521,6 @@ class SearchScreenController(
                             hasNext = page.hasNext,
                         )
                     }
-                }
-                if (generation == searchGeneration.get()) {
-                    fetchLendabilityFor(rows.map { it.tilcod })
                 }
             } catch (exception: CancellationException) {
                 throw exception
@@ -558,7 +555,7 @@ class SearchScreenController(
         _state.update { it.copy(loadingMore = true) }
         searchJob = scope.launch {
             try {
-                val page = searchRepository.search(keyword, page = currentPage + 1)
+                val page = searchRepository.search(SearchQuery.keywordOnly(keyword), page = currentPage + 1)
                 currentPage += 1
                 val newRows = buildRows(page.hits)
                 _state.update { current ->
@@ -571,10 +568,6 @@ class SearchScreenController(
                             hasNext = page.hasNext,
                         )
                     }
-                }
-                if (generation == searchGeneration.get()) {
-                    // 前ページ分で未取得の行が残っていれば、それも含めて取り直す
-                    fetchLendabilityFor(_state.value.results.filter { it.lendable == null }.map { it.tilcod })
                 }
             } catch (exception: CancellationException) {
                 throw exception
@@ -607,7 +600,6 @@ class SearchScreenController(
         searchGeneration.incrementAndGet()
         autocompleteJob?.cancel()
         searchJob?.cancel()
-        lendableJob?.cancel()
         currentPage = 1
         _state.update {
             it.copy(
@@ -636,29 +628,6 @@ class SearchScreenController(
             hit.tilcod to readingRecordRepository.hasRead(hit.tilcod).first()
         }
         return SearchContentBuilder.resultRows(hits, members.value, readInfoByTilcod)
-    }
-
-    /** 貸出可否を1件ずつ取得して行を更新する。失敗したらそれ以降は諦める(表示は不明のまま)。 */
-    private fun fetchLendabilityFor(tilcods: List<String>) {
-        lendableJob?.cancel()
-        lendableJob = scope.launch {
-            for (tilcod in tilcods) {
-                val lendable = try {
-                    searchRepository.isLendable(tilcod)
-                } catch (exception: CancellationException) {
-                    throw exception
-                } catch (_: Exception) {
-                    break
-                } ?: continue
-                _state.update { current ->
-                    current.copy(
-                        results = current.results.map { row ->
-                            if (row.tilcod == tilcod) row.copy(lendable = lendable) else row
-                        },
-                    )
-                }
-            }
-        }
     }
 
     private fun errorMessage(exception: Exception): String = when (exception) {

@@ -15,6 +15,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.RemoteBookshelfOutcome
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.UserData
 import com.fallgist.nishinomiyalibrary.data.sync.PostSyncNotifier
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutation
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationOutcome
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfEditItem
 import com.fallgist.nishinomiyalibrary.domain.model.BookshelfMutationExpectation
@@ -347,7 +348,7 @@ class BookshelfRepositoryMutationTest {
     private class ControlledLibraryGateway(
         private val fetch: suspend () -> UserData,
     ) : LibraryGateway {
-        override suspend fun search(keyword: String, page: Int): SearchPage = error("未使用")
+        override suspend fun search(query: SearchQuery, page: Int): SearchPage = error("未使用")
         override suspend fun autocomplete(keyword: String): List<String> = error("未使用")
         override suspend fun isLendable(tilcod: String): Boolean? = error("未使用")
         override suspend fun bookDetail(tilcod: String): BookDetail = error("未使用")

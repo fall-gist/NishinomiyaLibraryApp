@@ -4,6 +4,7 @@ import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryGateway
 import com.fallgist.nishinomiyalibrary.data.remote.licsxp.UserData
 import com.fallgist.nishinomiyalibrary.data.remote.openbd.BookMetadataGateway
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
 import com.fallgist.nishinomiyalibrary.domain.model.NewArrival
 import com.fallgist.nishinomiyalibrary.domain.model.ReadingRecordKey
 import com.fallgist.nishinomiyalibrary.domain.model.SearchPage
@@ -14,7 +15,7 @@ import org.junit.Test
 
 /** テストで使わないメソッドは呼ばれた場合に気付けるよう例外にする。 */
 private class UnusedLibraryGateway : LibraryGateway {
-    override suspend fun search(keyword: String, page: Int): SearchPage = error("未使用")
+    override suspend fun search(query: SearchQuery, page: Int): SearchPage = error("未使用")
     override suspend fun autocomplete(keyword: String): List<String> = error("未使用")
     override suspend fun isLendable(tilcod: String): Boolean? = error("未使用")
     override suspend fun bookDetail(tilcod: String): BookDetail = error("未使用")

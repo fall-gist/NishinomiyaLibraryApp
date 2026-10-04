@@ -35,11 +35,11 @@ class LicsXpClientTest {
     }
 
     @Test
-    fun `検索はフォームGETとPOSTを順に行いCookieとUser-Agentを送る`() = runBlocking {
+    fun `旧Es経路の検索はフォームGETとPOSTを順に行いCookieとUser-Agentを送る`() = runBlocking {
         server.enqueue(html(fixture("search_form.html"), setCookie = true))
         server.enqueue(html(fixture("search_result.html")))
 
-        val result = client().search("愛の哲学")
+        val result = client().searchByEsKeyword("愛の哲学", 1)
 
         assertEquals(5286, result.totalCount)
         assertEquals("1000000961766", result.hits.first().tilcod)
@@ -64,12 +64,12 @@ class LicsXpClientTest {
     }
 
     @Test
-    fun `検索2ページ目は直近トークンをフォームとクエリに送る`() = runBlocking {
+    fun `旧Es経路の検索2ページ目は直近トークンをフォームとクエリに送る`() = runBlocking {
         server.enqueue(html(fixture("search_form.html")))
         server.enqueue(html(fixture("search_result.html")))
         server.enqueue(html(fixture("search_result.html")))
 
-        client().search("愛", page = 2)
+        client().searchByEsKeyword("愛", page = 2)
 
         takeRequest()
         takeRequest()
