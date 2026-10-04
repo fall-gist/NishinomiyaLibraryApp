@@ -112,6 +112,34 @@ class TifSearchResultParserTest {
     }
 
     @Test
+    fun `0件の入力画面は空の結果で判定できる`() {
+        val html = fixture("tif_search_zero.html")
+        assertTrue(TifSearchResultParser.isZeroResult(html))
+        assertFalse(TifSearchResultParser.isZeroResult(fixture("tif_search_result.html")))
+        val page = TifSearchResultParser.parse(html)
+        assertEquals(0, page.totalCount)
+        assertTrue(page.hits.isEmpty())
+        assertFalse(page.hasNext)
+    }
+
+    @Test
+    fun `hiddenの並べ替えの状態と在庫状況の選択値を読む`() {
+        assertEquals(
+            TifSearchResultParser.HiddenSort("", ""),
+            TifSearchResultParser.parseHiddenSort(fixture("tif_search_result.html")),
+        )
+        val clicked = TifSearchResultParser.parseHiddenSort(fixture("tif_search_result_title_asc_clicked.html"))!!
+        assertEquals("1", clicked.isAsc)
+        assertTrue(clicked.matches(SearchSort(SearchSortKey.TITLE, SortDirection.ASCENDING)))
+        assertFalse(clicked.matches(SearchSort(SearchSortKey.TITLE, SortDirection.DESCENDING)))
+        val desc = TifSearchResultParser.parseHiddenSort(fixture("tif_search_result_title_desc.html"))!!
+        assertTrue(desc.matches(SearchSort(SearchSortKey.TITLE, SortDirection.DESCENDING)))
+        assertEquals("1", TifSearchResultParser.parseStockState(fixture("tif_search_result.html")))
+        assertEquals("2", TifSearchResultParser.parseStockState(fixture("tif_search_result_stock_lendable.html")))
+        assertNull(TifSearchResultParser.parseStockState(fixture("tif_search_zero.html")))
+    }
+
+    @Test
     fun `件数があるのに表が無ければParseException`() {
         val html = """
             <html><body><h1>検索結果書誌一覧</h1>

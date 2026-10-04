@@ -10,6 +10,9 @@ import com.fallgist.nishinomiyalibrary.domain.model.StockFilter
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -223,17 +226,120 @@ class LicsXpClientTifSearchTest {
     }
 
     @Test
-    fun `既定の並びと同じ指定なら並べ替えを送らない`() = runBlocking {
+    fun `書名昇順でも見出しが書名の三角でもhiddenが空なら必ず1回送る`() = runBlocking {
         server.enqueue(html(fixture("tif_search_form.html"), setCookie = true))
         server.enqueue(html(fixture("tif_search_result.html")))
+        server.enqueue(html(fixture("tif_search_result_title_asc_clicked.html")))
 
-        // 既定の結果は見出しが「書名▲」。同じキーを送ると逆順になってしまうので送らない。
         val page = client().search(
             SearchQuery.keywordOnly("a").copy(sort = SearchSort(SearchSortKey.TITLE, SortDirection.ASCENDING)),
         )
 
-        assertEquals(2, server.requestCount)
+        assertEquals(3, server.requestCount)
+        takeRequest()
+        takeRequest()
+        val sort = takeRequest()
+        assertEquals("SLSTITL.TITLE_RD,SLSTITL.VOLUME_NUM_ST", sort.requestUrl!!.queryParameter("sortKey"))
+        assertEquals("1", sort.requestUrl!!.queryParameter("notPageSort"))
         assertEquals(SearchSortKey.TITLE, page.currentSort!!.key)
+    }
+
+    @Test
+    fun `書名降順はhiddenのisAscが0になるまで2回送る`() = runBlocking {
+        server.enqueue(html(fixture("tif_search_form.html"), setCookie = true))
+        server.enqueue(html(fixture("tif_search_result.html")))
+        server.enqueue(html(fixture("tif_search_result_title_asc_clicked.html")))
+        server.enqueue(html(fixture("tif_search_result_title_desc.html")))
+
+        val page = client().search(
+            SearchQuery.keywordOnly("a").copy(sort = SearchSort(SearchSortKey.TITLE, SortDirection.DESCENDING)),
+        )
+
+        assertEquals(4, server.requestCount)
+        assertEquals(SortDirection.DESCENDING, page.currentSort!!.direction)
+    }
+
+    @Test
+    fun `hiddenは合うが見出しの三角が合わなければ失敗する`() = runBlocking {
+        server.enqueue(html(fixture("tif_search_form.html"), setCookie = true))
+        server.enqueue(html(fixture("tif_search_result.html")))
+        // hidden は PUBYMD・isAsc=1 だが見出しは降順の表示
+        server.enqueue(html(fixture("tif_search_result_pubymd_asc.html").replace("出版年月▲", "出版年月▼")))
+
+        val error = failure { client().search(SearchQuery.keywordOnly("a").copy(sort = publishedAsc)) }
+
+        assertEquals("search_sort", (error as LibraryError.Parse).screen)
+    }
+
+    @Test
+    fun `0件の画面なら並べ替えも在庫状況も送らず空を返す`() = runBlocking {
+        server.enqueue(html(fixture("tif_search_form.html"), setCookie = true))
+        server.enqueue(html(fixture("tif_search_zero.html")))
+
+        val page = client().search(
+            SearchQuery.keywordOnly("zzz").copy(stock = StockFilter.LENDABLE_ONLY, sort = publishedDesc),
+            page = 2,
+        )
+
+        assertEquals(0, page.totalCount)
+        assertTrue(page.hits.isEmpty())
+        assertFalse(page.hasNext)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun `在庫状況の絞り込みで0件になれば並べ替えを送らず空を返す`() = runBlocking {
+        server.enqueue(html(fixture("tif_search_form.html"), setCookie = true))
+        server.enqueue(html(fixture("tif_search_result.html")))
+        server.enqueue(html(fixture("tif_search_zero.html")))
+
+        val page = client().search(
+            SearchQuery.keywordOnly("a").copy(stock = StockFilter.READING_ROOM_ONLY, sort = publishedDesc),
+        )
+
+        assertEquals(0, page.totalCount)
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun `在庫状況が最終応答で保たれていなければ失敗する`() = runBlocking {
+        server.enqueue(html(fixture("tif_search_form.html"), setCookie = true))
+        server.enqueue(html(fixture("tif_search_result.html")))
+        // 絞り込みの応答なのに stockState=1(全て)のまま
+        server.enqueue(html(fixture("tif_search_result.html")))
+
+        val error = failure { client().search(SearchQuery.keywordOnly("a").copy(stock = StockFilter.LENDABLE_ONLY)) }
+
+        assertEquals("search_stock", (error as LibraryError.Parse).screen)
+    }
+
+    @Test
+    fun `次へのリンクが無くても件数とページ番号で次ページありと判定する`() = runBlocking {
+        server.enqueue(html(fixture("tif_search_form.html"), setCookie = true))
+        server.enqueue(html(fixture("tif_search_result.html").replace("次へ", "")))
+
+        val page = client().search(SearchQuery.keywordOnly("a"))
+
+        assertTrue(page.hasNext)
+    }
+
+    @Test
+    fun `検索の一連の通信の途中に別の閲覧の通信が割り込まない`() = runBlocking {
+        server.enqueue(html(fixture("tif_search_form.html"), setCookie = true).setBodyDelay(300, TimeUnit.MILLISECONDS))
+        server.enqueue(html(fixture("tif_search_result.html")))
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setBody("[]"))
+
+        val gateway = client()
+        val search = async(Dispatchers.Default) { gateway.search(SearchQuery.keywordOnly("a")) }
+        delay(100)
+        val autocomplete = async(Dispatchers.Default) { gateway.autocomplete("a") }
+        search.await()
+        autocomplete.await()
+
+        assertEquals(
+            listOf("/WOpacTifSchCmpdDispAction.do", "/WOpacTifSchCmpdExecAction.do", "/WOpacEsApiAutoCompleteAction.do"),
+            (1..3).map { takeRequest().requestUrl!!.encodedPath },
+        )
     }
 
     @Test
@@ -337,11 +443,13 @@ class LicsXpClientTifSearchTest {
         server.enqueue(html(fixture("tif_search_form.html"), setCookie = true))
         server.enqueue(html(fixture("tif_search_result.html")))
         server.enqueue(html(fixture("tif_search_result_stock_lendable.html")))
-        server.enqueue(html(fixture("tif_search_result_pubymd_asc.html")))
-        server.enqueue(html(fixture("tif_search_result_pubymd_asc.html")))
+        server.enqueue(html(fixture("tif_search_result_stock_lendable_pubymd_asc.html")))
+        server.enqueue(html(fixture("tif_search_result_stock_lendable_pubymd_asc_page2.html")))
 
-        // 在庫状況の応答は降順表示なので、昇順を望めば並べ替えを1回送る。その後2ページ目。
-        client().search(SearchQuery.keywordOnly("a").copy(stock = StockFilter.READING_ROOM_ONLY, sort = publishedAsc), page = 2)
+        // 在庫状況の応答は降順の状態なので、昇順を望めば並べ替えを1回送る。その後2ページ目。
+        // 並べ替え・ページ送りの応答にも在庫状況(貸出可のみ)が保たれている採取HTMLを使う。
+        val page = client().search(SearchQuery.keywordOnly("a").copy(stock = StockFilter.LENDABLE_ONLY, sort = publishedAsc), page = 2)
+        assertEquals(43, page.totalCount)
 
         val requests = (1..5).map { takeRequest() }
         assertEquals(
@@ -354,7 +462,7 @@ class LicsXpClientTifSearchTest {
             ),
             requests.map { "${it.method} ${it.requestUrl!!.encodedPath}" },
         )
-        assertEquals("3", formValue(requests[2], "stockState"))
+        assertEquals("2", formValue(requests[2], "stockState"))
         assertEquals("1", requests[3].requestUrl!!.queryParameter("notPageSort"))
         assertEquals("20", requests[4].requestUrl!!.queryParameter("startIndex"))
     }

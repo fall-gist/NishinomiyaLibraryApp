@@ -18,7 +18,40 @@ object TifSearchResultParser {
     private const val ASCENDING_MARK = '▲'
     private const val DESCENDING_MARK = '▼'
 
+    /** 結果画面の `LBForm` の hidden `sortKey`・`isAsc`(並べ替えの状態の正本)。 */
+    data class HiddenSort(val sortKey: String, val isAsc: String) {
+        /** hidden が [sort] の項目と向き(1=昇順、0=降順)を指しているか。 */
+        fun matches(sort: SearchSort): Boolean =
+            sortKey == sort.key.siteKey && isAsc == if (sort.direction == SortDirection.ASCENDING) "1" else "0"
+    }
+
+    /**
+     * 0件のときサイトは結果の表ではなく詳細検索の入力画面(h1「詳細検索」)を返し、
+     * スクリプト内に「該当する書誌がありません。」が出る(`tif_search_zero.html`)。
+     */
+    fun isZeroResult(html: String): Boolean {
+        if (!html.contains("該当する書誌がありません")) return false
+        val heading = Jsoup.parse(html).selectFirst("h1")?.text().orEmpty()
+        return heading.contains("詳細検索")
+    }
+
+    /** hidden の並べ替えの状態。LBForm か hidden が無ければ null。 */
+    fun parseHiddenSort(html: String): HiddenSort? {
+        val form = Jsoup.parse(html).selectFirst("form[name=LBForm]") ?: return null
+        val sortKey = form.selectFirst("input[type=hidden][name=sortKey]")?.attr("value") ?: return null
+        val isAsc = form.selectFirst("input[type=hidden][name=isAsc]")?.attr("value") ?: return null
+        return HiddenSort(sortKey, isAsc)
+    }
+
+    /** 在庫状況 select の選択中の値。select が無ければ null。 */
+    fun parseStockState(html: String): String? {
+        val select = Jsoup.parse(html).selectFirst("form[name=LBForm] select[name=stockState]") ?: return null
+        val options = select.select("option")
+        return (options.firstOrNull { it.hasAttr("selected") } ?: options.firstOrNull())?.attr("value")
+    }
+
     fun parse(html: String): SearchPage {
+        if (isZeroResult(html)) return SearchPage(emptyList(), 0, false)
         val document = Jsoup.parse(html)
         ParserSupport.requireHeading(document, screen, "検索結果")
         val totalCount = parseTotalCount(document)

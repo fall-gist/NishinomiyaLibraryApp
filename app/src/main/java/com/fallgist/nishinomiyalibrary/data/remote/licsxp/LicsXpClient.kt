@@ -60,69 +60,92 @@ class LicsXpClient(
         require(page >= 1) { "page は1以上で指定してください" }
         require(query.validate().isEmpty()) { "検索条件が不正です: ${query.validate()}" }
 
-        val searchForm = browseSession.get("WOpacTifSchCmpdDispAction.do")
-        requireNotMaintenance(searchForm)
-        browseSession.updateTokens(searchForm)
+        // 並べ替え・在庫状況はサーバ側の検索状態で切り替わるため、一連の通信の途中に別の閲覧の通信
+        // (自動補完・書誌詳細など)が割り込まないよう、閲覧セッションの排他区間で囲む。
+        // その間、他の閲覧操作は待たされる(開始間隔500msの規則は区間内でも守られる)。
+        browseSession.withExclusiveRequestSequence {
+            val sequence = this
+            val searchForm = sequence.get("WOpacTifSchCmpdDispAction.do")
+            requireNotMaintenance(searchForm)
+            browseSession.updateTokens(searchForm)
 
-        var html = browseSession.post(
-            path = "WOpacTifSchCmpdExecAction.do",
-            query = mapOf("tifschcmpd" to "1"),
-            form = TifSearchRequests.executeForm(query),
-        )
-        requireNotMaintenance(html)
-        browseSession.updateTokens(html)
-
-        if (query.stock != StockFilter.ALL) {
-            html = browseSession.post(
-                path = "WOpacWebTifTilListStockStateSearchAction.do",
-                form = TifSearchRequests.stockStateForm(html, query.stock),
+            var html = sequence.post(
+                path = "WOpacTifSchCmpdExecAction.do",
+                query = mapOf("tifschcmpd" to "1"),
+                form = TifSearchRequests.executeForm(query),
             )
             requireNotMaintenance(html)
+            // 0件は結果の表ではなく入力画面が返る。以降の通信は無意味なのでここで打ち切る。
+            if (TifSearchResultParser.isZeroResult(html)) return@withExclusiveRequestSequence emptyPage()
             browseSession.updateTokens(html)
-        }
 
-        val sort = query.sort
-        if (sort != null) {
-            // 同じキーを送るたびに向きが切り替わる(サーバ側の状態)。見出しの▲▼で確かめ、
-            // 2回送っても望む向きにならなければサイトの仕様変更として失敗にする。
-            var attempts = 0
-            while (TifSearchResultParser.parseSort(html) != sort) {
-                if (attempts == MAX_SORT_ATTEMPTS) {
-                    throw LibraryError.Parse("search_sort", "並べ替えを指定の向きにできませんでした")
+            if (query.stock != StockFilter.ALL) {
+                html = sequence.post(
+                    path = "WOpacWebTifTilListStockStateSearchAction.do",
+                    form = TifSearchRequests.stockStateForm(html, query.stock),
+                )
+                requireNotMaintenance(html)
+                if (TifSearchResultParser.isZeroResult(html)) return@withExclusiveRequestSequence emptyPage()
+                browseSession.updateTokens(html)
+            }
+
+            val sort = query.sort
+            if (sort != null) {
+                // 状態の判断は見出しの▲▼ではなく hidden の sortKey・isAsc で行う(実行直後は見出しが
+                // 「書名▲」でも hidden は空)。同じキーを送るたびに向きが切り替わるので、望む状態に
+                // なるまで送る。2回送っても合わなければサイトの仕様変更として失敗にする。
+                var attempts = 0
+                while (TifSearchResultParser.parseHiddenSort(html)?.matches(sort) != true) {
+                    if (attempts == MAX_SORT_ATTEMPTS) {
+                        throw LibraryError.Parse("search_sort", "並べ替えを指定の状態にできませんでした")
+                    }
+                    attempts += 1
+                    html = sequence.get(
+                        path = "WOpacTifTilListDispAction.do",
+                        query = mapOf(
+                            "sortKey" to sort.key.siteKey,
+                            "startIndex" to "0",
+                            "notPageSort" to "1",
+                            "hash" to browseSession.requireTokens().hash,
+                        ),
+                    )
+                    requireNotMaintenance(html)
+                    browseSession.updateTokens(html)
                 }
-                attempts += 1
-                html = browseSession.get(
+            }
+
+            if (page >= 2) {
+                html = sequence.get(
                     path = "WOpacTifTilListDispAction.do",
                     query = mapOf(
-                        "sortKey" to sort.key.siteKey,
-                        "startIndex" to "0",
-                        "notPageSort" to "1",
+                        "sortKey" to sort?.key?.siteKey.orEmpty(),
+                        "startIndex" to ((page - 1) * SEARCH_PAGE_SIZE).toString(),
                         "hash" to browseSession.requireTokens().hash,
                     ),
                 )
                 requireNotMaintenance(html)
                 browseSession.updateTokens(html)
             }
-        }
 
-        if (page >= 2) {
-            html = browseSession.get(
-                path = "WOpacTifTilListDispAction.do",
-                query = mapOf(
-                    "sortKey" to sort?.key?.siteKey.orEmpty(),
-                    "startIndex" to ((page - 1) * SEARCH_PAGE_SIZE).toString(),
-                    "hash" to browseSession.requireTokens().hash,
-                ),
-            )
-            requireNotMaintenance(html)
-            browseSession.updateTokens(html)
-            // ページ送りで向きが保たれていることを確かめる。
-            if (sort != null && TifSearchResultParser.parseSort(html) != sort) {
-                throw LibraryError.Parse("search_sort", "ページ送りで並べ替えの向きが保たれませんでした")
+            // 最終応答で、並べ替え(hidden と見出しの▲▼の両方)と在庫状況が指定どおり保たれていることを確かめる。
+            val parsed = TifSearchResultParser.parse(html)
+            if (sort != null &&
+                (TifSearchResultParser.parseHiddenSort(html)?.matches(sort) != true || parsed.currentSort != sort)
+            ) {
+                throw LibraryError.Parse("search_sort", "並べ替えの状態が指定どおり保たれていません")
             }
+            if (query.stock != StockFilter.ALL &&
+                TifSearchResultParser.parseStockState(html) != query.stock.siteCode
+            ) {
+                throw LibraryError.Parse("search_stock", "在庫状況の絞り込みが保たれていません")
+            }
+            // 次ページの有無は「次へ」リンクか、件数とページ番号のどちらかで真なら「あり」とする
+            // (片方の表示が変わっても取りこぼさない。矛盾したときは取りこぼすより多く出す側に倒す)。
+            parsed.copy(hasNext = parsed.hasNext || page * SEARCH_PAGE_SIZE < parsed.totalCount)
         }
-        TifSearchResultParser.parse(html)
     }
+
+    private fun emptyPage() = SearchPage(emptyList(), 0, false)
 
     /**
      * 旧キーワード検索(かんたん検索 `WOpacEsSchCmpd`)。現在は使っていない。
