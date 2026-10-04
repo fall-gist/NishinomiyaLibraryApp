@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -35,6 +37,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
+import com.fallgist.nishinomiyalibrary.domain.model.SearchSortKey
 import com.fallgist.nishinomiyalibrary.ui.components.BulkActionBar
 import com.fallgist.nishinomiyalibrary.ui.components.BulkOverflowAction
 import com.fallgist.nishinomiyalibrary.ui.components.ClearSelectionWarningDialog
@@ -54,6 +58,8 @@ fun SearchScreen(
     state: SearchUiState,
     onQueryChange: (String) -> Unit,
     onSearch: (String) -> Unit,
+    onSearchDetailed: (SearchQuery) -> Unit,
+    onToggleSort: (SearchSortKey) -> Unit,
     onLoadMore: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
     onOpenMenu: () -> Unit,
@@ -85,6 +91,8 @@ fun SearchScreen(
         state = state,
         onQueryChange = onQueryChange,
         onSearch = onSearch,
+        onSearchDetailed = onSearchDetailed,
+        onToggleSort = onToggleSort,
         onLoadMore = onLoadMore,
         onOpenDetail = onOpenDetail,
         onOpenMenu = onOpenMenu,
@@ -119,6 +127,8 @@ private fun SearchView(
     state: SearchUiState,
     onQueryChange: (String) -> Unit,
     onSearch: (String) -> Unit,
+    onSearchDetailed: (SearchQuery) -> Unit,
+    onToggleSort: (SearchSortKey) -> Unit,
     onLoadMore: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
     onOpenMenu: () -> Unit,
@@ -153,6 +163,8 @@ private fun SearchView(
     val bulkActionsBlocked = state.anyBulkActionProcessing || bookshelfEditingProcessing
     // IMEの変換合成が崩れるため、入力値は画面ローカルに保持しControllerへは通知のみ渡す
     var queryText by remember { mutableStateOf("") }
+    // 詳細検索の入力欄(画面いっぱいのダイアログ)。null は閉じている。開くときの欄の初期値を持つ。
+    var detailDialogInitial by remember { mutableStateOf<SearchQuery?>(null) }
     Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar(title = "蔵書検索", onOpenMenu = onOpenMenu)
         OutlinedTextField(
@@ -178,6 +190,18 @@ private fun SearchView(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 18.dp),
+        )
+        Text(
+            text = "詳細検索 ›",
+            color = colors.green,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .align(Alignment.End)
+                .padding(horizontal = 18.dp, vertical = 2.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { detailDialogInitial = SearchQuery(keyword = queryText.trim()) }
+                .padding(horizontal = 8.dp, vertical = 6.dp),
         )
         if (state.suggestions.isNotEmpty()) {
             SuggestionList(
@@ -260,40 +284,32 @@ private fun SearchView(
             }
         }
         Spacer(Modifier.height(8.dp))
+        val executedQuery = state.executedQuery
+        // 条件の表示・絞り込み・並べ替えは、結果が0件でもエラーでも出す(別の並べ替えや条件でやり直せるように)。
+        if (executedQuery != null && !state.searching) {
+            ResultHeader(
+                query = executedQuery,
+                totalCount = state.totalCount,
+                showCount = state.errorMessage == null,
+                onRefine = { detailDialogInitial = executedQuery },
+                onToggleSort = onToggleSort,
+            )
+        }
         when {
             state.searching -> EmptyNote("検索しています…")
 
             state.errorMessage != null -> EmptyNote(state.errorMessage)
 
-            state.executedQuery == null -> EmptyNote("キーワードを入力して蔵書をさがせます")
+            executedQuery == null -> EmptyNote("キーワードを入力して蔵書をさがせます")
 
-            state.results.isEmpty() -> EmptyNote("「${state.executedQuery}」に一致する蔵書はありません")
+            state.results.isEmpty() ->
+                EmptyNote("「${SearchContentBuilder.conditionSummary(executedQuery)}」に一致する蔵書はありません")
 
             else -> LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 18.dp),
             ) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "「${state.executedQuery}」の検索結果",
-                            color = colors.ink,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text("${state.totalCount}件", color = colors.ink2, fontSize = 11.sp)
-                    }
-                }
                 items(state.results) { row ->
                     ResultRowView(
                         row = row,
@@ -335,7 +351,17 @@ private fun SearchView(
         )
     }
     // 再検索で選択が解除される前の確認(設計追補§6.2)。
-    if (state.pendingSearchKeyword != null) {
+    detailDialogInitial?.let { initial ->
+        DetailSearchDialog(
+            initial = initial,
+            onSearch = { query ->
+                detailDialogInitial = null
+                onSearchDetailed(query)
+            },
+            onDismiss = { detailDialogInitial = null },
+        )
+    }
+    if (state.pendingSearchQuery != null) {
         ClearSelectionWarningDialog(
             operationLabel = "検索",
             onConfirm = onConfirmPendingSearch,
@@ -362,6 +388,62 @@ private fun SearchView(
             members = state.members,
             onClose = onClearBulkDirectReservationResults,
         )
+    }
+}
+
+/** 結果の上: 今の条件の短い表示・件数・「絞り込み」・並べ替えの6ボタン。 */
+@Composable
+private fun ResultHeader(
+    query: SearchQuery,
+    totalCount: Int,
+    showCount: Boolean,
+    onRefine: () -> Unit,
+    onToggleSort: (SearchSortKey) -> Unit,
+) {
+    val colors = LocalAppColors.current
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = SearchContentBuilder.conditionSummary(query),
+                color = colors.ink,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (showCount) Text("${totalCount}件", color = colors.ink2, fontSize = 11.sp)
+            Text(
+                text = "絞り込み",
+                color = colors.green,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, colors.green, RoundedCornerShape(8.dp))
+                    .clickable(onClick = onRefine)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(top = 6.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            SearchSortKey.entries.forEach { key ->
+                ChoiceChip(
+                    label = SearchContentBuilder.sortButtonLabel(key, query.sort),
+                    selected = query.sort?.key == key,
+                    onClick = { onToggleSort(key) },
+                )
+            }
+        }
     }
 }
 
@@ -467,6 +549,14 @@ private fun ResultRowView(
                 }
                 if (row.materialType.isNotBlank()) {
                     Text(row.materialType, color = colors.ink2, fontSize = 11.sp)
+                }
+                // 出版者・出版年月・分類は狭い画面で読めるよう、書誌種別とは別の行に分けて出す。
+                val publishLine = listOf(row.publisher, row.publishedYearMonth).filter { it.isNotBlank() }.joinToString("　")
+                if (publishLine.isNotBlank()) {
+                    Text(publishLine, color = colors.ink2, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (row.classification.isNotBlank()) {
+                    Text("分類 ${row.classification}", color = colors.ink2, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 row.lendable?.let { lendable ->
                     Spacer(Modifier.height(5.dp))

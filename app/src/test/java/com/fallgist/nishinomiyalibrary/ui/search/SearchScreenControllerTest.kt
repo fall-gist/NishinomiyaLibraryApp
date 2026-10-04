@@ -1,7 +1,15 @@
 package com.fallgist.nishinomiyalibrary.ui.search
 
 import com.fallgist.nishinomiyalibrary.domain.model.BookDetail
+import com.fallgist.nishinomiyalibrary.data.remote.licsxp.LibraryError
+import com.fallgist.nishinomiyalibrary.domain.model.MaterialKind
+import com.fallgist.nishinomiyalibrary.domain.model.PublishedRange
 import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQueryProblem
+import com.fallgist.nishinomiyalibrary.domain.model.SearchSort
+import com.fallgist.nishinomiyalibrary.domain.model.SearchSortKey
+import com.fallgist.nishinomiyalibrary.domain.model.SortDirection
+import com.fallgist.nishinomiyalibrary.domain.model.StockFilter
 import com.fallgist.nishinomiyalibrary.domain.model.ClosedDay
 import com.fallgist.nishinomiyalibrary.domain.model.Library
 import com.fallgist.nishinomiyalibrary.domain.model.Member
@@ -357,8 +365,8 @@ class SearchScreenControllerTest {
         controller.search("キーワード")
         advanceUntilIdle()
 
-        assertNull(controller.state.value.pendingSearchKeyword)
-        assertEquals("キーワード", controller.state.value.executedQuery)
+        assertNull(controller.state.value.pendingSearchQuery)
+        assertEquals(SearchQuery.keywordOnly("キーワード"), controller.state.value.executedQuery)
         controller.close()
     }
 
@@ -380,8 +388,8 @@ class SearchScreenControllerTest {
         controller.search("キーワード2")
         advanceUntilIdle()
 
-        assertNull(controller.state.value.pendingSearchKeyword)
-        assertEquals("キーワード2", controller.state.value.executedQuery)
+        assertNull(controller.state.value.pendingSearchQuery)
+        assertEquals(SearchQuery.keywordOnly("キーワード2"), controller.state.value.executedQuery)
         controller.close()
     }
 
@@ -398,9 +406,9 @@ class SearchScreenControllerTest {
         controller.search("キーワード2")
         advanceUntilIdle()
 
-        assertEquals("キーワード2", controller.state.value.pendingSearchKeyword)
+        assertEquals(SearchQuery.keywordOnly("キーワード2"), controller.state.value.pendingSearchQuery)
         // 保留中は実行していない(直近の検索結果のまま)。
-        assertEquals("キーワード", controller.state.value.executedQuery)
+        assertEquals(SearchQuery.keywordOnly("キーワード"), controller.state.value.executedQuery)
         assertTrue("100" in controller.state.value.selectedCartTilcods)
         controller.close()
     }
@@ -420,9 +428,9 @@ class SearchScreenControllerTest {
         controller.confirmPendingSearch()
         advanceUntilIdle()
 
-        assertNull(controller.state.value.pendingSearchKeyword)
+        assertNull(controller.state.value.pendingSearchQuery)
         assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
-        assertEquals("キーワード2", controller.state.value.executedQuery)
+        assertEquals(SearchQuery.keywordOnly("キーワード2"), controller.state.value.executedQuery)
         controller.close()
     }
 
@@ -441,9 +449,9 @@ class SearchScreenControllerTest {
         controller.dismissPendingSearch()
         advanceUntilIdle()
 
-        assertNull(controller.state.value.pendingSearchKeyword)
+        assertNull(controller.state.value.pendingSearchQuery)
         assertTrue("100" in controller.state.value.selectedCartTilcods)
-        assertEquals("キーワード", controller.state.value.executedQuery)
+        assertEquals(SearchQuery.keywordOnly("キーワード"), controller.state.value.executedQuery)
         controller.close()
     }
 
@@ -469,10 +477,10 @@ class SearchScreenControllerTest {
         advanceUntilIdle()
 
         assertEquals(1, disableCalls)
-        assertNull(controller.state.value.pendingSearchKeyword)
+        assertNull(controller.state.value.pendingSearchQuery)
         assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
         assertFalse(controller.state.value.warnBeforeClearingSelection)
-        assertEquals("キーワード2", controller.state.value.executedQuery)
+        assertEquals(SearchQuery.keywordOnly("キーワード2"), controller.state.value.executedQuery)
         controller.close()
     }
 
@@ -891,7 +899,7 @@ class SearchScreenControllerTest {
         controller.search("B") // executeSearch内でsearchJob(=検索A)をcancel()し、検索Bを開始する
         advanceUntilIdle() // 検索Bは即座に完了する(gateAはBには適用されない)
 
-        assertEquals("B", controller.state.value.executedQuery)
+        assertEquals(SearchQuery.keywordOnly("B"), controller.state.value.executedQuery)
         assertEquals(listOf("200"), controller.state.value.results.map { it.tilcod })
 
         // 検索Aの応答を今になって返す。StandardTestDispatcherの下ではcancel()だけでも
@@ -902,7 +910,7 @@ class SearchScreenControllerTest {
         gateA.complete(Unit)
         advanceUntilIdle()
 
-        assertEquals("B", controller.state.value.executedQuery)
+        assertEquals(SearchQuery.keywordOnly("B"), controller.state.value.executedQuery)
         assertEquals(listOf("200"), controller.state.value.results.map { it.tilcod })
         controller.close()
     }
@@ -956,6 +964,347 @@ class SearchScreenControllerTest {
         controller.close()
     }
 
+    // ------------------------------------------------------------------
+    // 並べ替え・絞り込み・詳細検索(`docs/design/search-sort-filter.md` §3.4・§5、段階2)
+    // ------------------------------------------------------------------
+
+    private fun hit(tilcod: String) = SearchHit(tilcod, "資料$tilcod", "著者", "図書")
+
+    @Test
+    fun `キーワード検索は並べ替え未指定のキーワードだけの条件で1ページ目を取る`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+
+        controller.search("  ドラゴンボール ")
+        advanceUntilIdle()
+
+        assertEquals(listOf(SearchQuery.keywordOnly("ドラゴンボール") to 1), repo.calls)
+        assertNull(controller.state.value.executedQuery?.sort)
+        controller.close()
+    }
+
+    @Test
+    fun `並べ替えボタンは昇順 降順 別項目の昇順の順に切り替わり毎回1ページ目から検索する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("本")
+        advanceUntilIdle()
+
+        controller.toggleSort(SearchSortKey.PUBLISHED)
+        advanceUntilIdle()
+        controller.toggleSort(SearchSortKey.PUBLISHED)
+        advanceUntilIdle()
+        controller.toggleSort(SearchSortKey.AUTHOR)
+        advanceUntilIdle()
+
+        val base = SearchQuery.keywordOnly("本")
+        assertEquals(
+            listOf(
+                base to 1,
+                base.copy(sort = SearchSort(SearchSortKey.PUBLISHED, SortDirection.ASCENDING)) to 1,
+                base.copy(sort = SearchSort(SearchSortKey.PUBLISHED, SortDirection.DESCENDING)) to 1,
+                base.copy(sort = SearchSort(SearchSortKey.AUTHOR, SortDirection.ASCENDING)) to 1,
+            ),
+            repo.calls,
+        )
+        val sort = controller.state.value.executedQuery?.sort
+        assertEquals("著者 ▲", SearchContentBuilder.sortButtonLabel(SearchSortKey.AUTHOR, sort))
+        assertEquals("出版年月", SearchContentBuilder.sortButtonLabel(SearchSortKey.PUBLISHED, sort))
+        controller.close()
+    }
+
+    @Test
+    fun `未検索では並べ替えても何もしない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository()
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+
+        controller.toggleSort(SearchSortKey.TITLE)
+        advanceUntilIdle()
+
+        assertTrue(repo.calls.isEmpty())
+        controller.close()
+    }
+
+    @Test
+    fun `追加読み込みは並べ替えを含む同じ条件で次のページを取り 並べ替えると1ページ目から読み直す`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        repo.hasNext = true
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("本")
+        advanceUntilIdle()
+        controller.toggleSort(SearchSortKey.TITLE)
+        advanceUntilIdle()
+
+        controller.loadMore()
+        advanceUntilIdle()
+        val ascending = SearchQuery.keywordOnly("本").copy(sort = SearchSort(SearchSortKey.TITLE, SortDirection.ASCENDING))
+        assertEquals(ascending to 2, repo.calls.last())
+        assertEquals(2, controller.state.value.results.size)
+
+        controller.toggleSort(SearchSortKey.TITLE)
+        advanceUntilIdle()
+        val descending = ascending.copy(sort = SearchSort(SearchSortKey.TITLE, SortDirection.DESCENDING))
+        assertEquals(descending to 1, repo.calls.last())
+        // 読み直しで結果は1ページ分に戻る。続きはまた2ページ目から。
+        assertEquals(1, controller.state.value.results.size)
+        controller.loadMore()
+        advanceUntilIdle()
+        assertEquals(descending to 2, repo.calls.last())
+        controller.close()
+    }
+
+    @Test
+    fun `絞り込みは今の条件と並べ替えを引き継いだ条件で検索し直す`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("ドラゴンボール")
+        advanceUntilIdle()
+        controller.toggleSort(SearchSortKey.PUBLISHED)
+        advanceUntilIdle()
+
+        // 画面は「絞り込み」で今の条件(executedQuery)を入力欄の初期値にする。
+        val initial = controller.state.value.executedQuery!!
+        assertEquals("ドラゴンボール", initial.keyword)
+        val refined = initial.copy(materialKinds = setOf(MaterialKind.CHILDREN), published = PublishedRange(fromYear = 2010))
+        controller.searchDetailed(refined)
+        advanceUntilIdle()
+
+        assertEquals(refined to 1, repo.calls.last())
+        assertEquals(SearchSort(SearchSortKey.PUBLISHED, SortDirection.ASCENDING), repo.calls.last().first.sort)
+        assertEquals(
+            "キーワード: ドラゴンボール／書誌種別: 児童／出版年月: 2010年〜",
+            SearchContentBuilder.conditionSummary(controller.state.value.executedQuery!!),
+        )
+        controller.close()
+    }
+
+    @Test
+    fun `詳細検索は条件が無い 年月が誤り 月だけ 逆順のときは検索しない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+
+        controller.searchDetailed(SearchQuery())
+        controller.searchDetailed(SearchQuery(stock = StockFilter.LENDABLE_ONLY))
+        controller.searchDetailed(SearchQuery(title = "本", published = PublishedRange(fromYear = 99)))
+        controller.searchDetailed(SearchQuery(title = "本", published = PublishedRange(fromYear = 2010, fromMonth = 13)))
+        controller.searchDetailed(SearchQuery(title = "本", published = PublishedRange(toMonth = 3)))
+        controller.searchDetailed(SearchQuery(title = "本", published = PublishedRange(fromYear = 2012, toYear = 2010)))
+        advanceUntilIdle()
+
+        assertTrue(repo.calls.isEmpty())
+        assertNull(controller.state.value.executedQuery)
+
+        controller.searchDetailed(SearchQuery(title = "本", published = PublishedRange(fromYear = 2010, toYear = 2012)))
+        advanceUntilIdle()
+        assertEquals(1, repo.calls.size)
+        controller.close()
+    }
+
+    @Test
+    fun `入力欄の文言は検証の問題ごとに日本語で返り 数字でない年月は誤りになる`() {
+        assertEquals(
+            "語・分類・出版年月・書誌種別のどれかを指定してください",
+            SearchContentBuilder.problemMessage(SearchQueryProblem.NO_CONDITION),
+        )
+        assertNull(SearchContentBuilder.parseNumberInput("  "))
+        assertEquals(2010, SearchContentBuilder.parseNumberInput(" 2010 "))
+        val problems = SearchQuery(
+            title = "本",
+            published = PublishedRange(fromYear = SearchContentBuilder.parseNumberInput("20ab")),
+        ).validate()
+        assertEquals(listOf(SearchQueryProblem.YEAR_INVALID), problems)
+    }
+
+    @Test
+    fun `並べ替えを続けて押しても古い応答は混ざらず最後の指定の結果になる`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository()
+        repo.hitsByKeyword = mapOf("本" to listOf(hit("200")))
+        val ascending = SearchSort(SearchSortKey.TITLE, SortDirection.ASCENDING)
+        val gateAscending = CompletableDeferred<Unit>()
+        repo.gateFor = { query, _ -> if (query.sort == ascending) gateAscending else null }
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("本")
+        advanceUntilIdle()
+
+        controller.toggleSort(SearchSortKey.TITLE) // 昇順(応答待ちで止まる)
+        runCurrent()
+        controller.toggleSort(SearchSortKey.TITLE) // 通信中の押下: 最新の指定(昇順)の逆 = 降順
+        advanceUntilIdle()
+        assertEquals(SortDirection.DESCENDING, controller.state.value.executedQuery?.sort?.direction)
+        assertEquals(listOf("200"), controller.state.value.results.map { it.tilcod })
+
+        repo.hitsByKeyword = mapOf("本" to listOf(hit("999")))
+        gateAscending.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(SortDirection.DESCENDING, controller.state.value.executedQuery?.sort?.direction)
+        assertEquals(listOf("200"), controller.state.value.results.map { it.tilcod })
+        assertFalse(controller.state.value.searching)
+        controller.close()
+    }
+
+    @Test
+    fun `追加読み込み中に並べ替えるとloadingMoreが残らず新しい結果が表示される`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        repo.hasNext = true
+        val gatePage2 = CompletableDeferred<Unit>()
+        repo.gateFor = { _, page -> if (page == 2) gatePage2 else null }
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("本")
+        advanceUntilIdle()
+        controller.loadMore()
+        runCurrent()
+        assertTrue(controller.state.value.loadingMore)
+
+        controller.toggleSort(SearchSortKey.CLASSIFICATION)
+        advanceUntilIdle()
+        gatePage2.complete(Unit)
+        advanceUntilIdle()
+
+        assertFalse(controller.state.value.loadingMore)
+        assertEquals(1, controller.state.value.results.size)
+        controller.close()
+    }
+
+    @Test
+    fun `並べ替えは選択が残っていて設定オンなら確認を要求し 続けるで選択を解除して実行する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("本")
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+
+        controller.toggleSort(SearchSortKey.TITLE)
+        advanceUntilIdle()
+        val sorted = SearchQuery.keywordOnly("本").copy(sort = SearchSort(SearchSortKey.TITLE, SortDirection.ASCENDING))
+        assertEquals(sorted, controller.state.value.pendingSearchQuery)
+        assertEquals(1, repo.calls.size) // 保留中は通信しない
+        assertTrue("100" in controller.state.value.selectedCartTilcods)
+
+        controller.confirmPendingSearch()
+        advanceUntilIdle()
+        assertEquals(sorted to 1, repo.calls.last())
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        assertFalse(controller.state.value.selectionMode)
+        controller.close()
+    }
+
+    @Test
+    fun `並べ替えと絞り込みは設定オフでも選択と選択モードを解除して実行する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        val controller = controller(repo, FakeCartRepository(), dispatcher, warnBeforeClearingSelection = flowOf(false))
+        advanceUntilIdle()
+        controller.search("本")
+        advanceUntilIdle()
+        controller.enterSelectionMode("100")
+
+        controller.toggleSort(SearchSortKey.PUBLISHER)
+        advanceUntilIdle()
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        assertFalse(controller.state.value.selectionMode)
+
+        controller.enterSelectionMode("100")
+        controller.searchDetailed(controller.state.value.executedQuery!!.copy(author = "鳥山"))
+        advanceUntilIdle()
+        assertTrue(controller.state.value.selectedCartTilcods.isEmpty())
+        assertFalse(controller.state.value.selectionMode)
+        assertEquals("鳥山", repo.calls.last().first.author)
+        controller.close()
+    }
+
+    @Test
+    fun `並べ替えの失敗は利用者向けの文言で表示され 条件は残るので別の並べ替えでやり直せる`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        repo.failureFor = { query, _ ->
+            if (query.sort?.key == SearchSortKey.TITLE) LibraryError.Parse("search_sort", "x") else null
+        }
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("本")
+        advanceUntilIdle()
+
+        controller.toggleSort(SearchSortKey.TITLE)
+        advanceUntilIdle()
+        assertEquals("検索結果の並べ替えができませんでした。時間をおいてやり直してください", controller.state.value.errorMessage)
+        assertFalse(controller.state.value.searching)
+        assertEquals(SearchSortKey.TITLE, controller.state.value.executedQuery?.sort?.key)
+
+        controller.toggleSort(SearchSortKey.AUTHOR)
+        advanceUntilIdle()
+        assertNull(controller.state.value.errorMessage)
+        assertEquals(1, controller.state.value.results.size)
+
+        repo.failureFor = { _, _ -> LibraryError.Parse("search_stock", "x") }
+        controller.toggleSort(SearchSortKey.TITLE)
+        advanceUntilIdle()
+        assertEquals("在庫状況での絞り込みができませんでした。時間をおいてやり直してください", controller.state.value.errorMessage)
+        controller.close()
+    }
+
+    @Test
+    fun `結果の行に書誌種別 出版者 出版年月 分類が入る`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(
+            hits = listOf(SearchHit("100", "資料A", "著者A", "児童図書", "集英社", "2016/02", "726", true)),
+        )
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+
+        controller.search("本")
+        advanceUntilIdle()
+
+        val row = controller.state.value.results.single()
+        assertEquals("児童図書", row.materialType)
+        assertEquals("集英社", row.publisher)
+        assertEquals("2016/02", row.publishedYearMonth)
+        assertEquals("726", row.classification)
+        assertEquals(true, row.lendable)
+        controller.close()
+    }
+
+    @Test
+    fun `条件の短い表示は指定した項目だけを区切って出し 並べ替えの表示は選択中の項目にだけ向きが付く`() {
+        val query = SearchQuery(
+            title = "ドラゴン",
+            author = "鳥山",
+            materialKinds = setOf(MaterialKind.CHILDREN, MaterialKind.GENERAL),
+            published = PublishedRange(fromYear = 2010, fromMonth = 4, toYear = 2012),
+            stock = StockFilter.LENDABLE_ONLY,
+        )
+        assertEquals(
+            "書名: ドラゴン／著者: 鳥山／書誌種別: 一般・児童／出版年月: 2010年4月〜2012年／在庫: 貸出可のみ",
+            SearchContentBuilder.conditionSummary(query),
+        )
+        assertEquals(
+            "出版年月: 〜2012年3月",
+            SearchContentBuilder.conditionSummary(SearchQuery(published = PublishedRange(toYear = 2012, toMonth = 3))),
+        )
+        val sort = SearchSort(SearchSortKey.TITLE, SortDirection.DESCENDING)
+        assertEquals("書名 ▼", SearchContentBuilder.sortButtonLabel(SearchSortKey.TITLE, sort))
+        assertEquals("分類", SearchContentBuilder.sortButtonLabel(SearchSortKey.CLASSIFICATION, sort))
+        assertEquals("書名", SearchContentBuilder.sortButtonLabel(SearchSortKey.TITLE, null))
+    }
+
     private fun controllerCartAdditionCandidates(controller: SearchScreenController) =
         SearchContentBuilder.cartAdditionCandidates(controller.state.value.results, controller.state.value.selectedCartTilcods)
 
@@ -984,12 +1333,23 @@ class SearchScreenControllerTest {
         var gatesByKeyword: Map<String, CompletableDeferred<Unit>> = emptyMap()
         /** キーワードごとに異なる結果を返すテスト用。指定が無いキーワードは[hits]を返す。 */
         var hitsByKeyword: Map<String, List<SearchHit>> = emptyMap()
+        /** 呼ばれた検索条件とページ(呼ばれた順)。 */
+        val calls = mutableListOf<Pair<SearchQuery, Int>>()
+        /** 次ページがあるように見せるテスト用。 */
+        var hasNext: Boolean = false
+        /** 条件・ページごとに応答を止めるテスト用。 */
+        var gateFor: (SearchQuery, Int) -> CompletableDeferred<Unit>? = { _, _ -> null }
+        /** 条件・ページごとに失敗させるテスト用。 */
+        var failureFor: (SearchQuery, Int) -> Exception? = { _, _ -> null }
         override suspend fun search(query: SearchQuery, page: Int): SearchPage {
+            calls += query to page
             val keyword = query.keyword
+            failureFor(query, page)?.let { throw it }
             gate?.await()
             gatesByKeyword[keyword]?.await()
+            gateFor(query, page)?.await()
             val effectiveHits = hitsByKeyword[keyword] ?: hits
-            return SearchPage(hits = effectiveHits, totalCount = effectiveHits.size, hasNext = false)
+            return SearchPage(hits = effectiveHits, totalCount = effectiveHits.size, hasNext = hasNext)
         }
         override suspend fun autocomplete(keyword: String): List<String> = emptyList()
         override suspend fun isLendable(tilcod: String): Boolean? = null

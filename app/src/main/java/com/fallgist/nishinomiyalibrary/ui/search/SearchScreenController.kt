@@ -8,7 +8,14 @@ import com.fallgist.nishinomiyalibrary.domain.model.ReadingInfo
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationCartAddSummary
 import com.fallgist.nishinomiyalibrary.domain.model.ReservationConfirmation
 import com.fallgist.nishinomiyalibrary.domain.model.SearchHit
+import com.fallgist.nishinomiyalibrary.domain.model.MaterialKind
+import com.fallgist.nishinomiyalibrary.domain.model.PublishedRange
 import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
+import com.fallgist.nishinomiyalibrary.domain.model.SearchQueryProblem
+import com.fallgist.nishinomiyalibrary.domain.model.SearchSort
+import com.fallgist.nishinomiyalibrary.domain.model.SearchSortKey
+import com.fallgist.nishinomiyalibrary.domain.model.SortDirection
+import com.fallgist.nishinomiyalibrary.domain.model.StockFilter
 import com.fallgist.nishinomiyalibrary.domain.repository.CalendarRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.FamilyRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
@@ -51,7 +58,12 @@ data class SearchResultRow(
     val tilcod: String,
     val title: String,
     val writerLine: String,
+    /** 書誌種別(結果の表の列。児童図書・視聴覚など)。 */
     val materialType: String,
+    val publisher: String = "",
+    /** 出版年月。サイトの表記のまま(例 `2016/02`)。 */
+    val publishedYearMonth: String = "",
+    val classification: String = "",
     val lendable: Boolean? = null,
     val readEntries: List<ReadBadgeEntry> = emptyList(),
 )
@@ -59,8 +71,11 @@ data class SearchResultRow(
 data class SearchUiState(
     val suggestions: List<String> = emptyList(),
     val searching: Boolean = false,
-    /** 直近に実行した検索キーワード。null は未検索。 */
-    val executedQuery: String? = null,
+    /**
+     * 直近に実行した(または実行中の)検索条件。null は未検索。並べ替えの指定([SearchQuery.sort])も含む。
+     * 検索の開始時に更新する(通信中に並べ替えを続けて押しても、最新の指定から計算するため)。
+     */
+    val executedQuery: SearchQuery? = null,
     val totalCount: Int = 0,
     val results: List<SearchResultRow> = emptyList(),
     val hasNext: Boolean = false,
@@ -81,8 +96,11 @@ data class SearchUiState(
     val selectionMode: Boolean = false,
     /** 選択が残ったまま再検索する前に確認するか(`docs/design/bulk-selection-followup.md` §6.3)。 */
     val warnBeforeClearingSelection: Boolean = DEFAULT_WARN_BEFORE_CLEARING_SELECTION,
-    /** 再検索の確認待ち(§6.2)。選択(表示外を含む)が1件以上あるときだけ、実行待ちのキーワードを持つ。 */
-    val pendingSearchKeyword: String? = null,
+    /**
+     * 再検索の確認待ち(§6.2)。選択(表示外を含む)が1件以上あるときだけ、実行待ちの検索条件を持つ。
+     * 新しいキーワード検索・詳細検索・並べ替え・絞り込みのいずれも同じ規則で保留する。
+     */
+    val pendingSearchQuery: SearchQuery? = null,
     // ------------------------------------------------------------------
     // 一斉直接予約(`docs/design/bulk-selection-followup.md` §5、機能F)
     // ------------------------------------------------------------------
@@ -117,10 +135,91 @@ object SearchContentBuilder {
             title = hit.title,
             writerLine = hit.writerLine,
             materialType = hit.materialType,
+            publisher = hit.publisher,
+            publishedYearMonth = hit.publishedYearMonth,
+            classification = hit.classification,
             lendable = hit.lendable,
             readEntries = readBadges(members, readInfoByTilcod[hit.tilcod].orEmpty()),
         )
     }
+
+    /** 資料の種類の表示名(詳細検索の入力欄・条件の表示に使う)。 */
+    fun materialKindLabel(kind: MaterialKind): String = when (kind) {
+        MaterialKind.GENERAL -> "一般"
+        MaterialKind.CHILDREN -> "児童"
+        MaterialKind.MAGAZINE_NEWSPAPER -> "雑誌・新聞"
+        MaterialKind.CD -> "ＣＤ"
+        MaterialKind.VIDEO_DVD -> "ビデオ・ＤＶＤ"
+        MaterialKind.DAISY -> "デイジー"
+        MaterialKind.OTHER_AUDIOVISUAL -> "その他視聴覚"
+        MaterialKind.LARGE_PRINT_PICTURE_BOOK -> "大型絵本"
+    }
+
+    fun stockFilterLabel(filter: StockFilter): String = when (filter) {
+        StockFilter.ALL -> "全て表示"
+        StockFilter.LENDABLE_ONLY -> "貸出可のみ"
+        StockFilter.READING_ROOM_ONLY -> "館内閲覧のみ"
+    }
+
+    fun sortKeyLabel(key: SearchSortKey): String = when (key) {
+        SearchSortKey.BIBLIOGRAPHY_TYPE -> "書誌種別"
+        SearchSortKey.TITLE -> "書名"
+        SearchSortKey.AUTHOR -> "著者"
+        SearchSortKey.PUBLISHER -> "出版者"
+        SearchSortKey.PUBLISHED -> "出版年月"
+        SearchSortKey.CLASSIFICATION -> "分類"
+    }
+
+    /** 並べ替えボタンの表示。選択中の項目だけ `▲`(昇順)・`▼`(降順)を付ける。 */
+    fun sortButtonLabel(key: SearchSortKey, current: SearchSort?): String {
+        val mark = when {
+            current?.key != key -> ""
+            current.direction == SortDirection.ASCENDING -> " ▲"
+            else -> " ▼"
+        }
+        return sortKeyLabel(key) + mark
+    }
+
+    /** 検索条件を結果の上に短く出す文言(例: `キーワード: ドラゴンボール／書誌種別: 児童／出版年月: 2010年〜`)。 */
+    fun conditionSummary(query: SearchQuery): String {
+        val parts = mutableListOf<String>()
+        if (query.keyword.isNotBlank()) parts += "キーワード: ${query.keyword.trim()}"
+        if (query.title.isNotBlank()) parts += "書名: ${query.title.trim()}"
+        if (query.author.isNotBlank()) parts += "著者: ${query.author.trim()}"
+        if (query.publisher.isNotBlank()) parts += "出版者: ${query.publisher.trim()}"
+        if (query.classification.isNotBlank()) parts += "分類: ${query.classification.trim()}"
+        if (query.materialKinds.isNotEmpty()) {
+            parts += "書誌種別: " + MaterialKind.entries.filter { it in query.materialKinds }
+                .joinToString("・") { materialKindLabel(it) }
+        }
+        if (query.published.isSpecified) parts += "出版年月: " + publishedLabel(query.published)
+        if (query.stock != StockFilter.ALL) parts += "在庫: ${stockFilterLabel(query.stock)}"
+        return parts.joinToString("／")
+    }
+
+    /** 入力欄の年・月の文字列を数にする。空は null(省略)、数字でない値は -1(検証で必ず誤りになる)。 */
+    fun parseNumberInput(text: String): Int? {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return null
+        return trimmed.toIntOrNull() ?: -1
+    }
+
+    fun problemMessage(problem: SearchQueryProblem): String = when (problem) {
+        SearchQueryProblem.NO_CONDITION -> "語・分類・出版年月・書誌種別のどれかを指定してください"
+        SearchQueryProblem.YEAR_INVALID -> "年は4桁の数字で入力してください"
+        SearchQueryProblem.MONTH_INVALID -> "月は1〜12の数字で入力してください"
+        SearchQueryProblem.MONTH_WITHOUT_YEAR -> "月だけでは指定できません。年も入力してください"
+        SearchQueryProblem.RANGE_REVERSED -> "出版年月の「から」が「まで」より後になっています"
+    }
+
+    private fun yearMonthLabel(year: Int?, month: Int?): String = when {
+        year == null -> ""
+        month == null -> "${year}年"
+        else -> "${year}年${month}月"
+    }
+
+    private fun publishedLabel(range: PublishedRange): String =
+        yearMonthLabel(range.fromYear, range.fromMonth) + "〜" + yearMonthLabel(range.toYear, range.toMonth)
 
     /** メンバーごとに最新の貸出だけを残し、貸出月の古い順に並べる。 */
     fun readBadges(members: List<Member>, infos: List<ReadingInfo>): List<ReadBadgeEntry> =
@@ -445,43 +544,78 @@ class SearchScreenController(
     }
 
     /**
-     * 新しいキーワードでの検索実行。不可逆な一覧の入れ替え(`docs/design/bulk-selection-followup.md` §3.1)
-     * にあたるため、選択(表示外を含む)が1件以上あり、かつ警告設定がオンのときは確認ダイアログを先に出す(§6.2)。
+     * 新しいキーワードでの検索実行(キーワード欄から。並べ替えは未指定)。
+     * 不可逆な一覧の入れ替え(`docs/design/bulk-selection-followup.md` §3.1)にあたるため、
+     * 選択(表示外を含む)が1件以上あり、かつ警告設定がオンのときは確認ダイアログを先に出す(§6.2)。
      */
     fun search(keyword: String) {
         val trimmed = keyword.trim()
         if (trimmed.isEmpty()) return
+        requestSearch(SearchQuery.keywordOnly(trimmed))
+    }
+
+    /**
+     * 詳細検索・絞り込みの実行(`docs/design/search-sort-filter.md` §3.4)。条件の誤り
+     * ([SearchQuery.validate])があれば何もしない(入力欄が文言を出す。ここは念のための防御)。
+     * 並べ替えの指定は[query]に含めて渡す(絞り込みでは今の指定を引き継ぐ)。選択の扱いは新しい検索と同じ。
+     */
+    fun searchDetailed(query: SearchQuery) {
+        if (query.validate().isNotEmpty()) return
+        requestSearch(query)
+    }
+
+    /**
+     * 並べ替えボタン。未選択の項目は昇順、選択中の項目は向きを反転して、1ページ目から検索し直す。
+     * 選択の扱いは新しい検索と同じ(結果が入れ替わるため)。未検索の状態では何もしない。
+     */
+    fun toggleSort(key: SearchSortKey) {
+        val executed = state.value.executedQuery ?: return
+        val current = executed.sort
+        val next = if (current?.key == key) {
+            val reversed = if (current.direction == SortDirection.ASCENDING) {
+                SortDirection.DESCENDING
+            } else {
+                SortDirection.ASCENDING
+            }
+            SearchSort(key, reversed)
+        } else {
+            SearchSort(key, SortDirection.ASCENDING)
+        }
+        requestSearch(executed.copy(sort = next))
+    }
+
+    private fun requestSearch(query: SearchQuery) {
         val snapshot = state.value
         if (snapshot.selectedCartTilcods.isNotEmpty() && snapshot.warnBeforeClearingSelection) {
-            _state.update { it.copy(pendingSearchKeyword = trimmed) }
+            _state.update { it.copy(pendingSearchQuery = query) }
             return
         }
-        executeSearch(trimmed)
+        executeSearch(query)
     }
 
     /** 確認ダイアログの「続ける」。選択をすべて解除してから検索する(§6.2)。 */
     fun confirmPendingSearch() {
-        val keyword = state.value.pendingSearchKeyword ?: return
-        _state.update { it.copy(pendingSearchKeyword = null, selectedCartTilcods = emptySet()) }
-        executeSearch(keyword)
+        val query = state.value.pendingSearchQuery ?: return
+        _state.update { it.copy(pendingSearchQuery = null, selectedCartTilcods = emptySet()) }
+        executeSearch(query)
     }
 
     /** 確認ダイアログの「戻る」。選択は残したまま、検索も実行しない(§6.2)。 */
     fun dismissPendingSearch() {
-        _state.update { it.copy(pendingSearchKeyword = null) }
+        _state.update { it.copy(pendingSearchQuery = null) }
     }
 
     /** 確認ダイアログの「今後は表示しない」。設定をオフにしたうえで選択解除・検索まで続行する(§6.2)。 */
     fun confirmPendingSearchAndDisableWarning() {
-        val keyword = state.value.pendingSearchKeyword ?: return
+        val query = state.value.pendingSearchQuery ?: return
         _state.update {
-            it.copy(pendingSearchKeyword = null, selectedCartTilcods = emptySet(), warnBeforeClearingSelection = false)
+            it.copy(pendingSearchQuery = null, selectedCartTilcods = emptySet(), warnBeforeClearingSelection = false)
         }
         scope.launch { disableWarnBeforeClearingSelection() }
-        executeSearch(keyword)
+        executeSearch(query)
     }
 
-    private fun executeSearch(trimmed: String) {
+    private fun executeSearch(query: SearchQuery) {
         autocompleteJob?.cancel()
         searchJob?.cancel()
         // launchの前に世代を進めて確定する(§3.2)。この後に発生する古い世代の書き込みはすべて捨てる。
@@ -490,6 +624,10 @@ class SearchScreenController(
             it.copy(
                 suggestions = emptyList(),
                 searching = true,
+                // 追加読み込み中に並べ替え等が割り込むと、その応答は世代違いで捨てられ、loadingMoreを
+                // 戻す書き込みも無くなる。新しい検索の開始時に必ず戻す。
+                loadingMore = false,
+                executedQuery = query,
                 errorMessage = null,
                 // 新しい検索は不可逆な一覧の入れ替えなので、選択・一斉カート追加の一時表示を必ず消す
                 // (警告設定オフでも。`docs/design/search-result-reset.md` §1付随・§3.1)。
@@ -505,7 +643,7 @@ class SearchScreenController(
         }
         searchJob = scope.launch {
             try {
-                val page = searchRepository.search(SearchQuery.keywordOnly(trimmed), page = 1)
+                val page = searchRepository.search(query, page = 1)
                 currentPage = 1
                 val rows = buildRows(page.hits)
                 // ラムダの中は読み取りだけ(世代の比較)にとどめ、副作用は入れない(§3.2)。
@@ -515,7 +653,6 @@ class SearchScreenController(
                     } else {
                         current.copy(
                             searching = false,
-                            executedQuery = trimmed,
                             totalCount = page.totalCount,
                             results = rows,
                             hasNext = page.hasNext,
@@ -531,7 +668,6 @@ class SearchScreenController(
                     } else {
                         current.copy(
                             searching = false,
-                            executedQuery = trimmed,
                             totalCount = 0,
                             results = emptyList(),
                             hasNext = false,
@@ -546,7 +682,7 @@ class SearchScreenController(
     fun loadMore() {
         val snapshot = _state.value
         if (!snapshot.hasNext || snapshot.loadingMore || snapshot.searching) return
-        val keyword = snapshot.executedQuery ?: return
+        val query = snapshot.executedQuery ?: return
         // loadMoreは新しい世代を作らない(直前のexecuteSearchと同じ一覧の続きを取る)。
         // launchの前に現在の世代を読んでおき、結果を書く時点で世代が変わっていれば(resetOnLeaveや
         // 次のexecuteSearchが割り込んだ)書き込みを丸ごと捨てる(§3.2)。resetOnLeaveは
@@ -555,7 +691,7 @@ class SearchScreenController(
         _state.update { it.copy(loadingMore = true) }
         searchJob = scope.launch {
             try {
-                val page = searchRepository.search(SearchQuery.keywordOnly(keyword), page = currentPage + 1)
+                val page = searchRepository.search(query, page = currentPage + 1)
                 currentPage += 1
                 val newRows = buildRows(page.hits)
                 _state.update { current ->
@@ -617,7 +753,7 @@ class SearchScreenController(
                 bulkCartAdditionConfirmation = null,
                 bulkCartAdditionResultMessage = null,
                 bulkCartAdditionErrorMessage = null,
-                pendingSearchKeyword = null,
+                pendingSearchQuery = null,
                 bulkDirectReservationConfirmation = null,
             )
         }
@@ -632,7 +768,11 @@ class SearchScreenController(
 
     private fun errorMessage(exception: Exception): String = when (exception) {
         is LibraryError.Maintenance -> "図書館システムはメンテナンス中です。時間をおいて再試行してください"
-        is LibraryError.Parse -> "検索結果を読み取れませんでした。サイト改修の可能性があります"
+        is LibraryError.Parse -> when (exception.screen) {
+            "search_sort" -> "検索結果の並べ替えができませんでした。時間をおいてやり直してください"
+            "search_stock" -> "在庫状況での絞り込みができませんでした。時間をおいてやり直してください"
+            else -> "検索結果を読み取れませんでした。サイト改修の可能性があります"
+        }
         is LibraryError.Network -> "通信に失敗しました。接続状況を確認してください"
         else -> "検索に失敗しました。時間をおいて再試行してください"
     }

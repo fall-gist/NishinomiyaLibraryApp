@@ -564,6 +564,8 @@ fun LibraryApp(
                                 state = searchState,
                                 onQueryChange = searchController::updateQuery,
                                 onSearch = searchController::search,
+                                onSearchDetailed = searchController::searchDetailed,
+                                onToggleSort = searchController::toggleSort,
                                 onLoadMore = searchController::loadMore,
                                 onOpenDetail = openDetail,
                                 onOpenMenu = openMenu,
