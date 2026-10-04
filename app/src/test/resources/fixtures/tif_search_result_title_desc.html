@@ -1,0 +1,15202 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<html lang="ja">
+
+
+<head>
+	<!-- ***** meta ***** -->
+	<meta http-equiv="content-type" content="text/html; charset=utf-8">
+	<meta http-equiv="content-script-type" content="text/javascript">
+	<meta http-equiv="content-style-type" content="text/css">
+	<meta http-equiv="imagetoolbar" content="no">
+	<meta http-equiv="pragma" content="no-cache">
+	<meta http-equiv="cache-control" content="no-cache">
+	<meta http-equiv="expires" content="-1">
+	<meta name="author" content="Library">
+	<meta name="copyright" content="Copyright (c) Library">
+	<meta name="keywords" content="図書館, 詳細検索, 書名, 著者名, 出版者">
+	<meta name="description" content="詳細な条件で図書の検索ができます。書名や著者名、出版者、分類、書誌の種別、出版年度などの条件が使用できます。">
+
+	<!-- ***** style sheet ***** -->
+	<link rel="stylesheet" type="text/css" media="screen,all" charset="utf-8" href="lbcommon/webopac/css/cmn.css">
+    <link rel="stylesheet" type="text/css" media="print" charset="utf-8" href="lbcommon/webopac/css/print.css">
+
+	
+	   	
+	   	
+	  	
+	  	
+	
+
+	<!-- ***** rss ***** -->
+	<!-- rss 2.0 -->
+	<script language="JavaScript" src="lbcommon/js/common.js"></script>
+	<!-- prototype.js (http://prototype.conio.net/) 関連 -->
+	<!-- 位置・座標関連 -->
+	<script language="JavaScript" src="lbcommon/js/position.js"></script>
+	<!-- 警告音　-->
+	<script language="JavaScript" src="lbcommon/js/lbwebdialog.js"></script>
+
+	<!-- WebOPAC用 -->
+	<script language="JavaScript" src="lbcommon/webopac/js/cmn.js"></script>
+
+
+	<script type="text/javascript" src="lbcommon/webopac/js/jquery-1.9.1.js"></script>
+	<script type="text/javascript" src="lbcommon/webopac/js/jquery-ui-1.10.3.custom.min.js"></script>
+	<link rel="stylesheet" type="text/css" media="screen,all" charset="utf-8" href="lbcommon/webopac/css/jquery-ui-1.10.3.custom.css">
+
+	<!-- インナースクロールセルのスクロール領域の高さを、親要素の高さに合わせて調整 -->
+
+
+
+	<script type="text/javascript" src="lbcommon/webopac/js/soft_key.js"></script>
+	<style type="text/css">
+		a.tab1 {
+			float: left;
+			padding: 9px 12px 5px 8px;
+			margin: 3px 8px 0 0;
+			border-radius: 8px 8px 0 0;
+			position: relative;
+			width: 10%;
+		}
+	</style>
+
+	
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+	<script language="javascript">
+	
+	var isLogoutForHtmlLink = 'null';
+	if ('1' == isLogoutForHtmlLink) {
+		window.location.href='https://tosho.nishi.or.jp/?v=PC';
+	}
+	
+
+	// 予防再送フラグ
+	var submitFlg = false;
+
+	function searchdetail() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacTifSchCmpdDispAction.do";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+
+
+	function mousemessage1(param) {
+
+		if (param.id == "stat-cart") {
+			
+				param.title = 'カートには予約候補の資料を一時的に集めておくことができます';
+			
+		}
+	}
+
+
+	function detailsearch() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacDicSchAuthoDispAction.do";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+
+	var yoycartflg;
+	function login(yoycartflg) {
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="OpacInitLoginAction.do?subSystemFlag=0&yoycartflg="+yoycartflg;
+			document.LBForm.submit();
+		}
+	}
+
+
+	function allowFwd(){
+		if ("1" == document.LBFormMF.loginFlg.value) {
+			document.LBForm.action="WOpacPwdLoginCommonAction.do";
+			document.LBForm.submit();
+		}else{
+			submitFlg = true;
+		}
+	}
+	function allowFwd2(){
+		if ("1" == document.LBFormMF.loginOutFlg.value) {
+			document.LBForm.action="WOpacPwdLogoutAction.do";
+			document.LBForm.submit();
+		}else{
+			submitFlg = true;
+		}
+	}
+
+	function yoycart() {
+		if (submitFlg) {
+
+
+
+			//submitFlg = false;
+			if (0 != "1" && 2 == "2") {
+				login("YoyCardDisp");
+			} else{
+				submitFlg = false;
+				document.LBForm.action="WOpacCommonToYoyCartDispAction.do?yoyCmtknjFlg=1";
+				document.LBForm.submit();
+			}
+
+
+		}
+	}
+
+	function back() {
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="WOpacCommonBackAction.do";
+			document.LBForm.submit();
+		}
+	}
+
+	function genre(){
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacTifJunlChoDispAction.do?moveToGamenId=tifjunlcho";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+	function category(){
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacTifSchNdcDispAction.do?moveToGamenId=tifschndc";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+	function toAplmenu() {
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=aplmenu";
+			document.LBForm.submit();
+		}
+	}
+	//マイ図書館ポータル
+	function toMyLibrary(){
+		if (submitFlg) {
+
+			if (0 != "1") {
+				login("MyLibrary");
+			} else{
+				submitFlg = false;
+				document.LBForm.action="WOpacCommonToPwdLibraryAction.do";
+				document.LBForm.submit();
+			}
+		}
+	}
+
+	//利用者情報設定
+	function toPwdLibrary(){
+		if (submitFlg) {
+
+			submitFlg = false;
+			document.LBForm.action="WOpacPwdLibraryDispAction.do";
+			document.LBForm.submit();
+		}
+	}
+
+	//かんたん検索
+	function toTifEsSch(){
+		if (submitFlg) {
+
+			submitFlg = false;
+
+			
+			document.LBForm.action="WOpacEsSchCmpdDispAction.do?moveToGamenId=esschcmpd";
+
+			document.LBForm.submit();
+		}
+	}
+
+
+	function toMyELib(){
+		
+		var elibflg = '1';
+
+		var user_agent = navigator.userAgent.toLowerCase();
+
+		if (elibflg == "1") {
+
+			var userAgent = navigator.userAgent;
+			if (userAgent.indexOf("Safari") > -1) {
+				var wintmp = window.open("", "_blank");
+			}
+
+			$.ajax({
+				url : "OpacToSapoMyElibAction.do",
+
+				async: false,
+
+				type: "POST",
+				data:null,
+				success: function(jsonStr) {
+					var json = jQuery.parseJSON(jsonStr);
+					var strshori_kekka_sts = json.shori_kekka_sts;
+					if (strshori_kekka_sts == 'true') {
+
+						if(user_agent.indexOf("iphone") != -1 && user_agent.indexOf("gsa") != -1){
+							window.location = "OpacTifSapoElibExecAction.do";
+							if (userAgent.indexOf("Safari") > -1) {
+								wintmp.close();
+							}
+						} else if (userAgent.indexOf("Safari") > -1) {
+
+						
+
+							function loc(){
+								wintmp.location = "OpacTifSapoElibExecAction.do";
+							}
+							setTimeout(loc(),1000);
+						} else {
+
+						window.open('OpacTifSapoElibExecAction.do','newwindow');
+
+						}
+
+					} else {
+
+						if (userAgent.indexOf("Safari") > -1) {
+							wintmp.close();
+						}
+
+						var error_cd = json.error_cd;
+						var error_message = decodeURI(json.error_message);
+						var exmessage = "";
+						if (error_cd != null && error_cd != "") {
+							exmessage = error_cd + " " + error_message;
+						} else {
+							exmessage = error_message;
+						}
+						var message = '電子図書館システムの書誌詳細へ展開出来ませんでした。&lt;br&gt;{0}';
+						message = message.replace("{0}", exmessage);
+						message = message.replace("&lt;br&gt;", "\r\n");
+
+						// メッセージ
+						lbAlert(message,'');
+					}
+				}
+			})
+		} else {
+
+			if(user_agent.indexOf("iphone") != -1 && user_agent.indexOf("gsa") != -1){
+				window.location = "OpacToMyElibAction.do";
+			} else {
+
+			window.open("OpacToMyElibAction.do", 'newwindow');
+
+			}
+
+		}
+		
+		
+	}
+
+
+	function forwardTo(value) {
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.returnid.disabled="true";
+			document.LBForm.action=value;
+			document.LBForm.submit();
+		}
+	}
+
+	
+	function toDetail_JunlCho(val){
+		if (submitFlg) {
+			submitFlg=false;
+			document.LBForm.action="WOpacTifJunlChoSelectAction.do?junlCode=" + val;
+			document.LBForm.submit();
+		}
+	}
+
+	function toDetail_Ref(val){
+		if (submitFlg) {
+			submitFlg=false;
+			document.LBForm.action="WOpacRefChoSelectAction.do?ndcCode=" + val;
+			document.LBForm.submit();
+		}
+	}
+	
+
+	
+	function linkToLibrary(url) {
+		
+		
+			window.location.href=url;
+		
+	}
+	
+    //レファレンス検索
+	function toRefSearch() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+
+
+			
+			document.LBForm.action="WOpacRefChoAction.do?moveToGamenId=refsearch";
+
+
+
+			document.LBForm.submit();
+		}
+	}
+
+	function toRankMenu() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacMsgRankMenuDispAction.do?moveToGamenId=msgrankmenu";
+
+
+			document.LBForm.submit();
+		}
+	}
+	//新着資料
+	function toMsgNewMenu() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacMsgNewMenuDispAction.do?moveToGamenId=msgnewmenu";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+
+
+    function toTmeMenu() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacSdiTmeMenuDispAction.do?moveToGamenId=tmnewmenu";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+
+
+	
+
+
+
+			
+
+
+			
+
+			
+
+ 
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+
+
+		
+
+
+	
+	function toPortalHelp(){
+		if (submitFlg) {
+			xposition = (screen.width - 920) / 2;
+			yposition = (screen.height - 700) / 2;
+			window.open("lbcommon/html/portalHelp/help_portal.html",null,"width=920,height=700,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+	}
+	
+
+
+
+
+
+
+
+
+
+
+// 貸出状況一覧画面
+function toUsrLend(loginshu){
+	// 本パスワードの場合
+	if(loginshu == '1'){
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="WOpacMnuTopToPwdLibraryAction.do?gamen=usrlend";
+		    document.LBForm.submit();
+		}
+	}else if(loginshu == '2'){
+	// 仮パスワードの場合
+	    var message = '仮パスワードでは利用できません。パスワード変更を行なってください。';
+		var sound = '';
+		lbAlert(message,sound);
+	}else{
+	// 予約パスワードの場合
+		var message = '予約パスワードでは利用できません。図書館の窓口でパスワードを申請してください。';
+		var sound = '';
+		lbAlert(message,sound);
+	}
+}
+
+// 予約状況照会
+function toUsrRsv(loginshu){
+	// 本パスワードの場合
+	if(loginshu == '1'){
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv";
+	    	document.LBForm.submit();
+		}
+	}else if(loginshu == '2'){
+	// 仮パスワードの場合
+	    var message = '仮パスワードでは利用できません。パスワード変更を行なってください。';
+		var sound = '';
+		lbAlert(message,sound);
+	}else{
+	// 予約パスワードの場合
+		var message = '予約パスワードでは利用できません。図書館の窓口でパスワードを申請してください。';
+		var sound = '';
+		lbAlert(message,sound);
+	}
+}
+
+
+// マイブックリスト
+function toMyBookList(){
+	if (submitFlg) {
+
+		submitFlg = false;
+		document.LBForm.action="WOpacMnuTopToPwdLibraryAction.do?gamen=mybooklist";
+    	document.LBForm.submit();
+	}
+}
+
+
+
+
+
+	function toyoycart(yoycartflg) {
+
+		if (0 == "1") {
+			if ("tiles.WTifTilDetail2" == document.LBForm.gamenid.value) {
+				document.LBForm.action ="WOpacTifTilDetailYoyCart2DispAction.do";
+
+			} else if ("tiles.WTifTilList" == document.LBForm.gamenid.value){
+				document.LBForm.action ="WOpacTifTilDetailYoyCartDispAction1.do";
+
+
+			} else if ("tiles.WEsTilList" == document.LBForm.gamenid.value){
+				document.LBForm.action ="WOpacEsTilDetailYoyCartDispAction1.do";
+
+
+			} else if ("tiles.WTifVolList" == document.LBForm.gamenid.value){
+				document.LBForm.action ="WOpacTifTilDetailYoyCartDispAction2.do";
+
+			} else {
+				document.LBForm.action ="WOpacTifTilDetailYoyCartDispAction.do";
+			}
+			document.LBForm.submit();
+		} else {
+
+			if (null != yoycartflg){
+				login(yoycartflg);
+			}else {
+
+			login("WTifTilDetail");
+
+			}
+
+		}
+	}
+
+
+//読書履歴
+function toUsrRead(loginshu){
+	if(loginshu == '1'){
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="WOpacMnuTopToPwdLibraryAction.do?gamen=usrread&initFlag=0";
+	    	document.LBForm.submit();
+		}
+	}
+}
+
+</script>
+	<title>検索結果書誌一覧：蔵書検索システム</title>
+</head>
+
+<script language="javascript">
+	function logout(){
+		if (submitFlg) {
+			submitFlg = false;
+			var usrcod = '';
+			usrcod = usrcod.substring(usrcod.length-4,usrcod.length);
+			var message = '利用カード番号下４桁「{0}」でログインしています。ログアウトしますか？';
+			message = message.replace("{0}",usrcod);
+
+			if (lbConfirm(message,'')) {
+					document.LBForm.action="WOpacPwdLogoutAction.do";
+					document.LBForm.submit();
+				}else{
+					submitFlg = true;
+				}
+		}
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</script>
+
+
+<script language="javascript">
+<!--
+// 日本語
+function changelanguage_ja() {
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=ja";
+		document.LBForm.submit();
+	}
+}
+// ことも
+function changelanguage_kids() {
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=kids";
+		document.LBForm.submit();
+	}
+}
+// 英語
+function changelanguage_en() {
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=en";
+		document.LBForm.submit();
+	}
+}
+// 中国語
+function changelanguage_ch() {
+	if (submitFlg) {
+		submitFlg = false;
+		// alert("en");
+		document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=ch";
+		document.LBForm.submit();
+	}
+}
+// 韓国語
+function changelanguage_ko() {
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=ko";
+		document.LBForm.submit();
+	}
+}
+
+// -->
+</script>
+
+
+
+
+
+<!--
+****************************************
+       1 line Menu Area
+****************************************
+-->
+<div id="wrapper">
+<div id="contents">
+<div id="head">
+<div id="title">
+<a id="logo" href="https://tosho.nishi.or.jp/?v=PC" title='蔵書検索・予約システムのトップ かんたん検索 にもどります。'>図書館 蔵書検索・予約システム</a>
+
+
+<p class="skip">このページは 西宮市立図書館の 共通部分 ページです。</p>
+
+<p class="skip"><a href="#body">メニューをスキップして 本文へ移動します。</a></p>
+<p class="skip"><a id="PAGETOP" name="PAGETOP" href="#MAINCONTENTS" accesskey="1">メニューをスキップして、本文へ移動します。</a></p>
+<hr class="skip">
+<h2 class="skip">言語選択メニュー</h2>
+<p class="skip">文字サイズや言語を切り替えます。</p>
+	<div id="lang-menu">
+		<span title='文字サイズを調整します'>
+			<span class="skip">文字サイズ調整：</span>
+			<a id="fsl" href="javascript:void(0);" onclick="fontsize('large');return false;">大</a>
+			<a id="fsm" href="javascript:void(0);" onclick="fontsize('def');return false;">中</a>
+			<a id="fss" href="javascript:void(0);" onclick="fontsize('small');return false;">小</a>
+		</span>
+		<span title='表示言語を切り替えます'>
+			<span class="skip">言語切り替え：</span>
+
+	
+						<a href="javascript:changelanguage_ja()"  class='cur'>
+				一般</a>
+					
+	
+	
+	
+						<a href="javascript:changelanguage_kids()"  >
+				
+					かな</a>
+					
+	
+	
+	
+						<a href="javascript:changelanguage_en()"  >
+				
+					English</a>
+					
+	
+	
+	
+		</span>
+		<a href="#" id="help" title="別ウィンドウにヘルプを表示します。" onclick ="javascript:toHelp()"><img src="lbcommon/webopac/img/i_help.png" width="23" height="23" alt="ヘルプ"></a>
+
+	
+
+	</div><!-- end of id lang-menu -->
+	    <hr class="skip">
+		
+			<table cellpadding="0" cellspacing="0" border="0" class="log-stats" id="stat-logout" >
+			<colgroup><col width="310"><col width="90"><col width="80"><col width="50"></colgroup>
+				<tr><td><h3 class="skip">ログインの状態：ログインしていません。</h3>
+					<span class="lead">ログインすると利用状況の確認等のサービスを利用できます。</span></td>
+					<td class="a-center"><input type="button" class="button" style="padding:5px 4px 4px;" id="login" value="ログイン" onclick="login()"></td>
+
+				    <!-- <td class="stat-item"><a id="stat-cart" href='#' onclick ="javascript:yoycart()" title="カートには予約候補の資料を一時的に集めておくことができます">カート<span class="skip">（予約候補）</span> <span class="value">0</span><span class="skip"> 登録されていません。</span></a></td> -->
+
+					
+
+					
+
+					
+					
+					
+					
+
+						
+						<td class="stat-item"><a id="stat-cart" href='#' onclick ="javascript:yoycart()" onmouseover="mousemessage1(this);" >カート<span class="skip">（予約候補）</span> <span class="value">0</span><span class="skip"> 登録されていません。</span></a></td>
+
+					
+					
+
+
+
+
+					<td></td>
+				</tr>
+			</table>
+		
+
+		
+
+	
+</div><!-- end of id title -->
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		<!--
+		****************************************
+		       2 line Menu Area
+		****************************************
+		-->
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+			
+	
+
+	
+
+	
+    
+    
+    
+    
+    
+    
+
+    
+
+    
+
+    
+    
+
+    
+    
+    
+
+    
+    
+
+	
+    
+
+    
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+    
+    
+	
+	
+
+	
+    
+    
+    
+	
+	
+
+	
+    
+    
+	
+
+	
+    
+    
+	
+
+	
+    
+    
+    
+	
+	
+
+	
+    
+    
+    
+	
+	
+
+	
+    
+    
+	
+
+
+	
+    
+
+	
+    
+
+	
+    
+
+
+	
+    
+
+	
+    
+
+	
+    
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+
+	
+    
+
+	
+    
+
+
+
+    
+
+	
+
+	
+
+	
+
+<div id="navi">
+<div id="panks">
+
+
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		<!--
+		****************************************
+		       2 line Menu Area
+		****************************************
+		-->
+
+			
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+<p class="skip">現在のページの位置は</p>
+
+
+
+
+
+	
+		
+		
+		
+		
+		
+		
+		
+	
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		<!--
+		****************************************
+		       2 line Menu Area
+		****************************************
+		-->
+
+			
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+
+
+	
+		
+			
+		
+		<span id="step1">
+		</span>
+		
+		
+		
+			
+		
+	
+
+	
+		<span>
+			
+		</span>
+		
+			
+		
+		<span id="step2">
+		</span>
+		
+		
+		
+			
+		
+	
+
+	
+	
+
+	
+	
+    
+    
+
+    
+	
+    
+    
+
+    
+	
+    
+    
+
+    
+	
+    
+    
+    
+    
+
+    
+	
+	
+    
+    
+    
+		<span>
+			
+		</span>
+		
+		<span id="step3">
+		</span>
+		
+		
+		
+			
+		
+    
+    
+    
+    
+    
+
+    
+	
+	
+    
+    
+    
+    
+    
+    
+    
+
+    
+	
+	
+    
+
+     
+	
+	
+    
+    
+    
+
+    
+	
+	
+    
+
+    
+	
+
+    
+	
+
+    
+	
+
+	
+	
+
+    
+	
+
+
+    
+	
+
+    
+    
+
+    
+    
+
+    
+    
+
+    
+    
+
+    
+	
+
+    
+	
+
+	
+	
+
+
+
+	
+
+	
+	
+
+	
+	
+
+	
+	
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+	
+	
+	
+	
+	
+	
+	
+	
+	
+
+	
+	
+
+    
+    
+
+    
+	
+
+    
+	
+
+    
+	
+    
+    
+
+    
+	
+	
+    
+    
+    
+
+    
+	
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		<!--
+		****************************************
+		       2 line Menu Area
+		****************************************
+		-->
+
+			
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+
+
+
+	
+
+
+
+
+	
+
+	
+
+	
+		
+		
+		
+		
+		
+		
+		
+	
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		<!--
+		****************************************
+		       2 line Menu Area
+		****************************************
+		-->
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+
+
+
+	
+	
+
+    
+	
+
+    
+	
+
+
+	
+	
+
+    
+	
+
+	 
+    
+
+    
+    
+    
+    
+
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+
+	
+    
+
+    
+    
+
+	
+	
+
+	
+	
+
+	
+	
+
+	
+	
+    
+    
+	
+	
+
+	
+	
+
+	
+	
+
+
+	
+	
+
+	
+	
+
+	
+	
+
+
+	
+    
+
+    
+
+    
+    
+    
+    
+    
+    
+	
+	
+	
+	
+	
+	
+	
+
+	
+
+
+	
+	
+
+	
+	
+
+	
+	
+
+	
+	
+
+	
+	
+
+	
+	
+    
+    
+
+    
+	
+    
+    
+
+    
+	
+
+
+
+	
+
+    
+	
+
+    
+	
+
+
+    
+	
+
+	
+	
+
+
+	
+
+	
+
+	
+
+	
+
+
+	
+
+
+	
+	
+
+    
+	
+
+	
+	
+
+	
+
+	
+	
+	
+
+	
+
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+			
+
+
+	
+
+
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+			
+
+
+
+<!-- ジャンル検索 検索結果書誌一覧 -->
+ 
+
+<!-- ジャンル検索 → 検索結果書誌詳細 -->
+ 
+
+<!-- カテゴリー 検索結果一覧 -->
+
+
+<!-- カテゴリー 検索結果レファレンス詳細 -->
+
+
+<!-- カテゴリー 検索結果レファレンス詳細 リンク返す-->
+
+
+<!-- カテゴリー 検索結果書誌詳細 -->
+
+
+<!-- カテゴリー 検索結果書誌詳細 ログイン-->
+
+
+<!-- ジャンル検索 検索結果書誌詳細 -->
+
+
+<!-- ジャンル検索 検索結果書誌詳細 -->
+
+
+<!-- ジャンル検索 検索結果巻号一覧 -->
+
+
+<!-- ジャンル検索 検索結果雑誌詳細 -->
+
+
+<!-- ジャンル検索だけ -->
+
+
+
+
+<!-- ジャンル検索 検索結果書誌一覧 再検索-->
+ 
+
+
+
+
+
+<!-- ジャンル検索 検索結果書誌一覧 ログイン-->
+ 
+
+<!-- ジャンル検索 検索結果書誌一覧 ログイン-->
+ 
+
+<!-- ジャンル検索 検索結果書誌一覧 ログイン-->
+ 
+
+
+
+	
+
+
+
+
+
+
+
+
+
+ 
+
+ 
+<a href='#' onclick ="javascript:forwardTo('https://tosho.nishi.or.jp/?v=PC')" > トップページ</a> > <a href='#' onclick ="javascript:forwardTo('WOpacTifSchCmpdDispAction.do')" > 詳細検索</a> >  検索結果書誌一覧
+
+
+
+ 	
+	
+	
+	
+
+	
+
+
+<p class="skip">です。</p>
+</div><!-- end of div panks -->
+
+<div class="clear"></div>
+</div><!-- end of div navi -->
+
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script language="javascript">
+	function toHelp(){
+		if (submitFlg) {
+			xposition = (screen.width - 600) / 2;
+			yposition = (screen.height - 380) / 2;
+			var gamenId = document.LBForm.gamenid.value.toLocaleLowerCase();
+			if (gamenId == null || gamenId == ""){
+				var str = null;
+			} else {
+				var str = gamenId.substr(7);
+			}
+			var strTemp = str.substr(str.length-1);
+			if(!isNaN(strTemp)){
+				str = str.substring(0,str.length-1);
+			}
+
+			if(str=="esschcmpd")
+			{
+				window.open("lbcommon/html/web_help/WEsSchCmpd/WEsSchCmpd.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="estillist")
+			{
+				window.open("lbcommon/html/web_help/WEsTilList/WEsTilList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tifjunlcho" || str=="tifjunlchoreload")
+			{
+				window.open("lbcommon/html/web_help/WTifJunlCho/WTifJunlCho.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tifschndc")
+			{
+				window.open("lbcommon/html/web_help/WTifSchNdc/WTifSchNdc.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tifschndclist")
+			{
+				window.open("lbcommon/html/web_help/WTifSchNdc/WTifSchNdcList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="msgrankmenu")
+			{
+				window.open("lbcommon/html/web_help/WMsgRankMenu/WMsgRankMenu.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="msgranklist")
+			{
+				window.open("lbcommon/html/web_help/WMsgRankList/WMsgRankList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="msgnewmenu")
+			{
+				window.open("lbcommon/html/web_help/WMsgNewMenu/WMsgNewMenu.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="msgnewlist")
+			{
+				window.open("lbcommon/html/web_help/WMsgNewList/WMsgNewList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="msgcalender")
+			{
+				window.open("lbcommon/html/web_help/WMsgCalender/WMsgCalender.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sditmemenu")
+			{
+				window.open("lbcommon/html/web_help/WSdiTmeMenu/WSdiTmeMenu.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sditmelist")
+			{
+				window.open("lbcommon/html/web_help/WSdiTmeList/WSdiTmeList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sditmemtalist")
+			{
+				window.open("lbcommon/html/web_help/WSdiTmeMtaList/WSdiTmeMtaList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refcho")
+			{
+				window.open("lbcommon/html/web_help/WRefCho/WRefCho.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refsearch")
+			{
+				window.open("lbcommon/html/web_help/WRefSearch/WRefSearch.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="reflist")
+			{
+				window.open("lbcommon/html/web_help/WRefList/WRefList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refdetail")
+			{
+				window.open("lbcommon/html/web_help/WRefDetail/WRefDetail.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refcholist" || str=="refcholistreload")
+			{
+				window.open("lbcommon/html/web_help/WRefChoList/WRefChoList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tifschcmpd")
+			{
+				window.open("lbcommon/html/web_help/WTifSchCmpd/WTifSchCmpd.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tiftillist")
+			{
+				window.open("lbcommon/html/web_help/WTifTilList/WTifTilList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tifvollist")
+			{
+				window.open("lbcommon/html/web_help/WTifVolList/WTifVolList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tiftildetail")
+			{
+				window.open("lbcommon/html/web_help/WTifTilDetail/WTifTilDetail.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="dicschautho")
+			{
+				window.open("lbcommon/html/web_help/WDicSchAutho/WDicSchAutho.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="dicautholist")
+			{
+				window.open("lbcommon/html/web_help/WDicAuthoList/WDicAuthoList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="yoycart")
+			{
+				window.open("lbcommon/html/web_help/WYoyCart/WYoyCart.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrjunbandisp")
+			{
+				window.open("lbcommon/html/web_help/WYoyToJunban/WYoyToJunban.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="yoyconfirm")
+			{
+				window.open("lbcommon/html/web_help/WYoyConfirm/WYoyConfirm.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tiftoriiraiuke")
+			{
+				window.open("lbcommon/html/web_help/WKeepAccept/WKeepAccept.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tiftoriiraichk")
+			{
+				window.open("lbcommon/html/web_help/WKeepConfirm/WKeepConfirm.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="pwdportalmenuspl")
+			{
+				window.open("lbcommon/html/web_help/WPwdPortalMenu/WPwdPortalMenu.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sdibooklist")
+			{
+				window.open("lbcommon/html/web_help/WSdiBookList/WSdiBookList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sdibooklistnew")
+			{
+				window.open("lbcommon/html/web_help/WSdiBookListNew/WSdiBookListNew.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sdibooklistmainte")
+			{
+				window.open("lbcommon/html/web_help/WSdiBookListMainte/WSdiBookListMainte.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sdiinput")
+			{
+				window.open("lbcommon/html/web_help/WSdiInput/WSdiInput.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refrefuke")
+			{
+				window.open("lbcommon/html/web_help/WRefRefUke/WRefRefUke.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refrefchk")
+			{
+				window.open("lbcommon/html/web_help/WRefRefChk/WRefRefChk.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+
+			else if(str=="reqodruke")
+			{
+				window.open("lbcommon/html/web_help/WReqOdrUke/WReqOdrUke.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="reqodrchk")
+			{
+				window.open("lbcommon/html/web_help/WReqOdrChk/WReqOdrChk.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+
+
+			else if(str=="pwdportalmenu")
+			{
+				window.open("lbcommon/html/web_help/WPwdUsrInfo/WPwdUsrInfo.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrlendlist")
+			{
+				window.open("lbcommon/html/web_help/WUsrLendList/WUsrLendList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrrsvlist")
+			{
+				window.open("lbcommon/html/web_help/WUsrRsvList/WUsrRsvList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrchpass")
+			{
+				window.open("lbcommon/html/web_help/WUsrChgPass/WUsrChgPass.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrchmail")
+			{
+				window.open("lbcommon/html/web_help/WUsrChgMail/WUsrChgMail.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="yoyrakchange")
+			{
+				window.open("lbcommon/html/web_help/WYoyRakChg/WYoyRakChg.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+			else if(str=="usrrtnmail")
+			{
+				window.open("lbcommon/html/web_help/WYoyRakChg/WUsrRtnMail.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrmailagr")
+			{
+				window.open("lbcommon/html/web_help/WUsrMailAgr/WUsrMailAgr.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+			else if (str=="esyoyconfirm")
+
+			{
+				window.open("lbcommon/html/web_help/WYoyConfirm/WYoyConfirm.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+			else if (str=="aplkaripwdapl")
+
+				{
+					window.open("lbcommon/html/web_help/WAplKariPwdApl/WAplKariPwdApl.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+				}
+			else
+			{
+				toHelp1();
+			}
+		}
+	}
+</script>
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script language="javascript">
+	function toHelp1(){
+		xposition = (screen.width - 600) / 2;
+		yposition = (screen.height - 380) / 2;
+		var gamenId = document.LBForm.gamenid.value.toLocaleLowerCase();;
+		if (gamenId == null || gamenId == ""){
+			var str = null;
+		} else {
+			var str = gamenId.substr(7);
+		}
+
+		if(str=="aplmenu")
+		{
+			window.open("lbcommon/html/web_help/WAplMenu/WAplMenu.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else if(str=="ypwpwdchk")
+		{
+			window.open("lbcommon/html/web_help/WYpwPwdChk/WYpwPwdChk.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="ypwpwdapl")
+		{
+			window.open("lbcommon/html/web_help/WYpwPwdApl/WYpwPwdApl.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="aplpwdagr")
+		{
+			window.open("lbcommon/html/web_help/WAplPwdAgr/WAplPwdAgr.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="aplpwdchk")
+		{
+			window.open("lbcommon/html/web_help/WAplPwdChk/WAplPwdChk.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="aplpwdapl")
+		{
+			window.open("lbcommon/html/web_help/WAplPwdApl/WAplPwdApl.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="sinchkpass")
+		{
+			window.open("lbcommon/html/web_help/WAplSinMailAgr/WAplSinMailAgr.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="sinseiusr")
+		{
+			window.open("lbcommon/html/web_help/WUsrSinTorok/WUsrSinTorok.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="sinseichk")
+		{
+			window.open("lbcommon/html/web_help/WUsrSinChk/WUsrSinChk.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if (str=="usrrtnlendhistory")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrKasHist/WUsrKasHistChg.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else if (str=="usrreadlist")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrKasHist/WUsrKasHist.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else if (str=="userinfobarcodedsp")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrBarCodeDsp/WUsrBarCodeDsp.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else if (str=="usrrtnnickrmd")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrNickrmd/WUsrNickrmdChg.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else if (str=="usrmyreviewlist")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrMyReviewList/WUsrMyReviewList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+		else if (str=="usrmyreviewedit")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrReviewEdit/WUsrReviewEdit.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else
+		{
+			window.open("lbcommon/html/help.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+	}
+</script>
+
+
+		<hr class="skip">
+
+		<h2 class="skip">機能を切り替えます。</h2>
+
+		<div id="tabs"  >
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+				
+
+					
+					
+						<a id="easyS" class="tab easyS" href="#" onclick ="javascript:toTifEsSch()" title='かんたんフリーワード検索'><span>かんたん検索</span></a>
+					
+					<!-- <a id="easyS" class="tab easyS" href="#" onclick ="javascript:toTifEsSch()" title='かんたんフリーワード検索'><span>かんたん検索</span></a>-->
+
+				
+				
+				
+
+					
+					
+
+						
+						
+							<a id="miscS" class="tab cur miscS" href="#" onclick ="javascript:searchdetail()" title='様々な検索、貸出・予約ベスト、新着資料等いろいろ'><span>いろいろ検索</span></a>
+						
+						
+
+					
+					<!-- <a id="miscS" class="tab cur miscS" href="#" onclick ="javascript:searchdetail()" title='様々な検索、貸出・予約ベスト、新着資料等いろいろ'><span>いろいろ検索</span></a> -->
+
+				
+				
+			
+			
+
+			<a class="lnk lnk-best" href="#" onclick ="javascript:toRankMenu()" title='貸出・予約数による人気ランキングはこちら'><span>貸出・予約ベスト</span></a>
+			<a class="lnk lnk-new" href="#" onclick ="javascript:toMsgNewMenu()" title='新しく取り寄せた資料一覧はこちら'><span>新着資料</span></a>
+			<a class="lnk lnk-theme" href="#" onclick ="javascript:toTmeMenu()" title='図書館がテーマで集めたおすすめ資料はこちら'><span>テーマ資料</span></a>
+
+
+			
+			
+			<a id="man-pinf" class="tab mylib"  href='#' onclick ="javascript:toMyLibrary()" title="あなたの貸出・予約状況、マイ本棚、利用者設定等。">
+			
+			
+
+			<img src="lbcommon/webopac/img/i_login.png" width="10" height="10" style="position:absolute;right:5px;top:5px;" alt="ログインが必要です">
+			    <span>マイ図書館
+				</span>
+			</a>
+
+		</div>
+
+		<hr class="skip">
+
+		<h2 class="skip">いろいろ検索のメニューです。</h2>
+
+		
+		
+		<div class="menu1" id="menu1">
+		
+		
+
+			<div class="menu-group mn-search">
+				
+				<a id="sch-cmpd" href="#" onclick ="javascript:searchdetail()">詳細検索</a>
+				
+				
+				
+				
+				<a id="sch-genr" href='#' onclick ="javascript:genre()">ジャンル検索</a>
+				
+				<a id="sch-clas" href='#' onclick ="javascript:category()">NDC分類検索</a>
+
+			</div>
+			<div class="menu-group mn-list">
+				
+                <a id="lst-best" href="#" onclick ="javascript:toRankMenu()" title='貸出・予約数による人気ランキングはこちら'>貸出・予約ベスト</a>
+				
+				<a id="lst-bnew" href="#" onclick ="javascript:toMsgNewMenu()" title='新しく取り寄せた資料一覧はこちら'>新着資料</a>
+				
+				<a id="lst-tme" href="#" onclick ="javascript:toTmeMenu()" title='図書館がテーマで集めたおすすめ資料はこちら'>テーマ資料</a>
+			</div>
+			
+			
+			
+
+		</div>
+		<hr class="skip">
+		
+			<hr class="skip">
+
+<a class="skip" id="MAINCONTENTS" name="MAINCONTENTS">ここから本文です。</a>
+
+</div><!-- end of id head -->
+
+
+<form name="LBFormMF" method="post">
+<input type="hidden" name="hash" value="">
+<input type="hidden" name="loginFlg" value="" onchange="allowFwd();">
+<input type="hidden" name="loginOutFlg" value="" onchange="allowFwd2();">
+<input type="hidden" name="message" value="">
+<input type="hidden" name="sound" value="">
+</form>
+
+
+
+
+
+
+
+
+
+<!--
+****************************************
+             Container Area
+****************************************
+-->
+<div id="body">
+
+	
+		<div id="banner" style="display:none"> <!-- banner start -->
+<br>
+	<div style="font-size:large;margin-left:1ex"><strong>広告（外部サイトへ移動）</strong></div>
+<div style="text-align:center">
+
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+
+</div>
+</div> <!-- banner start -->
+<font color="red"><b>
+<br>
+越木岩分室は建替え工事のため閉室中です。詳しくは<A Href="https://tosho.nishi.or.jp/libraries/koshikiiwa.html" Target="_blank" rel="noopener noreferrer">こちら</A>をご覧ください。<br>
+</b></font>
+<br>
+
+
+	
+
+	
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<center>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="messages" style="display:none">
+<ul>
+	
+	
+	
+	
+</ul>
+</div></center>
+
+
+
+
+<link rel="stylesheet" type="text/css" media="screen,all" charset="utf-8" href="lbcommon/css/importpass_ippan_web_other.css">
+<link rel="stylesheet" type="text/css" media="screen,all" charset="utf-8" href="lbcommon/webopac/css/cmn.css">
+
+
+<!-- <link rel="stylesheet" href="lbcommon/css/style-additional.css" type="text/css"> -->
+
+
+<!-- <script language="JavaScript" src="lbcommon/js/prototype.js"></script> -->
+
+<script language="JavaScript" src="lbcommon/js/calendarlay.js" charset="Shift_JIS"></script>
+
+<!-- <script language="JavaScript" src="lbcommon/js/balloonOpac.js"></script> -->
+
+
+<script language="javascript">
+
+
+
+</script>
+
+
+
+
+
+
+
+
+
+<style type="text/css">
+#luluTip
+{
+    word-wrap:break-word;
+    position:absolute;
+    width:200px;
+    color: #000;
+    background-color:#FFFF6F;
+    border:1px solid #000;
+    padding:2px;
+    display:none;
+    font-weight:normal;
+}
+#luluTip div.triangle
+{
+    background:transparent
+        no-repeat scroll left top;
+    position:absolute;
+    height:17px;
+    left:20px;
+    top:-16px;
+    width:31px;
+    z-index:999;
+}
+</style>
+
+<script type="text/javascript">
+jQuery(function(){
+
+	
+	$("[name='tiptitle']").each(function(){
+		$(this).hover(function(){
+
+			$('<div id="luluTip"><div class="triangle" /></div>')
+		        .insertAfter(this)
+		        .prepend($(this).attr("value"));
+			$(this).mousemove(function(e){
+
+	          var x = $(this).offset().left;
+	            $("#luluTip").css({"left":x,"display":"block"});
+
+			});
+		},function(){
+	        $("#luluTip").remove();
+	    })
+
+	})
+
+});
+
+</script>
+
+
+<script language="javascript">
+function toDetail(tilcod){
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.tilcod.value = tilcod;
+		//grememeberThisPage(document.LBForm, 'WOpacTifTilListRememberThisPageAction.do');
+
+		
+		document.LBForm.action ="WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1";
+
+	    document.LBForm.submit();
+	}
+}
+
+function inYoyCart(){
+		
+		
+			var gamentilcod= "";
+			if (arguments.length > 0) {
+				gamentilcod = arguments[0];
+			}
+			document.LBForm.tilcod.value = gamentilcod;
+
+			
+			toyoycart("WTifTilList");
+
+		
+	}
+
+
+
+
+
+
+
+
+
+
+
+function toTifMyELib(trcmark){
+	var elibflg = '1';
+
+	var user_agent = navigator.userAgent.toLowerCase();
+
+	if (elibflg == "1") {
+
+		var userAgent = navigator.userAgent;
+		if (userAgent.indexOf("Safari") > -1) {
+			var wintmp = window.open("", "_blank");
+		}
+
+		jQuery.ajax({
+			url : "OpacToTifSapoElibAction.do",
+
+			async: false,
+
+			type: "POST",
+			data: "seniflg=0&trcmark="+trcmark,
+			success: function(jsonStr) {
+				var json = jQuery.parseJSON(jsonStr);
+				var strshori_kekka_sts = json.shori_kekka_sts;
+				if (strshori_kekka_sts == 'true') {
+
+					if(user_agent.indexOf("iphone") != -1 && user_agent.indexOf("gsa") != -1){
+						window.location = "OpacTifSapoElibExecAction.do";
+						if (userAgent.indexOf("Safari") > -1) {
+							wintmp.close();
+						}
+					} else if (userAgent.indexOf("Safari") > -1) {
+
+					
+
+						function loc(){
+							wintmp.location = "OpacTifSapoElibExecAction.do";
+						}
+						setTimeout(loc(),1000);
+					} else {
+
+					window.open('OpacTifSapoElibExecAction.do','newwindow');
+
+					}
+
+				} else {
+
+					if (userAgent.indexOf("Safari") > -1) {
+						wintmp.close();
+					}
+
+					var error_cd = json.error_cd;
+					var error_message = decodeURI(json.error_message);
+					var exmessage = "";
+					if (error_cd != null && error_cd != "") {
+						exmessage = error_cd + " " + error_message;
+					} else {
+						exmessage = error_message;
+					}
+					var message = '電子図書館システムの書誌詳細へ展開出来ませんでした。&lt;br&gt;{0}';
+					message = message.replace("{0}", exmessage);
+					message = message.replace("&lt;br&gt;", "\r\n");
+
+					// メッセージ
+					lbAlert(message,'');
+				}
+			}
+		})
+	} else {
+
+		if(user_agent.indexOf("iphone") != -1 && user_agent.indexOf("gsa") != -1){
+			window.location = "OpacToTifElibAction.do?seniflg=0&trcmark="+trcmark;
+		} else {
+
+		window.open("OpacToTifElibAction.do?seniflg=0&trcmark="+trcmark, 'newwindow');
+
+		}
+
+	}
+}
+
+
+function toDetail1(keyValue,keyKind){
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.keyKind.value = keyKind;
+		document.LBForm.keyValue.value = keyValue;
+		document.LBForm.action ="WOpacTifListToListAction.do";
+	    document.LBForm.submit();
+	}
+}
+
+
+
+
+
+
+var innerScrollCells = document.getElementsByTagName('innerScrollCell');
+
+for (var i = 0; i < innerScrollCells.length; i++) {
+if (innerScrollCells[i].parentNode) {
+	  innerScrollCells[i].style.height = innerScrollCells[i].parentNode.offsetHeight + 'px';
+	}
+}
+
+
+
+function submitNarrow() {
+	if (submitFlg) {
+		submitFlg = false;
+
+
+
+
+
+
+
+        document.LBForm.narrowSchCnt.value = document.LBForm.narrowSchCnt.value;
+
+
+		document.LBForm.action ="WOpacWebTifTilListNarrowSearchAction.do";
+	    document.LBForm.submit();
+	}
+}
+
+;
+;
+window.onload=function(){
+
+	if (document.LBForm.cartExecflg.value == "1") {
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.cartExecflg.value = "0";
+			document.LBForm.action ="WOpacTifTilDetailYoyCartDispAction1.do";
+			document.LBForm.submit();
+		}
+	}
+
+	if (document.LBForm.searchkind_add != null) {
+		srchkeyChange(document.LBForm);
+		onkeyChange(document.LBForm.search_add.value, document.LBForm);
+	}
+
+	
+}
+
+
+
+
+
+function srchkeyChange(element) {
+
+
+
+// 	element.search_add.focus();
+
+
+	if (element.searchkind_add.value=="4") {
+		element.searchrange_add.disabled = true;
+		element.searchrange_add.value = "0";
+	} else if (element.searchkind_add.value=="5") {
+		element.searchrange_add.disabled = true;
+		element.searchrange_add.value = "1";
+	} else if (element.searchkind_add.value=="6") {
+		element.searchrange_add.disabled = true;
+		element.searchrange_add.value = "2";
+	} else if (element.searchkind_add.value=="7") {
+		element.searchrange_add.disabled = true;
+		element.searchrange_add.value = "0";
+	} else if (element.searchkind_add.value=="9") {
+		element.searchrange_add.disabled = true;
+		element.searchrange_add.value = "2";
+	} else {
+		if (element.search_add.value.length == 1) {
+			element.searchrange_add.disabled = true;
+			element.searchrange_add.value = "2";
+		} else {
+
+
+
+			element.searchrange_add.value = document.LBForm.temprange.value;
+
+
+			element.searchrange_add.disabled = false;
+		}
+	}
+}
+
+function onkeyChange(srchdata, element) {
+	if (element.search_add.value.length > 0) {
+		element.ok.disabled = false;
+	} else {
+		element.ok.disabled = true;
+	}
+	if (element.searchkind_add.value=="0" || element.searchkind_add.value=="1"
+		|| element.searchkind_add.value=="2" || element.searchkind_add.value=="3") {
+
+		if (element.search_add.value.length == 1) {
+			element.searchrange_add.disabled = true;
+			element.searchrange_add.value = "2";
+		} else {
+
+
+
+			element.searchrange_add.value = document.LBForm.temprange.value;
+
+
+			element.searchrange_add.disabled = false;
+		}
+	}
+}
+
+
+function onRangeChange(range,temprange){
+    temprange.value = range.value;
+}
+
+
+
+function dispmaxnumChange(select) {
+	document.LBForm.action="WOpacWebTifTilSubListAction.do?pagingMax="+select.value;
+	document.LBForm.submit();
+}
+
+
+function imasuguyoyk(tilcod){
+	if (submitFlg) {
+		submitFlg = false;
+	 var tilcod=tilcod;
+	 var gamenid = document.LBForm.gamenid.value;
+	
+	
+		document.LBForm.action="WOpacTifDirectYoyDispAction.do?tilcod="+tilcod;
+		document.LBForm.submit();
+	
+	
+	}
+}
+function imasuguyoyklogin(yoycartflg,tilcod){
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action="OpacInitLoginAction.do?subSystemFlag=0&yoycartflg="+yoycartflg+"&tilcod="+tilcod;
+		document.LBForm.submit();
+	}
+}
+
+
+
+
+
+function mousemessage(param) {
+
+
+	if (param.id.substring(0,7) == "imasugu") {
+
+		param.title = 'いますぐ予約します。ログインが必要です。';
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function onStockStateChange() {
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action="WOpacWebTifTilListStockStateSearchAction.do";
+		document.LBForm.submit();
+	}
+}
+
+</script>
+
+<div id="Main"><!-- Start div#Main -->
+
+<form name="LBForm" method="post">
+
+<input type="hidden" name="keyKind" value="">
+<input type="hidden" name="keyValue" value="">
+
+
+<input type="hidden" name="hash" value="">
+
+<input type="hidden" name="returnid" value="tiles.WTifSchCmpd">
+<input type="hidden" name="gamenid" value="tiles.WTifTilList">
+
+<input type="hidden" name="sortKey" value="SLSTITL.TITLE_RD,SLSTITL.VOLUME_NUM_ST">
+<input type="hidden" name="isAsc" value="0">
+<input type="hidden" name="oldSortKey" value="SLSTITL.TITLE_RD,SLSTITL.VOLUME_NUM_ST">
+
+
+
+<input type="hidden" name="narrowSchCnt" value="0">
+
+
+
+<input type="hidden" name="rowsPerPage" value="20" />
+
+
+
+
+
+
+
+<input type="hidden" name="temprange" value="0" >
+
+
+
+<div><!-- Start div#FrameHeightCtrl -->
+
+<div><!-- Start div#Heading1 -->
+<div><!-- Start div#Heading1Menu -->
+
+	
+  	
+	
+		<h1 id="Heading1ThisDoc">検索結果書誌一覧</h1>
+	
+
+	
+	
+
+
+
+
+
+
+
+
+
+
+	<div>
+		<ul class="read">
+			
+		  	
+			
+			<li><table><tr><td>書名：<span class="force">ドラゴンボール　　</span></td></tr></table></li>
+			
+			<li>
+			
+			該当件数は
+			<span class="force">49</span>
+			件です。
+
+
+
+			1
+			件目から
+			20
+			件目を表示しています。
+
+
+
+			</li>
+	        
+
+	        <li>
+	        
+	        	<img src="lbcommon/image/i_new.png" alt="NEW" width="28" height="15" class="middle" />
+	        	は新着資料、
+	        
+	        
+	        	<img src="lbcommon/image/i_best.png" alt="BEST" width="28" height="15" class="middle" />
+	        	は予約が多い資料です。
+	        
+	        </li>
+
+	        
+		</ul>
+	</div>
+
+
+	
+    
+    
+ <div class = "limitting color-box">
+ <table>
+    <tr>
+    <td>しぼり込み</td>
+    
+	
+    
+    	
+    	
+    	<td>
+    	
+    	
+    	
+    	<select id="searchkind_add" title="" name="searchkind_add" onchange="srchkeyChange(document.LBForm);">
+    	
+    		
+				
+					
+						<option value='0' selected>
+							書名
+						</option>
+					
+					
+				
+			
+				
+					
+					
+						<option value='1'>
+							著者名
+						</option>
+					
+				
+			
+				
+					
+					
+						<option value='2'>
+							出版者
+						</option>
+					
+				
+			
+				
+					
+					
+						<option value='3'>
+							件名
+						</option>
+					
+				
+			
+				
+					
+					
+						<option value='4'>
+							内容注記
+						</option>
+					
+				
+			
+				
+					
+					
+						<option value='5'>
+							分類
+						</option>
+					
+				
+			
+				
+					
+					
+						<option value='7'>
+							全項目
+						</option>
+					
+				
+			
+		</select>
+		
+		</td>
+		
+		
+
+
+
+
+
+<td>
+
+        <input accesskey="k" type="text" id="search_add" size="32" name="search_add" title='検索キーワード'
+			value=''
+			onchange="onkeyChange(this, document.LBForm);"
+			onkeyup="onkeyChange(this, document.LBForm);"
+
+			
+
+
+			onkeypress="if (event.keyCode==13) {submitNarrow();document.LBForm.searchkind_add.focus();return false;}"
+
+
+			style="ime-mode:active;" onblur="unsetback();return false">
+
+
+		
+
+
+
+</td>
+<td>
+
+		<select id="searchrange_add" name="searchrange_add" onchange="onRangeChange(this,document.LBForm.temprange);">
+
+			
+				
+					
+						<option value='0' selected>
+							この言葉を含む
+						</option>
+					
+					
+				
+			
+				
+					
+					
+						<option value='1'>
+							この言葉で始まる
+               			</option>
+					
+				
+			
+				
+					
+					
+						<option value='2'>
+							この言葉と一致する
+               			</option>
+					
+				
+			
+				
+					
+					
+						<option value='3'>
+							この言葉で終わる
+               			</option>
+					
+				
+			
+		</select>
+
+</td>
+<td>
+
+		
+        
+		
+		
+		
+		
+		
+		
+		
+		<input type="button"  class="button" name="ok" style="color:black;" value='再検索' onclick="submitNarrow()">
+		
+		
+	
+	
+
+
+    </td>
+	
+	
+		
+		<td>在庫状況</td>
+		<td>
+
+
+		
+		
+		
+		<select id="stockState" name="stockState" onchange="onStockStateChange();">
+			
+				
+					
+						<option value='1' selected>
+							全て表示
+						</option>
+					
+					
+				
+			
+				
+					
+					
+						<option value='2'>
+							貸出可のみ
+               			</option>
+					
+				
+			
+				
+					
+					
+						<option value='3'>
+							館内閲覧のみ
+               			</option>
+					
+				
+			
+		</select>
+		
+		
+	
+
+		</td>
+	
+
+	</tr>
+	<tr>
+
+</table>
+
+
+
+
+	</div>
+</div>
+</div>
+
+
+
+<input type="hidden" name="tilcod" value="" />
+<input type="hidden" name="cartExecflg" value="" >
+
+
+
+<div class="main">
+
+
+	  	
+
+
+
+
+
+
+
+		
+		<div class="f-right">
+		
+		<label for="AssistListSelect">表示件数
+		
+			<select id="AssistListSelect" name="dispmaxnum" onchange="dispmaxnumChange(this);">
+				
+					
+						
+						
+							<option value='10'>
+								10件
+		               		</option>
+						
+					
+			       
+					
+						
+							<option value='20' selected>
+								20件
+							</option>
+						
+						
+					
+			       
+					
+						
+						
+							<option value='50'>
+								50件
+		               		</option>
+						
+					
+			       
+					
+						
+						
+							<option value='100'>
+								100件
+		               		</option>
+						
+					
+			       
+			</select>
+			
+			</label>
+			
+		</div>
+		
+
+<table width="100%" class="list" cellpadding="0" cellspacing="0" border="0" summary="書誌一覧">
+<caption><h2>検索結果一覧表</h2></caption>
+
+	<thead>
+	<tr>
+
+
+
+    
+  <th width="3%">
+  No.
+  </th>
+    
+
+
+    
+    
+    
+ 
+  
+
+  
+  
+
+
+<th width="8%" class="sortable" nowrap>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<a id="listTable.SLSTITL.TILSHU"
+	href="WOpacTifTilListDispAction.do?sortKey=SLSTITL.TILSHU&startIndex=0&notPageSort=1&hash="
+	>書誌種別</a>
+
+</th>
+<!--<th scope="col" class="ItemA">
+  書誌種別
+</th>-->
+
+    
+
+
+    
+    
+    
+
+	
+	
+
+    
+    
+ 
+  
+
+   
+  
+  
+  
+
+  
+
+ 
+
+  
+  
+  
+
+  
+  
+
+
+<th width="36%" class="sortable" nowrap>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<a id="listTable.SLSTITL.TITLE_RD,SLSTITL.VOLUME_NUM_ST"
+	href="WOpacTifTilListDispAction.do?sortKey=SLSTITL.TITLE_RD,SLSTITL.VOLUME_NUM_ST&startIndex=0&notPageSort=1&hash="
+	>書名▼</a>
+
+</th>
+<!--<th scope="col" class="ItemB">
+  書名
+</th>-->
+
+
+
+
+
+    
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+
+  
+
+
+  
+  
+
+  
+
+  
+  
+
+  
+
+
+  
+<th width="12%" scope="col"  class="sortable" nowrap>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<a id="listTable.SLSTITL.AUTHER_RD"
+	href="WOpacTifTilListDispAction.do?sortKey=SLSTITL.AUTHER_RD&startIndex=0&notPageSort=1&hash="
+	>著者</a>
+
+</th>
+<!--<th scope="col" class="ItemC">
+ 著者
+</th>-->
+
+    
+
+
+    
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+  
+
+
+  
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<th width="8%" scope="col" class="sortable" nowrap>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<a id="listTable.SLSTITL.PUBLISH_ST"
+	href="WOpacTifTilListDispAction.do?sortKey=SLSTITL.PUBLISH_ST&startIndex=0&notPageSort=1&hash="
+	>出版者</a>
+
+</th>
+ <!--<th scope="col" class="ItemD">
+  出版者
+  </th>-->
+
+    
+
+
+    
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+ 
+ 
+
+
+  
+   
+
+  
+
+  
+
+  
+
+  
+
+  
+   <th width="7%" scope="col" class="sortable" nowrap>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<a id="listTable.SLSTITL.PUBYMD_ST"
+	href="WOpacTifTilListDispAction.do?sortKey=SLSTITL.PUBYMD_ST&startIndex=0&notPageSort=1&hash="
+	>出版年月</a>
+
+</th>
+ <!-- <th scope="col" class="ItemE">
+  出版年月
+  </th>-->
+
+    
+
+
+    
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+
+
+
+  
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+ <th width="6%" scope="col" class="sortable" nowrap>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<a id="listTable.SLSTITL.NDC1,SLSTITL.NDC2,SLSTITL.NDC3"
+	href="WOpacTifTilListDispAction.do?sortKey=SLSTITL.NDC1,SLSTITL.NDC2,SLSTITL.NDC3&startIndex=0&notPageSort=1&hash="
+	>分類</a>
+
+</th>
+  <!--<th scope="col" class="ItemF">
+  分類
+  </th>-->
+
+    
+
+
+    
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <th width="4%" scope="col" nowrap>
+  貸出
+  </th>
+    
+
+
+    
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+	
+	 
+	  <th width="6%">
+	  操作
+	  </th>
+    
+
+		
+
+   		
+
+
+		<!--
+		<th scope="col" class="ItemTh">No.</th>
+		<th scope="col" class="ItemA">書誌種別</th>
+		<th scope="col" class="ItemB">書名</th>
+		<th scope="col" class="ItemC">著者</th>
+		<th scope="col" class="ItemD">出版社</th>
+		<th scope="col" class="ItemE">出版年</th>
+		<th scope="col" class="ItemF">分類</th>
+		<th scope="col" class="ItemG">予約</th>
+		<th scope="col" class="ItemH">貸出</th>
+		-->
+	</tr>
+	</thead>
+<tbody>
+
+
+
+
+
+
+      
+  
+   <tr class="ItemNo OddNum">
+  
+  
+
+
+
+
+
+
+  <th>
+  1
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  一般図書
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1000000255009' onclick ='javascript:toDetail("1000000255009");return false;'>マンガのなかの〈他者〉　　　(ビジュアル文化シリーズ)</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="伊藤　公雄／編で再検索" onclick ='javascript:toDetail1("伊藤　公雄／編","1");return false;'>伊藤　公雄／編</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="臨川書店で再検索" onclick ='javascript:toDetail1("臨川書店","2");return false;'>臨川書店</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  2008/10
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726.1
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton0" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1000000255009)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton0" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1000000255009"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1000000255009');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+  
+   <tr class="ItemNo EvenNum">
+  
+
+
+
+
+
+
+  <th>
+  2
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  視聴覚
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=3000000018776' onclick ='javascript:toDetail("3000000018776");return false;'>FLOW THE BEST　　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="FLOW／演奏で再検索" onclick ='javascript:toDetail1("FLOW／演奏","1");return false;'>FLOW／演奏</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="ソニー・ミュージックレーベルズで再検索" onclick ='javascript:toDetail1("ソニー・ミュージックレーベルズ","2");return false;'>ソニー・ミュージックレーベルズ</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  2018/03
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+C1ﾌﾛ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton1" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(3000000018776)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton1" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu3000000018776"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','3000000018776');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+   <tr class="ItemNo OddNum">
+  
+  
+
+
+
+
+
+
+  <th>
+  3
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000354429' onclick ='javascript:toDetail("1001000354429");return false;'>ドラゴンボール　巻４２　バイバイドラゴンワールド　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1995/08
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton2" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000354429)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton2" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000354429"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000354429');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+  
+   <tr class="ItemNo EvenNum">
+  
+
+
+
+
+
+
+  <th>
+  4
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000349782' onclick ='javascript:toDetail("1001000349782");return false;'>ドラゴンボール　巻４１　がんばれ超ゴテンクスくん　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1995/06
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton3" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000349782)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton3" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000349782"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000349782');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+   <tr class="ItemNo OddNum">
+  
+  
+
+
+
+
+
+
+  <th>
+  5
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000345103' onclick ='javascript:toDetail("1001000345103");return false;'>ドラゴンボール　巻４０　地球軍、最後の秘密兵器　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1995/03
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton4" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000345103)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton4" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000345103"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000345103');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+  
+   <tr class="ItemNo EvenNum">
+  
+
+
+
+
+
+
+  <th>
+  6
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000340888' onclick ='javascript:toDetail("1001000340888");return false;'>ドラゴンボール　巻３９　さらば誇り高き戦士　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1994/12
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton5" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000340888)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton5" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000340888"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000340888');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+   <tr class="ItemNo OddNum">
+  
+  
+
+
+
+
+
+
+  <th>
+  7
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000333943' onclick ='javascript:toDetail("1001000333943");return false;'>ドラゴンボール　巻３８　宿命の対決孫悟空対ベジータ　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1994/08
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton6" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000333943)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton6" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000333943"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000333943');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+  
+   <tr class="ItemNo EvenNum">
+  
+
+
+
+
+
+
+  <th>
+  8
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000327328' onclick ='javascript:toDetail("1001000327328");return false;'>ドラゴンボール　巻３７　動き始めた作戦　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1994/04
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   
+   ×
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton7" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000327328)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton7" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000327328"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000327328');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+   <tr class="ItemNo OddNum">
+  
+  
+
+
+
+
+
+
+  <th>
+  9
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000319524' onclick ='javascript:toDetail("1001000319524");return false;'>ドラゴンボール　巻３６　ニューヒーロー誕生！！　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1993/11
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   
+   ×
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton8" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000319524)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton8" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000319524"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000319524');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+  
+   <tr class="ItemNo EvenNum">
+  
+
+
+
+
+
+
+  <th>
+  10
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000317307' onclick ='javascript:toDetail("1001000317307");return false;'>ドラゴンボール　巻３５　さようなら戦士たち　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1993/09
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   
+   ×
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton9" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000317307)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton9" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000317307"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000317307');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+   <tr class="ItemNo OddNum">
+  
+  
+
+
+
+
+
+
+  <th>
+  11
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000319090' onclick ='javascript:toDetail("1001000319090");return false;'>ドラゴンボール　巻３４　悟空を超えた戦士　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1993/00
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton10" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000319090)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton10" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000319090"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000319090');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+  
+   <tr class="ItemNo EvenNum">
+  
+
+
+
+
+
+
+  <th>
+  12
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000317306' onclick ='javascript:toDetail("1001000317306");return false;'>ドラゴンボール　巻３３　セルゲーム始まる　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1992/00
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   
+   ×
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton11" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000317306)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton11" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000317306"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000317306');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+   <tr class="ItemNo OddNum">
+  
+  
+
+
+
+
+
+
+  <th>
+  13
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000317305' onclick ='javascript:toDetail("1001000317305");return false;'>ドラゴンボール　巻３２　セルの完全体完成　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1994/00
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton12" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000317305)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton12" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000317305"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000317305');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+  
+   <tr class="ItemNo EvenNum">
+  
+
+
+
+
+
+
+  <th>
+  14
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000317303' onclick ='javascript:toDetail("1001000317303");return false;'>ドラゴンボール　巻３１　忍びよるセル　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1992/08
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton13" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000317303)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton13" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000317303"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000317303');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+   <tr class="ItemNo OddNum">
+  
+  
+
+
+
+
+
+
+  <th>
+  15
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000317302' onclick ='javascript:toDetail("1001000317302");return false;'>ドラゴンボール　巻３０　邪悪な予感　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1992/06
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton14" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000317302)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton14" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000317302"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000317302');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+  
+   <tr class="ItemNo EvenNum">
+  
+
+
+
+
+
+
+  <th>
+  16
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000317301' onclick ='javascript:toDetail("1001000317301");return false;'>ドラゴンボール　巻２９　悟空敗れる　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1992/03
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton15" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000317301)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton15" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000317301"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000317301');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+   <tr class="ItemNo OddNum">
+  
+  
+
+
+
+
+
+
+  <th>
+  17
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000317300' onclick ='javascript:toDetail("1001000317300");return false;'>ドラゴンボール　巻２８　未来から来た少年　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1991/11
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton16" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000317300)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton16" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000317300"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000317300');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+  
+   <tr class="ItemNo EvenNum">
+  
+
+
+
+
+
+
+  <th>
+  18
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000317299' onclick ='javascript:toDetail("1001000317299");return false;'>ドラゴンボール　巻２７　伝説の超サイヤ人　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1991/08
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton17" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000317299)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton17" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000317299"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000317299');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+   <tr class="ItemNo OddNum">
+  
+  
+
+
+
+
+
+
+  <th>
+  19
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000317298' onclick ='javascript:toDetail("1001000317298");return false;'>ドラゴンボール　巻２６　孫悟空復活　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1994/06
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton18" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000317298)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton18" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000317298"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000317298');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+      
+  
+  
+   <tr class="ItemNo EvenNum">
+  
+
+
+
+
+
+
+  <th>
+  20
+  </th>
+    
+
+
+
+    
+    
+  
+    
+  <td>
+  コミック
+</td>
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+  
+  <td class="sorthere">
+
+                    
+                    
+                    
+                    
+                    
+                    
+
+
+  
+  
+  
+<strong><a href='WOpacTifTilListToTifTilDetailAction.do?urlNotFlag=1&tilcod=1001000317297' onclick ='javascript:toDetail("1001000317297");return false;'>ドラゴンボール　巻２５　フリーザ超変身　　</a></strong>
+
+
+</td>
+    
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+  
+    
+
+
+
+
+
+
+
+
+ 
+
+
+
+  <td>
+                    
+
+          
+
+          
+<div class="innerScrollCell"  name="innerScrollCell"><strong><a href='#' name="tiptitle" value="鳥山明／著で再検索" onclick ='javascript:toDetail1("鳥山明／著","1");return false;'>鳥山明／著</a></strong></div>
+
+
+                    
+                    
+</td>
+
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+  
+    
+
+
+
+
+    
+   
+    
+
+  
+      
+
+  <td>
+                    
+
+          
+
+          
+          <div class="innerScrollCell" name="innerScrollCell"><strong><a href='#' name="tiptitle" value="集英社で再検索" onclick ='javascript:toDetail1("集英社","2");return false;'>集英社</a></strong></div>
+
+
+                    
+                    
+</td>
+    
+
+
+
+
+    
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+  
+
+    
+    
+    
+
+  
+   
+    
+
+  
+   
+
+  <td>
+  1991/03
+</td>
+
+
+
+
+    
+
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
+  
+
+
+
+
+
+ 
+
+
+
+
+
+<td>
+726ﾄﾘ
+</td>
+
+
+
+
+
+  
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  <td class="a-center">
+
+
+
+
+
+
+	
+
+
+
+ 
+ 
+
+   ○
+   
+
+   
+
+
+
+
+	
+
+    
+
+  </td>
+    
+
+
+
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
+
+
+    
+    
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td class="nowrap">
+<div id="yoycartButton19" style="display:none;">
+
+
+
+
+
+
+      
+     
+     
+
+     
+     <input  type="button" onclick ="javascript:inYoyCart(1001000317297)"  class="button exec" value="カート" title='予約候補としてカートに入れます'>
+
+     
+
+     
+
+
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="yoyButton19" style="display:none;">
+
+
+
+
+
+
+
+
+
+
+
+<input  type="button"  id="imasugu1001000317297"
+
+class="button exec"
+onclick="javascript:imasuguyoyklogin('WYoyConfirm','1001000317297');"
+value="予約"
+ onmouseover="mousemessage(this);">
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</td>
+
+	
+
+
+
+
+
+ </tr>
+  
+
+
+
+</tbody>
+<!-- End table#ResultTable --></table>
+
+<!-- End div#Result --></div>
+
+
+
+
+
+
+<!-- End div#FrameHeightCtrl --></div>
+
+
+
+<div class="paging p-bot">
+
+	
+	   
+
+      
+
+	   
+	   
+	
+
+	
+	
+	
+	
+		
+				
+		
+		
+			<span class="cur">1&nbsp;</span>
+		
+
+	
+		
+				
+				<a href="WOpacTifTilListDispAction.do?sortKey=SLSTITL.TITLE_RD,SLSTITL.VOLUME_NUM_ST&startIndex=20&hash=">2&nbsp;</a>
+				
+		
+		
+
+	
+		
+				
+				<a href="WOpacTifTilListDispAction.do?sortKey=SLSTITL.TITLE_RD,SLSTITL.VOLUME_NUM_ST&startIndex=40&hash=">3&nbsp;</a>
+				
+		
+		
+
+	
+	
+		
+		<a href="WOpacTifTilListDispAction.do?sortKey=SLSTITL.TITLE_RD,SLSTITL.VOLUME_NUM_ST&startIndex=20&hash=">次へ</a>
+	
+
+	
+		<a href="WOpacTifTilListDispAction.do?sortKey=SLSTITL.TITLE_RD,SLSTITL.VOLUME_NUM_ST&startIndex=40&hash=">最後へ&nbsp;</a>
+	
+
+	<div class="clear"></div>
+</div>
+
+
+
+
+<h2 class="skip">カートを確認して 予約に進みます。</h2>
+
+
+	
+	<div class="ex-navi">
+		<input type="button" tabindex="200" onclick="javascript:yoycart()" class="button exec large" value="カートを見る（予約へ進む）">
+	</div>
+
+
+</form>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+	
+	
+		<a class="goprev upper" href="javascript:back()" accesskey="3" tabindex="802" title="前のページヘもどる" >前のページへ</a>
+	
+	
+
+	<div class="pg-navi">
+	<!-- ページの先頭へ -->
+	
+	
+		<a class="goptop" href="#PAGETOP" accesskey="2" title="このページの先頭へ" tabindex="801">このページの先頭へ</a>
+	
+
+	
+	<!-- 前のページへ -->
+	<!--
+	
+	
+		<a class="goback" href="javascript:back()" accesskey="3" tabindex="802">前のページへ</a>
+	
+	-->
+	
+
+	<!-- トップページへ -->
+	
+	
+	    
+		<a class="gohome" href='https://tosho.nishi.or.jp/?v=PC' accesskey="4"  title="図書館トップページへ" tabindex="803">トップペOTifSchNdcList_X.NDC0ジへ</a>
+	
+</div>
+<br class="clear">
+
+</div>
+</body>
+<script language="javascript">
+
+$(document).ready(function(){
+	$.post("getIsYoy.do",{ tilcod:"1000000255009" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton0").css("display","inline");$("#yoyButton0").css("display","inline");} else {$("#yoycartButton0").css("display","none");$("#yoyButton0").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"3000000018776" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton1").css("display","inline");$("#yoyButton1").css("display","inline");} else {$("#yoycartButton1").css("display","none");$("#yoyButton1").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000354429" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton2").css("display","inline");$("#yoyButton2").css("display","inline");} else {$("#yoycartButton2").css("display","none");$("#yoyButton2").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000349782" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton3").css("display","inline");$("#yoyButton3").css("display","inline");} else {$("#yoycartButton3").css("display","none");$("#yoyButton3").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000345103" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton4").css("display","inline");$("#yoyButton4").css("display","inline");} else {$("#yoycartButton4").css("display","none");$("#yoyButton4").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000340888" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton5").css("display","inline");$("#yoyButton5").css("display","inline");} else {$("#yoycartButton5").css("display","none");$("#yoyButton5").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000333943" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton6").css("display","inline");$("#yoyButton6").css("display","inline");} else {$("#yoycartButton6").css("display","none");$("#yoyButton6").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000327328" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton7").css("display","inline");$("#yoyButton7").css("display","inline");} else {$("#yoycartButton7").css("display","none");$("#yoyButton7").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000319524" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton8").css("display","inline");$("#yoyButton8").css("display","inline");} else {$("#yoycartButton8").css("display","none");$("#yoyButton8").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000317307" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton9").css("display","inline");$("#yoyButton9").css("display","inline");} else {$("#yoycartButton9").css("display","none");$("#yoyButton9").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000319090" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton10").css("display","inline");$("#yoyButton10").css("display","inline");} else {$("#yoycartButton10").css("display","none");$("#yoyButton10").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000317306" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton11").css("display","inline");$("#yoyButton11").css("display","inline");} else {$("#yoycartButton11").css("display","none");$("#yoyButton11").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000317305" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton12").css("display","inline");$("#yoyButton12").css("display","inline");} else {$("#yoycartButton12").css("display","none");$("#yoyButton12").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000317303" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton13").css("display","inline");$("#yoyButton13").css("display","inline");} else {$("#yoycartButton13").css("display","none");$("#yoyButton13").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000317302" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton14").css("display","inline");$("#yoyButton14").css("display","inline");} else {$("#yoycartButton14").css("display","none");$("#yoyButton14").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000317301" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton15").css("display","inline");$("#yoyButton15").css("display","inline");} else {$("#yoycartButton15").css("display","none");$("#yoyButton15").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000317300" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton16").css("display","inline");$("#yoyButton16").css("display","inline");} else {$("#yoycartButton16").css("display","none");$("#yoyButton16").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000317299" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton17").css("display","inline");$("#yoyButton17").css("display","inline");} else {$("#yoycartButton17").css("display","none");$("#yoyButton17").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000317298" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton18").css("display","inline");$("#yoyButton18").css("display","inline");} else {$("#yoycartButton18").css("display","none");$("#yoyButton18").css("display","none");}}},"json");$.post("getIsYoy.do",{ tilcod:"1001000317297" }, function(data, status) {if (data) {if (data.isYoy == "1") {$("#yoycartButton19").css("display","inline");$("#yoyButton19").css("display","inline");} else {$("#yoycartButton19").css("display","none");$("#yoyButton19").css("display","none");}}},"json");
+});
+
+</script>
+
+
+
+
+	
+
+</div><!-- end of div body -->
+
+
+
+
+
+<!--
+****************************************
+             Footer Area
+****************************************
+-->
+<p class="skip">本文はここまでです。</p>
+<hr class="skip">
+<div id="foot">
+<div id="copyright">
+Copyright (c) Nishinomiya City Library, since2000, All rights reserved.
+
+</div><!-- end of div copyright -->
+
+</div><!-- end of div foot -->
+<p class="skip">ページの終わりです。</p>
+
+
+</div><!-- end of div contents -->
+</div><!-- end of div wrapper -->
+
+
+
+
+
+<script language="javascript">
+submitFlg = true;
+var gamenid = document.LBForm.gamenid.value;
+var returnidmenu = document.LBForm.returnid.value;
+
+
+
+//if (document.getElementById("menu")!=null) {
+// かんたん検索
+
+var searchtab = 1;
+
+if (gamenid=="tiles.WEsSchCmpd") {
+
+	
+
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab cur easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2") !=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+// 典拠検索
+if (gamenid=="tiles.WDicSchAutho") {
+	document.getElementById("sch-auth").className="cur";
+}
+// 検索結果典拠一覧
+if (gamenid=="tiles.WDicAuthoList") {
+	document.getElementById("sch-auth").className="cur";
+}
+// ジャンル選択
+if (gamenid=="tiles.WTifJunlCho") {
+	document.getElementById("sch-genr").className="cur";
+}
+if (gamenid=="tiles.WTifJunlChoReload") {
+	document.getElementById("sch-genr").className="cur";
+}
+// 詳細検索
+if (gamenid=="tiles.WTifSchCmpd") {
+	document.getElementById("sch-cmpd").className="cur";
+}
+// 貸出／予約ベスト種別選択
+if (gamenid=="tiles.WMsgRankMenu") {
+	document.getElementById("lst-best").className="cur";
+}
+// 貸出／予約ベスト一覧
+if (gamenid=="tiles.WMsgRankList") {
+	document.getElementById("lst-best").className="cur";
+}
+// 新着一覧
+if (gamenid=="tiles.WMsgNewMenu") {
+	document.getElementById("lst-bnew").className="cur";
+}
+// 新着資料一覧
+if (gamenid=="tiles.WMsgNewList") {
+	document.getElementById("lst-bnew").className="cur";
+}
+
+// テーマ
+if (gamenid=="tiles.WSdiTmeMenu") {
+	document.getElementById("lst-tme").className="cur";
+}
+// テーマリスト一覧
+if (gamenid=="tiles.WSdiTmeList") {
+	document.getElementById("lst-tme").className="cur";
+}
+// テーマ資料一覧
+if (gamenid=="tiles.WSdiTmeMtaList") {
+	document.getElementById("lst-tme").className="cur";
+}
+
+// レファレンス検索
+if (gamenid=="tiles.WRefSearch") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+// レファレンス検索結果一覧
+if (gamenid=="tiles.WRefList") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+// 検索結果レファレンス詳細
+if (gamenid=="tiles.WRefDetail") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+
+if (gamenid=="tiles.WRefCho") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+if (gamenid=="tiles.WRefChoList") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+if (gamenid=="tiles.WRefChoListReload") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+
+ // 貸出状況一覧
+if (gamenid=="tiles.WUsrLendList") {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+
+
+	if (document.getElementById("myUsrLend")!=null){
+	document.getElementById("myUsrLend").className="cur";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+if (gamenid=="tiles.WUsrReadList") {
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	if (document.getElementById("myUsrRead")!=null){
+		document.getElementById("myUsrRead").className="cur";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+ // 予約状況一覧
+if (gamenid=="tiles.WUsrRsvList") {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+
+
+	if (document.getElementById("myUsrRsv")!=null){
+	document.getElementById("myUsrRsv").className="cur";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+var booklistdispflg = '';
+// マイブックリスト
+if (gamenid=="tiles.WSdiBookList" && booklistdispflg == '1' ) {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+
+
+if (document.getElementById("MyBookList")!=null){
+	document.getElementById("MyBookList").className="cur";
+}
+
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+
+}
+if (gamenid=="tiles.WSdiBookListNew" && booklistdispflg == '1') {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+
+
+if (document.getElementById("MyBookList")!=null){
+	document.getElementById("MyBookList").className="cur";
+}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WSdiBookListMainte" && booklistdispflg == '1') {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+
+
+if (document.getElementById("MyBookList")!=null){
+	document.getElementById("MyBookList").className="cur";
+}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+// マイライブラリー
+if (gamenid=="tiles.WPwdPortalMenuSpl") {
+
+	if (document.getElementById("myMenuSpl")!=null){
+		document.getElementById("myMenuSpl").className="cur";
+	}
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+// 利用者情報メンテナンス
+if (gamenid=="tiles.WPwdPortalMenu") {
+
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WAplMenu") {
+
+	
+	if (searchtab == '1'){
+
+		
+
+
+		document.getElementById("miscS").className="tab miscS";
+
+
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+
+		
+
+
+		document.getElementById("miscS").className="tab miscS";
+
+
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+
+	
+	if (document.getElementById("myAplmenu") != null) {
+		document.getElementById("myAplmenu").className="cur";
+	}
+
+
+	
+	document.getElementById("man-pinf").className="tab mylib";
+
+
+	
+	if (document.getElementById("menu2") != null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+
+	if (document.getElementById("menu1") != null) {
+		document.getElementById("menu1").style.display = "none";
+	}
+}
+
+if (gamenid=="tiles.WUsrChPass") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WUsrChMail") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WYoyRakChange") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+if (gamenid=="tiles.WUsrRtnMail") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+// 予約カートを見る
+if (gamenid=="tiles.WYoyCart") {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+// 分類検索
+
+
+
+
+if (gamenid=="tiles.WTifSchNdc" || gamenid=="tiles.WTifSchNdc_X") {
+
+
+	document.getElementById("sch-clas").className="cur";
+}
+
+
+//検索結果 書誌一覧
+if (gamenid=="tiles.WEsTilList") {
+	document.getElementById("miscS").className="tab miscS";
+	document.getElementById("easyS").className="tab cur easyS";
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+
+
+if (gamenid=="tiles.WTifTilList") {
+	if (returnidmenu=="tiles.WEsSchCmpd") {
+		document.getElementById("miscS").className="tab miscS";
+    	document.getElementById("easyS").className="tab cur easyS";
+    	document.getElementById("menu1").style.display = "none";
+	} else {
+
+		
+		if (searchtab == '1'){
+			document.getElementById("miscS").className="tab cur miscS";
+			document.getElementById("easyS").className="tab easyS";
+		} else {
+			document.getElementById("miscS").className="tab cur miscS";
+			document.getElementById("easyS").className="tab1 easyS";
+		}
+
+		document.getElementById("menu1").style.display = "block";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+}
+
+
+
+//検索結果書誌詳細
+
+
+if (gamenid=="tiles.WTifTilDetail"|| gamenid=="tiles.WTifTilDetail2"||gamenid=="tiles.WTifTilDetail3") {
+
+
+	
+
+    
+    if (returnidmenu=="tiles.WEsTilList" || returnidmenu=="tiles.WEsYoyConfirm"|| returnidmenu=="tiles.WEsSchCmpd"|| ""=="KanTan") {
+
+
+    	document.getElementById("miscS").className="tab miscS";
+    	document.getElementById("easyS").className="tab cur easyS";
+    }else {
+
+		
+		if (searchtab == '1'){
+
+			if(document.LBForm.kensaku.value=="kantan"){
+				document.getElementById("miscS").className="tab miscS";
+		    	document.getElementById("easyS").className="tab cur easyS";
+			}else{
+
+				document.getElementById("miscS").className="tab cur miscS";
+				document.getElementById("easyS").className="tab easyS";
+			}
+		} else {
+			document.getElementById("miscS").className="tab cur miscS";
+			document.getElementById("easyS").className="tab1 easyS";
+		}
+
+    }
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+
+
+//新着図書お知らせサービス
+if (gamenid=="tiles.WSdiInput") {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+    document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+
+//予約確認
+if (gamenid=="tiles.WYoyConfirm") {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab cur miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab cur miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WEsYoyConfirm") {
+	document.getElementById("miscS").className="tab miscS";
+	document.getElementById("easyS").className="tab cur easyS";
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+// システムエラー
+if (gamenid=="tiles.WPubErr") {
+	document.getElementById("panks").className="notice";
+}
+//}
+
+
+if (gamenid=="tiles.WReqOdrUke") {
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+
+if (gamenid=="tiles.WSinSeiUsr" || gamenid=="tiles.WSinMailAnnai" ||gamenid=="tiles.WSinChkMail"
+		||gamenid=="tiles.WSinChkPass"||gamenid=="tiles.WSinSeiChk"||gamenid=="tiles.WSinSeiChkPass"||gamenid=="tiles.WSinSeiErro") {
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+if (gamenid == "tiles.WSdiMailInfList") {
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	if (document.getElementById("menu1")!=null) {
+		document.getElementById("menu1").style.display = "none";
+	}
+}
+
+
+
+if (gamenid=="tiles.WUsrRtnLendHistory") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+if (gamenid=="tiles.WUserInfoBarCodeDsp") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+
+if (gamenid=="tiles.WUsrRtnNickrmd") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+if (gamenid=="tiles.WUsrMyreviewList") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WUsrMyreviewEdit") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+if (gamenid == "tiles.WRefRefUke" || gamenid == "tiles.WRefRefChk" ||
+		gamenid == "tiles.WAplPwdAgr" || gamenid == "tiles.WAplPwdChk" ||
+		gamenid == "tiles.WAplPwdApl" || gamenid == "tiles.WYpwPwdApl" ||
+		gamenid == "tiles.WYpwPwdChk" || gamenid == "tiles.WAplKariPwdApl") {
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+</script>
+
+
+
+<script language="javascript">
+
+if (isFirefox=navigator.userAgent.indexOf("Firefox")>0){
+    window.onunload = function () {
+      // 予防再送フラグ
+	  var submitFlg = false;
+   }
+}
+
+
+if(navigator.userAgent.indexOf("Safari")>0 ||
+navigator.userAgent.indexOf("Chrome")>0) {
+	window.onunload = function () {
+      // 予防再送フラグ
+	  var submitFlg = false;
+	}
+}
+
+
+
+
+
+window.onpageshow=function(event){
+	if(event.persisted){
+		submitFlg = true;
+	}
+}
+
+/*
+	window.document.onkeydown = function () {
+		if (event.keyCode == 8){
+			event.keyCode = null;
+		}
+		return;
+	}
+*/
+
+	function htmlMessage2dialog() {
+		var messagesElem = document.getElementById("messages");
+		if (!messagesElem) {
+			return;
+		}
+
+		var lis = messagesElem.getElementsByTagName("li");
+		if (lis.length < 1) {
+			return;
+		}
+
+		var messageText = "";
+		for (var i = 0; i < lis.length; i++) {
+			if (i > 0) { messageText +=  "\n"; }
+			messageText += nodeText(lis[i]);
+		}
+
+		if (messageText.length > 0) {
+			alert(messageText);
+		}
+
+	}
+
+	function nodeText(node) {
+		var messageText = "";
+		for (var i = 0; i < node.childNodes.length; i++) {
+			if (node.childNodes[i].nodeValue &&
+				node.childNodes[i].nodeValue.replace(" ", "").length > 0) {
+				messageText += node.childNodes[i].nodeValue + "\n";
+			}
+		}
+		return messageText;
+	}
+	htmlMessage2dialog();
+
+
+</script>
+
+<script language="javascript">
+
+
+
+function showChangingPswMsg() {
+	var message = "パスワードが{0}以上変更されていません。このままパスワードの変更画面を表示しますか？";
+	message = message.replace("{0}", 'null');
+	if (lbConfirm(message)) {
+		document.LBForm.action="WOpacUsrChPassDispAction.do";
+		document.LBForm.submit();
+	}
+}
+
+
+
+
+
+
+
+
+	
+
+</script>
+
+</html>

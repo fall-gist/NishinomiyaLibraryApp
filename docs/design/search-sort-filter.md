@@ -59,6 +59,18 @@
 件数は一致したが、**中身が完全に同じかは未検証**。書名「含む」の「ドラゴンボール」は49件。
 （訂正 2026-10-05: 当初「376件」と書いたが、それは文字化けした語で送った別の検索の件数だった。採取HTMLの実値は49件）
 
+### 2.4 追加の実測（2026-10-05、独立レビューの指摘を受けて。閲覧のみ）
+
+- **既定の並び**: 実行直後の結果は見出しが「書名▲」だが、結果画面の `LBForm` の hidden は `sortKey=""`・`isAsc=""`（並べ替えの状態は空）。
+  書名キーを1回送ると、先頭6件は既定と同じ並びのまま、hidden が `sortKey=SLSTITL.TITLE_RD,SLSTITL.VOLUME_NUM_ST`・`isAsc=1` になる。
+  2回目で `isAsc=0`・「書名▼」（`tif_search_result_title_asc_clicked.html`・`tif_search_result_title_desc.html`）。
+  → **並べ替えの状態は見出しの ▲▼ ではなく hidden の `sortKey`・`isAsc` で判断する**。hidden の `sortKey` が望む項目と違えば必ず1回送る
+- **在庫状況→並べ替え→2ページ目**: 在庫状況（貸出可のみ、49件→43件）の後に出版年月で並べ替え、2ページ目へ送っても、
+  件数43・`stockState=2`・並べ替え（`isAsc=1`）が保たれる（`tif_search_result_stock_lendable_pubymd_asc.html`・`_page2.html`）。
+  在庫状況の直後は `sortKey=""`・`isAsc="0"`
+- **0件**: 結果の表ではなく詳細検索の入力画面（`<title>詳細検索`）が返り、スクリプト内に「該当する書誌がありません。」が出る。
+  `LBForm` はあるが `stockState` も結果の表も無い（`tif_search_zero.html`）
+
 ## 3. 設計
 
 ### 3.1 検索条件（ドメイン）
