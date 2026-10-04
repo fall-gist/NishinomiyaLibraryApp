@@ -1,0 +1,7227 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<html lang="ja">
+
+
+<head>
+	<!-- ***** meta ***** -->
+	<meta http-equiv="content-type" content="text/html; charset=utf-8">
+	<meta http-equiv="content-script-type" content="text/javascript">
+	<meta http-equiv="content-style-type" content="text/css">
+	<meta http-equiv="imagetoolbar" content="no">
+	<meta http-equiv="pragma" content="no-cache">
+	<meta http-equiv="cache-control" content="no-cache">
+	<meta http-equiv="expires" content="-1">
+	<meta name="author" content="Library">
+	<meta name="copyright" content="Copyright (c) Library">
+	<meta name="keywords" content="図書館, 詳細検索, 書名, 著者名, 出版者">
+	<meta name="description" content="詳細な条件で図書の検索ができます。書名や著者名、出版者、分類、書誌の種別、出版年度などの条件が使用できます。">
+
+	<!-- ***** style sheet ***** -->
+	<link rel="stylesheet" type="text/css" media="screen,all" charset="utf-8" href="lbcommon/webopac/css/cmn.css">
+    <link rel="stylesheet" type="text/css" media="print" charset="utf-8" href="lbcommon/webopac/css/print.css">
+
+	
+	   	
+	   	
+	  	
+	  	
+	
+
+	<!-- ***** rss ***** -->
+	<!-- rss 2.0 -->
+	<script language="JavaScript" src="lbcommon/js/common.js"></script>
+	<!-- prototype.js (http://prototype.conio.net/) 関連 -->
+	<!-- 位置・座標関連 -->
+	<script language="JavaScript" src="lbcommon/js/position.js"></script>
+	<!-- 警告音　-->
+	<script language="JavaScript" src="lbcommon/js/lbwebdialog.js"></script>
+
+	<!-- WebOPAC用 -->
+	<script language="JavaScript" src="lbcommon/webopac/js/cmn.js"></script>
+
+
+	<script type="text/javascript" src="lbcommon/webopac/js/jquery-1.9.1.js"></script>
+	<script type="text/javascript" src="lbcommon/webopac/js/jquery-ui-1.10.3.custom.min.js"></script>
+	<link rel="stylesheet" type="text/css" media="screen,all" charset="utf-8" href="lbcommon/webopac/css/jquery-ui-1.10.3.custom.css">
+
+	<!-- インナースクロールセルのスクロール領域の高さを、親要素の高さに合わせて調整 -->
+
+
+
+	<script type="text/javascript" src="lbcommon/webopac/js/soft_key.js"></script>
+	<style type="text/css">
+		a.tab1 {
+			float: left;
+			padding: 9px 12px 5px 8px;
+			margin: 3px 8px 0 0;
+			border-radius: 8px 8px 0 0;
+			position: relative;
+			width: 10%;
+		}
+	</style>
+
+	
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+	<script language="javascript">
+	
+	var isLogoutForHtmlLink = 'null';
+	if ('1' == isLogoutForHtmlLink) {
+		window.location.href='https://tosho.nishi.or.jp/?v=PC';
+	}
+	
+
+	// 予防再送フラグ
+	var submitFlg = false;
+
+	function searchdetail() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacTifSchCmpdDispAction.do";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+
+
+	function mousemessage1(param) {
+
+		if (param.id == "stat-cart") {
+			
+				param.title = 'カートには予約候補の資料を一時的に集めておくことができます';
+			
+		}
+	}
+
+
+	function detailsearch() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacDicSchAuthoDispAction.do";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+
+	var yoycartflg;
+	function login(yoycartflg) {
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="OpacInitLoginAction.do?subSystemFlag=0&yoycartflg="+yoycartflg;
+			document.LBForm.submit();
+		}
+	}
+
+
+	function allowFwd(){
+		if ("1" == document.LBFormMF.loginFlg.value) {
+			document.LBForm.action="WOpacPwdLoginCommonAction.do";
+			document.LBForm.submit();
+		}else{
+			submitFlg = true;
+		}
+	}
+	function allowFwd2(){
+		if ("1" == document.LBFormMF.loginOutFlg.value) {
+			document.LBForm.action="WOpacPwdLogoutAction.do";
+			document.LBForm.submit();
+		}else{
+			submitFlg = true;
+		}
+	}
+
+	function yoycart() {
+		if (submitFlg) {
+
+
+
+			//submitFlg = false;
+			if (0 != "1" && 2 == "2") {
+				login("YoyCardDisp");
+			} else{
+				submitFlg = false;
+				document.LBForm.action="WOpacCommonToYoyCartDispAction.do?yoyCmtknjFlg=1";
+				document.LBForm.submit();
+			}
+
+
+		}
+	}
+
+	function back() {
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="WOpacCommonBackAction.do";
+			document.LBForm.submit();
+		}
+	}
+
+	function genre(){
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacTifJunlChoDispAction.do?moveToGamenId=tifjunlcho";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+	function category(){
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacTifSchNdcDispAction.do?moveToGamenId=tifschndc";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+	function toAplmenu() {
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="WOpacMnuTopInitAction.do?WebLinkFlag=1&moveToGamenId=aplmenu";
+			document.LBForm.submit();
+		}
+	}
+	//マイ図書館ポータル
+	function toMyLibrary(){
+		if (submitFlg) {
+
+			if (0 != "1") {
+				login("MyLibrary");
+			} else{
+				submitFlg = false;
+				document.LBForm.action="WOpacCommonToPwdLibraryAction.do";
+				document.LBForm.submit();
+			}
+		}
+	}
+
+	//利用者情報設定
+	function toPwdLibrary(){
+		if (submitFlg) {
+
+			submitFlg = false;
+			document.LBForm.action="WOpacPwdLibraryDispAction.do";
+			document.LBForm.submit();
+		}
+	}
+
+	//かんたん検索
+	function toTifEsSch(){
+		if (submitFlg) {
+
+			submitFlg = false;
+
+			
+			document.LBForm.action="WOpacEsSchCmpdDispAction.do?moveToGamenId=esschcmpd";
+
+			document.LBForm.submit();
+		}
+	}
+
+
+	function toMyELib(){
+		
+		var elibflg = '1';
+
+		var user_agent = navigator.userAgent.toLowerCase();
+
+		if (elibflg == "1") {
+
+			var userAgent = navigator.userAgent;
+			if (userAgent.indexOf("Safari") > -1) {
+				var wintmp = window.open("", "_blank");
+			}
+
+			$.ajax({
+				url : "OpacToSapoMyElibAction.do",
+
+				async: false,
+
+				type: "POST",
+				data:null,
+				success: function(jsonStr) {
+					var json = jQuery.parseJSON(jsonStr);
+					var strshori_kekka_sts = json.shori_kekka_sts;
+					if (strshori_kekka_sts == 'true') {
+
+						if(user_agent.indexOf("iphone") != -1 && user_agent.indexOf("gsa") != -1){
+							window.location = "OpacTifSapoElibExecAction.do";
+							if (userAgent.indexOf("Safari") > -1) {
+								wintmp.close();
+							}
+						} else if (userAgent.indexOf("Safari") > -1) {
+
+						
+
+							function loc(){
+								wintmp.location = "OpacTifSapoElibExecAction.do";
+							}
+							setTimeout(loc(),1000);
+						} else {
+
+						window.open('OpacTifSapoElibExecAction.do','newwindow');
+
+						}
+
+					} else {
+
+						if (userAgent.indexOf("Safari") > -1) {
+							wintmp.close();
+						}
+
+						var error_cd = json.error_cd;
+						var error_message = decodeURI(json.error_message);
+						var exmessage = "";
+						if (error_cd != null && error_cd != "") {
+							exmessage = error_cd + " " + error_message;
+						} else {
+							exmessage = error_message;
+						}
+						var message = '電子図書館システムの書誌詳細へ展開出来ませんでした。&lt;br&gt;{0}';
+						message = message.replace("{0}", exmessage);
+						message = message.replace("&lt;br&gt;", "\r\n");
+
+						// メッセージ
+						lbAlert(message,'');
+					}
+				}
+			})
+		} else {
+
+			if(user_agent.indexOf("iphone") != -1 && user_agent.indexOf("gsa") != -1){
+				window.location = "OpacToMyElibAction.do";
+			} else {
+
+			window.open("OpacToMyElibAction.do", 'newwindow');
+
+			}
+
+		}
+		
+		
+	}
+
+
+	function forwardTo(value) {
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.returnid.disabled="true";
+			document.LBForm.action=value;
+			document.LBForm.submit();
+		}
+	}
+
+	
+	function toDetail_JunlCho(val){
+		if (submitFlg) {
+			submitFlg=false;
+			document.LBForm.action="WOpacTifJunlChoSelectAction.do?junlCode=" + val;
+			document.LBForm.submit();
+		}
+	}
+
+	function toDetail_Ref(val){
+		if (submitFlg) {
+			submitFlg=false;
+			document.LBForm.action="WOpacRefChoSelectAction.do?ndcCode=" + val;
+			document.LBForm.submit();
+		}
+	}
+	
+
+	
+	function linkToLibrary(url) {
+		
+		
+			window.location.href=url;
+		
+	}
+	
+    //レファレンス検索
+	function toRefSearch() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+
+
+			
+			document.LBForm.action="WOpacRefChoAction.do?moveToGamenId=refsearch";
+
+
+
+			document.LBForm.submit();
+		}
+	}
+
+	function toRankMenu() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacMsgRankMenuDispAction.do?moveToGamenId=msgrankmenu";
+
+
+			document.LBForm.submit();
+		}
+	}
+	//新着資料
+	function toMsgNewMenu() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacMsgNewMenuDispAction.do?moveToGamenId=msgnewmenu";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+
+
+    function toTmeMenu() {
+		if (submitFlg) {
+			submitFlg = false;
+
+
+
+			
+			document.LBForm.action="WOpacSdiTmeMenuDispAction.do?moveToGamenId=tmnewmenu";
+
+
+			document.LBForm.submit();
+		}
+	}
+
+
+
+	
+
+
+
+			
+
+
+			
+
+			
+
+ 
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+			
+
+
+
+			
+
+
+
+			
+
+
+
+		
+
+
+	
+	function toPortalHelp(){
+		if (submitFlg) {
+			xposition = (screen.width - 920) / 2;
+			yposition = (screen.height - 700) / 2;
+			window.open("lbcommon/html/portalHelp/help_portal.html",null,"width=920,height=700,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+	}
+	
+
+
+
+
+
+
+
+
+
+
+// 貸出状況一覧画面
+function toUsrLend(loginshu){
+	// 本パスワードの場合
+	if(loginshu == '1'){
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="WOpacMnuTopToPwdLibraryAction.do?gamen=usrlend";
+		    document.LBForm.submit();
+		}
+	}else if(loginshu == '2'){
+	// 仮パスワードの場合
+	    var message = '仮パスワードでは利用できません。パスワード変更を行なってください。';
+		var sound = '';
+		lbAlert(message,sound);
+	}else{
+	// 予約パスワードの場合
+		var message = '予約パスワードでは利用できません。図書館の窓口でパスワードを申請してください。';
+		var sound = '';
+		lbAlert(message,sound);
+	}
+}
+
+// 予約状況照会
+function toUsrRsv(loginshu){
+	// 本パスワードの場合
+	if(loginshu == '1'){
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="WOpacMnuTopToPwdLibraryAction.do?gamen=usrrsv";
+	    	document.LBForm.submit();
+		}
+	}else if(loginshu == '2'){
+	// 仮パスワードの場合
+	    var message = '仮パスワードでは利用できません。パスワード変更を行なってください。';
+		var sound = '';
+		lbAlert(message,sound);
+	}else{
+	// 予約パスワードの場合
+		var message = '予約パスワードでは利用できません。図書館の窓口でパスワードを申請してください。';
+		var sound = '';
+		lbAlert(message,sound);
+	}
+}
+
+
+// マイブックリスト
+function toMyBookList(){
+	if (submitFlg) {
+
+		submitFlg = false;
+		document.LBForm.action="WOpacMnuTopToPwdLibraryAction.do?gamen=mybooklist";
+    	document.LBForm.submit();
+	}
+}
+
+
+
+
+
+	function toyoycart(yoycartflg) {
+
+		if (0 == "1") {
+			if ("tiles.WTifTilDetail2" == document.LBForm.gamenid.value) {
+				document.LBForm.action ="WOpacTifTilDetailYoyCart2DispAction.do";
+
+			} else if ("tiles.WTifTilList" == document.LBForm.gamenid.value){
+				document.LBForm.action ="WOpacTifTilDetailYoyCartDispAction1.do";
+
+
+			} else if ("tiles.WEsTilList" == document.LBForm.gamenid.value){
+				document.LBForm.action ="WOpacEsTilDetailYoyCartDispAction1.do";
+
+
+			} else if ("tiles.WTifVolList" == document.LBForm.gamenid.value){
+				document.LBForm.action ="WOpacTifTilDetailYoyCartDispAction2.do";
+
+			} else {
+				document.LBForm.action ="WOpacTifTilDetailYoyCartDispAction.do";
+			}
+			document.LBForm.submit();
+		} else {
+
+			if (null != yoycartflg){
+				login(yoycartflg);
+			}else {
+
+			login("WTifTilDetail");
+
+			}
+
+		}
+	}
+
+
+//読書履歴
+function toUsrRead(loginshu){
+	if(loginshu == '1'){
+		if (submitFlg) {
+			submitFlg = false;
+			document.LBForm.action="WOpacMnuTopToPwdLibraryAction.do?gamen=usrread&initFlag=0";
+	    	document.LBForm.submit();
+		}
+	}
+}
+
+</script>
+	<title>詳細検索：蔵書検索システム</title>
+</head>
+
+<script language="javascript">
+	function logout(){
+		if (submitFlg) {
+			submitFlg = false;
+			var usrcod = '';
+			usrcod = usrcod.substring(usrcod.length-4,usrcod.length);
+			var message = '利用カード番号下４桁「{0}」でログインしています。ログアウトしますか？';
+			message = message.replace("{0}",usrcod);
+
+			if (lbConfirm(message,'')) {
+					document.LBForm.action="WOpacPwdLogoutAction.do";
+					document.LBForm.submit();
+				}else{
+					submitFlg = true;
+				}
+		}
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</script>
+
+
+<script language="javascript">
+<!--
+// 日本語
+function changelanguage_ja() {
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=ja";
+		document.LBForm.submit();
+	}
+}
+// ことも
+function changelanguage_kids() {
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=kids";
+		document.LBForm.submit();
+	}
+}
+// 英語
+function changelanguage_en() {
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=en";
+		document.LBForm.submit();
+	}
+}
+// 中国語
+function changelanguage_ch() {
+	if (submitFlg) {
+		submitFlg = false;
+		// alert("en");
+		document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=ch";
+		document.LBForm.submit();
+	}
+}
+// 韓国語
+function changelanguage_ko() {
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action="WOpacMnuChangeLanguageAction.do?lang=ko";
+		document.LBForm.submit();
+	}
+}
+
+// -->
+</script>
+
+
+
+
+
+<!--
+****************************************
+       1 line Menu Area
+****************************************
+-->
+<div id="wrapper">
+<div id="contents">
+<div id="head">
+<div id="title">
+<a id="logo" href="https://tosho.nishi.or.jp/?v=PC" title='蔵書検索・予約システムのトップ かんたん検索 にもどります。'>図書館 蔵書検索・予約システム</a>
+
+
+<p class="skip">このページは 西宮市立図書館の 共通部分 ページです。</p>
+
+<p class="skip"><a href="#body">メニューをスキップして 本文へ移動します。</a></p>
+<p class="skip"><a id="PAGETOP" name="PAGETOP" href="#MAINCONTENTS" accesskey="1">メニューをスキップして、本文へ移動します。</a></p>
+<hr class="skip">
+<h2 class="skip">言語選択メニュー</h2>
+<p class="skip">文字サイズや言語を切り替えます。</p>
+	<div id="lang-menu">
+		<span title='文字サイズを調整します'>
+			<span class="skip">文字サイズ調整：</span>
+			<a id="fsl" href="javascript:void(0);" onclick="fontsize('large');return false;">大</a>
+			<a id="fsm" href="javascript:void(0);" onclick="fontsize('def');return false;">中</a>
+			<a id="fss" href="javascript:void(0);" onclick="fontsize('small');return false;">小</a>
+		</span>
+		<span title='表示言語を切り替えます'>
+			<span class="skip">言語切り替え：</span>
+
+	
+						<a href="javascript:changelanguage_ja()"  class='cur'>
+				一般</a>
+					
+	
+	
+	
+						<a href="javascript:changelanguage_kids()"  >
+				
+					かな</a>
+					
+	
+	
+	
+						<a href="javascript:changelanguage_en()"  >
+				
+					English</a>
+					
+	
+	
+	
+		</span>
+		<a href="#" id="help" title="別ウィンドウにヘルプを表示します。" onclick ="javascript:toHelp()"><img src="lbcommon/webopac/img/i_help.png" width="23" height="23" alt="ヘルプ"></a>
+
+	
+
+	</div><!-- end of id lang-menu -->
+	    <hr class="skip">
+		
+			<table cellpadding="0" cellspacing="0" border="0" class="log-stats" id="stat-logout" >
+			<colgroup><col width="310"><col width="90"><col width="80"><col width="50"></colgroup>
+				<tr><td><h3 class="skip">ログインの状態：ログインしていません。</h3>
+					<span class="lead">ログインすると利用状況の確認等のサービスを利用できます。</span></td>
+					<td class="a-center"><input type="button" class="button" style="padding:5px 4px 4px;" id="login" value="ログイン" onclick="login()"></td>
+
+				    <!-- <td class="stat-item"><a id="stat-cart" href='#' onclick ="javascript:yoycart()" title="カートには予約候補の資料を一時的に集めておくことができます">カート<span class="skip">（予約候補）</span> <span class="value">0</span><span class="skip"> 登録されていません。</span></a></td> -->
+
+					
+
+					
+
+					
+					
+					
+					
+
+						
+						<td class="stat-item"><a id="stat-cart" href='#' onclick ="javascript:yoycart()" onmouseover="mousemessage1(this);" >カート<span class="skip">（予約候補）</span> <span class="value">0</span><span class="skip"> 登録されていません。</span></a></td>
+
+					
+					
+
+
+
+
+					<td></td>
+				</tr>
+			</table>
+		
+
+		
+
+	
+</div><!-- end of id title -->
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		<!--
+		****************************************
+		       2 line Menu Area
+		****************************************
+		-->
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+			
+	
+
+	
+
+	
+    
+    
+    
+    
+    
+    
+
+    
+
+    
+
+    
+    
+
+    
+    
+    
+
+    
+    
+
+	
+    
+
+    
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+    
+	
+
+	
+    
+    
+	
+
+	
+    
+    
+	
+
+	
+    
+    
+	
+
+	
+    
+    
+	
+
+	
+    
+    
+	
+
+	
+    
+    
+    
+	
+	
+
+
+	
+    
+
+	
+    
+
+	
+    
+
+
+	
+    
+
+	
+    
+
+	
+    
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+	
+    
+
+
+	
+    
+
+	
+    
+
+
+
+    
+
+	
+
+	
+
+	
+
+<div id="navi">
+<div id="panks">
+
+
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		<!--
+		****************************************
+		       2 line Menu Area
+		****************************************
+		-->
+
+			
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+<p class="skip">現在のページの位置は</p>
+
+
+
+
+
+	
+		
+		
+		
+		
+		
+		
+		
+	
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		<!--
+		****************************************
+		       2 line Menu Area
+		****************************************
+		-->
+
+			
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+
+
+	
+		
+			
+		
+		<span id="step1">
+		</span>
+		
+		
+		
+			
+		
+	
+
+	
+		<span>
+			
+		</span>
+		
+		<span id="step2">
+		</span>
+		
+		
+		
+	
+
+	
+	
+
+	
+	
+    
+    
+
+    
+	
+    
+    
+
+    
+	
+    
+    
+
+    
+	
+    
+    
+
+    
+	
+	
+    
+
+    
+	
+	
+    
+
+    
+	
+	
+    
+    
+    
+
+     
+	
+	
+    
+
+    
+	
+	
+    
+
+    
+	
+
+    
+	
+
+    
+	
+
+	
+	
+
+    
+	
+
+
+    
+	
+
+    
+    
+
+    
+    
+
+    
+    
+
+    
+    
+
+    
+	
+
+    
+	
+
+	
+	
+
+
+
+	
+
+	
+	
+
+	
+	
+
+	
+	
+
+	
+	
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+
+	
+	
+
+    
+    
+
+    
+	
+
+    
+	
+
+    
+	
+    
+    
+
+    
+	
+	
+    
+
+    
+	
+    
+    
+
+	
+	
+
+    
+    
+    
+    
+
+    
+    
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		<!--
+		****************************************
+		       2 line Menu Area
+		****************************************
+		-->
+
+			
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+
+
+
+	
+
+
+
+
+	
+
+	
+
+	
+		
+		
+		
+		
+		
+		
+		
+	
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		<!--
+		****************************************
+		       2 line Menu Area
+		****************************************
+		-->
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+
+
+
+	
+	
+
+    
+	
+
+    
+	
+
+
+	
+	
+
+    
+	
+
+	 
+    
+
+    
+    
+    
+    
+
+    
+    
+
+    
+    
+    
+    
+
+    
+    
+
+	
+    
+
+    
+    
+
+	
+	
+
+	
+	
+
+	
+	
+
+	
+	
+    
+    
+	
+	
+
+	
+	
+
+	
+	
+
+
+	
+	
+
+	
+	
+
+	
+	
+
+
+	
+    
+
+    
+
+    
+    
+    
+    
+    
+    
+	
+	
+	
+	
+	
+	
+	
+
+	
+
+
+	
+	
+
+	
+	
+
+	
+	
+
+	
+	
+
+	
+	
+
+	
+	
+    
+    
+
+    
+	
+    
+    
+
+    
+	
+
+
+
+	
+
+    
+	
+
+    
+	
+
+
+    
+	
+
+	
+	
+
+
+	
+
+	
+
+	
+
+	
+
+
+	
+
+
+	
+	
+
+    
+	
+
+	
+	
+
+	
+
+	
+	
+	
+
+	
+
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+			
+
+
+	
+
+
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+			
+
+
+
+<!-- ジャンル検索 検索結果書誌一覧 -->
+ 
+
+<!-- ジャンル検索 → 検索結果書誌詳細 -->
+ 
+
+<!-- カテゴリー 検索結果一覧 -->
+
+
+<!-- カテゴリー 検索結果レファレンス詳細 -->
+
+
+<!-- カテゴリー 検索結果レファレンス詳細 リンク返す-->
+
+
+<!-- カテゴリー 検索結果書誌詳細 -->
+
+
+<!-- カテゴリー 検索結果書誌詳細 ログイン-->
+
+
+<!-- ジャンル検索 検索結果書誌詳細 -->
+
+
+<!-- ジャンル検索 検索結果書誌詳細 -->
+
+
+<!-- ジャンル検索 検索結果巻号一覧 -->
+
+
+<!-- ジャンル検索 検索結果雑誌詳細 -->
+
+
+<!-- ジャンル検索だけ -->
+
+
+
+
+<!-- ジャンル検索 検索結果書誌一覧 再検索-->
+ 
+
+
+
+
+
+<!-- ジャンル検索 検索結果書誌一覧 ログイン-->
+ 
+
+<!-- ジャンル検索 検索結果書誌一覧 ログイン-->
+ 
+
+<!-- ジャンル検索 検索結果書誌一覧 ログイン-->
+ 
+
+
+
+
+
+
+
+
+
+
+
+ 
+
+ 
+<a href='#' onclick ="javascript:forwardTo('https://tosho.nishi.or.jp/?v=PC')" > トップページ</a> > 詳細検索
+
+
+
+ 	
+	
+	
+	
+
+	
+
+
+<p class="skip">です。</p>
+</div><!-- end of div panks -->
+
+<div class="clear"></div>
+</div><!-- end of div navi -->
+
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script language="javascript">
+	function toHelp(){
+		if (submitFlg) {
+			xposition = (screen.width - 600) / 2;
+			yposition = (screen.height - 380) / 2;
+			var gamenId = document.LBForm.gamenid.value.toLocaleLowerCase();
+			if (gamenId == null || gamenId == ""){
+				var str = null;
+			} else {
+				var str = gamenId.substr(7);
+			}
+			var strTemp = str.substr(str.length-1);
+			if(!isNaN(strTemp)){
+				str = str.substring(0,str.length-1);
+			}
+
+			if(str=="esschcmpd")
+			{
+				window.open("lbcommon/html/web_help/WEsSchCmpd/WEsSchCmpd.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="estillist")
+			{
+				window.open("lbcommon/html/web_help/WEsTilList/WEsTilList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tifjunlcho" || str=="tifjunlchoreload")
+			{
+				window.open("lbcommon/html/web_help/WTifJunlCho/WTifJunlCho.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tifschndc")
+			{
+				window.open("lbcommon/html/web_help/WTifSchNdc/WTifSchNdc.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tifschndclist")
+			{
+				window.open("lbcommon/html/web_help/WTifSchNdc/WTifSchNdcList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="msgrankmenu")
+			{
+				window.open("lbcommon/html/web_help/WMsgRankMenu/WMsgRankMenu.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="msgranklist")
+			{
+				window.open("lbcommon/html/web_help/WMsgRankList/WMsgRankList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="msgnewmenu")
+			{
+				window.open("lbcommon/html/web_help/WMsgNewMenu/WMsgNewMenu.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="msgnewlist")
+			{
+				window.open("lbcommon/html/web_help/WMsgNewList/WMsgNewList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="msgcalender")
+			{
+				window.open("lbcommon/html/web_help/WMsgCalender/WMsgCalender.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sditmemenu")
+			{
+				window.open("lbcommon/html/web_help/WSdiTmeMenu/WSdiTmeMenu.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sditmelist")
+			{
+				window.open("lbcommon/html/web_help/WSdiTmeList/WSdiTmeList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sditmemtalist")
+			{
+				window.open("lbcommon/html/web_help/WSdiTmeMtaList/WSdiTmeMtaList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refcho")
+			{
+				window.open("lbcommon/html/web_help/WRefCho/WRefCho.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refsearch")
+			{
+				window.open("lbcommon/html/web_help/WRefSearch/WRefSearch.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="reflist")
+			{
+				window.open("lbcommon/html/web_help/WRefList/WRefList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refdetail")
+			{
+				window.open("lbcommon/html/web_help/WRefDetail/WRefDetail.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refcholist" || str=="refcholistreload")
+			{
+				window.open("lbcommon/html/web_help/WRefChoList/WRefChoList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tifschcmpd")
+			{
+				window.open("lbcommon/html/web_help/WTifSchCmpd/WTifSchCmpd.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tiftillist")
+			{
+				window.open("lbcommon/html/web_help/WTifTilList/WTifTilList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tifvollist")
+			{
+				window.open("lbcommon/html/web_help/WTifVolList/WTifVolList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tiftildetail")
+			{
+				window.open("lbcommon/html/web_help/WTifTilDetail/WTifTilDetail.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="dicschautho")
+			{
+				window.open("lbcommon/html/web_help/WDicSchAutho/WDicSchAutho.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="dicautholist")
+			{
+				window.open("lbcommon/html/web_help/WDicAuthoList/WDicAuthoList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="yoycart")
+			{
+				window.open("lbcommon/html/web_help/WYoyCart/WYoyCart.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrjunbandisp")
+			{
+				window.open("lbcommon/html/web_help/WYoyToJunban/WYoyToJunban.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="yoyconfirm")
+			{
+				window.open("lbcommon/html/web_help/WYoyConfirm/WYoyConfirm.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tiftoriiraiuke")
+			{
+				window.open("lbcommon/html/web_help/WKeepAccept/WKeepAccept.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="tiftoriiraichk")
+			{
+				window.open("lbcommon/html/web_help/WKeepConfirm/WKeepConfirm.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="pwdportalmenuspl")
+			{
+				window.open("lbcommon/html/web_help/WPwdPortalMenu/WPwdPortalMenu.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sdibooklist")
+			{
+				window.open("lbcommon/html/web_help/WSdiBookList/WSdiBookList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sdibooklistnew")
+			{
+				window.open("lbcommon/html/web_help/WSdiBookListNew/WSdiBookListNew.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sdibooklistmainte")
+			{
+				window.open("lbcommon/html/web_help/WSdiBookListMainte/WSdiBookListMainte.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="sdiinput")
+			{
+				window.open("lbcommon/html/web_help/WSdiInput/WSdiInput.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refrefuke")
+			{
+				window.open("lbcommon/html/web_help/WRefRefUke/WRefRefUke.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="refrefchk")
+			{
+				window.open("lbcommon/html/web_help/WRefRefChk/WRefRefChk.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+
+			else if(str=="reqodruke")
+			{
+				window.open("lbcommon/html/web_help/WReqOdrUke/WReqOdrUke.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="reqodrchk")
+			{
+				window.open("lbcommon/html/web_help/WReqOdrChk/WReqOdrChk.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+
+
+			else if(str=="pwdportalmenu")
+			{
+				window.open("lbcommon/html/web_help/WPwdUsrInfo/WPwdUsrInfo.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrlendlist")
+			{
+				window.open("lbcommon/html/web_help/WUsrLendList/WUsrLendList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrrsvlist")
+			{
+				window.open("lbcommon/html/web_help/WUsrRsvList/WUsrRsvList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrchpass")
+			{
+				window.open("lbcommon/html/web_help/WUsrChgPass/WUsrChgPass.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrchmail")
+			{
+				window.open("lbcommon/html/web_help/WUsrChgMail/WUsrChgMail.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="yoyrakchange")
+			{
+				window.open("lbcommon/html/web_help/WYoyRakChg/WYoyRakChg.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+			else if(str=="usrrtnmail")
+			{
+				window.open("lbcommon/html/web_help/WYoyRakChg/WUsrRtnMail.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+
+			else if(str=="usrmailagr")
+			{
+				window.open("lbcommon/html/web_help/WUsrMailAgr/WUsrMailAgr.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+			else if (str=="esyoyconfirm")
+
+			{
+				window.open("lbcommon/html/web_help/WYoyConfirm/WYoyConfirm.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+			}
+			else if (str=="aplkaripwdapl")
+
+				{
+					window.open("lbcommon/html/web_help/WAplKariPwdApl/WAplKariPwdApl.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+				}
+			else
+			{
+				toHelp1();
+			}
+		}
+	}
+</script>
+
+
+
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script language="javascript">
+	function toHelp1(){
+		xposition = (screen.width - 600) / 2;
+		yposition = (screen.height - 380) / 2;
+		var gamenId = document.LBForm.gamenid.value.toLocaleLowerCase();;
+		if (gamenId == null || gamenId == ""){
+			var str = null;
+		} else {
+			var str = gamenId.substr(7);
+		}
+
+		if(str=="aplmenu")
+		{
+			window.open("lbcommon/html/web_help/WAplMenu/WAplMenu.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else if(str=="ypwpwdchk")
+		{
+			window.open("lbcommon/html/web_help/WYpwPwdChk/WYpwPwdChk.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="ypwpwdapl")
+		{
+			window.open("lbcommon/html/web_help/WYpwPwdApl/WYpwPwdApl.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="aplpwdagr")
+		{
+			window.open("lbcommon/html/web_help/WAplPwdAgr/WAplPwdAgr.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="aplpwdchk")
+		{
+			window.open("lbcommon/html/web_help/WAplPwdChk/WAplPwdChk.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="aplpwdapl")
+		{
+			window.open("lbcommon/html/web_help/WAplPwdApl/WAplPwdApl.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="sinchkpass")
+		{
+			window.open("lbcommon/html/web_help/WAplSinMailAgr/WAplSinMailAgr.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="sinseiusr")
+		{
+			window.open("lbcommon/html/web_help/WUsrSinTorok/WUsrSinTorok.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if(str=="sinseichk")
+		{
+			window.open("lbcommon/html/web_help/WUsrSinChk/WUsrSinChk.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+		else if (str=="usrrtnlendhistory")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrKasHist/WUsrKasHistChg.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else if (str=="usrreadlist")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrKasHist/WUsrKasHist.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else if (str=="userinfobarcodedsp")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrBarCodeDsp/WUsrBarCodeDsp.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else if (str=="usrrtnnickrmd")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrNickrmd/WUsrNickrmdChg.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else if (str=="usrmyreviewlist")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrMyReviewList/WUsrMyReviewList.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+		else if (str=="usrmyreviewedit")
+		
+		{
+			window.open("lbcommon/html/web_help/WUsrReviewEdit/WUsrReviewEdit.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+
+
+		else
+		{
+			window.open("lbcommon/html/help.html",null,"width=900,height=680,resizable=yes,top="+yposition+",left="+xposition+",toolbar=no,menubar=0,scrollbars=1,location=no,status=yes");
+		}
+	}
+</script>
+
+
+		<hr class="skip">
+
+		<h2 class="skip">機能を切り替えます。</h2>
+
+		<div id="tabs"  >
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+				
+
+					
+					
+						<a id="easyS" class="tab easyS" href="#" onclick ="javascript:toTifEsSch()" title='かんたんフリーワード検索'><span>かんたん検索</span></a>
+					
+					<!-- <a id="easyS" class="tab easyS" href="#" onclick ="javascript:toTifEsSch()" title='かんたんフリーワード検索'><span>かんたん検索</span></a>-->
+
+				
+				
+				
+
+					
+					
+
+						
+						
+							<a id="miscS" class="tab cur miscS" href="#" onclick ="javascript:searchdetail()" title='様々な検索、貸出・予約ベスト、新着資料等いろいろ'><span>いろいろ検索</span></a>
+						
+						
+
+					
+					<!-- <a id="miscS" class="tab cur miscS" href="#" onclick ="javascript:searchdetail()" title='様々な検索、貸出・予約ベスト、新着資料等いろいろ'><span>いろいろ検索</span></a> -->
+
+				
+				
+			
+			
+
+			<a class="lnk lnk-best" href="#" onclick ="javascript:toRankMenu()" title='貸出・予約数による人気ランキングはこちら'><span>貸出・予約ベスト</span></a>
+			<a class="lnk lnk-new" href="#" onclick ="javascript:toMsgNewMenu()" title='新しく取り寄せた資料一覧はこちら'><span>新着資料</span></a>
+			<a class="lnk lnk-theme" href="#" onclick ="javascript:toTmeMenu()" title='図書館がテーマで集めたおすすめ資料はこちら'><span>テーマ資料</span></a>
+
+
+			
+			
+			<a id="man-pinf" class="tab mylib"  href='#' onclick ="javascript:toMyLibrary()" title="あなたの貸出・予約状況、マイ本棚、利用者設定等。">
+			
+			
+
+			<img src="lbcommon/webopac/img/i_login.png" width="10" height="10" style="position:absolute;right:5px;top:5px;" alt="ログインが必要です">
+			    <span>マイ図書館
+				</span>
+			</a>
+
+		</div>
+
+		<hr class="skip">
+
+		<h2 class="skip">いろいろ検索のメニューです。</h2>
+
+		
+		
+		<div class="menu1" id="menu1">
+		
+		
+
+			<div class="menu-group mn-search">
+				
+				<a id="sch-cmpd" href="#" onclick ="javascript:searchdetail()">詳細検索</a>
+				
+				
+				
+				
+				<a id="sch-genr" href='#' onclick ="javascript:genre()">ジャンル検索</a>
+				
+				<a id="sch-clas" href='#' onclick ="javascript:category()">NDC分類検索</a>
+
+			</div>
+			<div class="menu-group mn-list">
+				
+                <a id="lst-best" href="#" onclick ="javascript:toRankMenu()" title='貸出・予約数による人気ランキングはこちら'>貸出・予約ベスト</a>
+				
+				<a id="lst-bnew" href="#" onclick ="javascript:toMsgNewMenu()" title='新しく取り寄せた資料一覧はこちら'>新着資料</a>
+				
+				<a id="lst-tme" href="#" onclick ="javascript:toTmeMenu()" title='図書館がテーマで集めたおすすめ資料はこちら'>テーマ資料</a>
+			</div>
+			
+			
+			
+
+		</div>
+		<hr class="skip">
+		
+			<hr class="skip">
+
+<a class="skip" id="MAINCONTENTS" name="MAINCONTENTS">ここから本文です。</a>
+
+</div><!-- end of id head -->
+
+
+<form name="LBFormMF" method="post">
+<input type="hidden" name="hash" value="">
+<input type="hidden" name="loginFlg" value="" onchange="allowFwd();">
+<input type="hidden" name="loginOutFlg" value="" onchange="allowFwd2();">
+<input type="hidden" name="message" value="">
+<input type="hidden" name="sound" value="">
+</form>
+
+
+
+
+
+
+
+
+
+<!--
+****************************************
+             Container Area
+****************************************
+-->
+<div id="body">
+
+	
+		<div id="banner" style="display:none"> <!-- banner start -->
+<br>
+	<div style="font-size:large;margin-left:1ex"><strong>広告（外部サイトへ移動）</strong></div>
+<div style="text-align:center">
+
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+<div style="float:left;margin:0.5em">
+   <div style="border:solid;width:160px;height:60px;border-width:1px;">
+      <div style="text-align:center"><!--<a href="" target="anotherwindow">--><img src="lbcommon/html/img/a.bmp" alt="（募集中）" width="160" height="60"><!--</a>--></div>
+   </div>
+</div>
+
+</div>
+</div> <!-- banner start -->
+<font color="red"><b>
+<br>
+越木岩分室は建替え工事のため閉室中です。詳しくは<A Href="https://tosho.nishi.or.jp/libraries/koshikiiwa.html" Target="_blank" rel="noopener noreferrer">こちら</A>をご覧ください。<br>
+</b></font>
+<br>
+
+
+	
+
+	
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script type="text/javascript" src="lbcommon/webopac/js/jquery-1.9.1.js"></script>
+<script type="text/javascript" src="lbcommon/webopac/js/jquery-ui-1.10.3.custom.min.js"></script>
+<link href="lbcommon/webopac/css/jquery-ui-1.10.3.custom.css" rel="stylesheet" type="text/css">
+<link href="lbcommon/css/content_tablelist.css" rel="stylesheet" type="text/css" media="all" />
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+<script language="javascript">
+
+;
+;
+window.onload = function(){
+
+
+
+
+	
+
+		if (document.LBForm.loccods != null) {
+
+	
+		for (var i = 0; i < document.LBForm.loccods.length; i++) {
+			document.LBForm.loccods[i].disabled=false;
+		}
+	
+
+		}
+
+
+
+
+
+
+
+
+     
+
+
+
+
+	funSelOne(this);
+
+}
+
+
+function kensaku() {
+	if (submitFlg) {
+
+
+
+		submitFlg = false;
+		var bl =false;
+
+	    var ids = document.getElementsByName("mngshus");
+
+
+			for (var i=0;i<ids.length;i++) {
+					if(ids[i].checked == true){
+						bl=true;
+						break;
+					}
+			}
+		if(!bl){
+			document.LBForm.chkflg.value='nocheck';
+		}else{
+			document.LBForm.chkflg.value='check';
+		}
+
+	    var jsloccods = document.getElementsByName("loccods");
+	    var loccodbl =false;
+    	for (var i=0;i<jsloccods.length;i++) {
+			if(jsloccods[i].checked == true){
+				loccodbl=true;
+				break;
+			}
+		}
+		if(!loccodbl){
+			document.LBForm.loccodschkflg.value='nocheck';
+		}else{
+			document.LBForm.loccodschkflg.value='check';
+		}
+
+	    var jslangcods = document.getElementsByName("langcods");
+
+	    var langcodsbl =false;
+    	for (var i=0;i<jslangcods.length;i++) {
+			if(jslangcods[i].checked == true){
+				langcodsbl=true;
+				break;
+			}
+		}
+		if(!langcodsbl){
+			document.LBForm.langcodschkflg.value='nocheck';
+		}else{
+			document.LBForm.langcodschkflg.value='check';
+		}
+
+		
+		
+		
+
+
+        var jstargets = document.getElementsByName("targets");
+
+	    var targetcodsbl =false;
+    	for (var i=0;i<jstargets.length;i++) {
+			if(jstargets[i].checked == true){
+				targetcodsbl=true;
+				break;
+			}
+		}
+		if(!targetcodsbl){
+			document.LBForm.targetsChkflg.value='nocheck';
+		}else{
+			document.LBForm.targetsChkflg.value='check';
+		}
+
+		var jstargetsAv = document.getElementsByName("targetsAv");
+
+	    var targetsAvcodsbl =false;
+    	for (var i=0;i<jstargetsAv.length;i++) {
+			if(jstargetsAv[i].checked == true){
+				targetsAvcodsbl=true;
+				break;
+			}
+		}
+		if(!targetsAvcodsbl){
+			document.LBForm.targetsAvChkflg.value='nocheck';
+		}else{
+			document.LBForm.targetsAvChkflg.value='check';
+		}
+
+
+        var tifKanradiobtns = document.getElementsByName("tifKanradiobtn");
+
+
+
+
+
+
+
+
+
+
+
+
+
+        for(var i=0;i<tifKanradiobtns.length;i++){
+            if(tifKanradiobtns[i].checked){
+            	document.LBForm.tifKanrabtn.value=tifKanradiobtns[i].getAttribute("value");
+                break;
+            }
+        }
+
+
+
+
+
+		document.LBForm.action ="WOpacTifSchCmpdExecAction.do?tifschcmpd=1";
+
+		document.LBForm.submit();
+
+		if(!isNaN(parseInt('0')) && parseInt('0') != 0) {
+			var msgWaitTime = parseInt('0') * 1000;
+			var waitTimeCounter = setTimeout(function(){
+				var message = "検索処理に時間がかかります。<br>このまま続行しますか？";
+				if (lbConfirm(message,'')) {
+						clearTimeout(waitTimeCounter);
+					}else{
+						document.LBForm.action ="WOpacSchCancelAction.do";
+						document.LBForm.submit();
+					}
+			},msgWaitTime);
+		}
+
+	}
+}
+function kuria() {
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action ="WOpacTifSchCmpdDispAction.do";
+		document.LBForm.submit();
+	}
+}
+
+
+function tifToJyanru(){
+	if (submitFlg) {
+		submitFlg = false;
+
+		document.LBForm.jin.value = "";
+
+		document.LBForm.action ="WOpacTifSchCmpdToJyanruAction.do";
+		document.LBForm.submit();
+	}
+}
+
+
+
+
+
+function condition3Change(){
+	document.LBForm.condition3Text.focus();
+
+//	if(document.LBForm.condition3.value == '6'){
+	if(document.LBForm.condition3.value == '6'
+		|| document.LBForm.condition3.value == '18'
+		|| document.LBForm.condition3.value == '19'
+		|| document.LBForm.condition3.value == '20'){
+
+		document.LBForm.range3.value = '2';
+		document.LBForm.range3.disabled=true;
+	} else if (document.LBForm.condition3.value=="5") {
+		document.LBForm.range3.value="1";
+		document.LBForm.range3.disabled=true;
+
+//	} else if (document.LBForm.condition3.value=="9") {
+	} else if (document.LBForm.condition3.value=="9"
+		|| document.LBForm.condition3.value=="17") {
+
+		document.LBForm.range3.value="2";
+		document.LBForm.range3.disabled=true;
+	} else {
+
+
+		document.LBForm.range3.value = document.LBForm.temprange3.value;
+
+		document.LBForm.range3.disabled=false;
+	}
+
+	
+	if (document.LBForm.condition3.value=="5") {
+		document.LBForm.ndcrefer.disabled=false;
+		
+		document.LBForm.ndcrefer.style.color="";
+		
+
+
+
+
+
+	} else {
+		document.LBForm.ndcrefer.disabled=true;
+		
+		document.LBForm.ndcrefer.style.color="gray";
+		
+
+
+
+
+
+	}
+	
+
+
+	mrdfSchBtnControl(document.LBForm.condition3.value);
+
+}
+
+function condition1Change(){
+	document.LBForm.condition1Text.focus();
+	if(document.LBForm.condition1.value == '4'){
+		document.LBForm.range1.value = '0';
+		document.LBForm.range1.disabled=true;
+	}
+	else if (document.LBForm.condition1.value=="7") {
+		document.LBForm.range1.value="0";
+		document.LBForm.range1.disabled=true;
+	}
+	else{
+		if(document.LBForm.condition1Text.value.length == 1){
+			document.LBForm.range1.value = '2';
+
+
+
+			document.LBForm.range1.disabled=true;
+
+
+
+
+
+
+
+		}else{
+
+
+
+			document.LBForm.range1.value = document.LBForm.temprange1.value;
+
+			document.LBForm.range1.disabled=false;
+		}
+	}
+}
+function condition2Change(){
+	document.LBForm.condition2Text.focus();
+	if(document.LBForm.condition2.value == '4'){
+		document.LBForm.range2.value = '0';
+		document.LBForm.range2.disabled=true;
+	}
+	else if (document.LBForm.condition2.value=="7") {
+		document.LBForm.range2.value="0";
+		document.LBForm.range2.disabled=true;
+	}
+	else{
+		if(document.LBForm.condition2Text.value.length == 1){
+			document.LBForm.range2.value = '2';
+
+
+
+			document.LBForm.range2.disabled=true;
+
+
+
+
+
+
+
+		}else{
+
+
+
+			document.LBForm.range2.value = document.LBForm.temprange2.value;
+
+			document.LBForm.range2.disabled=false;
+		}
+	}
+}
+
+function condition4Change(){
+	document.LBForm.condition4Text.focus();
+	if(document.LBForm.condition4.value == '4'){
+		document.LBForm.range4.value = '0';
+		document.LBForm.range4.disabled=true;
+	}
+	else if (document.LBForm.condition4.value=="7") {
+		document.LBForm.range4.value="0";
+		document.LBForm.range4.disabled=true;
+	}
+	else{
+		if(document.LBForm.condition4Text.value.length == 1){
+			document.LBForm.range4.value = '2';
+
+
+
+			document.LBForm.range4.disabled=true;
+
+
+
+
+
+
+
+		}else{
+
+
+
+			document.LBForm.range4.value = document.LBForm.temprange4.value;
+
+			document.LBForm.range4.disabled=false;
+		}
+	}
+}
+function condition5Change(){
+	document.LBForm.condition5Text.focus();
+	if(document.LBForm.condition5.value == '4'){
+		document.LBForm.range5.value = '0';
+		document.LBForm.range5.disabled=true;
+	}
+	else if (document.LBForm.condition5.value=="7") {
+		document.LBForm.range5.value="0";
+		document.LBForm.range5.disabled=true;
+	}
+	else{
+		if(document.LBForm.condition5Text.value.length == 1){
+			document.LBForm.range5.value = '2';
+
+
+
+			document.LBForm.range5.disabled=true;
+
+
+
+
+
+
+
+		}else{
+
+
+
+			document.LBForm.range5.value = document.LBForm.temprange5.value;
+
+			document.LBForm.range5.disabled=false;
+		}
+	}
+}
+
+function onkeyTextChange1(){
+	if(document.LBForm.condition1.value != '4' && document.LBForm.condition1.value != '7'){
+		if(document.LBForm.condition1Text.value.length == 1){
+			document.LBForm.range1.value = '2';
+
+
+
+			document.LBForm.range1.disabled=true;
+
+
+
+
+
+
+
+		}else{
+
+
+
+			document.LBForm.range1.value = document.LBForm.temprange1.value;
+
+			document.LBForm.range1.disabled=false;
+		}
+	}
+}
+function onkeyTextChange2(){
+	if(document.LBForm.condition2.value != '4' && document.LBForm.condition2.value != '7'){
+		if(document.LBForm.condition2Text.value.length == 1){
+			document.LBForm.range2.value = '2';
+
+
+
+			document.LBForm.range2.disabled=true;
+
+
+
+
+
+
+
+		}else{
+
+
+
+			document.LBForm.range2.value = document.LBForm.temprange2.value;
+
+			document.LBForm.range2.disabled=false;
+		}
+	}
+}
+
+function onkeyTextChange4(){
+	if(document.LBForm.condition4.value != '4' && document.LBForm.condition4.value != '7'){
+		if(document.LBForm.condition4Text.value.length == 1){
+			document.LBForm.range4.value = '2';
+
+
+
+			document.LBForm.range4.disabled=true;
+
+
+
+
+
+
+
+		}else{
+
+
+
+			document.LBForm.range4.value = document.LBForm.temprange4.value;
+
+			document.LBForm.range4.disabled=false;
+		}
+	}
+}
+function onkeyTextChange5(){
+	if(document.LBForm.condition5.value != '4' && document.LBForm.condition5.value != '7'){
+		if(document.LBForm.condition5Text.value.length == 1){
+			document.LBForm.range5.value = '2';
+
+
+
+			document.LBForm.range5.disabled=true;
+
+
+
+
+
+
+
+		}else{
+
+
+
+			document.LBForm.range5.value = document.LBForm.temprange5.value;
+
+			document.LBForm.range5.disabled=false;
+		}
+	}
+}
+
+function onRangeChange(range,temprange){
+    temprange.value = range.value;
+}
+
+
+
+function tifToNdcList(){
+	if (submitFlg) {
+		submitFlg = false;
+		document.LBForm.action ="WOpacTifSchCmpdToNdcListAction.do";
+		document.LBForm.submit();
+	}
+}
+
+
+
+<!--
+function mrdfSearch() {
+    var oldCondition3Text = document.LBForm.condition3Text.value;
+	document.LBFormHidden.propPostno.value = document.LBForm.condition3Text.value;
+
+
+	var dialogFrame= $("#dialog-selterm").hide();
+	dialogFrame.load("WOpacTifMrdfListPopupAction.do",{"propPostno":encodeURI(oldCondition3Text)},
+		function(){
+			dialogFrame.fadeIn();
+			$("#dialog-selterm").focus();
+			return false;
+	});
+	$("#dialog-selterm").dialog({
+		 width: 420,
+		 height: 700,
+		 modal: true,
+		 appendTo:body,
+		 position:{ my: "center ", at: "top", of: window }
+	});
+}
+function pageChg(sortKey, startIndex, hash) {
+	if (startIndex == null) {
+		$("#dialog-selterm").dialog('close');
+		return;
+	}
+	var dialogFrame= $("#dialog-selterm").hide();
+	dialogFrame.load("WOpacTifMrdfSubListAction.do",{"sortKey":sortKey,"startIndex":startIndex,"hash":hash},
+		function(){
+			dialogFrame.fadeIn();
+			$("#dialog-selterm").focus();
+			return false;
+	});
+}
+function toBack(flagchange){
+
+
+if (flagchange == undefined) {
+    flagchange = window.returnValue;
+}
+
+	if (flagchange==null || flagchange=="") {
+		document.LBForm.condition3Text.value=oldCondition3Text;
+	} else{
+		document.LBForm.condition3Text.value=flagchange;
+	}
+
+	$("#dialog-selterm").dialog('close');
+
+}
+//-->
+
+function mrdfSchBtnControl(btnValue) {
+
+}
+
+
+
+
+//function tifKanrabtnClick1() {
+function tifKanrabtnClick1(radioValue) {
+	document.LBForm.chu_search_ini.value = radioValue;
+
+	for (var i = 0; i < document.LBForm.loccods.length; i++) {
+		document.LBForm.loccods[i].disabled=false;
+	}
+}
+
+function tifKanrabtnClick2() {
+
+	document.LBForm.chu_search_ini.value = "4";
+
+	for (var i = 0; i < document.LBForm.loccods.length; i++) {
+		document.LBForm.loccods[i].disabled=true;
+	}
+}
+
+
+function input_seion_message_change(element){
+	 var input_seion_id = document.getElementById("input_seion_id").checked;
+	 if(input_seion_id){
+		 document.getElementById("input_seion_message").innerHTML = "清音化する（濁点「゛」・半濁点「゜」・促音等を除いて検索する）";
+		 document.LBForm.inputseioncheck.value = element.value;
+	 }else{
+		 document.getElementById("input_seion_message").innerHTML = "清音化する（濁点「゛」・半濁点「゜」・促音等を除いて検索する）";
+		 document.LBForm.inputseioncheck.value = "";
+	 }
+}
+
+
+
+function funSelAll(){
+	 var selects = document.getElementsByName("mngshus");
+	 if(document.getElementsByName("controlCheckbox")[0].checked==true){
+		 for(var i=0;i<selects.length;i++){
+				selects[i].checked=true;
+			}
+	         }else{
+	        	 for(var i=0;i<selects.length;i++){
+	 				selects[i].checked=false;
+	             }
+	         }
+	     }
+
+
+function funSelOne(one){
+
+
+	var one=$("input:checkbox[name='mngshus']");
+
+	var all=document.getElementsByName("controlCheckbox")[0];
+	var selCount=0;
+	var unSelCount=0;
+	for(var i=0;i<one.length;i++){
+	 	if(one[i].checked){
+	  		selCount++;
+	 	}
+	 	if(!one[i].checked){
+	  		unSelCount++;
+		}
+	 	if(selCount==one.length){
+	 		if(all!=null){
+	 			all.checked=true;
+	 		}
+	 	}
+		if(unSelCount>0){
+	 		if(all!=null){
+	 			all.checked=false;
+	 		}
+		}
+	}
+}
+
+
+
+function callJSbookDetail(url) {
+	window.location.href=url;
+}
+
+
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script type="text/javascript" src="lbcommon/webopac/js/jquery-1.9.1.js"></script>
+<script type="text/javascript" src="lbcommon/webopac/js/jquery-ui-1.10.3.custom.min.js"></script>
+<link href="lbcommon/webopac/css/jquery-ui-1.10.3.custom.css" rel="stylesheet" type="text/css">
+<link href="lbcommon/css/content_tablelist.css" rel="stylesheet" type="text/css" media="all" />
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+<form name="LBFormHidden" method="post">
+	<input type="hidden" name="propPostno" value="">
+</form>
+
+
+
+<center>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div id="messages" style="display:none">
+<ul>
+	
+	
+	
+	
+</ul>
+</div></center>
+
+
+<form name="LBForm" method="post">
+
+<input type="hidden" name="chu_search_ini" value='1'>
+
+<input type="hidden" name="hash" value="">
+
+<input type="hidden" name="jin" value="0">
+
+
+<input type="hidden" name="returnid" value="">
+<input type="hidden" name="gamenid" value="tiles.WTifSchCmpd">
+<input type="hidden" name="chkflg" value=''>
+
+<input type="hidden" name="loccodschkflg" value=''>
+
+<input type="hidden" name="langcodschkflg" value=''>
+
+<input type="hidden" name="targetsChkflg" value=''>
+<input type="hidden" name="targetsAvChkflg" value=''>
+
+
+<input type="hidden" name="tifKanrabtn" value=''>
+
+
+<input type="hidden" name="tilkbncodschkflg" value=''>
+
+
+
+
+
+
+
+
+
+
+
+
+<input type="hidden" name="temprange1" value="0" >
+
+
+
+<input type="hidden" name="temprange2" value="0" >
+
+
+
+<input type="hidden" name="temprange4" value="0" >
+
+
+
+<input type="hidden" name="temprange5" value="0" >
+
+
+
+
+<body class="search">
+
+<div id="dialog-selterm" name="dialog-selterm" title="分類件名" style="display: none"><!-- --></div>
+
+
+
+<!-- <div id="wrapper">
+<div id="contents"> -->
+
+
+
+	<h1>詳細検索</h1>
+
+
+
+
+	<ul class="read">
+	<li>詳細な条件を設定して、蔵書を検索することができます。<br>検索キーワードは全角でも半角でも入力できます。<br>検索しても資料が見つからないときは、よみがなで検索するとヒットすることがあります。<br>一部の古い資料は以下のようによみがなが入力されているものがあります。<br>長音（ー）は母音に置き換え（例：「ローマ」→「ロオマ」、「カード」→「カアド」）<br>「～は」を「～ワ」に置き換え（例：「私は」→「ワタシワ」）<br>「～へ」を「～エ」に置き換え（例：「アメリカへ行く」→「アメリカエイク」）<br> 古い資料をよみがなで検索し見つからない場合は、上記のように置き換えて検索してみてください。</li>
+	
+	</ul>
+
+
+
+<form class="main" method="post" >
+    
+    
+	    <h2>検索条件</h2>
+    
+    <p class="skip">検索の条件を入力します。</p>
+
+<div class="form-base1">
+
+<table class="form" cellpadding="0" cellspacing="3" border="0" summary="検索条件(資料種別)">
+
+
+
+
+<colgroup><col style="width:10em"></colgroup>
+
+
+<tbody>
+<tr>
+
+
+
+
+<th scope="row" abbr="種別">資料種別
+<br>
+
+
+<input type="checkbox" id="controlCheckbox" name="controlCheckbox" class="w-auto"onclick="funSelAll(this)" ><label for="controlCheckbox"style="font-weight:normal;color:black;">すべて選択</label>
+
+</th>
+
+<td colspan="4">
+
+<fieldset style="border:0px;padding:0px;margin-bottom:0px;margin-left:0px;">
+
+
+<legend style="display: none;"></legend>
+
+
+
+	
+
+	
+
+	
+
+	
+
+
+
+	
+			<input type="checkbox" id="ClassifiGeneralInput" name="mngshus" value="1" class="w-auto"
+
+onClick="funSelOne(this)"
+
+					
+						
+							checked
+						
+
+				
+				
+						
+
+				
+				
+						
+
+				
+				
+						
+
+				
+				
+						
+
+				
+				
+						
+
+				
+				><label for="ClassifiGeneralInput">一般</label>
+
+	
+
+	
+			<input type="checkbox" id="ClassifiChildInput" name="mngshus" value="2"  class="w-auto"
+
+onClick="funSelOne(this)"
+
+				
+						
+
+				
+				
+						
+							checked
+						
+
+				
+				
+						
+
+				
+				
+						
+
+				
+				
+						
+
+				
+				
+						
+
+				
+				><label for="ClassifiChildInput">児童</label>
+
+	
+
+	
+			<input type="checkbox" id="ClassifiMagazineInput" name="mngshus" value="3" class="w-auto"
+
+onClick="funSelOne(this)"
+
+					
+						
+
+				
+				
+						
+
+				
+				
+						
+							checked
+						
+
+				
+				
+						
+
+				
+				
+						
+
+				
+				
+						
+
+				
+				><label for="ClassifiMagazineInput">雑誌・新聞</label>
+
+	
+
+	
+			<input type="checkbox" id="ClassifiMediaInput" name="mngshus" value="4" class="w-auto"
+
+onClick="funSelOne(this)"
+
+					
+						
+
+				
+				
+						
+
+				
+				
+						
+
+				
+				
+						
+							checked
+						
+
+				
+				
+						
+
+				
+				
+						
+
+				
+				><label for="ClassifiMediaInput">ＣＤ</label>
+
+	
+
+	
+			<input type="checkbox" id="ClassifiOtherInput" name="mngshus" value="5"  class="w-auto"
+
+onClick="funSelOne(this)"
+
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+						checked
+					
+
+				
+				
+					
+
+				
+				><label for="ClassifiOtherInput">ビデオ・ＤＶＤ</label>
+
+	
+
+	
+	<input type="checkbox" id="ClassifiGeneralInput6" name="mngshus" title="" value="6"  class="w-auto"
+
+onClick="funSelOne(this)"
+
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+						checked
+					
+
+				
+				><label for="ClassifiGeneralInput6">デイジー</label>
+
+	
+
+	
+	<input type="checkbox" id="ClassifiGeneralInput7" name="mngshus" title="" value="7" class="w-auto"
+
+onClick="funSelOne(this)"
+
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				><label for="ClassifiGeneralInput7">その他視聴覚</label>
+
+	
+
+	
+	<input type="checkbox" id="ClassifiGeneralInput8" name="mngshus" title="" value="8"  class="w-auto"
+
+onClick="funSelOne(this)"
+
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				
+					
+
+				
+				><label for="ClassifiGeneralInput8">大型絵本</label>
+
+	
+
+	
+
+	
+
+	<br>
+	
+
+	
+
+	
+
+	
+
+	
+
+	
+
+	
+
+	
+
+	
+
+	
+
+	
+
+</fieldset>
+</td>
+
+
+
+</tr>
+
+</tbody>
+</table>
+
+
+<div class="form-base2">
+<table class="form" cellpadding="0" cellspacing="3" border="0" summary="検索条件(キーワード)">
+
+
+
+
+<colgroup><col style="width:10em"></colgroup>
+
+
+
+
+<th abbr="キーワード１"><label for="SearchKW1Input">キーワード１</label></th>
+<td>
+<label for="SearchKoumoku1Select" class="skip">キーワードの種類</label>
+
+
+<select id="SearchKoumoku1Select" name="condition1" onchange="condition1Change();">
+
+	
+		
+			
+				<option value='0' selected>
+					書名
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='10'>
+					&nbsp;&nbsp;&nbsp;本書名
+				</option>
+			
+		
+	
+		
+			
+			
+				<option value='11'>
+					&nbsp;&nbsp;&nbsp;副書名
+				</option>
+			
+		
+	
+		
+			
+			
+				<option value='12'>
+					&nbsp;&nbsp;&nbsp;叢書名
+				</option>
+			
+		
+	
+		
+			
+			
+				<option value='13'>
+					&nbsp;&nbsp;&nbsp;多巻書名
+				</option>
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					著者名
+				</option>
+			
+		
+	
+		
+			
+			
+				<option value='14'>
+					&nbsp;&nbsp;&nbsp;内容著者
+				</option>
+			
+		
+	
+		
+			
+			
+				<option value='15'>
+					&nbsp;&nbsp;&nbsp;多巻著者
+				</option>
+			
+		
+	
+		
+			
+			
+				<option value='2'>
+					出版者
+				</option>
+			
+		
+	
+		
+			
+			
+				<option value='3'>
+					件名
+				</option>
+			
+		
+	
+		
+			
+			
+				<option value='16'>
+					&nbsp;&nbsp;&nbsp;個人件名
+				</option>
+			
+		
+	
+		
+			
+			
+				<option value='4'>
+					内容注記
+				</option>
+			
+		
+	
+		
+			
+			
+				<option value='7'>
+					全項目
+				</option>
+			
+		
+	
+</select>
+</td>
+<td>
+<label for="SearchKW1Input" class="skip">検索キーワード</label>
+
+
+
+
+
+
+<input type="text" id="SearchKW1Input" size="15" name="condition1Text" title='検索キーワード1' value=''  onchange="onkeyTextChange1();" onkeyup="onkeyTextChange1();" onkeypress="if (event.keyCode==13) {kensaku();}" style="ime-mode:active;width:98%;"></td>
+
+
+
+<td>
+<label for="SearchCover1Select" class="skip">キーワードの一致の仕方</label>
+
+
+
+
+<select id="SearchCover1Select" name="range1" onchange="onRangeChange(this,document.LBForm.temprange1);">
+
+
+	
+		
+			
+				<option value='0' selected>
+					この言葉を含む
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					この言葉で始まる
+               			</option>
+			
+		
+	
+		
+			
+			
+				<option value='2'>
+					この言葉と一致する
+               			</option>
+			
+		
+	
+		
+			
+			
+				<option value='3'>
+					この言葉で終わる
+               			</option>
+			
+		
+	
+</select></td>
+<td>
+<div class="pos-base">
+
+
+<label for="Selection1Select" class="skip">前の検索条件と次の検索条件の関係</label>
+
+
+<select id="Selection1Select" name="mixing1" class="half-offset">
+
+	
+		
+			
+				<option value='0' selected>
+					かつ（AND条件）
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					または（OR条件）
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='2'>
+					除く（NOT条件）
+	               		</option>
+			
+		
+	
+</select>
+
+</div></td></tr>
+
+
+<tr>
+
+
+<th>キーワード２</th>
+<td>
+<label for="SearchKoumoku2Select" class="skip">キーワードの種類</label>
+
+
+<select id="SearchKoumoku2Select" name="condition2" onchange="condition2Change();">
+
+	
+		
+			
+			
+				<option value='0'>
+					書名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='10'>
+					&nbsp;&nbsp;&nbsp;本書名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='11'>
+					&nbsp;&nbsp;&nbsp;副書名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='12'>
+					&nbsp;&nbsp;&nbsp;叢書名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='13'>
+					&nbsp;&nbsp;&nbsp;多巻書名
+	               		</option>
+			
+		
+	
+		
+			
+				<option value='1' selected>
+					著者名
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='14'>
+					&nbsp;&nbsp;&nbsp;内容著者
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='15'>
+					&nbsp;&nbsp;&nbsp;多巻著者
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='2'>
+					出版者
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='3'>
+					件名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='16'>
+					&nbsp;&nbsp;&nbsp;個人件名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='4'>
+					内容注記
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='7'>
+					全項目
+	               		</option>
+			
+		
+	
+</select></td>
+<td>
+<label for="SearchKW2Input" class="skip">検索キーワード</label>
+
+
+
+
+
+
+
+
+
+<input id="SearchKW2Input" name="condition2Text" type="text" size="15" title='検索キーワード2' value=''  onchange="onkeyTextChange2();" onkeyup="onkeyTextChange2();" onkeypress="if (event.keyCode==13) {kensaku();}" style="ime-mode:active;width:98%;"></td>
+
+
+
+<td>
+<label for="SearchCover2Select" class="skip">キーワードの一致の仕方</label>
+
+
+
+
+<select id="SearchCover2Select" name="range2" onchange="onRangeChange(this,document.LBForm.temprange2);">
+
+
+	
+		
+			
+				<option value='0' selected>
+					この言葉を含む
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					この言葉で始まる
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='2'>
+					この言葉と一致する
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='3'>
+					この言葉で終わる
+	               		</option>
+			
+		
+	
+</select>
+
+</td>
+<td>
+<div class="pos-base">
+
+
+<label for="Selection2Select" class="skip">前の検索条件と次の検索条件の関係</label>
+
+
+<select id="Selection2Select" name="mixing2" class="half-offset">
+
+	
+		
+			
+				<option value='0' selected>
+					かつ（AND条件）
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					または（OR条件）
+	              		</option>
+			
+		
+	
+		
+			
+			
+				<option value='2'>
+					除く（NOT条件）
+	              		</option>
+			
+		
+	
+</select>
+
+</div></td></tr>
+
+
+
+
+
+
+
+
+<tr>
+
+
+
+<th>キーワード３</th>
+<td>
+<label for="SearchKoumoku4Select" class="skip">キーワードの種類</label>
+
+
+<select id="SearchKoumoku4Select" name="condition4" onchange="condition4Change();">
+
+	
+		
+			
+			
+				<option value='0'>
+					書名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='10'>
+					&nbsp;&nbsp;&nbsp;本書名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='11'>
+					&nbsp;&nbsp;&nbsp;副書名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='12'>
+					&nbsp;&nbsp;&nbsp;叢書名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='13'>
+					&nbsp;&nbsp;&nbsp;多巻書名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					著者名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='14'>
+					&nbsp;&nbsp;&nbsp;内容著者
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='15'>
+					&nbsp;&nbsp;&nbsp;多巻著者
+	               		</option>
+			
+		
+	
+		
+			
+				<option value='2' selected>
+					出版者
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='3'>
+					件名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='16'>
+					&nbsp;&nbsp;&nbsp;個人件名
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='4'>
+					内容注記
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='7'>
+					全項目
+	               		</option>
+			
+		
+	
+</select></td>
+<td>
+<label for="SearchKW4Input" class="skip">検索キーワード</label>
+
+
+
+
+
+
+
+
+
+
+<input id="SearchKW4Input" name="condition4Text" type="text" size="15" title='検索キーワード3' value=''  onchange="onkeyTextChange4();" onkeyup="onkeyTextChange4();" onkeypress="if (event.keyCode==13) {kensaku();}" style="ime-mode:active;width:98%;"></td>
+
+
+
+
+
+<td>
+<label for="SearchCover4Select" class="skip">キーワードの一致の仕方</label>
+
+
+
+
+<select id="SearchCover4Select" name="range4" onchange="onRangeChange(this,document.LBForm.temprange4);">
+
+
+	
+		
+			
+				<option value='0' selected>
+					この言葉を含む
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					この言葉で始まる
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='2'>
+					この言葉と一致する
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='3'>
+					この言葉で終わる
+	               		</option>
+			
+		
+	
+</select></td>
+<td>
+<div class="pos-base">
+
+
+
+<label for="Selection4Select" class="skip">前の検索条件と次の検索条件の関係</label>
+
+
+<select id="Selection4Select" name="mixing4" class="half-offset">
+
+	
+		
+			
+				<option value='0' selected>
+					かつ（AND条件）
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					または（OR条件）
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='2'>
+					除く（NOT条件）
+	               		</option>
+			
+		
+	
+</select>
+
+
+
+</div></td></tr>
+
+
+
+
+
+
+
+
+
+<tr>
+
+
+
+<th>キーワード４</th>
+<td>
+<label for="SearchKoumoku5Select" class="skip">キーワードの種類</label>
+
+
+<select id="SearchKoumoku5Select" name="condition5" onchange="condition5Change();">
+
+	
+		
+			
+			
+				<option value='0'>
+					書名
+	              		</option>
+			
+		
+	
+		
+			
+			
+				<option value='10'>
+					&nbsp;&nbsp;&nbsp;本書名
+	              		</option>
+			
+		
+	
+		
+			
+			
+				<option value='11'>
+					&nbsp;&nbsp;&nbsp;副書名
+	              		</option>
+			
+		
+	
+		
+			
+			
+				<option value='12'>
+					&nbsp;&nbsp;&nbsp;叢書名
+	              		</option>
+			
+		
+	
+		
+			
+			
+				<option value='13'>
+					&nbsp;&nbsp;&nbsp;多巻書名
+	              		</option>
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					著者名
+	              		</option>
+			
+		
+	
+		
+			
+			
+				<option value='14'>
+					&nbsp;&nbsp;&nbsp;内容著者
+	              		</option>
+			
+		
+	
+		
+			
+			
+				<option value='15'>
+					&nbsp;&nbsp;&nbsp;多巻著者
+	              		</option>
+			
+		
+	
+		
+			
+			
+				<option value='2'>
+					出版者
+	              		</option>
+			
+		
+	
+		
+			
+				<option value='3' selected>
+					件名
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='16'>
+					&nbsp;&nbsp;&nbsp;個人件名
+	              		</option>
+			
+		
+	
+		
+			
+			
+				<option value='4'>
+					内容注記
+	              		</option>
+			
+		
+	
+		
+			
+			
+				<option value='7'>
+					全項目
+	              		</option>
+			
+		
+	
+</select></td>
+<td>
+<label for="SearchKW5Input" class="skip">検索キーワード</label>
+
+
+
+
+
+
+
+
+
+
+<input id="SearchKW5Input" name="condition5Text" type="text" size="15" title='検索キーワード4' value='' onchange="onkeyTextChange5();" onkeyup="onkeyTextChange5();" onkeypress="if (event.keyCode==13) {kensaku();}" style="ime-mode:active;width:98%;"></td>
+
+
+
+
+
+<td>
+<label for="SearchCover5Select" class="skip">キーワードの一致の仕方</label>
+
+
+
+
+<select id="SearchCover5Select" name="range5" onchange="onRangeChange(this,document.LBForm.temprange5);">
+
+
+	
+		
+			
+				<option value='0' selected>
+					この言葉を含む
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					この言葉で始まる
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='2'>
+					この言葉と一致する
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='3'>
+					この言葉で終わる
+	               		</option>
+			
+		
+	
+</select></td>
+
+
+
+
+<td>
+<div class="pos-base">
+
+
+
+<label for="Selection5Select" class="skip">前の検索条件と次の検索条件の関係</label>
+
+
+<select id="Selection5Select" name="mixing5" class="half-offset">
+
+	
+		
+			
+				<option value='0' selected>
+					かつ（AND条件）
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					または（OR条件）
+	               		</option>
+			
+		
+	
+		
+			
+			
+				<option value='2'>
+					除く（NOT条件）
+	               		</option>
+			
+		
+	
+</select>
+
+
+</div></td></tr>
+
+
+
+<tr>
+
+
+
+<th>
+
+キーワード５
+
+</th>
+<td>
+<label for="SearchKoumoku3Select" class="skip">キーワードの種類</label>
+
+
+
+
+<select id="SearchKoumoku3Select" name="condition3" onchange="condition3Change();" style="width:7.9em;" >
+
+
+		
+			
+				
+					<option value='5' selected>
+						分類
+					</option>
+				
+				
+			
+		
+			
+				
+				
+					<option value='6'>
+						ＩＳＢＮ／ＩＳＳＮ
+               		</option>
+				
+			
+		
+			
+				
+				
+					<option value='9'>
+						タイトルコード
+               		</option>
+				
+			
+		
+	</select></td>
+<td>
+<label for="SearchKW5Input" class="skip">検索キーワード</label>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	<input id="ndcrefer" name="ndcrefer" type="button" onclick="tifToNdcList();" class="button small"  style="width:5.3em" value="分類参照" >
+
+
+
+
+
+
+
+
+
+	
+	<input id="SearchKW3Input" name="condition3Text" type="text" size="22" title='検索キーワード5' value=''   onkeypress="if (event.keyCode==13) {kensaku();}" style="ime-mode:inactive"></td>
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<td>
+<label for="SearchCover3Select" class="skip">キーワードの一致の仕方</label>
+	
+	
+
+
+	<select id="SearchCover3Select" name="range3">
+
+	
+		
+			
+				
+					<option value='0' selected>
+						この言葉を含む
+					</option>
+				
+				
+			
+		
+			
+				
+				
+					<option value='1'>
+						この言葉で始まる
+               		</option>
+				
+			
+		
+			
+				
+				
+					<option value='2'>
+						この言葉と一致する
+               		</option>
+				
+			
+		
+			
+				
+				
+					<option value='3'>
+						この言葉で終わる
+               		</option>
+				
+			
+		
+	</select>
+</td>
+
+
+
+
+<td>
+</tr>
+
+
+<tr>
+	
+</tr>
+
+</tbody>
+</table>
+</div>
+
+<table class="form" cellpadding="0" cellspacing="3" border="0" style="margin-top:10px;" summary="検索結果表示条件">
+<colgroup>
+
+
+	<col style="width:10em">
+
+</colgroup>
+<tr>
+	
+	
+	
+	<th scope="row" abbr="結果一覧">検索結果一覧</th>
+	<td>
+		<label for="AssistListSelect">表示件数
+		<select id="AssistListSelect" name="dispmaxnum">
+	 		
+				
+					
+						<option value='10' selected>
+							10件
+						</option>
+					
+					
+				
+		       
+				
+					
+					
+						<option value='20'>
+							20件
+	               				</option>
+					
+				
+		       
+				
+					
+					
+						<option value='50'>
+							50件
+	               				</option>
+					
+				
+		       
+				
+					
+					
+						<option value='100'>
+							100件
+	               				</option>
+					
+				
+		       
+		</select></label>　
+		
+		
+			<label for="AssistSortSelect">ソート順
+	 		<select id="AssistSortSelect" name="disporder">
+	 			
+					
+						
+							<option value='0' selected>
+								書名順(あ→ん)
+							</option>
+						
+						
+					
+				 
+					
+						
+						
+							<option value='1'>
+								書名逆順(ん→あ)
+	               				</option>
+						
+					
+				 
+					
+						
+						
+							<option value='2'>
+								著者名順(あ→ん)
+	               				</option>
+						
+					
+				 
+					
+						
+						
+							<option value='3'>
+								著者名逆順(ん→あ)
+	               				</option>
+						
+					
+				 
+					
+						
+						
+							<option value='4'>
+								出版者名順(あ→ん)
+	               				</option>
+						
+					
+				 
+					
+						
+						
+							<option value='5'>
+								出版者名逆順(ん→あ)
+	               				</option>
+						
+					
+				 
+					
+						
+						
+							<option value='6'>
+								出版年順
+	               				</option>
+						
+					
+				 
+					
+						
+						
+							<option value='7'>
+								出版年逆順
+	               				</option>
+						
+					
+				 
+					
+						
+						
+							<option value='8'>
+								分類順
+	               				</option>
+						
+					
+				 
+					
+						
+						
+							<option value='9'>
+								分類逆順
+	               				</option>
+						
+					
+				 
+					
+						
+						
+							<option value='10'>
+								シリーズ順(あ→ん)
+	               				</option>
+						
+					
+				 
+					
+						
+						
+							<option value='11'>
+								シリーズ逆順(ん→あ)
+	               				</option>
+						
+					
+				 
+			</select></label>
+	</td>
+</tr>
+</table>
+
+</div>
+
+
+<h2 class="skip">検索の実行</h2>
+<p class="skip">「検索」ボタンを押すと、検索を実行します。「クリア」ボタンを押すと、入力した情報がすべてリセットされ消えます。</p>
+<div class="ex-navi">
+
+<fieldset style="border:0px;padding:0px;margin-bottom:0px;margin-left:0px;">
+<legend style="display: none;"></legend>
+
+
+
+
+
+
+
+
+
+<input type="button" onclick="javascript:kensaku()" class="button exec large"  value="検索">
+
+
+
+
+
+
+	
+	
+
+
+	<input type="button" onclick="javascript:kuria()" class="button" value="クリア">
+
+    
+
+
+<input type="hidden" name="inputseioncheck" value ="input_seion_checked"/>
+
+			
+
+
+
+
+
+
+
+
+
+				
+
+        	
+			
+				<label for="input_seion_id"><input type="checkbox" name="input_seion" value="input_seion_checked" onclick="input_seion_message_change(this)" id="input_seion_id" checked>
+
+
+				<span id="input_seion_message">清音化する（濁点「゛」・半濁点「゜」・促音等を除いて検索する）</span></label>
+
+			
+			
+			
+
+
+
+
+
+
+			
+
+
+</fieldset>
+
+</div>
+
+
+
+
+
+	<h2>オプション</h2>
+
+
+<div class="form-base1">
+<h2 class="skip">オプション</h2>
+<p class="skip">詳細検索のオプション条件を入力します。</p>
+<table class="form w-full" cellpadding="0" cellspacing="3" border="0" summary="検索条件(オプション)">
+
+
+<colgroup><col style="width:8em"></colgroup>
+
+<tbody>
+
+
+
+
+<tr>
+
+
+
+
+<fieldset style="border:0px;padding:0px;margin-bottom:0px;margin-left:0px;">
+
+
+<legend style="display: none;"></legend><th scope="row" abbr="言語">言語区分</th>
+
+
+<td>
+
+
+	
+	<label for="langcods0" class="w-fixed">
+
+    <input type="checkbox" id="langcods0" name="langcods" value="JPN"  class="w-fixed"
+        >
+	    日本語
+	</label>
+	
+	
+	
+
+
+	
+	<label for="langcods1" class="w-fixed">
+
+    <input type="checkbox" id="langcods1" name="langcods" value="CHI"  class="w-fixed"
+        >
+	    中国語
+	</label>
+	
+	
+	
+
+
+	
+	<label for="langcods2" class="w-fixed">
+
+    <input type="checkbox" id="langcods2" name="langcods" value="ENG"  class="w-fixed"
+        >
+	    英語
+	</label>
+	
+	
+	
+
+
+	
+	<label for="langcods3" class="w-fixed">
+
+    <input type="checkbox" id="langcods3" name="langcods" value="HAN"  class="w-fixed"
+        >
+	    韓国語
+	</label>
+	
+	
+	
+
+
+
+</td></fieldset></tr>
+
+
+
+
+<tr><td colspan="2"><hr></td></tr>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<tr>
+
+
+<th scope="row" abbr="ジャンル"><label for="genreSelect">ジャンル指定</label></th>
+<td>
+
+
+<input accesskey="s" onclick ="javascript:tifToJyanru()" type="button" class="button mini" id="genreSelect" value="ジャンル">
+
+<label for="genreField"></label>
+
+<input accesskey="f" type="text" id="genreField" name="jyanruLabel" size="32" value="" onkeypress="if (event.keyCode==13) {kensaku();}"  style="ime-mode:inactive" size="40"  readonly>
+
+</td>
+</tr>
+
+
+
+<tr><td colspan="2"><hr></td></tr>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<tr>
+
+
+<th scope="row" abbr="発行年月"><label for="publishMonth">出版／発行年月</label></th>
+<td>
+
+
+<select name="yearselect" id="publishMonth">
+
+	
+		
+			
+				<option value='0' selected>
+					出版年月
+				</option>
+			
+			
+		
+	
+		
+			
+			
+				<option value='1'>
+					発行年月
+		       		</option>
+			
+		
+	
+</select>
+※発行年月の検索は雑誌のみ対象となります。
+
+
+</td></tr>
+
+<tr>
+<th abbr="発行年月"></th>
+<td>
+
+
+
+
+
+
+<label for="startYear"><input type="text" class="v-mgn" name="yearstart" id="startYear" title='起点の出版年' onkeypress="if (event.keyCode==13) {window.event.returnValue = false;}" value='' size="4" maxlength="4">年</label>
+<label for="startMonth"><input type="text" class="v-mgn" name="monthstart" id="startMonth" title='起点の出版月' onkeypress="if (event.keyCode==13) {window.event.returnValue = false;}" value='' size="2" maxlength="2">月から</label>
+<label for="endYear"><input type="text" class="v-mgn" name="yearend" id="endYear" title='終点の出版年' onkeypress="if (event.keyCode==13) {window.event.returnValue = false;}" value='' size="4" maxlength="4">年</label>
+
+
+
+<label for="endMonth">
+
+
+
+
+
+
+<input type="text" class="v-mgn" name="monthend" id="endMonth" title='終点の出版月' onkeypress="if (event.keyCode==13) {window.event.returnValue = false;}" value='' size="2" maxlength="2">月まで（西暦、半角数字）</label>
+
+
+
+</td></tr>
+
+
+
+
+
+<tr><td colspan="2"><hr></td></tr>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<tr>
+
+
+
+
+
+	<fieldset style="border:0px;padding:0px;margin-bottom:0px;margin-left:0px;">
+
+
+	<tr>
+	<legend style="display: none;"></legend><th>検索対象図書館</th>
+
+
+<td>
+
+
+
+
+
+
+
+
+
+
+	
+
+
+	
+	
+
+
+
+
+	
+	<label for="loccods0" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods0" name="loccods" value="001"  class="forminputac"
+		
+			
+				checked
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		>中央図書館
+		</label>
+
+
+	
+	<label for="loccods1" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods1" name="loccods" value="002"  class="forminputac"
+		
+			
+		
+			
+				checked
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		>北口図書館
+		</label>
+
+
+	
+	<label for="loccods2" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods2" name="loccods" value="003"  class="forminputac"
+		
+			
+		
+			
+		
+			
+				checked
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		>鳴尾図書館
+		</label>
+
+
+	
+	<label for="loccods3" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods3" name="loccods" value="004"  class="forminputac"
+		
+			
+		
+			
+		
+			
+		
+			
+				checked
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		>北部図書館
+		</label>
+
+
+	
+	<label for="loccods4" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods4" name="loccods" value="101"  class="forminputac"
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				checked
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		>越木岩
+		</label>
+
+
+	
+	<label for="loccods5" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods5" name="loccods" value="102"  class="forminputac"
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				checked
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		>若竹分室
+		</label>
+
+
+	
+	<label for="loccods6" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods6" name="loccods" value="103"  class="forminputac"
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				checked
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		>段上分室
+		</label>
+
+
+	
+	<label for="loccods7" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods7" name="loccods" value="104"  class="forminputac"
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				checked
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		>上ケ原分室
+		</label>
+
+
+	
+	<label for="loccods8" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods8" name="loccods" value="105"  class="forminputac"
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				checked
+			
+		
+			
+		
+			
+		
+			
+		>甲東園分室
+		</label>
+
+
+	
+	<label for="loccods9" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods9" name="loccods" value="106"  class="forminputac"
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				checked
+			
+		
+			
+		
+			
+		>高須分室
+		</label>
+
+
+	
+	<label for="loccods10" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods10" name="loccods" value="107"  class="forminputac"
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				checked
+			
+		
+			
+		>山口分室
+		</label>
+
+
+	
+	<label for="loccods11" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods11" name="loccods" value="109"  class="forminputac"
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				checked
+			
+		>義務教育校
+		</label>
+
+
+	
+	<label for="loccods12" class="w-fixed">
+
+
+		
+
+	<input type="checkbox" id="loccods12" name="loccods" value="304"  class="forminputac"
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		>男女共同
+		</label>
+</td>
+
+
+
+		
+
+	
+
+
+
+</fieldset>
+
+
+</tr>
+
+
+
+
+
+
+
+
+
+
+	
+
+
+		
+
+
+
+</tbody>
+</table>
+</div>
+
+<h2 class="skip">検索の実行</h2>
+<p class="skip">「検索」ボタンを押すと、検索を実行します。「クリア」ボタンを押すと、入力した情報がすべてリセットされ消えます。</p>
+<div class="ex-navi">
+	
+	
+
+	<input accesskey="x" type="button" onclick ="javascript:kensaku()" class="button exec large" value="検索">
+
+	<input accesskey="c" type="button" onclick ="javascript:kuria()" class="button" value="クリア">
+    
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div class="pg-navi">
+
+
+
+
+<a class="goptop" href="#PAGETOP" title="このページの先頭へ">このページの先頭へ</a>
+
+
+
+
+	
+
+	
+	<a href='https://tosho.nishi.or.jp/?v=PC' class="gohome" accesskey="3" title="図書館トップページへ">トップペOTifSchNdcList_X.NDC0ジへ</a>
+
+
+</div>
+</form>
+<br class="clear">
+
+<!-- </div> -->
+
+
+
+<!-- </div>
+</div> -->
+
+</body>
+
+<script language="javascript">
+
+if (document.LBForm.condition1 != null) {
+
+	if (document.LBForm.condition1.value=="4") {
+		document.LBForm.range1.value="0";
+		document.LBForm.range1.disabled=true;
+	} else if (document.LBForm.condition1.value=="7") {
+		document.LBForm.range1.value="0";
+		document.LBForm.range1.disabled=true;
+	}else{
+
+
+
+
+
+
+		if(document.LBForm.condition1Text.value.length == 1){
+			document.LBForm.range1.value = '2';
+			document.LBForm.range1.disabled=true;
+		}
+
+
+
+	}
+
+	}
+if (document.LBForm.condition2 != null) {
+
+	if (document.LBForm.condition2.value=="4") {
+		document.LBForm.range2.value="0";
+		document.LBForm.range2.disabled=true;
+	} else if (document.LBForm.condition2.value=="7") {
+		document.LBForm.range2.value="0";
+		document.LBForm.range2.disabled=true;
+	}else{
+
+
+
+
+
+
+		if(document.LBForm.condition2Text.value.length == 1){
+			document.LBForm.range2.value = '2';
+			document.LBForm.range2.disabled=true;
+		}
+
+
+
+	}
+
+	}
+	if (document.LBForm.condition3 != null) {
+
+	if (document.LBForm.condition3.value=="5") {
+		document.LBForm.range3.value="1";
+		document.LBForm.range3.disabled=true;
+
+//	} else if (document.LBForm.condition3.value=="6") {
+	} else if (document.LBForm.condition3.value=="6"
+		|| document.LBForm.condition3.value=="18"
+		|| document.LBForm.condition3.value=="19"
+		|| document.LBForm.condition3.value=="20") {
+
+		document.LBForm.range3.value="2";
+		document.LBForm.range3.disabled=true;
+
+//	}else if (document.LBForm.condition3.value=="9") {
+	}else if (document.LBForm.condition3.value=="9"
+		|| document.LBForm.condition3.value=="17") {
+
+		document.LBForm.range3.value="2";
+		document.LBForm.range3.disabled=true;
+	}
+
+	}
+
+
+
+    var tifKanradiobtns = document.getElementsByName("tifKanradiobtn");
+    var jsloccods = document.getElementsByName("loccods");
+	if(tifKanradiobtns.length > 0 && tifKanradiobtns[1].checked == true){
+		document.LBForm.tifKanrabtn.value='0';
+		for (var i = 0; i < jsloccods.length; i++) {
+			jsloccods[i].disabled=true;
+		}
+	}else{
+		document.LBForm.tifKanrabtn.value='1';
+		for (var i = 0; i < jsloccods.length; i++) {
+			jsloccods[i].disabled=false;
+		}
+	}
+
+
+
+
+if (document.LBForm.condition3 != null) {
+
+	if (document.LBForm.condition3.value=="5") {
+		document.LBForm.ndcrefer.disabled=false;
+		document.LBForm.ndcrefer.style.color="";
+	} else {
+		document.LBForm.ndcrefer.disabled=true;
+		document.LBForm.ndcrefer.style.color="gray";
+	}
+
+	}
+
+
+
+
+if (document.LBForm.condition4 != null) {
+	if (document.LBForm.condition4.value=="4") {
+		document.LBForm.range4.value="0";
+		document.LBForm.range4.disabled=true;
+	} else if (document.LBForm.condition4.value=="7") {
+		document.LBForm.range4.value="0";
+		document.LBForm.range4.disabled=true;
+	}else{
+
+		
+		
+
+			if(document.LBForm.condition4Text.value.length == 1){
+				document.LBForm.range4.value = '2';
+				document.LBForm.range4.disabled=true;
+			}
+		
+	}
+}
+
+if (document.LBForm.condition5 != null) {
+	if (document.LBForm.condition5.value=="4") {
+		document.LBForm.range5.value="0";
+		document.LBForm.range5.disabled=true;
+	} else if (document.LBForm.condition5.value=="7") {
+		document.LBForm.range5.value="0";
+		document.LBForm.range5.disabled=true;
+	}else{
+
+		
+		
+
+			if(document.LBForm.condition5Text.value.length == 1){
+				document.LBForm.range5.value = '2';
+				document.LBForm.range5.disabled=true;
+			}
+		
+	}
+}
+
+
+</script>
+
+
+	
+
+</div><!-- end of div body -->
+
+
+
+
+
+<!--
+****************************************
+             Footer Area
+****************************************
+-->
+<p class="skip">本文はここまでです。</p>
+<hr class="skip">
+<div id="foot">
+<div id="copyright">
+Copyright (c) Nishinomiya City Library, since2000, All rights reserved.
+
+</div><!-- end of div copyright -->
+
+</div><!-- end of div foot -->
+<p class="skip">ページの終わりです。</p>
+
+
+</div><!-- end of div contents -->
+</div><!-- end of div wrapper -->
+
+
+
+
+
+<script language="javascript">
+submitFlg = true;
+var gamenid = document.LBForm.gamenid.value;
+var returnidmenu = document.LBForm.returnid.value;
+
+
+
+//if (document.getElementById("menu")!=null) {
+// かんたん検索
+
+var searchtab = 1;
+
+if (gamenid=="tiles.WEsSchCmpd") {
+
+	
+
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab cur easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2") !=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+// 典拠検索
+if (gamenid=="tiles.WDicSchAutho") {
+	document.getElementById("sch-auth").className="cur";
+}
+// 検索結果典拠一覧
+if (gamenid=="tiles.WDicAuthoList") {
+	document.getElementById("sch-auth").className="cur";
+}
+// ジャンル選択
+if (gamenid=="tiles.WTifJunlCho") {
+	document.getElementById("sch-genr").className="cur";
+}
+if (gamenid=="tiles.WTifJunlChoReload") {
+	document.getElementById("sch-genr").className="cur";
+}
+// 詳細検索
+if (gamenid=="tiles.WTifSchCmpd") {
+	document.getElementById("sch-cmpd").className="cur";
+}
+// 貸出／予約ベスト種別選択
+if (gamenid=="tiles.WMsgRankMenu") {
+	document.getElementById("lst-best").className="cur";
+}
+// 貸出／予約ベスト一覧
+if (gamenid=="tiles.WMsgRankList") {
+	document.getElementById("lst-best").className="cur";
+}
+// 新着一覧
+if (gamenid=="tiles.WMsgNewMenu") {
+	document.getElementById("lst-bnew").className="cur";
+}
+// 新着資料一覧
+if (gamenid=="tiles.WMsgNewList") {
+	document.getElementById("lst-bnew").className="cur";
+}
+
+// テーマ
+if (gamenid=="tiles.WSdiTmeMenu") {
+	document.getElementById("lst-tme").className="cur";
+}
+// テーマリスト一覧
+if (gamenid=="tiles.WSdiTmeList") {
+	document.getElementById("lst-tme").className="cur";
+}
+// テーマ資料一覧
+if (gamenid=="tiles.WSdiTmeMtaList") {
+	document.getElementById("lst-tme").className="cur";
+}
+
+// レファレンス検索
+if (gamenid=="tiles.WRefSearch") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+// レファレンス検索結果一覧
+if (gamenid=="tiles.WRefList") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+// 検索結果レファレンス詳細
+if (gamenid=="tiles.WRefDetail") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+
+if (gamenid=="tiles.WRefCho") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+if (gamenid=="tiles.WRefChoList") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+if (gamenid=="tiles.WRefChoListReload") {
+
+	if (document.getElementById("sch-refr") != null) {
+
+	document.getElementById("sch-refr").className="cur";
+
+	}
+
+}
+
+ // 貸出状況一覧
+if (gamenid=="tiles.WUsrLendList") {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+
+
+	if (document.getElementById("myUsrLend")!=null){
+	document.getElementById("myUsrLend").className="cur";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+if (gamenid=="tiles.WUsrReadList") {
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	if (document.getElementById("myUsrRead")!=null){
+		document.getElementById("myUsrRead").className="cur";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+ // 予約状況一覧
+if (gamenid=="tiles.WUsrRsvList") {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+
+
+	if (document.getElementById("myUsrRsv")!=null){
+	document.getElementById("myUsrRsv").className="cur";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+var booklistdispflg = '';
+// マイブックリスト
+if (gamenid=="tiles.WSdiBookList" && booklistdispflg == '1' ) {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+
+
+if (document.getElementById("MyBookList")!=null){
+	document.getElementById("MyBookList").className="cur";
+}
+
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+
+}
+if (gamenid=="tiles.WSdiBookListNew" && booklistdispflg == '1') {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+
+
+if (document.getElementById("MyBookList")!=null){
+	document.getElementById("MyBookList").className="cur";
+}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WSdiBookListMainte" && booklistdispflg == '1') {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+
+
+if (document.getElementById("MyBookList")!=null){
+	document.getElementById("MyBookList").className="cur";
+}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+// マイライブラリー
+if (gamenid=="tiles.WPwdPortalMenuSpl") {
+
+	if (document.getElementById("myMenuSpl")!=null){
+		document.getElementById("myMenuSpl").className="cur";
+	}
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+// 利用者情報メンテナンス
+if (gamenid=="tiles.WPwdPortalMenu") {
+
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WAplMenu") {
+
+	
+	if (searchtab == '1'){
+
+		
+
+
+		document.getElementById("miscS").className="tab miscS";
+
+
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+
+		
+
+
+		document.getElementById("miscS").className="tab miscS";
+
+
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+
+	
+	if (document.getElementById("myAplmenu") != null) {
+		document.getElementById("myAplmenu").className="cur";
+	}
+
+
+	
+	document.getElementById("man-pinf").className="tab mylib";
+
+
+	
+	if (document.getElementById("menu2") != null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+
+	if (document.getElementById("menu1") != null) {
+		document.getElementById("menu1").style.display = "none";
+	}
+}
+
+if (gamenid=="tiles.WUsrChPass") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WUsrChMail") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WYoyRakChange") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+if (gamenid=="tiles.WUsrRtnMail") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+// 予約カートを見る
+if (gamenid=="tiles.WYoyCart") {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+// 分類検索
+
+
+
+
+if (gamenid=="tiles.WTifSchNdc" || gamenid=="tiles.WTifSchNdc_X") {
+
+
+	document.getElementById("sch-clas").className="cur";
+}
+
+
+//検索結果 書誌一覧
+if (gamenid=="tiles.WEsTilList") {
+	document.getElementById("miscS").className="tab miscS";
+	document.getElementById("easyS").className="tab cur easyS";
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+
+
+if (gamenid=="tiles.WTifTilList") {
+	if (returnidmenu=="tiles.WEsSchCmpd") {
+		document.getElementById("miscS").className="tab miscS";
+    	document.getElementById("easyS").className="tab cur easyS";
+    	document.getElementById("menu1").style.display = "none";
+	} else {
+
+		
+		if (searchtab == '1'){
+			document.getElementById("miscS").className="tab cur miscS";
+			document.getElementById("easyS").className="tab easyS";
+		} else {
+			document.getElementById("miscS").className="tab cur miscS";
+			document.getElementById("easyS").className="tab1 easyS";
+		}
+
+		document.getElementById("menu1").style.display = "block";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+}
+
+
+
+//検索結果書誌詳細
+
+
+if (gamenid=="tiles.WTifTilDetail"|| gamenid=="tiles.WTifTilDetail2"||gamenid=="tiles.WTifTilDetail3") {
+
+
+	
+
+    
+    if (returnidmenu=="tiles.WEsTilList" || returnidmenu=="tiles.WEsYoyConfirm"|| returnidmenu=="tiles.WEsSchCmpd"|| ""=="KanTan") {
+
+
+    	document.getElementById("miscS").className="tab miscS";
+    	document.getElementById("easyS").className="tab cur easyS";
+    }else {
+
+		
+		if (searchtab == '1'){
+
+			if(document.LBForm.kensaku.value=="kantan"){
+				document.getElementById("miscS").className="tab miscS";
+		    	document.getElementById("easyS").className="tab cur easyS";
+			}else{
+
+				document.getElementById("miscS").className="tab cur miscS";
+				document.getElementById("easyS").className="tab easyS";
+			}
+		} else {
+			document.getElementById("miscS").className="tab cur miscS";
+			document.getElementById("easyS").className="tab1 easyS";
+		}
+
+    }
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+
+
+//新着図書お知らせサービス
+if (gamenid=="tiles.WSdiInput") {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab cur mylib";
+    document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+
+//予約確認
+if (gamenid=="tiles.WYoyConfirm") {
+
+	
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab cur miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab cur miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WEsYoyConfirm") {
+	document.getElementById("miscS").className="tab miscS";
+	document.getElementById("easyS").className="tab cur easyS";
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+// システムエラー
+if (gamenid=="tiles.WPubErr") {
+	document.getElementById("panks").className="notice";
+}
+//}
+
+
+if (gamenid=="tiles.WReqOdrUke") {
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+
+if (gamenid=="tiles.WSinSeiUsr" || gamenid=="tiles.WSinMailAnnai" ||gamenid=="tiles.WSinChkMail"
+		||gamenid=="tiles.WSinChkPass"||gamenid=="tiles.WSinSeiChk"||gamenid=="tiles.WSinSeiChkPass"||gamenid=="tiles.WSinSeiErro") {
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+if (gamenid == "tiles.WSdiMailInfList") {
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	if (document.getElementById("menu1")!=null) {
+		document.getElementById("menu1").style.display = "none";
+	}
+}
+
+
+
+if (gamenid=="tiles.WUsrRtnLendHistory") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+if (gamenid=="tiles.WUserInfoBarCodeDsp") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+
+if (gamenid=="tiles.WUsrRtnNickrmd") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+if (gamenid=="tiles.WUsrMyreviewList") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+if (gamenid=="tiles.WUsrMyreviewEdit") {
+	if (document.getElementById("myPwdLibrary")!=null){
+		document.getElementById("myPwdLibrary").className="cur";
+	}
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab cur mylib";
+	document.getElementById("menu2").style.display = "block";
+	document.getElementById("menu1").style.display = "none";
+}
+
+
+if (gamenid == "tiles.WRefRefUke" || gamenid == "tiles.WRefRefChk" ||
+		gamenid == "tiles.WAplPwdAgr" || gamenid == "tiles.WAplPwdChk" ||
+		gamenid == "tiles.WAplPwdApl" || gamenid == "tiles.WYpwPwdApl" ||
+		gamenid == "tiles.WYpwPwdChk" || gamenid == "tiles.WAplKariPwdApl") {
+	if (searchtab == '1'){
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab easyS";
+	} else {
+		document.getElementById("miscS").className="tab miscS";
+		document.getElementById("easyS").className="tab1 easyS";
+	}
+	document.getElementById("man-pinf").className="tab mylib";
+	if (document.getElementById("menu2")!=null) {
+		document.getElementById("menu2").style.display = "none";
+	}
+	document.getElementById("menu1").style.display = "none";
+}
+
+</script>
+
+
+
+<script language="javascript">
+
+if (isFirefox=navigator.userAgent.indexOf("Firefox")>0){
+    window.onunload = function () {
+      // 予防再送フラグ
+	  var submitFlg = false;
+   }
+}
+
+
+if(navigator.userAgent.indexOf("Safari")>0 ||
+navigator.userAgent.indexOf("Chrome")>0) {
+	window.onunload = function () {
+      // 予防再送フラグ
+	  var submitFlg = false;
+	}
+}
+
+
+
+
+
+window.onpageshow=function(event){
+	if(event.persisted){
+		submitFlg = true;
+	}
+}
+
+/*
+	window.document.onkeydown = function () {
+		if (event.keyCode == 8){
+			event.keyCode = null;
+		}
+		return;
+	}
+*/
+
+	function htmlMessage2dialog() {
+		var messagesElem = document.getElementById("messages");
+		if (!messagesElem) {
+			return;
+		}
+
+		var lis = messagesElem.getElementsByTagName("li");
+		if (lis.length < 1) {
+			return;
+		}
+
+		var messageText = "";
+		for (var i = 0; i < lis.length; i++) {
+			if (i > 0) { messageText +=  "\n"; }
+			messageText += nodeText(lis[i]);
+		}
+
+		if (messageText.length > 0) {
+			alert(messageText);
+		}
+
+	}
+
+	function nodeText(node) {
+		var messageText = "";
+		for (var i = 0; i < node.childNodes.length; i++) {
+			if (node.childNodes[i].nodeValue &&
+				node.childNodes[i].nodeValue.replace(" ", "").length > 0) {
+				messageText += node.childNodes[i].nodeValue + "\n";
+			}
+		}
+		return messageText;
+	}
+	htmlMessage2dialog();
+
+
+</script>
+
+<script language="javascript">
+
+
+
+function showChangingPswMsg() {
+	var message = "パスワードが{0}以上変更されていません。このままパスワードの変更画面を表示しますか？";
+	message = message.replace("{0}", 'null');
+	if (lbConfirm(message)) {
+		document.LBForm.action="WOpacUsrChPassDispAction.do";
+		document.LBForm.submit();
+	}
+}
+
+
+
+
+
+
+
+
+	
+
+</script>
+
+</html>
