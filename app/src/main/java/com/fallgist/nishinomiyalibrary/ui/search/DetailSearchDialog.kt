@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -20,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -98,6 +100,7 @@ fun DetailSearchDialog(
                 .fillMaxSize()
                 .background(colors.paper)
                 .statusBarsPadding()
+                .navigationBarsPadding()
                 .imePadding(),
         ) {
             Text(
@@ -150,14 +153,16 @@ fun DetailSearchDialog(
                     }
                 }
 
-                problems.forEach { problem ->
-                    Text(
-                        text = SearchContentBuilder.problemMessage(problem),
-                        color = colors.alert,
-                        fontSize = 12.5.sp,
-                    )
-                }
                 Spacer(Modifier.height(8.dp))
+            }
+            // 検証エラーは固定のボタン行の直上に出す(スクロール欄の末尾だと小さい画面で見えない)。
+            problems.forEach { problem ->
+                Text(
+                    text = SearchContentBuilder.problemMessage(problem),
+                    color = colors.alert,
+                    fontSize = 12.5.sp,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
+                )
             }
             Row(
                 modifier = Modifier
@@ -271,6 +276,7 @@ fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: 
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         maxLines = 1,
         modifier = modifier
+            .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(999.dp))
             .background(if (selected) colors.green else colors.chipBg)
             .clickable(onClick = onClick)

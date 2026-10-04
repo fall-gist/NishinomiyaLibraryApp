@@ -27,6 +27,8 @@ import com.fallgist.nishinomiyalibrary.domain.repository.ReadingRecordRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.ReservationCartRepository
 import com.fallgist.nishinomiyalibrary.domain.repository.SearchRepository
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -36,6 +38,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -1142,16 +1145,16 @@ class SearchScreenControllerTest {
 
         controller.toggleSort(SearchSortKey.TITLE) // 昇順(応答待ちで止まる)
         runCurrent()
-        controller.toggleSort(SearchSortKey.TITLE) // 通信中の押下: 最新の指定(昇順)の逆 = 降順
+        controller.toggleSort(SearchSortKey.AUTHOR) // 通信中の押下: 別の項目の昇順
         advanceUntilIdle()
-        assertEquals(SortDirection.DESCENDING, controller.state.value.executedQuery?.sort?.direction)
+        assertEquals(SearchSortKey.AUTHOR, controller.state.value.executedQuery?.sort?.key)
         assertEquals(listOf("200"), controller.state.value.results.map { it.tilcod })
 
         repo.hitsByKeyword = mapOf("本" to listOf(hit("999")))
         gateAscending.complete(Unit)
         advanceUntilIdle()
 
-        assertEquals(SortDirection.DESCENDING, controller.state.value.executedQuery?.sort?.direction)
+        assertEquals(SearchSortKey.AUTHOR, controller.state.value.executedQuery?.sort?.key)
         assertEquals(listOf("200"), controller.state.value.results.map { it.tilcod })
         assertFalse(controller.state.value.searching)
         controller.close()
@@ -1305,6 +1308,134 @@ class SearchScreenControllerTest {
         assertEquals("書名", SearchContentBuilder.sortButtonLabel(SearchSortKey.TITLE, null))
     }
 
+    @Test
+    fun `キャンセルに応答しない古い追加読み込みが後から届いてもresults ページ番号 loadingMoreは変わらない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        repo.hasNext = true
+        repo.uncancellable = true
+        val gatePage2 = CompletableDeferred<Unit>()
+        repo.gateFor = { query, page -> if (page == 2 && query.sort == null) gatePage2 else null }
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("本")
+        advanceUntilIdle()
+        controller.loadMore() // 古い世代の2ページ目(キャンセルされても応答待ちを続ける)
+        runCurrent()
+        controller.toggleSort(SearchSortKey.TITLE)
+        advanceUntilIdle()
+        assertEquals(1, controller.state.value.loadedPage)
+        assertEquals(1, controller.state.value.results.size)
+
+        gatePage2.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(1, controller.state.value.loadedPage)
+        assertEquals(1, controller.state.value.results.size)
+        assertFalse(controller.state.value.loadingMore)
+        // 次のページ送りはページが抜けず2ページ目から。
+        controller.loadMore()
+        advanceUntilIdle()
+        assertEquals(2, repo.calls.last().second)
+        assertEquals(2, controller.state.value.loadedPage)
+        controller.close()
+    }
+
+    @Test
+    fun `キャンセルに応答しない古い検索が後から届いても新しい検索の後のページ番号は戻らない`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        repo.hasNext = true
+        repo.uncancellable = true
+        val gateA = CompletableDeferred<Unit>()
+        repo.gateFor = { query, _ -> if (query.keyword == "A") gateA else null }
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("A")
+        runCurrent()
+        controller.search("B")
+        advanceUntilIdle()
+        controller.loadMore()
+        advanceUntilIdle()
+        assertEquals(2, controller.state.value.loadedPage)
+        assertEquals(2, controller.state.value.results.size)
+
+        gateA.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(2, controller.state.value.loadedPage)
+        assertEquals(2, controller.state.value.results.size)
+        assertEquals(SearchQuery.keywordOnly("B"), controller.state.value.executedQuery)
+        assertEquals(SearchQuery.keywordOnly("B"), controller.state.value.appliedQuery)
+        controller.close()
+    }
+
+    @Test
+    fun `並べ替えが失敗したあと同じボタンを押しても失敗した指定から反転せず最後に成功した状態から計算する`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        val titleAsc = SearchSort(SearchSortKey.TITLE, SortDirection.ASCENDING)
+        repo.failureFor = { query, _ -> if (query.sort == titleAsc) LibraryError.Parse("search_sort", "x") else null }
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("本")
+        advanceUntilIdle()
+
+        controller.toggleSort(SearchSortKey.TITLE) // 失敗
+        advanceUntilIdle()
+        assertNotNull(controller.state.value.errorMessage)
+        assertNull(controller.state.value.appliedSort) // ▲▼は付かない(未選択扱い)
+        assertEquals("書名", SearchContentBuilder.sortButtonLabel(SearchSortKey.TITLE, controller.state.value.appliedSort))
+
+        controller.toggleSort(SearchSortKey.TITLE) // 未成功なので再び昇順(降順にはならない)
+        advanceUntilIdle()
+        assertEquals(titleAsc, repo.calls.last().first.sort)
+        assertEquals(2, repo.calls.count { it.first.sort == titleAsc })
+
+        // 成功した著者の昇順がある状態で書名が失敗 → 著者を押すと成功済みの昇順から降順になる。
+        repo.failureFor = { _, _ -> null }
+        controller.toggleSort(SearchSortKey.AUTHOR)
+        advanceUntilIdle()
+        repo.failureFor = { query, _ -> if (query.sort?.key == SearchSortKey.TITLE) LibraryError.Parse("search_sort", "x") else null }
+        controller.toggleSort(SearchSortKey.TITLE)
+        advanceUntilIdle()
+        // 書名の失敗後も、最後に成功した著者の昇順が基準のまま。
+        assertEquals(SearchSort(SearchSortKey.AUTHOR, SortDirection.ASCENDING), controller.state.value.appliedSort)
+        repo.failureFor = { _, _ -> null }
+        controller.toggleSort(SearchSortKey.AUTHOR)
+        advanceUntilIdle()
+        assertEquals(SearchSort(SearchSortKey.AUTHOR, SortDirection.DESCENDING), repo.calls.last().first.sort)
+        controller.close()
+    }
+
+    @Test
+    fun `追加読み込みの失敗では取得済みの結果と続きを残し もう一度読み込める`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = FakeSearchRepository(hits = listOf(hit("100")))
+        repo.hasNext = true
+        repo.failureFor = { _, page -> if (page == 2) LibraryError.Network(RuntimeException("x")) else null }
+        val controller = controller(repo, FakeCartRepository(), dispatcher)
+        advanceUntilIdle()
+        controller.search("本")
+        advanceUntilIdle()
+
+        controller.loadMore()
+        advanceUntilIdle()
+        assertNotNull(controller.state.value.errorMessage)
+        assertEquals(1, controller.state.value.results.size)
+        assertTrue(controller.state.value.hasNext)
+        assertFalse(controller.state.value.loadingMore)
+        assertEquals(1, controller.state.value.loadedPage)
+
+        repo.failureFor = { _, _ -> null }
+        controller.loadMore()
+        advanceUntilIdle()
+        assertNull(controller.state.value.errorMessage)
+        assertEquals(2, controller.state.value.results.size)
+        assertEquals(2, controller.state.value.loadedPage)
+        controller.close()
+    }
+
     private fun controllerCartAdditionCandidates(controller: SearchScreenController) =
         SearchContentBuilder.cartAdditionCandidates(controller.state.value.results, controller.state.value.selectedCartTilcods)
 
@@ -1337,6 +1468,8 @@ class SearchScreenControllerTest {
         val calls = mutableListOf<Pair<SearchQuery, Int>>()
         /** 次ページがあるように見せるテスト用。 */
         var hasNext: Boolean = false
+        /** trueなら[gateFor]の待ちがキャンセルされない。 */
+        var uncancellable: Boolean = false
         /** 条件・ページごとに応答を止めるテスト用。 */
         var gateFor: (SearchQuery, Int) -> CompletableDeferred<Unit>? = { _, _ -> null }
         /** 条件・ページごとに失敗させるテスト用。 */
@@ -1347,7 +1480,10 @@ class SearchScreenControllerTest {
             failureFor(query, page)?.let { throw it }
             gate?.await()
             gatesByKeyword[keyword]?.await()
-            gateFor(query, page)?.await()
+            gateFor(query, page)?.let { gate ->
+                // キャンセルに応答しない通信の再現(世代の確認そのものを検証する)。
+                if (uncancellable) withContext(NonCancellable) { gate.await() } else gate.await()
+            }
             val effectiveHits = hitsByKeyword[keyword] ?: hits
             return SearchPage(hits = effectiveHits, totalCount = effectiveHits.size, hasNext = hasNext)
         }

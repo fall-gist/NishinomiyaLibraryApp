@@ -76,6 +76,13 @@ data class SearchUiState(
      * 検索の開始時に更新する(通信中に並べ替えを続けて押しても、最新の指定から計算するため)。
      */
     val executedQuery: SearchQuery? = null,
+    /**
+     * 最後に結果の取得に成功した検索条件(並べ替え込み)。並べ替えボタンの ▲▼ と、ボタンを押したときの
+     * 向きの計算の基準([appliedSort])。失敗した指定からは計算しない。
+     */
+    val appliedQuery: SearchQuery? = null,
+    /** 取得済みの最後のページ番号(世代が一致した書き込みの中だけで更新する)。 */
+    val loadedPage: Int = 1,
     val totalCount: Int = 0,
     val results: List<SearchResultRow> = emptyList(),
     val hasNext: Boolean = false,
@@ -115,6 +122,17 @@ data class SearchUiState(
     val bulkDirectReservationErrorMessage: String? = null,
 ) {
     /** カートへ追加・直接予約のどちらかが処理中の間は、もう一方も選択操作も行わせない(§5.4)。 */
+    /**
+     * 今の並べ替えの状態。最後に成功した条件が、今の条件(並べ替えを除く)と同じときだけ有効。
+     * 食い違う(新しい条件の検索が失敗した等)ときは未選択として扱う。
+     */
+    val appliedSort: SearchSort?
+        get() {
+            val applied = appliedQuery ?: return null
+            val executed = executedQuery ?: return null
+            return applied.sort.takeIf { applied.copy(sort = null) == executed.copy(sort = null) }
+        }
+
     val anyBulkActionProcessing: Boolean get() = bulkCartAdditionProcessing || bulkDirectReservationProcessing
     val canRequestBulkCartAddition: Boolean get() = !anyBulkActionProcessing && selectedCartTilcods.isNotEmpty()
     val canRequestBulkDirectReservation: Boolean get() = !anyBulkActionProcessing && selectedCartTilcods.isNotEmpty()
@@ -284,7 +302,6 @@ class SearchScreenController(
     private val members = MutableStateFlow<List<Member>>(emptyList())
     private var autocompleteJob: Job? = null
     private var searchJob: Job? = null
-    private var currentPage = 1
 
     // scopeはDispatchers.Default(マルチスレッド)であり、cancel()は協調的にしか止まらない。
     // searchJob/loadMoreのコルーチンが最後のsuspend点を過ぎたあとに(つまりキャンセルが
@@ -570,7 +587,7 @@ class SearchScreenController(
      */
     fun toggleSort(key: SearchSortKey) {
         val executed = state.value.executedQuery ?: return
-        val current = executed.sort
+        val current = state.value.appliedSort
         val next = if (current?.key == key) {
             val reversed = if (current.direction == SortDirection.ASCENDING) {
                 SortDirection.DESCENDING
@@ -644,7 +661,6 @@ class SearchScreenController(
         searchJob = scope.launch {
             try {
                 val page = searchRepository.search(query, page = 1)
-                currentPage = 1
                 val rows = buildRows(page.hits)
                 // ラムダの中は読み取りだけ(世代の比較)にとどめ、副作用は入れない(§3.2)。
                 _state.update { current ->
@@ -653,6 +669,8 @@ class SearchScreenController(
                     } else {
                         current.copy(
                             searching = false,
+                            appliedQuery = query,
+                            loadedPage = 1,
                             totalCount = page.totalCount,
                             results = rows,
                             hasNext = page.hasNext,
@@ -688,11 +706,12 @@ class SearchScreenController(
         // 次のexecuteSearchが割り込んだ)書き込みを丸ごと捨てる(§3.2)。resetOnLeaveは
         // loadingMoreをfalseに戻すため、丸ごと捨てればloadingMoreがtrueのまま残ることはない。
         val generation = searchGeneration.get()
-        _state.update { it.copy(loadingMore = true) }
+        val requestedPage = snapshot.loadedPage + 1
+        // 前回の追加読み込みの失敗表示は、やり直しを始めた時点で消す。
+        _state.update { it.copy(loadingMore = true, errorMessage = null) }
         searchJob = scope.launch {
             try {
-                val page = searchRepository.search(query, page = currentPage + 1)
-                currentPage += 1
+                val page = searchRepository.search(query, page = requestedPage)
                 val newRows = buildRows(page.hits)
                 _state.update { current ->
                     if (generation != searchGeneration.get()) {
@@ -700,6 +719,7 @@ class SearchScreenController(
                     } else {
                         current.copy(
                             loadingMore = false,
+                            loadedPage = requestedPage,
                             results = current.results + newRows,
                             hasNext = page.hasNext,
                         )
@@ -736,12 +756,13 @@ class SearchScreenController(
         searchGeneration.incrementAndGet()
         autocompleteJob?.cancel()
         searchJob?.cancel()
-        currentPage = 1
         _state.update {
             it.copy(
                 suggestions = emptyList(),
                 searching = false,
                 executedQuery = null,
+                appliedQuery = null,
+                loadedPage = 1,
                 totalCount = 0,
                 results = emptyList(),
                 hasNext = false,

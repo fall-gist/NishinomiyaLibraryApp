@@ -23,8 +23,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
+import com.fallgist.nishinomiyalibrary.domain.model.SearchSort
 import com.fallgist.nishinomiyalibrary.domain.model.SearchSortKey
 import com.fallgist.nishinomiyalibrary.ui.components.BulkActionBar
 import com.fallgist.nishinomiyalibrary.ui.components.BulkOverflowAction
@@ -165,6 +168,20 @@ private fun SearchView(
     var queryText by remember { mutableStateOf("") }
     // 詳細検索の入力欄(画面いっぱいのダイアログ)。null は閉じている。開くときの欄の初期値を持つ。
     var detailDialogInitial by remember { mutableStateOf<SearchQuery?>(null) }
+    // 入力欄から検索を依頼した条件。選択中の確認待ちになった場合は入力欄を閉じず、検索が始まったとき
+    // (executedQueryが依頼の条件になり、確認待ちが無いとき)に閉じる。「戻る」なら入力は残る。
+    var detailSubmitted by remember { mutableStateOf<SearchQuery?>(null) }
+    LaunchedEffect(detailSubmitted, state.pendingSearchQuery, state.executedQuery) {
+        val submitted = detailSubmitted
+        if (submitted != null && state.pendingSearchQuery == null && state.executedQuery == submitted) {
+            detailDialogInitial = null
+            detailSubmitted = null
+        }
+    }
+    // 検索を実行した条件のキーワードに上部の欄を揃える(詳細検索・絞り込みで変わったキーワードを反映)。
+    LaunchedEffect(state.executedQuery) {
+        state.executedQuery?.let { queryText = it.keyword }
+    }
     Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar(title = "蔵書検索", onOpenMenu = onOpenMenu)
         OutlinedTextField(
@@ -199,6 +216,7 @@ private fun SearchView(
             modifier = Modifier
                 .align(Alignment.End)
                 .padding(horizontal = 18.dp, vertical = 2.dp)
+                .minimumInteractiveComponentSize()
                 .clip(RoundedCornerShape(8.dp))
                 .clickable { detailDialogInitial = SearchQuery(keyword = queryText.trim()) }
                 .padding(horizontal = 8.dp, vertical = 6.dp),
@@ -290,7 +308,8 @@ private fun SearchView(
             ResultHeader(
                 query = executedQuery,
                 totalCount = state.totalCount,
-                showCount = state.errorMessage == null,
+                sort = state.appliedSort,
+                showCount = state.errorMessage == null || state.results.isNotEmpty(),
                 onRefine = { detailDialogInitial = executedQuery },
                 onToggleSort = onToggleSort,
             )
@@ -298,7 +317,8 @@ private fun SearchView(
         when {
             state.searching -> EmptyNote("検索しています…")
 
-            state.errorMessage != null -> EmptyNote(state.errorMessage)
+            // 追加読み込みの失敗は、取得済みの結果を残して一覧の先頭に出す(下のLazyColumn)。
+            state.errorMessage != null && state.results.isEmpty() -> EmptyNote(state.errorMessage)
 
             executedQuery == null -> EmptyNote("キーワードを入力して蔵書をさがせます")
 
@@ -310,6 +330,16 @@ private fun SearchView(
                     .fillMaxSize()
                     .padding(horizontal = 18.dp),
             ) {
+                state.errorMessage?.let { message ->
+                    item {
+                        Text(
+                            text = "$message 「さらに読み込む」でやり直せます",
+                            color = colors.alert,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                    }
+                }
                 items(state.results) { row ->
                     ResultRowView(
                         row = row,
@@ -355,10 +385,13 @@ private fun SearchView(
         DetailSearchDialog(
             initial = initial,
             onSearch = { query ->
-                detailDialogInitial = null
+                detailSubmitted = query
                 onSearchDetailed(query)
             },
-            onDismiss = { detailDialogInitial = null },
+            onDismiss = {
+                detailDialogInitial = null
+                detailSubmitted = null
+            },
         )
     }
     if (state.pendingSearchQuery != null) {
@@ -396,6 +429,7 @@ private fun SearchView(
 private fun ResultHeader(
     query: SearchQuery,
     totalCount: Int,
+    sort: SearchSort?,
     showCount: Boolean,
     onRefine: () -> Unit,
     onToggleSort: (SearchSortKey) -> Unit,
@@ -423,6 +457,7 @@ private fun ResultHeader(
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .clip(RoundedCornerShape(8.dp))
                     .border(1.dp, colors.green, RoundedCornerShape(8.dp))
                     .clickable(onClick = onRefine)
@@ -438,8 +473,8 @@ private fun ResultHeader(
         ) {
             SearchSortKey.entries.forEach { key ->
                 ChoiceChip(
-                    label = SearchContentBuilder.sortButtonLabel(key, query.sort),
-                    selected = query.sort?.key == key,
+                    label = SearchContentBuilder.sortButtonLabel(key, sort),
+                    selected = sort?.key == key,
                     onClick = { onToggleSort(key) },
                 )
             }
