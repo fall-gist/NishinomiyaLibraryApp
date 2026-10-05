@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -182,7 +183,11 @@ private fun SearchView(
     LaunchedEffect(state.executedQuery) {
         state.executedQuery?.let { queryText = it.keyword }
     }
-    Column(modifier = modifier.fillMaxSize().background(colors.paper)) {
+    // 詳細検索の入力欄は別Window(Dialog)にせず、この画面の中の全面表示にする。Dialogの窓は
+    // ステータスバー・ナビゲーションバー・キーボードのインセットの扱いが画面と合わず、
+    // 実機(Pixel 10 Pro Fold)で下端が画面外にはみ出したため。Scaffoldが与える領域にそのまま収まる。
+    Box(modifier = modifier.fillMaxSize().background(colors.paper)) {
+    Column(modifier = Modifier.fillMaxSize()) {
         ScreenTopBar(title = "蔵書検索", onOpenMenu = onOpenMenu)
         OutlinedTextField(
             value = queryText,
@@ -371,6 +376,24 @@ private fun SearchView(
             }
         }
     }
+        detailDialogInitial?.let { initial ->
+            BackHandler {
+                detailDialogInitial = null
+                detailSubmitted = null
+            }
+            DetailSearchForm(
+                initial = initial,
+                onSearch = { query ->
+                    detailSubmitted = query
+                    onSearchDetailed(query)
+                },
+                onDismiss = {
+                    detailDialogInitial = null
+                    detailSubmitted = null
+                },
+            )
+        }
+    }
     state.bulkCartAdditionConfirmation?.let { request ->
         BulkCartAdditionConfirmDialog(
             request = request,
@@ -381,19 +404,6 @@ private fun SearchView(
         )
     }
     // 再検索で選択が解除される前の確認(設計追補§6.2)。
-    detailDialogInitial?.let { initial ->
-        DetailSearchDialog(
-            initial = initial,
-            onSearch = { query ->
-                detailSubmitted = query
-                onSearchDetailed(query)
-            },
-            onDismiss = {
-                detailDialogInitial = null
-                detailSubmitted = null
-            },
-        )
-    }
     if (state.pendingSearchQuery != null) {
         ClearSelectionWarningDialog(
             operationLabel = "検索",

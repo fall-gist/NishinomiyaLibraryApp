@@ -2,6 +2,7 @@ package com.fallgist.nishinomiyalibrary.ui.search
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,20 +10,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,28 +31,42 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.fallgist.nishinomiyalibrary.domain.model.MaterialKind
 import com.fallgist.nishinomiyalibrary.domain.model.PublishedRange
 import com.fallgist.nishinomiyalibrary.domain.model.SearchQuery
 import com.fallgist.nishinomiyalibrary.domain.model.StockFilter
 import com.fallgist.nishinomiyalibrary.ui.theme.LocalAppColors
 
+/** [DetailSearchForm]のComposeテスト用タグ。 */
+object DetailSearchFormTestTags {
+    const val HEADER = "detail_search_header"
+    const val SUBMIT = "detail_search_submit"
+    const val CLEAR = "detail_search_clear"
+    const val BACK = "detail_search_back"
+    const val FIRST_FIELD = "detail_search_first_field"
+}
+
 /**
- * 詳細検索の入力欄(`docs/design/search-sort-filter.md` §3.4)。画面いっぱいのダイアログとして開き、
- * 縦にスクロールできる(狭い画面・ソフトキーボード表示中でも入力しやすいように)。
+ * 詳細検索の入力欄(`docs/design/search-sort-filter.md` §3.4)。蔵書検索画面の中の全面表示
+ * (別Windowの Dialog ではない。Dialogだと実機で下端が画面外にはみ出したため)。
+ *
+ * 操作ボタン(戻る・クリア・検索)は画面上部の見出しの行に置く。キーボードが出ていても、
+ * 小さい画面でも、常に押せるようにするため。検証エラーは見出しの直下に出す。
+ * 各入力欄のキーボードの実行キー(ImeAction.Search)でも検索する。
  *
  * [initial] は欄の初期値。「絞り込み」では今の検索条件を渡す。並べ替えの指定(`initial.sort`)は
- * 欄にはなく、検索するときそのまま引き継ぐ。条件の誤り([SearchQuery.validate])は検索ボタンを
- * 押したあと、欄の下に日本語で出し、検索しない。
+ * 欄にはなく、検索するときそのまま引き継ぐ。条件の誤り([SearchQuery.validate])は検索を
+ * 試みたあとに日本語で出し、検索しない。
  */
 @Composable
-fun DetailSearchDialog(
+fun DetailSearchForm(
     initial: SearchQuery,
     onSearch: (SearchQuery) -> Unit,
     onDismiss: () -> Unit,
@@ -88,128 +101,129 @@ fun DetailSearchDialog(
         stock = stock,
     )
 
-    // 検索ボタンを押したあとは、入力のたびに誤りを再計算して出す(直せば消える)。
+    fun submit() {
+        attempted = true
+        val query = build()
+        if (query.validate().isEmpty()) onSearch(query)
+    }
+
+    fun clear() {
+        keyword = ""
+        title = ""
+        author = ""
+        publisher = ""
+        classification = ""
+        fromYear = ""
+        fromMonth = ""
+        toYear = ""
+        toMonth = ""
+        kinds = emptySet()
+        stock = StockFilter.ALL
+        attempted = false
+    }
+
+    // 検索を試みたあとは、入力のたびに誤りを再計算して出す(直せば消える)。
     val problems = if (attempted) build().validate() else emptyList()
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.paper)
+            // 下にある蔵書検索画面へタップが抜けないようにする。
+            .pointerInput(Unit) { detectTapGestures { } },
     ) {
-        Column(
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .background(colors.paper)
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .imePadding(),
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .testTag(DetailSearchFormTestTags.HEADER),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag(DetailSearchFormTestTags.BACK)) { Text("戻る") }
             Text(
                 text = "詳細検索",
                 color = colors.ink,
-                fontSize = 17.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                maxLines = 1,
+                modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
             )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                TextField("キーワード(全項目)", keyword) { keyword = it }
-                TextField("書名", title) { title = it }
-                TextField("著者", author) { author = it }
-                TextField("出版者", publisher) { publisher = it }
-                TextField("分類", classification) { classification = it }
+            TextButton(onClick = ::clear, modifier = Modifier.testTag(DetailSearchFormTestTags.CLEAR)) { Text("クリア") }
+            Button(onClick = ::submit, modifier = Modifier.testTag(DetailSearchFormTestTags.SUBMIT)) { Text("検索") }
+        }
+        // 検証エラーは見出しの直下(スクロール欄の外)に出す。
+        problems.forEach { problem ->
+            Text(
+                text = SearchContentBuilder.problemMessage(problem),
+                color = colors.alert,
+                fontSize = 12.5.sp,
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
+            )
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val onSearchKey = ::submit
+            TextField("キーワード(全項目)", keyword, onSearchKey, Modifier.testTag(DetailSearchFormTestTags.FIRST_FIELD)) { keyword = it }
+            TextField("書名", title, onSearchKey) { title = it }
+            TextField("著者", author, onSearchKey) { author = it }
+            TextField("出版者", publisher, onSearchKey) { publisher = it }
+            TextField("分類", classification, onSearchKey) { classification = it }
 
-                SectionLabel("出版年月")
-                YearMonthRow("から", fromYear, fromMonth, { fromYear = it }, { fromMonth = it })
-                YearMonthRow("まで", toYear, toMonth, { toYear = it }, { toMonth = it })
+            SectionLabel("出版年月")
+            YearMonthRow("から", fromYear, fromMonth, onSearchKey, { fromYear = it }, { fromMonth = it })
+            YearMonthRow("まで", toYear, toMonth, onSearchKey, { toYear = it }, { toMonth = it })
 
-                SectionLabel("書誌種別(複数選べます)")
-                MaterialKind.entries.chunked(2).forEach { pair ->
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        pair.forEach { kind ->
-                            KindCheck(
-                                label = SearchContentBuilder.materialKindLabel(kind),
-                                checked = kind in kinds,
-                                onToggle = { kinds = if (kind in kinds) kinds - kind else kinds + kind },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
-                    }
-                }
-
-                SectionLabel("在庫状況")
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    StockFilter.entries.forEach { filter ->
-                        ChoiceChip(
-                            label = SearchContentBuilder.stockFilterLabel(filter),
-                            selected = stock == filter,
-                            onClick = { stock = filter },
+            SectionLabel("書誌種別(複数選べます)")
+            MaterialKind.entries.chunked(2).forEach { pair ->
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    pair.forEach { kind ->
+                        KindCheck(
+                            label = SearchContentBuilder.materialKindLabel(kind),
+                            checked = kind in kinds,
+                            onToggle = { kinds = if (kind in kinds) kinds - kind else kinds + kind },
+                            modifier = Modifier.weight(1f),
                         )
                     }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
+            }
 
-                Spacer(Modifier.height(8.dp))
+            SectionLabel("在庫状況")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                StockFilter.entries.forEach { filter ->
+                    ChoiceChip(
+                        label = SearchContentBuilder.stockFilterLabel(filter),
+                        selected = stock == filter,
+                        onClick = { stock = filter },
+                    )
+                }
             }
-            // 検証エラーは固定のボタン行の直上に出す(スクロール欄の末尾だと小さい画面で見えない)。
-            problems.forEach { problem ->
-                Text(
-                    text = SearchContentBuilder.problemMessage(problem),
-                    color = colors.alert,
-                    fontSize = 12.5.sp,
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Button(
-                    onClick = {
-                        attempted = true
-                        val query = build()
-                        if (query.validate().isEmpty()) onSearch(query)
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text("検索") }
-                OutlinedButton(
-                    onClick = {
-                        keyword = ""
-                        title = ""
-                        author = ""
-                        publisher = ""
-                        classification = ""
-                        fromYear = ""
-                        fromMonth = ""
-                        toYear = ""
-                        toMonth = ""
-                        kinds = emptySet()
-                        stock = StockFilter.ALL
-                        attempted = false
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text("クリア") }
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("戻る") }
-            }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
 
 @Composable
-private fun TextField(label: String, value: String, onChange: (String) -> Unit) {
+private fun TextField(
+    label: String,
+    value: String,
+    onSearchKey: () -> Unit,
+    modifier: Modifier = Modifier,
+    onChange: (String) -> Unit,
+) {
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label, fontSize = 12.sp) },
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { onSearchKey() }),
+        modifier = modifier.fillMaxWidth(),
     )
 }
 
@@ -229,6 +243,7 @@ private fun YearMonthRow(
     label: String,
     year: String,
     month: String,
+    onSearchKey: () -> Unit,
     onYearChange: (String) -> Unit,
     onMonthChange: (String) -> Unit,
 ) {
@@ -240,7 +255,8 @@ private fun YearMonthRow(
             onValueChange = onYearChange,
             label = { Text("年", fontSize = 11.sp) },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { onSearchKey() }),
             modifier = Modifier.weight(2f),
         )
         OutlinedTextField(
@@ -248,7 +264,8 @@ private fun YearMonthRow(
             onValueChange = onMonthChange,
             label = { Text("月", fontSize = 11.sp) },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { onSearchKey() }),
             modifier = Modifier.weight(1f),
         )
     }
