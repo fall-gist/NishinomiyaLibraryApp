@@ -54,7 +54,7 @@ android {
         // versionNameは**所有者の指示で**手で上げる。2026-08-06のリリース版を1.0とし、
         // 1.1 → 1.2 … と増やす(2026-08-07所有者決定。上げる時期は所有者が決める、2026-09-27確認)。
         // versionCodeはコミット数から自動付与されるため、こちらは触らない。
-        versionName = "2.0"
+        versionName = "2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
