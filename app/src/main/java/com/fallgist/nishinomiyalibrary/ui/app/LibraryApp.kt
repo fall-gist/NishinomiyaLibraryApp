@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -278,8 +279,11 @@ fun LibraryApp(
         }
     }
 
+    // 蔵書検索の詳細検索の入力欄が開いている間は、ドロワーのスワイプを止める(入力欄の操作と競合するため)。
+    var searchFormOpen by remember { mutableStateOf(false) }
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = !searchFormOpen,
         drawerContent = {
             ModalDrawerSheet(drawerContainerColor = colors.card) {
                 Text(
@@ -373,7 +377,9 @@ fun LibraryApp(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
+                    .padding(innerPadding)
+                    // innerPadding(bottomBar分)で既に避けた分を、内側のimePaddingが二重に引かないようにする。
+                    .consumeWindowInsets(innerPadding),
             ) {
                 // 画面本体をSelectionContainerで包み、長押しでのテキスト選択・コピーを可能にする。
                 // 書誌詳細・診断ログのオーバーレイやダイアログもこのBoxの内側にあるため、まとめて対象になる。
@@ -566,6 +572,7 @@ fun LibraryApp(
                                 onSearch = searchController::search,
                                 onSearchDetailed = searchController::searchDetailed,
                                 onToggleSort = searchController::toggleSort,
+                                onDetailFormVisibleChange = { searchFormOpen = it },
                                 onLoadMore = searchController::loadMore,
                                 onOpenDetail = openDetail,
                                 onOpenMenu = openMenu,

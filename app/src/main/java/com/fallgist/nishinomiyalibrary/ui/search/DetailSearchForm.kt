@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -130,7 +131,10 @@ fun DetailSearchForm(
             .fillMaxSize()
             .background(colors.paper)
             // 下にある蔵書検索画面へタップが抜けないようにする。
-            .pointerInput(Unit) { detectTapGestures { } },
+            .pointerInput(Unit) { detectTapGestures { } }
+            // キーボードの上端までに収める。呼び出し側(LibraryApp)がScaffoldのinnerPadding分を
+            // consumeWindowInsetsしているので、ここで引かれるのはキーボードのうちbottomBarの外の分だけ。
+            .imePadding(),
     ) {
         Row(
             modifier = Modifier

@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +68,7 @@ fun SearchScreen(
     onSearch: (String) -> Unit,
     onSearchDetailed: (SearchQuery) -> Unit,
     onToggleSort: (SearchSortKey) -> Unit,
+    onDetailFormVisibleChange: (Boolean) -> Unit,
     onLoadMore: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
     onOpenMenu: () -> Unit,
@@ -97,6 +102,7 @@ fun SearchScreen(
         onSearch = onSearch,
         onSearchDetailed = onSearchDetailed,
         onToggleSort = onToggleSort,
+        onDetailFormVisibleChange = onDetailFormVisibleChange,
         onLoadMore = onLoadMore,
         onOpenDetail = onOpenDetail,
         onOpenMenu = onOpenMenu,
@@ -133,6 +139,7 @@ private fun SearchView(
     onSearch: (String) -> Unit,
     onSearchDetailed: (SearchQuery) -> Unit,
     onToggleSort: (SearchSortKey) -> Unit,
+    onDetailFormVisibleChange: (Boolean) -> Unit,
     onLoadMore: () -> Unit,
     onOpenDetail: (tilcod: String, title: String) -> Unit,
     onOpenMenu: () -> Unit,
@@ -167,10 +174,17 @@ private fun SearchView(
     val bulkActionsBlocked = state.anyBulkActionProcessing || bookshelfEditingProcessing
     // IMEの変換合成が崩れるため、入力値は画面ローカルに保持しControllerへは通知のみ渡す
     var queryText by remember { mutableStateOf("") }
-    // 詳細検索の入力欄(画面いっぱいのダイアログ)。null は閉じている。開くときの欄の初期値を持つ。
+    // 詳細検索の入力欄(この画面の中の全面表示)。null は閉じている。開くときの欄の初期値を持つ。
+    val focusManager = LocalFocusManager.current
     var detailDialogInitial by remember { mutableStateOf<SearchQuery?>(null) }
     // 入力欄から検索を依頼した条件。選択中の確認待ちになった場合は入力欄を閉じず、検索が始まったとき
     // (executedQueryが依頼の条件になり、確認待ちが無いとき)に閉じる。「戻る」なら入力は残る。
+    // 入力欄の表示中はナビゲーションドロワーのスワイプを止めるため、表示状態を呼び出し側へ知らせる。
+    val detailFormOpen = detailDialogInitial != null
+    DisposableEffect(detailFormOpen) {
+        onDetailFormVisibleChange(detailFormOpen)
+        onDispose { onDetailFormVisibleChange(false) }
+    }
     var detailSubmitted by remember { mutableStateOf<SearchQuery?>(null) }
     LaunchedEffect(detailSubmitted, state.pendingSearchQuery, state.executedQuery) {
         val submitted = detailSubmitted
@@ -187,195 +201,211 @@ private fun SearchView(
     // ステータスバー・ナビゲーションバー・キーボードのインセットの扱いが画面と合わず、
     // 実機(Pixel 10 Pro Fold)で下端が画面外にはみ出したため。Scaffoldが与える領域にそのまま収まる。
     Box(modifier = modifier.fillMaxSize().background(colors.paper)) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        ScreenTopBar(title = "蔵書検索", onOpenMenu = onOpenMenu)
-        OutlinedTextField(
-            value = queryText,
-            onValueChange = {
-                queryText = it
-                onQueryChange(it)
-            },
-            placeholder = { Text("書名・著者などのキーワード", fontSize = 13.sp) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSearch(queryText) }),
-            trailingIcon = {
-                Text(
-                    text = "🔍",
-                    fontSize = 16.sp,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onSearch(queryText) }
-                        .padding(8.dp),
-                )
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp),
-        )
-        Text(
-            text = "詳細検索 ›",
-            color = colors.green,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier
-                .align(Alignment.End)
-                .padding(horizontal = 18.dp, vertical = 2.dp)
-                .minimumInteractiveComponentSize()
-                .clip(RoundedCornerShape(8.dp))
-                .clickable { detailDialogInitial = SearchQuery(keyword = queryText.trim()) }
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-        )
-        if (state.suggestions.isNotEmpty()) {
-            SuggestionList(
-                suggestions = state.suggestions,
-                onTap = { suggestion ->
-                    queryText = suggestion
-                    onSearch(suggestion)
+        // 入力欄の表示中は、裏の蔵書検索画面がフォーカス・アクセシビリティで辿られないようにする。
+        Column(
+            modifier = Modifier.fillMaxSize().then(
+                if (detailDialogInitial != null) {
+                    Modifier.focusProperties { canFocus = false }.clearAndSetSemantics { }
+                } else {
+                    Modifier
                 },
-            )
-        }
-        // 通常時は「長押しで複数選択」の案内、選択モード中は「選択解除」+一斉操作ボタンを同じ行に出す
-        // (設計§3.4・§3.6、2026-09-20 実機確認を受けて改訂)。一覧が空のときは出さない。
-        if (state.results.isNotEmpty()) {
-            // 件数規則の統一(設計追補§6.1)。バーの件数は全選択件数ではなく「表示中の選択」に揃える。
-            // 実行対象(cartAdditionCandidates)と同じ集合を数えることで、バーの件数と実際の処理件数の
-            // ずれ(絞り込みで隠れた選択を含めて数えてしまう不具合)を無くす。
-            val displayedCandidates = SearchContentBuilder.cartAdditionCandidates(state.results, state.selectedCartTilcods)
-            if (state.selectionMode) {
-                // 一斉直接予約(設計追補§5、機能F)。設計§5.3どおり同じバーに2ボタンを並べる
-                // (主=予約する・件数付き、副=カートへ追加・件数なし)。赤(colors.alert)は一斉取消等の
-                // 破壊的操作の色であり、資料を確保する予約操作には使わない(書誌詳細の前例に合わせ緑)。
-                BulkActionBar(
-                    selectedCount = displayedCandidates.size,
-                    actionLabel = "予約する",
-                    enabled = state.canRequestBulkDirectReservation && !bookshelfEditingProcessing,
-                    onClick = { onRequestBulkDirectReservation(displayedCandidates) },
-                    containerColor = colors.green,
-                    contentColor = colors.card,
-                    overflowActions = listOf(
-                        BulkOverflowAction(
-                            label = "カートへ追加",
-                            enabled = state.canRequestBulkCartAddition && !bookshelfEditingProcessing,
-                            onClick = { onRequestBulkCartAddition(displayedCandidates) },
-                        ),
-                        BulkOverflowAction(
-                            label = "本棚へ追加",
-                            enabled = !bulkActionsBlocked && displayedCandidates.isNotEmpty(),
-                            onClick = { onRequestBulkAddToBookshelf(displayedCandidates) },
-                        ),
-                    ),
-                    leadingContent = { SelectionHintChip(text = "選択解除", onClick = onExitCartSelection) },
-                )
-            } else {
-                SelectionHintChip(text = "長押しで複数選択", modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
-            }
-        }
-        // 一斉追加の結果・エラー表示は結果一覧の直上に置く(予約中一覧のBulkCancelBarと同じ配置方針)。
-        if (state.results.isNotEmpty()) {
-            // 一斉操作の結果・エラー表示は、選択モードでなくても出したままにする(処理の結果であり、
-            // 選択とは別である)。
-            state.bulkCartAdditionErrorMessage?.let {
-                Text(
-                    text = it,
-                    color = colors.alert,
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .clickable(onClick = onClearBulkCartAdditionError)
-                        .padding(horizontal = 18.dp, vertical = 4.dp),
-                )
-            }
-            state.bulkCartAdditionResultMessage?.let {
-                Text(
-                    text = it,
-                    color = colors.greenInk,
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .clickable(onClick = onClearBulkCartAdditionResult)
-                        .padding(horizontal = 18.dp, vertical = 4.dp),
-                )
-            }
-            state.bulkDirectReservationErrorMessage?.let {
-                Text(
-                    text = it,
-                    color = colors.alert,
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .clickable(onClick = onClearBulkDirectReservationError)
-                        .padding(horizontal = 18.dp, vertical = 4.dp),
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        val executedQuery = state.executedQuery
-        // 条件の表示・絞り込み・並べ替えは、結果が0件でもエラーでも出す(別の並べ替えや条件でやり直せるように)。
-        if (executedQuery != null && !state.searching) {
-            ResultHeader(
-                query = executedQuery,
-                totalCount = state.totalCount,
-                sort = state.appliedSort,
-                showCount = state.errorMessage == null || state.results.isNotEmpty(),
-                onRefine = { detailDialogInitial = executedQuery },
-                onToggleSort = onToggleSort,
-            )
-        }
-        when {
-            state.searching -> EmptyNote("検索しています…")
-
-            // 追加読み込みの失敗は、取得済みの結果を残して一覧の先頭に出す(下のLazyColumn)。
-            state.errorMessage != null && state.results.isEmpty() -> EmptyNote(state.errorMessage)
-
-            executedQuery == null -> EmptyNote("キーワードを入力して蔵書をさがせます")
-
-            state.results.isEmpty() ->
-                EmptyNote("「${SearchContentBuilder.conditionSummary(executedQuery)}」に一致する蔵書はありません")
-
-            else -> LazyColumn(
+            ),
+        ) {
+            ScreenTopBar(title = "蔵書検索", onOpenMenu = onOpenMenu)
+            OutlinedTextField(
+                value = queryText,
+                onValueChange = {
+                    queryText = it
+                    onQueryChange(it)
+                },
+                placeholder = { Text("書名・著者などのキーワード", fontSize = 13.sp) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSearch(queryText) }),
+                trailingIcon = {
+                    Text(
+                        text = "🔍",
+                        fontSize = 16.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onSearch(queryText) }
+                            .padding(8.dp),
+                    )
+                },
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
                     .padding(horizontal = 18.dp),
-            ) {
-                state.errorMessage?.let { message ->
-                    item {
-                        Text(
-                            text = "$message 「さらに読み込む」でやり直せます",
-                            color = colors.alert,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
+            )
+            Text(
+                text = "詳細検索 ›",
+                color = colors.green,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(horizontal = 18.dp, vertical = 2.dp)
+                    .minimumInteractiveComponentSize()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable {
+                        // 上部のキーワード欄のフォーカス(とキーボード)を外し、入力が裏の欄へ行かないようにする。
+                        focusManager.clearFocus()
+                        detailDialogInitial = SearchQuery(keyword = queryText.trim())
                     }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+            if (state.suggestions.isNotEmpty()) {
+                SuggestionList(
+                    suggestions = state.suggestions,
+                    onTap = { suggestion ->
+                        queryText = suggestion
+                        onSearch(suggestion)
+                    },
+                )
+            }
+            // 通常時は「長押しで複数選択」の案内、選択モード中は「選択解除」+一斉操作ボタンを同じ行に出す
+            // (設計§3.4・§3.6、2026-09-20 実機確認を受けて改訂)。一覧が空のときは出さない。
+            if (state.results.isNotEmpty()) {
+                // 件数規則の統一(設計追補§6.1)。バーの件数は全選択件数ではなく「表示中の選択」に揃える。
+                // 実行対象(cartAdditionCandidates)と同じ集合を数えることで、バーの件数と実際の処理件数の
+                // ずれ(絞り込みで隠れた選択を含めて数えてしまう不具合)を無くす。
+                val displayedCandidates = SearchContentBuilder.cartAdditionCandidates(state.results, state.selectedCartTilcods)
+                if (state.selectionMode) {
+                    // 一斉直接予約(設計追補§5、機能F)。設計§5.3どおり同じバーに2ボタンを並べる
+                    // (主=予約する・件数付き、副=カートへ追加・件数なし)。赤(colors.alert)は一斉取消等の
+                    // 破壊的操作の色であり、資料を確保する予約操作には使わない(書誌詳細の前例に合わせ緑)。
+                    BulkActionBar(
+                        selectedCount = displayedCandidates.size,
+                        actionLabel = "予約する",
+                        enabled = state.canRequestBulkDirectReservation && !bookshelfEditingProcessing,
+                        onClick = { onRequestBulkDirectReservation(displayedCandidates) },
+                        containerColor = colors.green,
+                        contentColor = colors.card,
+                        overflowActions = listOf(
+                            BulkOverflowAction(
+                                label = "カートへ追加",
+                                enabled = state.canRequestBulkCartAddition && !bookshelfEditingProcessing,
+                                onClick = { onRequestBulkCartAddition(displayedCandidates) },
+                            ),
+                            BulkOverflowAction(
+                                label = "本棚へ追加",
+                                enabled = !bulkActionsBlocked && displayedCandidates.isNotEmpty(),
+                                onClick = { onRequestBulkAddToBookshelf(displayedCandidates) },
+                            ),
+                        ),
+                        leadingContent = { SelectionHintChip(text = "選択解除", onClick = onExitCartSelection) },
+                    )
+                } else {
+                    SelectionHintChip(text = "長押しで複数選択", modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
                 }
-                items(state.results) { row ->
-                    ResultRowView(
-                        row = row,
-                        selectionMode = state.selectionMode,
-                        selected = row.tilcod in state.selectedCartTilcods,
-                        selectionEnabled = !bulkActionsBlocked,
-                        onClick = { onOpenDetail(row.tilcod, row.title) },
-                        onToggleSelection = { onToggleCartSelection(row.tilcod) },
-                        onEnterSelectionMode = { onEnterCartSelection(row.tilcod) },
+            }
+            // 一斉追加の結果・エラー表示は結果一覧の直上に置く(予約中一覧のBulkCancelBarと同じ配置方針)。
+            if (state.results.isNotEmpty()) {
+                // 一斉操作の結果・エラー表示は、選択モードでなくても出したままにする(処理の結果であり、
+                // 選択とは別である)。
+                state.bulkCartAdditionErrorMessage?.let {
+                    Text(
+                        text = it,
+                        color = colors.alert,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .clickable(onClick = onClearBulkCartAdditionError)
+                            .padding(horizontal = 18.dp, vertical = 4.dp),
                     )
                 }
-                if (state.hasNext) {
-                    item {
-                        Text(
-                            text = if (state.loadingMore) "読み込み中…" else "さらに読み込む",
-                            color = colors.green,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable(enabled = !state.loadingMore, onClick = onLoadMore)
-                                .padding(vertical = 10.dp),
+                state.bulkCartAdditionResultMessage?.let {
+                    Text(
+                        text = it,
+                        color = colors.greenInk,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .clickable(onClick = onClearBulkCartAdditionResult)
+                            .padding(horizontal = 18.dp, vertical = 4.dp),
+                    )
+                }
+                state.bulkDirectReservationErrorMessage?.let {
+                    Text(
+                        text = it,
+                        color = colors.alert,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .clickable(onClick = onClearBulkDirectReservationError)
+                            .padding(horizontal = 18.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            val executedQuery = state.executedQuery
+            // 条件の表示・絞り込み・並べ替えは、結果が0件でもエラーでも出す(別の並べ替えや条件でやり直せるように)。
+            if (executedQuery != null && !state.searching) {
+                ResultHeader(
+                    query = executedQuery,
+                    totalCount = state.totalCount,
+                    sort = state.appliedSort,
+                    showCount = state.errorMessage == null || state.results.isNotEmpty(),
+                    onRefine = {
+                        focusManager.clearFocus()
+                        detailDialogInitial = executedQuery
+                    },
+                    onToggleSort = onToggleSort,
+                )
+            }
+            when {
+                state.searching -> EmptyNote("検索しています…")
+
+                // 追加読み込みの失敗は、取得済みの結果を残して一覧の先頭に出す(下のLazyColumn)。
+                state.errorMessage != null && state.results.isEmpty() -> EmptyNote(state.errorMessage)
+
+                executedQuery == null -> EmptyNote("キーワードを入力して蔵書をさがせます")
+
+                state.results.isEmpty() ->
+                    EmptyNote("「${SearchContentBuilder.conditionSummary(executedQuery)}」に一致する蔵書はありません")
+
+                else -> LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 18.dp),
+                ) {
+                    state.errorMessage?.let { message ->
+                        item {
+                            Text(
+                                text = "$message 「さらに読み込む」でやり直せます",
+                                color = colors.alert,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(bottom = 8.dp),
+                            )
+                        }
+                    }
+                    items(state.results) { row ->
+                        ResultRowView(
+                            row = row,
+                            selectionMode = state.selectionMode,
+                            selected = row.tilcod in state.selectedCartTilcods,
+                            selectionEnabled = !bulkActionsBlocked,
+                            onClick = { onOpenDetail(row.tilcod, row.title) },
+                            onToggleSelection = { onToggleCartSelection(row.tilcod) },
+                            onEnterSelectionMode = { onEnterCartSelection(row.tilcod) },
                         )
                     }
+                    if (state.hasNext) {
+                        item {
+                            Text(
+                                text = if (state.loadingMore) "読み込み中…" else "さらに読み込む",
+                                color = colors.green,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable(enabled = !state.loadingMore, onClick = onLoadMore)
+                                    .padding(vertical = 10.dp),
+                            )
+                        }
+                    }
+                    item { Spacer(Modifier.height(12.dp)) }
                 }
-                item { Spacer(Modifier.height(12.dp)) }
             }
         }
-    }
         detailDialogInitial?.let { initial ->
             BackHandler {
                 detailDialogInitial = null
